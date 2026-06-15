@@ -5,15 +5,12 @@ import (
 	"log"
 
 	"github.com/onoja217/users-management-app/internal/models"
-	"gorm.io/driver/postgres"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
 func Connect() *gorm.DB {
-
-	dsn := "host=localhost user=postgres password=postgres dbname=usersdb port=5432 sslmode=disable"
-
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open("users.db"), &gorm.Config{})
 	if err != nil {
 		log.Fatal("failed to connect database:", err)
 	}

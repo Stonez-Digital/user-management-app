@@ -17,10 +17,19 @@ func main() {
 	r := gin.Default()
 	r.SetTrustedProxies(nil)
 
+	// repositories & services (existing user system)
 	repo := repository.NewUserRepository(db)
 	svc := service.NewUserService(repo)
 	ctrl := controller.NewUserController(svc)
 
+	// auth controller
+	authController := controller.NewAuthController(db)
+
+	// AUTH ROUTES
+	r.POST("/auth/register", authController.Register)
+	r.POST("/auth/login", authController.Login)
+
+	// USER ROUTES
 	r.POST("/users", ctrl.CreateUser)
 	r.GET("/users", ctrl.GetUsers)
 	r.GET("/users/:id", ctrl.GetUser)

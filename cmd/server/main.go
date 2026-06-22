@@ -16,7 +16,7 @@ import (
 func main() {
 	db := database.Connect()
 
-	// Promote admin@example.com to admin
+	// Promote admin
 	var adminUser models.User
 	if err := db.Where("email = ?", "admin@example.com").First(&adminUser).Error; err == nil {
 		adminUser.Role = "admin"
@@ -32,28 +32,27 @@ func main() {
 
 	authController := controller.NewAuthController(db)
 
-	// Public routes
+	// PUBLIC ROUTES
 	r.POST("/auth/register", authController.Register)
 	r.POST("/auth/login", authController.Login)
+	r.POST("/users", ctrl.CreateUser)
 
-	// Admin routes
+	// PROTECTED ROUTES
+	protected := r.Group("/")
+	protected.Use(middleware.AuthMiddleware())
+
+	protected.GET("/users", ctrl.GetUsers)
+	protected.GET("/users/:id", ctrl.GetUser)
+	protected.GET("/me", ctrl.GetMe)
+	protected.PUT("/me", ctrl.UpdateMe)
+
+	// ADMIN ROUTES
 	admin := r.Group("/admin")
 	admin.Use(middleware.AuthMiddleware())
 	admin.Use(middleware.AdminOnly())
 
 	admin.GET("/users", ctrl.GetUsers)
 	admin.DELETE("/users/:id", ctrl.DeleteUser)
-
-	// Public user creation
-	r.POST("/users", ctrl.CreateUser)
-
-	// Protected routes
-	protected := r.Group("/")
-	protected.Use(middleware.AuthMiddleware())
-
-	protected.GET("/users", ctrl.GetUsers)
-	protected.GET("/users/:id", ctrl.GetUser)
-	protected.DELETE("/users/:id", ctrl.DeleteUser)
 
 	log.Println("Server running on :8080")
 

@@ -11,6 +11,7 @@ type UserRepository interface {
 	GetAll() []models.User
 	GetByID(id uuid.UUID) (models.User, error)
 	Delete(id uuid.UUID) error
+	Update(user models.User) error
 }
 
 type userRepo struct {
@@ -19,6 +20,9 @@ type userRepo struct {
 
 func NewUserRepository(db *gorm.DB) UserRepository {
 	return &userRepo{db: db}
+}
+func (r *userRepo) Update(user models.User) error {
+	return r.db.Save(&user).Error
 }
 
 func (r *userRepo) Create(user models.User) models.User {

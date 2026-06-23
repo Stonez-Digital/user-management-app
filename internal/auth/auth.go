@@ -55,3 +55,15 @@ func GenerateToken(userID, role string) (string, error) {
 
 	return token.SignedString(Secret)
 }
+func GenerateRefreshToken(userID string) (string, error) {
+	claims := Claims{
+		UserID: userID,
+		Role:   "refresh",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(7 * 24 * time.Hour)),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(Secret)
+}

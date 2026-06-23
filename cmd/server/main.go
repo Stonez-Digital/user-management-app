@@ -33,18 +33,22 @@ func main() {
 	authController := controller.NewAuthController(db)
 
 	// PUBLIC ROUTES
+	r.POST("/auth/refresh", authController.Refresh)
 	r.POST("/auth/register", authController.Register)
 	r.POST("/auth/login", authController.Login)
 	r.POST("/users", ctrl.CreateUser)
+	r.POST("/auth/logout", authController.Logout)
 
 	// PROTECTED ROUTES
 	protected := r.Group("/")
 	protected.Use(middleware.AuthMiddleware())
+	
 
 	protected.GET("/users", ctrl.GetUsers)
 	protected.GET("/users/:id", ctrl.GetUser)
 	protected.GET("/me", ctrl.GetMe)
 	protected.PUT("/me", ctrl.UpdateMe)
+	protected.POST("/auth/logout-all", authController.LogoutAll)
 
 	// ADMIN ROUTES
 	admin := r.Group("/admin")

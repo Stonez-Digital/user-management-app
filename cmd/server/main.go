@@ -38,17 +38,20 @@ func main() {
 	r.POST("/auth/login", authController.Login)
 	r.POST("/users", ctrl.CreateUser)
 	r.POST("/auth/logout", authController.Logout)
+	r.POST("/auth/forgot-password", authController.ForgotPassword)
+	r.POST("/auth/reset-password", authController.ResetPassword)
 
 	// PROTECTED ROUTES
 	protected := r.Group("/")
 	protected.Use(middleware.AuthMiddleware())
-	
 
 	protected.GET("/users", ctrl.GetUsers)
 	protected.GET("/users/:id", ctrl.GetUser)
 	protected.GET("/me", ctrl.GetMe)
 	protected.PUT("/me", ctrl.UpdateMe)
 	protected.POST("/auth/logout-all", authController.LogoutAll)
+	protected.GET("/sessions", authController.GetSessions)
+	protected.DELETE("/sessions/:id", authController.RevokeSession)
 
 	// ADMIN ROUTES
 	admin := r.Group("/admin")

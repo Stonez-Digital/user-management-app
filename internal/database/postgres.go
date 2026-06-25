@@ -18,7 +18,10 @@ func Connect() *gorm.DB {
 	err = db.AutoMigrate(
 		&models.User{},
 		&models.RefreshToken{},
+		&models.Session{},
+		&models.PasswordResetToken{},
 	)
+
 	if err != nil {
 		log.Fatal("migration failed:", err)
 	}

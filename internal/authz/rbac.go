@@ -19,17 +19,23 @@ const (
     PermissionUsersDeactivate = "users.deactivate"
     PermissionRolesAssign = "roles.assign"
     PermissionAuditRead = "audit.read"
+    PermissionStudentsRead = "students.read"
+    PermissionStudentsCreate = "students.create"
+    PermissionStudentsUpdate = "students.update"
+    PermissionStudentsDelete = "students.delete"
 )
 
 var rolePermissions = map[string]map[string]bool{
     RoleSuperAdmin: {
         PermissionUsersRead: true, PermissionUsersCreate: true, PermissionUsersUpdate: true,
         PermissionUsersDelete: true, PermissionUsersActivate: true, PermissionUsersDeactivate: true,
+        PermissionStudentsRead: true, PermissionStudentsCreate: true, PermissionStudentsUpdate: true, PermissionStudentsDelete: true,
         PermissionRolesAssign: true, PermissionAuditRead: true,
     },
     RoleSchoolAdmin: {
         PermissionUsersRead: true, PermissionUsersCreate: true, PermissionUsersUpdate: true,
         PermissionUsersActivate: true, PermissionUsersDeactivate: true,
+        PermissionStudentsRead: true, PermissionStudentsCreate: true, PermissionStudentsUpdate: true, PermissionStudentsDelete: true,
     },
     RoleTeacher: {},
     RoleStudent: {},

@@ -25,11 +25,14 @@ func TestMigrateIsVersionedAndIdempotent(t *testing.T) {
 	if err := db.Model(&Migration{}).Count(&count).Error; err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 {
-		t.Fatalf("expected one applied migration, got %d", count)
+	if count != 2 {
+		t.Fatalf("expected two applied migrations, got %d", count)
 	}
 
 	if !db.Migrator().HasTable(&models.User{}) {
 		t.Fatal("expected users table after migration")
+	}
+	if !db.Migrator().HasTable(&models.Student{}) {
+		t.Fatal("expected students table after migration")
 	}
 }

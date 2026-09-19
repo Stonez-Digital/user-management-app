@@ -23,6 +23,8 @@ const (
     PermissionStudentsCreate = "students.create"
     PermissionStudentsUpdate = "students.update"
     PermissionStudentsDelete = "students.delete"
+    PermissionAcademicRead = "academic.read"
+    PermissionAcademicManage = "academic.manage"
 )
 
 var rolePermissions = map[string]map[string]bool{
@@ -30,12 +32,12 @@ var rolePermissions = map[string]map[string]bool{
         PermissionUsersRead: true, PermissionUsersCreate: true, PermissionUsersUpdate: true,
         PermissionUsersDelete: true, PermissionUsersActivate: true, PermissionUsersDeactivate: true,
         PermissionStudentsRead: true, PermissionStudentsCreate: true, PermissionStudentsUpdate: true, PermissionStudentsDelete: true,
-        PermissionRolesAssign: true, PermissionAuditRead: true,
+        PermissionRolesAssign: true, PermissionAuditRead: true, PermissionAcademicRead: true, PermissionAcademicManage: true,
     },
     RoleSchoolAdmin: {
         PermissionUsersRead: true, PermissionUsersCreate: true, PermissionUsersUpdate: true,
         PermissionUsersActivate: true, PermissionUsersDeactivate: true,
-        PermissionStudentsRead: true, PermissionStudentsCreate: true, PermissionStudentsUpdate: true, PermissionStudentsDelete: true,
+        PermissionStudentsRead: true, PermissionStudentsCreate: true, PermissionStudentsUpdate: true, PermissionStudentsDelete: true, PermissionAcademicRead: true, PermissionAcademicManage: true,
     },
     RoleTeacher: {},
     RoleStudent: {},

@@ -67,6 +67,9 @@ func main() {
     assignmentRepo := repository.NewTeacherAssignmentRepository(db)
     assignmentService := service.NewTeacherAssignmentService(assignmentRepo, db)
     assignmentController := controller.NewTeacherAssignmentController(assignmentService)
+    enrollmentRepo := repository.NewEnrollmentRepository(db)
+    enrollmentService := service.NewEnrollmentService(enrollmentRepo, db)
+    enrollmentController := controller.NewEnrollmentController(enrollmentService)
 
     r.POST("/auth/refresh", authController.Refresh)
     r.POST("/auth/register", authController.Register)
@@ -128,6 +131,11 @@ func main() {
     admin.POST("/teacher-assignments", middleware.RequirePermission(authz.PermissionAssignmentsManage), assignmentController.Create)
     admin.PUT("/teacher-assignments/:id", middleware.RequirePermission(authz.PermissionAssignmentsManage), assignmentController.Update)
     admin.DELETE("/teacher-assignments/:id", middleware.RequirePermission(authz.PermissionAssignmentsManage), assignmentController.Delete)
+    admin.GET("/enrollments", middleware.RequirePermission(authz.PermissionEnrollmentRead), enrollmentController.List)
+    admin.GET("/enrollments/:id", middleware.RequirePermission(authz.PermissionEnrollmentRead), enrollmentController.Get)
+    admin.POST("/enrollments", middleware.RequirePermission(authz.PermissionEnrollmentManage), enrollmentController.Create)
+    admin.PUT("/enrollments/:id", middleware.RequirePermission(authz.PermissionEnrollmentManage), enrollmentController.Update)
+    admin.DELETE("/enrollments/:id", middleware.RequirePermission(authz.PermissionEnrollmentManage), enrollmentController.Delete)
     admin.POST("/users/:id/activate", middleware.RequirePermission(authz.PermissionUsersActivate), authController.ActivateUser)
     admin.POST("/users/:id/deactivate", middleware.RequirePermission(authz.PermissionUsersDeactivate), authController.DeactivateUser)
 

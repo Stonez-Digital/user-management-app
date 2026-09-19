@@ -1,0 +1,5 @@
+package models
+import("time";"github.com/google/uuid";"gorm.io/gorm")
+const(AttendancePresent="present";AttendanceAbsent="absent";AttendanceLate="late";AttendanceExcused="excused")
+type Attendance struct{ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`;EnrollmentID uuid.UUID `gorm:"type:uuid;not null;index;uniqueIndex:uq_attendance_day" json:"enrollment_id"`;Date time.Time `gorm:"type:date;not null;uniqueIndex:uq_attendance_day" json:"date"`;Status string `gorm:"size:20;not null;index" json:"status"`;Note string `gorm:"size:255" json:"note,omitempty"`;CreatedAt time.Time `json:"created_at"`;UpdatedAt time.Time `json:"updated_at"`}
+func(a *Attendance)BeforeCreate(tx *gorm.DB)error{a.ID=uuid.New();a.Date=time.Date(a.Date.Year(),a.Date.Month(),a.Date.Day(),0,0,0,0,a.Date.Location());if a.Status==""{a.Status=AttendancePresent};return nil}

@@ -2,6 +2,7 @@ package models
 
 import (
 	"time"
+
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -11,17 +12,17 @@ const (
 	AcademicStatusActive = "active"
 	AcademicStatusClosed = "closed"
 	AcademicStatusArchived = "archived"
-)
+}
 
-const (
+const {
 	TermFirst = "first"
 	TermSecond = "second"
 	TermThird = "third"
-)
+}
 
 type AcademicSession struct {
-	ID `gorm:"type:uuid;primaryKey" json:"id"`
-	Name `gorm:"size:100;not null;uniqueIndex" json:"name"`
+	ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+	Name string `gorm:"size:100;not null;uniqueIndex" json:"name"`
 	StartDate time.Time `gorm:"not null" json:"start_date"`
 	EndDate time.Time `gorm:"not null" json:"end_date"`
 	Status string `gorm:"size:20;not null;default:planned;index" json:"status"`
@@ -32,7 +33,9 @@ type AcademicSession struct {
 
 func (s *AcademicSession) BeforeCreate(tx *gorm.DB) error {
 	s.ID = uuid.New()
-	if s.Status == "" { s.Status = AcademicStatusPlanned }
+	if s.Status == "" {
+		s.Status = AcademicStatusPlanned
+	}
 	return nil
 }
 
@@ -50,6 +53,8 @@ type Term struct {
 
 func (t *Term) BeforeCreate(tx *gorm.DB) error {
 	t.ID = uuid.New()
-	if t.Status == "" { t.Status = AcademicStatusPlanned }
+	if t.Status == "" {
+		t.Status = AcademicStatusPlanned
+	}
 	return nil
 }

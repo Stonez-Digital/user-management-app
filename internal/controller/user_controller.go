@@ -65,7 +65,6 @@ func (ctrl *UserController) GetUser(c *gin.Context) {
 
 	actorID, _ := uuid.Parse(c.GetString("user_id"))
 	_ = audit.Record(ctrl.service.DB(), c, &actorID, "user.read", "user", &user.ID, nil)
-	_ = audit.Record(ctrl.service.DB(), c, &uid, "user.update", "user", &uid, nil)
 	c.JSON(http.StatusOK, user)
 }
 
@@ -163,5 +162,6 @@ func (ctrl *UserController) UpdateMe(c *gin.Context) {
 		return
 	}
 
+	_ = audit.Record(ctrl.service.DB(), c, &uid, "user.update", "user", &uid, nil)
 	c.JSON(http.StatusOK, user)
 }

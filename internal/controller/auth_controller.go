@@ -83,12 +83,14 @@ func (ac *AuthController) ResetPassword(c *gin.Context) {
 		return
 	}
 
+	targetUserID := uuid.Nil
 	err := ac.DB.Transaction(func(tx *gorm.DB) error {
 		var reset models.PasswordResetToken
 		if err := tx.Where("token = ? AND used = false", req.Token).First(&reset).Error; err != nil {
 			return gorm.ErrRecordNotFound
 		}
 		if time.Now().After(reset.ExpiresAt) { return errResetExpired }
+		targetUserID = reset.UserID
 
 		hash, err := auth.HashPassword(req.NewPassword)
 		if err != nil { return err }
@@ -107,7 +109,7 @@ func (ac *AuthController) ResetPassword(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset password"})
 		return
 	}
-	_ = audit.Record(ac.DB, c, nil, "security.password_reset", "user", &reset.UserID, nil)
+	_ = audit.Record(ac.DB, c, nil, "security.password_reset", "user", &targetUserID, nil)
 	c.JSON(http.StatusOK, gin.H{"message": "password reset successful"})
 }
 

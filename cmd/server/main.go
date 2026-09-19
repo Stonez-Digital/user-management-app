@@ -25,7 +25,6 @@ func main() {
 	if err := db.Where("email = ?", "admin@example.com").First(&adminUser).Error; err == nil {
 		if !adminUser.Active || adminUser.Role != "admin" {
 			adminUser.Role = "admin"
-			adminUser.Active = true
 			if err := db.Save(&adminUser).Error; err != nil {
 				log.Fatal("failed to configure admin user: ", err)
 			}

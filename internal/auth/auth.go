@@ -2,68 +2,73 @@ package auth
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var Secret = []byte("your-secret-key")
+var Secret []byte
+
+const (
+	AccessTokenTTL = 24 * time.Hour
+	RefreshTokenTTL = 7 * 24 * time.Hour
+)
 
 type Claims struct {
 	UserID string `json:"user_id"`
-	Role   string `json:"role"`
+	Role string `json:"role"`
 	jwt.RegisteredClaims
 }
 
+func ConfigureSecret(secret string) error {
+	secret = strings.TrimSpace(secret)
+	if len(secret) < 32 {
+		return fmt.Errorf("JWT_SECRET must be at least 32 characters")
+	}
+	Secret = []byte(secret)
+	return nil
+}
+
 func ParseToken(tokenString string) (*Claims, error) {
-
-	token, err := jwt.ParseWithClaims(
-		tokenString,
-		&Claims{},
-		func(token *jwt.Token) (interface{}, error) {
-
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, errors.New("invalid signing method")
-			}
-
-			return Secret, nil
-		},
-	)
-
+	if len(Secret) == 0 {
+		return nil, errors.New("authentication secret is not configured")
+	}
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		if token.Method != jwt.SigningMethodHS256 {
+			return nil, errors.New("invalid signing method")
+		}
+		return Secret, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
 	claims, ok := token.Claims.(*Claims)
-	if !ok || !token.Valid {
+	if !ok || !token.Valid || claims.UserID == "" {
 		return nil, errors.New("invalid token")
 	}
-
 	return claims, nil
 }
+
 func GenerateToken(userID, role string) (string, error) {
-
-	claims := Claims{
-		UserID: userID,
-		Role:   role,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour * 24)),
-		},
+	if len(Secret) == 0 {
+		return "", errors.New("authentication secret is not configured")
 	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-
-	return token.SignedString(Secret)
+	claims := Claims{UserID: userID, Role: role, RegisteredClaims: jwt.RegisteredClaims{
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(AccessTokenTTL)),
+		IssuedAt: jwt.NewNumericDate(time.Now()),
+	}}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(Secret)
 }
-func GenerateRefreshToken(userID string) (string, error) {
-	claims := Claims{
-		UserID: userID,
-		Role:   "refresh",
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(7 * 24 * time.Hour)),
-		},
-	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(Secret)
+func GenerateRefreshToken(userID string) (string, error) {
+	if len(Secret) == 0 {
+		return "", errors.New("authentication secret is not configured")
+	}
+	claims := Claims{UserID: userID, Role: "refresh", RegisteredClaims: jwt.RegisteredClaims{
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(RefreshTokenTTL)),
+		IssuedAt: jwt.NewNumericDate(time.Now()),
+	}}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(Secret)
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/onoja217/users-management-app/internal/service"
+	"github.com/onoja217/users-management-app/internal/audit"
 )
 
 type UserController struct {
@@ -35,6 +36,8 @@ func (ctrl *UserController) CreateUser(c *gin.Context) {
 	}
 
 	user := ctrl.service.CreateUser(req.Name, req.Email)
+	actorID, _ := uuid.Parse(c.GetString("user_id"))
+	_ = audit.Record(ctrl.service.DB(), c, &actorID, "user.create", "user", &user.ID, nil)
 	c.JSON(http.StatusCreated, user)
 }
 
@@ -60,6 +63,10 @@ func (ctrl *UserController) GetUser(c *gin.Context) {
 		return
 	}
 
+	actorID, _ := uuid.Parse(c.GetString("user_id"))
+	_ = audit.Record(ctrl.service.DB(), c, &actorID, "user.read", "user", &user.ID, nil)
+	actorID, _ := uuid.Parse(c.GetString("user_id"))
+	_ = audit.Record(ctrl.service.DB(), c, &actorID, "user.update", "user", &user.ID, nil)
 	c.JSON(http.StatusOK, user)
 }
 
@@ -78,6 +85,8 @@ func (ctrl *UserController) DeleteUser(c *gin.Context) {
 		return
 	}
 
+	actorID, _ := uuid.Parse(c.GetString("user_id"))
+	_ = audit.Record(ctrl.service.DB(), c, &actorID, "user.delete", "user", &uid, nil)
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
 }
 

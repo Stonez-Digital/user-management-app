@@ -23,6 +23,10 @@ type enrollmentRequest struct {
 	Status string `json:"status" binding:"omitempty,oneof=active completed withdrawn"`
 }
 
+type updateEnrollmentRequest struct {
+	Status string `json:"status" binding:"required,oneof=active completed withdrawn"`
+}
+
 func enrollmentError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrEnrollmentNotFound): httpx.Error(c, 404, "enrollment_not_found", "enrollment not found")
@@ -61,12 +65,11 @@ func (ctrl *EnrollmentController) Create(c *gin.Context) {
 func (ctrl *EnrollmentController) Update(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil { httpx.Error(c, 400, "invalid_enrollment_id", "invalid enrollment id"); return }
-	var req enrollmentRequest
+	var req updateEnrollmentRequest
 	if err := c.ShouldBindJSON(&req); err != nil { httpx.Validation(c, httpx.ValidationErrors(err)); return }
 	item, err := ctrl.service.Get(id)
 	if err != nil { enrollmentError(c, err); return }
-	item.StudentID, item.AcademicSessionID, item.ClassID, item.SectionID = req.StudentID, req.AcademicSessionID, req.ClassID, req.SectionID
-	if req.Status != "" { item.Status = req.Status }
+	item.Status = req.Status
 	if err := ctrl.service.Update(item); err != nil { enrollmentError(c, err); return }
 	actor, _ := uuid.Parse(c.GetString("user_id"))
 	_ = audit.Record(ctrl.service.DB(), c, &actor, "enrollment.update", "student_enrollment", &item.ID, nil)

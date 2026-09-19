@@ -20,7 +20,13 @@ func main() {
         log.Fatal(err)
     }
 
-    db := database.Connect()
+    db, err := database.Connect()
+    if err != nil {
+        log.Fatal(err)
+    }
+    if err := database.Migrate(db); err != nil {
+        log.Fatal(err)
+    }
 
     // Normalize roles created before the school RBAC model existed.
     db.Model(&models.User{}).Where("role = ?", "admin").Update("role", authz.RoleSuperAdmin)

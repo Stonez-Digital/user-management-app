@@ -99,6 +99,11 @@ func Migrate(db *gorm.DB) error {
         },
     }
 
+        {
+            Version: 5,
+            Name:    "subjects",
+            Up: func(tx *gorm.DB) error { return tx.AutoMigrate(&models.Subject{}) },
+        },
     for _, migration := range migrations {
         var applied Migration
         result := db.Where("version = ?", migration.Version).First(&applied)

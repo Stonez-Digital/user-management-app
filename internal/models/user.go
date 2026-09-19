@@ -10,7 +10,7 @@ type User struct {
 	Name string `json:"name"`
 	Email string `gorm:"uniqueIndex" json:"email"`
 	PasswordHash string `json:"-"`
-	Role string `gorm:"default:user" json:"role"`
+	Role string `gorm:"default:student" json:"role"`
 	Active bool `gorm:"not null;default:true" json:"active"`
 }
 

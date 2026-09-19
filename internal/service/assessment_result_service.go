@@ -2,7 +2,6 @@ package service
 
 import (
     "errors"
-    "fmt"
     "sort"
     "github.com/google/uuid"
     "github.com/onoja217/users-management-app/internal/models"
@@ -151,7 +150,3 @@ func (s *AssessmentResultService) ReportCard(enrollmentID, termID uuid.UUID) (Re
     return ReportCard{StudentEnrollmentID: enrollment.ID, StudentID: enrollment.StudentID, TermID: term.ID, Subjects: subjects, OverallPercentage: overall, TotalWeightedContribution: weighted}, nil
 }
 
-func (s *AssessmentResultService) ValidateReportCard(enrollmentID, termID uuid.UUID) error {
-    if enrollmentID == uuid.Nil || termID == uuid.Nil { return fmt.Errorf("%w: enrollment and term are required", ErrResultInvalid) }
-    return nil
-}

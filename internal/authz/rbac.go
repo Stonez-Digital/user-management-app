@@ -38,7 +38,7 @@ const (
     PermissionAssessmentsRead = "assessments.read"
     PermissionAssessmentsManage = "assessments.manage"
     PermissionResultsRead = "results.read"
-    PermissionResultsManage = "results.manage"\n    PermissionFinanceRead = "finance.read"\n    PermissionFinanceManage = "finance.manage"
+    PermissionResultsManage = "results.manage"\n    PermissionFinanceRead = "finance.read"\n    PermissionFinanceManage = "finance.manage"\n    PermissionTimetableRead = "timetable.read"\n    PermissionTimetableManage = "timetable.manage"
 )
 
 var rolePermissions = map[string]map[string]bool{

@@ -28,15 +28,15 @@ func TestEnrollmentRejectsDuplicateSession(t *testing.T) {
 	if err := db.Create(&student).Error; err != nil {
 		t.Fatal(err)
 	}
-	session := models.AcademicSession{ID: uuid.New(), Name: "2026/2027", StartDate: time.Now(), EndDate: time.Now().AddDate(1, 0, 0)}
+	session := models.AcademicSession{Name: "2026/2027", StartDate: time.Now(), EndDate: time.Now().AddDate(1, 0, 0)}
 	if err := db.Create(&session).Error; err != nil {
 		t.Fatal(err)
 	}
-	class := models.SchoolClass{ID: uuid.New(), Name: "JSS 1", Level: 1}
+	class := models.SchoolClass{Name: "JSS 1", Level: 1}
 	if err := db.Create(&class).Error; err != nil {
 		t.Fatal(err)
 	}
-	section := models.Section{ID: uuid.New(), ClassID: class.ID, Name: "A"}
+	section := models.Section{ClassID: class.ID, Name: "A"}
 	if err := db.Create(&section).Error; err != nil {
 		t.Fatal(err)
 	}

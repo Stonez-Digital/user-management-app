@@ -78,7 +78,7 @@ func main() {
     assessmentController := controller.NewAssessmentController(assessmentService)
     resultRepo := repository.NewAssessmentResultRepository(db)
     resultService := service.NewAssessmentResultService(resultRepo, db)
-    resultController := controller.NewAssessmentResultController(resultService)
+    resultController := controller.NewAssessmentResultController(resultService)\n    feeRepo := repository.NewFeeItemRepository(db)\n    invoiceRepo := repository.NewInvoiceRepository(db)\n    paymentRepo := repository.NewPaymentRepository(db)\n    financeService := service.NewFinanceService(feeRepo, invoiceRepo, paymentRepo, db)\n    financeController := controller.NewFinanceController(financeService)
 
     r.POST("/auth/refresh", authController.Refresh)
     r.POST("/auth/register", authController.Register)
@@ -160,7 +160,7 @@ func main() {
     admin.POST("/assessment-results", middleware.RequirePermission(authz.PermissionResultsManage), resultController.Create)
     admin.PUT("/assessment-results/:id", middleware.RequirePermission(authz.PermissionResultsManage), resultController.Update)
     admin.DELETE("/assessment-results/:id", middleware.RequirePermission(authz.PermissionResultsManage), resultController.Delete)
-    admin.GET("/report-cards/:enrollmentId/:termId", middleware.RequirePermission(authz.PermissionResultsRead), resultController.ReportCard)
+    admin.GET("/report-cards/:enrollmentId/:termId", middleware.RequirePermission(authz.PermissionResultsRead), resultController.ReportCard)\n    admin.GET("/fee-items", middleware.RequirePermission(authz.PermissionFinanceRead), financeController.ListFeeItems)\n    admin.GET("/fee-items/:id", middleware.RequirePermission(authz.PermissionFinanceRead), financeController.GetFeeItem)\n    admin.POST("/fee-items", middleware.RequirePermission(authz.PermissionFinanceManage), financeController.CreateFeeItem)\n    admin.PUT("/fee-items/:id", middleware.RequirePermission(authz.PermissionFinanceManage), financeController.UpdateFeeItem)\n    admin.DELETE("/fee-items/:id", middleware.RequirePermission(authz.PermissionFinanceManage), financeController.DeleteFeeItem)\n    admin.GET("/invoices", middleware.RequirePermission(authz.PermissionFinanceRead), financeController.ListInvoices)\n    admin.GET("/invoices/:id", middleware.RequirePermission(authz.PermissionFinanceRead), financeController.GetInvoice)\n    admin.POST("/invoices", middleware.RequirePermission(authz.PermissionFinanceManage), financeController.CreateInvoice)\n    admin.POST("/invoices/:id/payments", middleware.RequirePermission(authz.PermissionFinanceManage), financeController.RecordPayment)\n    admin.GET("/payments", middleware.RequirePermission(authz.PermissionFinanceRead), financeController.ListPayments)
     admin.POST("/users/:id/activate", middleware.RequirePermission(authz.PermissionUsersActivate), authController.ActivateUser)
     admin.POST("/users/:id/deactivate", middleware.RequirePermission(authz.PermissionUsersDeactivate), authController.DeactivateUser)
 

@@ -12,13 +12,13 @@ const (
 	AcademicStatusActive = "active"
 	AcademicStatusClosed = "closed"
 	AcademicStatusArchived = "archived"
-}
+)
 
-const {
+const (
 	TermFirst = "first"
 	TermSecond = "second"
 	TermThird = "third"
-}
+)
 
 type AcademicSession struct {
 	ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`

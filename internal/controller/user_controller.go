@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/onoja217/users-management-app/internal/httpx"
 	"github.com/google/uuid"
 	"github.com/onoja217/users-management-app/internal/service"
 	"github.com/onoja217/users-management-app/internal/audit"
@@ -13,8 +14,8 @@ type UserController struct {
 	service *service.UserService
 }
 type UpdateMeRequest struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
+	Name  string `json:"name" validate:"omitempty,min=2,max=100"`
+	Email string `json:"email" validate:"omitempty,email,max=255"`
 }
 
 func NewUserController(s *service.UserService) *UserController {
@@ -22,8 +23,8 @@ func NewUserController(s *service.UserService) *UserController {
 }
 
 type CreateUserRequest struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
+	Name  string `json:"name" validate:"required,min=2,max=100"`
+	Email string `json:"email" validate:"required,email,max=255"`
 }
 
 // CREATE
@@ -31,11 +32,11 @@ func (ctrl *UserController) CreateUser(c *gin.Context) {
 	var req CreateUserRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+		httpx.Validation(c, httpx.ValidationErrors(err)); return
 	}
 
-	user := ctrl.service.CreateUser(req.Name, req.Email)
+	user, err := ctrl.service.CreateUser(req.Name, req.Email)
+	if err != nil { httpx.Error(c, http.StatusInternalServerError, "user_create_failed", "failed to create user"); return }
 	actorID, _ := uuid.Parse(c.GetString("user_id"))
 	_ = audit.Record(ctrl.service.DB(), c, &actorID, "user.create", "user", &user.ID, nil)
 	c.JSON(http.StatusCreated, user)
@@ -43,7 +44,8 @@ func (ctrl *UserController) CreateUser(c *gin.Context) {
 
 // GET ALL
 func (ctrl *UserController) GetUsers(c *gin.Context) {
-	users := ctrl.service.GetUsers()
+	users, err := ctrl.service.GetUsers()
+	if err != nil { httpx.Error(c, http.StatusInternalServerError, "user_list_failed", "failed to load users"); return }
 	c.JSON(http.StatusOK, users)
 }
 
@@ -133,10 +135,7 @@ func (ctrl *UserController) UpdateMe(c *gin.Context) {
 	var req UpdateMeRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": err.Error(),
-		})
-		return
+		httpx.Validation(c, httpx.ValidationErrors(err)); return
 	}
 
 	user, err := ctrl.service.GetUser(uid)
@@ -156,10 +155,7 @@ func (ctrl *UserController) UpdateMe(c *gin.Context) {
 	}
 
 	if err := ctrl.service.UpdateUser(user); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "failed to update user",
-		})
-		return
+		httpx.Error(c, http.StatusInternalServerError, "user_update_failed", "failed to update user"); return
 	}
 
 	_ = audit.Record(ctrl.service.DB(), c, &uid, "user.update", "user", &uid, nil)

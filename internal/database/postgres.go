@@ -97,6 +97,37 @@ func Migrate(db *gorm.DB) error {
                 return tx.AutoMigrate(&models.SchoolClass{}, &models.Section{})
             },
         },
+    },
+        {
+            Version: 5,
+            Name:    "subjects",
+            Up: func(tx *gorm.DB) error { return tx.AutoMigrate(&models.Subject{}) },
+        },
+        {
+            Version: 6,
+            Name:    "teacher_assignments",
+            Up: func(tx *gorm.DB) error { return tx.AutoMigrate(&models.TeacherAssignment{}) },
+        },
+        {
+            Version: 7,
+            Name:    "student_enrollment",
+            Up: func(tx *gorm.DB) error { return tx.AutoMigrate(&models.StudentEnrollment{}) },
+        },
+        {
+            Version: 8,
+            Name:    "attendance",
+            Up: func(tx *gorm.DB) error { return tx.AutoMigrate(&models.Attendance{}) },
+        },
+        {
+            Version: 9,
+            Name:    "assessments",
+            Up: func(tx *gorm.DB) error { return tx.AutoMigrate(&models.Assessment{}) },
+        },
+        {
+            Version: 10,
+            Name:    "assessment_results",
+            Up: func(tx *gorm.DB) error { return tx.AutoMigrate(&models.AssessmentResult{}) },
+        },
     }
 
         {

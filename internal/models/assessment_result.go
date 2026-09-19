@@ -1,0 +1,4 @@
+package models
+import("time";"github.com/google/uuid";"gorm.io/gorm")
+type AssessmentResult struct{ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`;AssessmentID uuid.UUID `gorm:"type:uuid;not null;index;uniqueIndex:uq_assessment_enrollment" json:"assessment_id"`;EnrollmentID uuid.UUID `gorm:"type:uuid;not null;index;uniqueIndex:uq_assessment_enrollment" json:"enrollment_id"`;Score float64 `gorm:"not null" json:"score"`;Comment string `gorm:"size:500" json:"comment,omitempty"`;CreatedAt time.Time `json:"created_at"`;UpdatedAt time.Time `json:"updated_at"`}
+func(r *AssessmentResult)BeforeCreate(tx *gorm.DB)error{r.ID=uuid.New();return nil}

@@ -13,7 +13,7 @@ require (
 )
 
 require (
-	github.com/jackc/pgx/v5 v5.7.6 // indirect
+	github.com/jackc/pgx/v5 v5.6.0 // indirect
 	github.com/stretchr/testify v1.7.0 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.15.0 // indirect

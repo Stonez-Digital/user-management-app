@@ -3,7 +3,6 @@ package service
 import (
     "errors"
     "strings"
-    "time"
     "github.com/google/uuid"
     "github.com/onoja217/users-management-app/internal/models"
     "github.com/onoja217/users-management-app/internal/repository"
@@ -67,9 +66,8 @@ func(s *GuardianService)Payments(guardianID,studentID uuid.UUID)([]models.Paymen
 }
 func(s *GuardianService)CreateLink(guardianID,studentID uuid.UUID,relationship string,primary bool)(models.GuardianRelationship,error){
     relationship=strings.TrimSpace(relationship);if relationship==""{return models.GuardianRelationship{},ErrGuardianInvalid}
-    var u models.User;if e:=s.db.First(&u,"id=?",guardianID).Error;e!=nil||u.Role!=models.RoleParent||!u.Active{return models.GuardianRelationship{},ErrGuardianInvalid}
+    var u models.User;if e:=s.db.First(&u,"id=?",guardianID).Error;e!=nil||u.Role!="parent"||!u.Active{return models.GuardianRelationship{},ErrGuardianInvalid}
     var st models.Student;if e:=s.db.First(&st,"id=?",studentID).Error;e!=nil{return models.GuardianRelationship{},ErrGuardianInvalid}
     if _,e:=s.repo.Find(guardianID,studentID);e==nil{return models.GuardianRelationship{},ErrGuardianInvalid}
     return s.repo.Create(models.GuardianRelationship{GuardianUserID:guardianID,StudentID:studentID,Relationship:relationship,Primary:primary,Active:true})
 }
-var _ = time.Time{}

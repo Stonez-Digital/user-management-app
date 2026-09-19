@@ -120,7 +120,7 @@ func (ac *AuthController) Register(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
 		return
 	}
-	user := models.User{Name: strings.TrimSpace(req.Name), Email: strings.ToLower(strings.TrimSpace(req.Email)), PasswordHash: hash, Role: "user", Active: true}
+	user := models.User{Name: strings.TrimSpace(req.Name), Email: strings.ToLower(strings.TrimSpace(req.Email)), PasswordHash: hash, Role: authz.RoleStudent, Active: true}
 	if err := ac.DB.Create(&user).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unable to create account"})
 		return

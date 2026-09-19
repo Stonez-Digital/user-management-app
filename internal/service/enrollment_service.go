@@ -67,7 +67,6 @@ func (s *EnrollmentService) Update(v models.StudentEnrollment) error {
 	current, err := s.Get(v.ID)
 	if err != nil { return err }
 	if v.Status != models.EnrollmentStatusActive && v.Status != models.EnrollmentStatusCompleted && v.Status != models.EnrollmentStatusWithdrawn { return ErrEnrollmentInvalidStatus }
-	if _, err := s.db.First(&models.Student{}, "id = ?", v.StudentID).RowsAffected, error(nil); err != nil { return err }
 	var student models.Student
 	if err := s.db.First(&student, "id = ?", v.StudentID).Error; errors.Is(err, gorm.ErrRecordNotFound) { return ErrEnrollmentStudentMissing } else if err != nil { return err }
 	var session models.AcademicSession

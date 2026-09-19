@@ -35,6 +35,8 @@ const (
     PermissionEnrollmentManage = "student_enrollment.manage"
     PermissionAttendanceRead = "attendance.read"
     PermissionAttendanceManage = "attendance.manage"
+    PermissionAssessmentsRead = "assessments.read"
+    PermissionAssessmentsManage = "assessments.manage"
 )
 
 var rolePermissions = map[string]map[string]bool{
@@ -42,7 +44,7 @@ var rolePermissions = map[string]map[string]bool{
         PermissionUsersRead: true, PermissionUsersCreate: true, PermissionUsersUpdate: true,
         PermissionUsersDelete: true, PermissionUsersActivate: true, PermissionUsersDeactivate: true,
         PermissionStudentsRead: true, PermissionStudentsCreate: true, PermissionStudentsUpdate: true, PermissionStudentsDelete: true,
-        PermissionRolesAssign: true, PermissionAuditRead: true, PermissionAcademicRead: true, PermissionAcademicManage: true, PermissionClassesRead: true, PermissionClassesManage: true, PermissionSubjectsRead: true, PermissionSubjectsManage: true, PermissionAssignmentsRead: true, PermissionAssignmentsManage: true, PermissionEnrollmentRead: true, PermissionEnrollmentManage: true, PermissionAttendanceRead: true, PermissionAttendanceManage: true,
+        PermissionRolesAssign: true, PermissionAuditRead: true, PermissionAcademicRead: true, PermissionAcademicManage: true, PermissionClassesRead: true, PermissionClassesManage: true, PermissionSubjectsRead: true, PermissionSubjectsManage: true, PermissionAssignmentsRead: true, PermissionAssignmentsManage: true, PermissionEnrollmentRead: true, PermissionEnrollmentManage: true, PermissionAttendanceRead: true, PermissionAttendanceManage: true, PermissionAssessmentsRead: true, PermissionAssessmentsManage: true,
     },
     RoleSchoolAdmin: {
         PermissionUsersRead: true, PermissionUsersCreate: true, PermissionUsersUpdate: true,

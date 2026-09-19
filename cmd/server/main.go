@@ -192,7 +192,7 @@ func main() {
     parent := r.Group("/parent")
     parent.Use(middleware.AuthMiddleware(db))
     parent.Use(middleware.RequirePermission(authz.PermissionParentPortalRead))
-    parent.GET("/children", guardianController.Children)
+    parent.GET("/terms", guardianController.Terms)\n    parent.GET("/children", guardianController.Children)
     parent.GET("/children/:studentId/attendance", guardianController.Attendance)
     parent.GET("/children/:studentId/report-cards/:termId", guardianController.ReportCard)
     parent.GET("/children/:studentId/timetable", guardianController.Timetable)

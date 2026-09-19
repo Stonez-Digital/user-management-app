@@ -128,6 +128,11 @@ func Migrate(db *gorm.DB) error {
             Name:    "assessment_results",
             Up: func(tx *gorm.DB) error { return tx.AutoMigrate(&models.AssessmentResult{}) },
         },
+        {
+            Version: 11,
+            Name:    "school_finance",
+            Up: func(tx *gorm.DB) error { return tx.AutoMigrate(&models.FeeItem{}, &models.Invoice{}, &models.InvoiceItem{}, &models.Payment{}) },
+        },
     }
 
     for _, migration := range migrations {

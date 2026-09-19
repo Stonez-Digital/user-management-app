@@ -74,7 +74,6 @@ func Migrate(db *gorm.DB) error {
 type Migration struct {
 	Version   int       `gorm:"primaryKey"`
 	Name      string    `gorm:"not null;uniqueIndex"`
-	AppliedAt interface{} `gorm:"-" json:"-"`
 }
 
 type MigrationStep struct {

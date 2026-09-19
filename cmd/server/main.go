@@ -61,6 +61,9 @@ func main() {
     sectionRepo := repository.NewSectionRepository(db)
     classService := service.NewClassService(classRepo, sectionRepo, db)
     classController := controller.NewClassController(classService)
+    subjectRepo := repository.NewSubjectRepository(db)
+    subjectService := service.NewSubjectService(subjectRepo, db)
+    subjectController := controller.NewSubjectController(subjectService)
 
     r.POST("/auth/refresh", authController.Refresh)
     r.POST("/auth/register", authController.Register)
@@ -112,6 +115,11 @@ func main() {
     admin.GET("/sections/:id", middleware.RequirePermission(authz.PermissionClassesRead), classController.GetSection)
     admin.PUT("/sections/:id", middleware.RequirePermission(authz.PermissionClassesManage), classController.UpdateSection)
     admin.DELETE("/sections/:id", middleware.RequirePermission(authz.PermissionClassesManage), classController.DeleteSection)
+    admin.GET("/subjects", middleware.RequirePermission(authz.PermissionSubjectsRead), subjectController.List)
+    admin.GET("/subjects/:id", middleware.RequirePermission(authz.PermissionSubjectsRead), subjectController.Get)
+    admin.POST("/subjects", middleware.RequirePermission(authz.PermissionSubjectsManage), subjectController.Create)
+    admin.PUT("/subjects/:id", middleware.RequirePermission(authz.PermissionSubjectsManage), subjectController.Update)
+    admin.DELETE("/subjects/:id", middleware.RequirePermission(authz.PermissionSubjectsManage), subjectController.Delete)
     admin.POST("/users/:id/activate", middleware.RequirePermission(authz.PermissionUsersActivate), authController.ActivateUser)
     admin.POST("/users/:id/deactivate", middleware.RequirePermission(authz.PermissionUsersDeactivate), authController.DeactivateUser)
 

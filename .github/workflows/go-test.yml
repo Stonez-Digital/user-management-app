@@ -2,7 +2,7 @@ name: Go Tests
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feat/classes-sections, feat/subjects, feat/teacher-assignments]
   push:
     branches: [main]
 

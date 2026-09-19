@@ -40,3 +40,5 @@ func (s *UserService) DeleteUser(id uuid.UUID) error {
 func (s *UserService) UpdateUser(user models.User) error {
 	return s.repo.Update(user)
 }
+
+func (s *UserService) DB() *gorm.DB { return s.db }

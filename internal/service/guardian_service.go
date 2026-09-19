@@ -25,6 +25,26 @@ type GuardianChild struct{
     Relationship string `json:"relationship"`
     Primary bool `json:"primary"`
 }
+type GuardianTerm struct {
+    ID uuid.UUID `json:"id"`
+    Name string `json:"name"`
+    AcademicSessionID uuid.UUID `json:"academic_session_id"`
+    StartDate string `json:"start_date"`
+    EndDate string `json:"end_date"`
+}
+func(s *GuardianService)Terms(guardianID uuid.UUID)([]GuardianTerm,error){
+    if rels,e:=s.repo.ListByGuardian(guardianID);e!=nil{return nil,e}else if len(rels)==0{return []GuardianTerm{},nil}
+    var student models.Student
+    if e:=s.db.First(&student,"id=?",rels[0].StudentID).Error;e!=nil{return nil,ErrGuardianInvalid}
+    var enrollment models.StudentEnrollment
+    if e:=s.db.Where("student_id=?",student.ID).Order("created_at DESC").First(&enrollment).Error;e!=nil{return nil,ErrGuardianInvalid}
+    var terms []models.Term
+    if e:=s.db.Where("academic_session_id=?",enrollment.AcademicSessionID).Order("start_date").Find(&terms).Error;e!=nil{return nil,e}
+    out:=make([]GuardianTerm,0,len(terms))
+    for _,t:=range terms{out=append(out,GuardianTerm{ID:t.ID,Name:t.Name,AcademicSessionID:t.AcademicSessionID,StartDate:t.StartDate.Format("2006-01-02"),EndDate:t.EndDate.Format("2006-01-02")})}
+    return out,nil
+}
+
 func(s *GuardianService)Children(guardianID uuid.UUID)([]GuardianChild,error){
     rels,e:=s.repo.ListByGuardian(guardianID);if e!=nil{return nil,e}
     out:=make([]GuardianChild,0,len(rels))

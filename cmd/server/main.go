@@ -73,6 +73,9 @@ func main() {
     attendanceRepo := repository.NewAttendanceRepository(db)
     attendanceService := service.NewAttendanceService(attendanceRepo, db)
     attendanceController := controller.NewAttendanceController(attendanceService)
+    assessmentRepo := repository.NewAssessmentRepository(db)
+    assessmentService := service.NewAssessmentService(assessmentRepo, db)
+    assessmentController := controller.NewAssessmentController(assessmentService)
 
     r.POST("/auth/refresh", authController.Refresh)
     r.POST("/auth/register", authController.Register)
@@ -144,6 +147,11 @@ func main() {
     admin.POST("/attendance", middleware.RequirePermission(authz.PermissionAttendanceManage), attendanceController.Create)
     admin.PUT("/attendance/:id", middleware.RequirePermission(authz.PermissionAttendanceManage), attendanceController.Update)
     admin.DELETE("/attendance/:id", middleware.RequirePermission(authz.PermissionAttendanceManage), attendanceController.Delete)
+    admin.GET("/assessments", middleware.RequirePermission(authz.PermissionAssessmentsRead), assessmentController.List)
+    admin.GET("/assessments/:id", middleware.RequirePermission(authz.PermissionAssessmentsRead), assessmentController.Get)
+    admin.POST("/assessments", middleware.RequirePermission(authz.PermissionAssessmentsManage), assessmentController.Create)
+    admin.PUT("/assessments/:id", middleware.RequirePermission(authz.PermissionAssessmentsManage), assessmentController.Update)
+    admin.DELETE("/assessments/:id", middleware.RequirePermission(authz.PermissionAssessmentsManage), assessmentController.Delete)
     admin.POST("/users/:id/activate", middleware.RequirePermission(authz.PermissionUsersActivate), authController.ActivateUser)
     admin.POST("/users/:id/deactivate", middleware.RequirePermission(authz.PermissionUsersDeactivate), authController.DeactivateUser)
 

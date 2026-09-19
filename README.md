@@ -158,3 +158,10 @@ Administrative permissions are enforced by middleware rather than trusting the r
 - `POST /admin/users/:id/deactivate` — deactivate an account
 
 Role changes are recorded with actor, target, previous role, new role, IP address, and timestamp.
+
+
+### Production database
+
+Production deployments can use PostgreSQL through GORM's PostgreSQL driver. Set `DB_DRIVER=postgres` and either provide `DATABASE_URL` or the `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, and `DB_SSLMODE` settings. SQLite remains available for local development with `DB_DRIVER=sqlite`.
+
+The GORM PostgreSQL driver uses pgx underneath and supports a PostgreSQL DSN such as `host=localhost user=postgres password=... dbname=usersdb port=5432 sslmode=require`. citeturn1search1turn2view0

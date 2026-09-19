@@ -38,7 +38,13 @@ const (
     PermissionAssessmentsRead = "assessments.read"
     PermissionAssessmentsManage = "assessments.manage"
     PermissionResultsRead = "results.read"
-    PermissionResultsManage = "results.manage"\n    PermissionFinanceRead = "finance.read"\n    PermissionFinanceManage = "finance.manage"\n    PermissionTimetableRead = "timetable.read"\n    PermissionTimetableManage = "timetable.manage"\n    PermissionParentPortalRead = "parent_portal.read"\n    PermissionParentPortalManage = "parent_portal.manage"
+    PermissionResultsManage = "results.manage"
+    PermissionFinanceRead = "finance.read"
+    PermissionFinanceManage = "finance.manage"
+    PermissionTimetableRead = "timetable.read"
+    PermissionTimetableManage = "timetable.manage"
+    PermissionParentPortalRead = "parent_portal.read"
+    PermissionParentPortalManage = "parent_portal.manage"
 )
 
 var rolePermissions = map[string]map[string]bool{
@@ -46,12 +52,12 @@ var rolePermissions = map[string]map[string]bool{
         PermissionUsersRead: true, PermissionUsersCreate: true, PermissionUsersUpdate: true,
         PermissionUsersDelete: true, PermissionUsersActivate: true, PermissionUsersDeactivate: true,
         PermissionStudentsRead: true, PermissionStudentsCreate: true, PermissionStudentsUpdate: true, PermissionStudentsDelete: true,
-        PermissionRolesAssign: true, PermissionAuditRead: true, PermissionAcademicRead: true, PermissionAcademicManage: true, PermissionClassesRead: true, PermissionClassesManage: true, PermissionSubjectsRead: true, PermissionSubjectsManage: true, PermissionAssignmentsRead: true, PermissionAssignmentsManage: true, PermissionEnrollmentRead: true, PermissionEnrollmentManage: true, PermissionAttendanceRead: true, PermissionAttendanceManage: true, PermissionAssessmentsRead: true, PermissionAssessmentsManage: true, PermissionResultsRead: true, PermissionResultsManage: true,
+        PermissionRolesAssign: true, PermissionAuditRead: true, PermissionAcademicRead: true, PermissionAcademicManage: true, PermissionClassesRead: true, PermissionClassesManage: true, PermissionSubjectsRead: true, PermissionSubjectsManage: true, PermissionAssignmentsRead: true, PermissionAssignmentsManage: true, PermissionEnrollmentRead: true, PermissionEnrollmentManage: true, PermissionAttendanceRead: true, PermissionAttendanceManage: true, PermissionAssessmentsRead: true, PermissionAssessmentsManage: true, PermissionResultsRead: true, PermissionResultsManage: true, PermissionFinanceRead: true, PermissionFinanceManage: true, PermissionTimetableRead: true, PermissionTimetableManage: true, PermissionParentPortalRead: true, PermissionParentPortalManage: true,
     },
     RoleSchoolAdmin: {
         PermissionUsersRead: true, PermissionUsersCreate: true, PermissionUsersUpdate: true,
         PermissionUsersActivate: true, PermissionUsersDeactivate: true,
-        PermissionStudentsRead: true, PermissionStudentsCreate: true, PermissionStudentsUpdate: true, PermissionStudentsDelete: true, PermissionAcademicRead: true, PermissionAcademicManage: true, PermissionClassesRead: true, PermissionClassesManage: true, PermissionSubjectsRead: true, PermissionSubjectsManage: true, PermissionAssignmentsRead: true, PermissionAssignmentsManage: true, PermissionEnrollmentRead: true, PermissionEnrollmentManage: true, PermissionAttendanceRead: true, PermissionAttendanceManage: true, PermissionAssessmentsRead: true, PermissionAssessmentsManage: true, PermissionResultsRead: true, PermissionResultsManage: true,
+        PermissionStudentsRead: true, PermissionStudentsCreate: true, PermissionStudentsUpdate: true, PermissionStudentsDelete: true, PermissionFinanceRead: true, PermissionFinanceManage: true, PermissionTimetableRead: true, PermissionTimetableManage: true, PermissionParentPortalRead: true, PermissionParentPortalManage: true, PermissionAcademicRead: true, PermissionAcademicManage: true, PermissionClassesRead: true, PermissionClassesManage: true, PermissionSubjectsRead: true, PermissionSubjectsManage: true, PermissionAssignmentsRead: true, PermissionAssignmentsManage: true, PermissionEnrollmentRead: true, PermissionEnrollmentManage: true, PermissionAttendanceRead: true, PermissionAttendanceManage: true, PermissionAssessmentsRead: true, PermissionAssessmentsManage: true, PermissionResultsRead: true, PermissionResultsManage: true,
     },
     RoleTeacher: {
         PermissionAcademicRead: true, PermissionClassesRead: true, PermissionSubjectsRead: true,

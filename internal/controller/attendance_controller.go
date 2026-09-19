@@ -54,7 +54,7 @@ func (ctrl *AttendanceController) Get(c *gin.Context) {
 }
 func (ctrl *AttendanceController) Create(c *gin.Context) {
     var req attendanceRequest
-    if err:=c.ShouldBindJSON(&req); err!=nil || req.EnrollmentID==uuid.Nil || req.TermID==uuid.Nil || req.Date.IsZero() || req.Status=="" {
+    if err:=c.ShouldBindJSON(&req); err!=nil || req.EnrollmentID==uuid.Nil || req.TermID==uuid.Nil || req.Date=="" || req.Status=="" {
         httpx.Error(c,400,"invalid_attendance_request","enrollment, term, date and status are required"); return
     }
     date,err:=parseAttendanceDate(req.Date)
@@ -69,7 +69,7 @@ func (ctrl *AttendanceController) Update(c *gin.Context) {
     id,err:=uuid.Parse(c.Param("id"))
     if err!=nil { httpx.Error(c,400,"invalid_attendance_id","invalid attendance id"); return }
     var req attendanceRequest
-    if err:=c.ShouldBindJSON(&req); err!=nil || req.EnrollmentID==uuid.Nil || req.TermID==uuid.Nil || req.Date.IsZero() || req.Status=="" {
+    if err:=c.ShouldBindJSON(&req); err!=nil || req.EnrollmentID==uuid.Nil || req.TermID==uuid.Nil || req.Date=="" || req.Status=="" {
         httpx.Error(c,400,"invalid_attendance_request","enrollment, term, date and status are required"); return
     }
     date,err:=parseAttendanceDate(req.Date)

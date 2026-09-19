@@ -68,10 +68,10 @@ func (s *AttendanceService) validate(v models.AttendanceRecord) error {
 }
 
 func (s *AttendanceService) Create(v models.AttendanceRecord) (models.AttendanceRecord, error) {
-	v.Date = time.Date(v.Date.Year(), v.Date.Month(), v.Date.Day(), 0, 0, 0, 0, time.UTC)
 	if v.Date.IsZero() {
 		return v, errors.New("attendance date is required")
 	}
+	v.Date = time.Date(v.Date.Year(), v.Date.Month(), v.Date.Day(), 0, 0, 0, 0, time.UTC)
 	if err := s.validate(v); err != nil {
 		return v, err
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/onoja217/users-management-app/internal/auth"
+	"github.com/onoja217/users-management-app/internal/authz"
 	"github.com/onoja217/users-management-app/internal/models"
 	"gorm.io/gorm"
 )
@@ -28,6 +29,8 @@ type RefreshRequest struct { RefreshToken string `json:"refresh_token"` }
 type LogoutRequest struct { RefreshToken string `json:"refresh_token"` }
 type RegisterRequest struct { Name string `json:"name"`; Email string `json:"email"`; Password string `json:"password"` }
 type LoginRequest struct { Email string `json:"email"`; Password string `json:"password"` }
+type AssignRoleRequest struct { Role string `json:"role"` }
+
 
 type AuthController struct { DB *gorm.DB }
 
@@ -117,7 +120,7 @@ func (ac *AuthController) Register(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
 		return
 	}
-	user := models.User{Name: strings.TrimSpace(req.Name), Email: strings.ToLower(strings.TrimSpace(req.Email)), PasswordHash: hash, Role: "user", Active: true}
+	user := models.User{Name: strings.TrimSpace(req.Name), Email: strings.ToLower(strings.TrimSpace(req.Email)), PasswordHash: hash, Role: authz.RoleStudent, Active: true}
 	if err := ac.DB.Create(&user).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unable to create account"})
 		return
@@ -299,3 +302,77 @@ func (ac *AuthController) setUserActive(c *gin.Context, active bool) {
 
 func (ac *AuthController) ActivateUser(c *gin.Context) { ac.setUserActive(c, true) }
 func (ac *AuthController) DeactivateUser(c *gin.Context) { ac.setUserActive(c, false) }
+
+func (ac *AuthController) AssignRole(c *gin.Context) {
+    targetID, err := uuid.Parse(c.Param("id"))
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+        return
+    }
+
+    var req AssignRoleRequest
+    if err := c.ShouldBindJSON(&req); err != nil || !authz.IsValidRole(req.Role) {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "invalid role"})
+        return
+    }
+
+    actorID, err := uuid.Parse(c.GetString("user_id"))
+    if err != nil {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+        return
+    }
+
+    var target models.User
+    if err := ac.DB.First(&target, "id = ?", targetID).Error; err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+        return
+    }
+    if target.ID == actorID {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "users cannot change their own role"})
+        return
+    }
+    if target.Role == req.Role {
+        c.JSON(http.StatusOK, gin.H{"message": "role unchanged", "role": target.Role})
+        return
+    }
+
+    previousRole := target.Role
+    err = ac.DB.Transaction(func(tx *gorm.DB) error {
+        if err := tx.Model(&target).Update("role", req.Role).Error; err != nil {
+            return err
+        }
+        audit := models.RoleChangeAudit{
+            ID: uuid.New(),
+            ActorID: actorID,
+            TargetID: target.ID,
+            FromRole: previousRole,
+            ToRole: req.Role,
+            IP: c.ClientIP(),
+        }
+        return tx.Create(&audit).Error
+    })
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to change role"})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "message": "role updated",
+        "user_id": target.ID,
+        "role": req.Role,
+    })
+}
+
+func (ac *AuthController) ListRoles(c *gin.Context) {
+    roles := []gin.H{}
+    for _, role := range []string{
+        authz.RoleSuperAdmin, authz.RoleSchoolAdmin, authz.RoleTeacher,
+        authz.RoleStudent, authz.RoleParent, authz.RoleAccountant, authz.RoleStaff,
+    } {
+        roles = append(roles, gin.H{
+            "role": role,
+            "permissions": authz.PermissionsForRole(role),
+        })
+    }
+    c.JSON(http.StatusOK, gin.H{"roles": roles})
+}

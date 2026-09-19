@@ -1,6 +1,6 @@
 
 package controller
-import("errors";"net/http";"time";"github.com/gin-gonic/gin";"github.com/google/uuid";"github.com/onoja217/users-management-app/internal/audit";"github.com/onoja217/users-management-app/internal/httpx";"github.com/onoja217/users-management-app/internal/models";"github.com/onoja217/users-management-app/internal/service")
+import("errors";"time";"github.com/gin-gonic/gin";"github.com/google/uuid";"github.com/onoja217/users-management-app/internal/audit";"github.com/onoja217/users-management-app/internal/httpx";"github.com/onoja217/users-management-app/internal/models";"github.com/onoja217/users-management-app/internal/service")
 type AcademicController struct{service *service.AcademicService}
 func NewAcademicController(s *service.AcademicService)*AcademicController{return &AcademicController{s}}
 type academicRequest struct{Name string `json:"name" binding:"required,max=100"`;StartDate time.Time `json:"start_date" binding:"required"`;EndDate time.Time `json:"end_date" binding:"required"`;Status string `json:"status" binding:"omitempty,oneof=planned active closed archived"`}

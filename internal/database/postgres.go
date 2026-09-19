@@ -97,7 +97,6 @@ func Migrate(db *gorm.DB) error {
                 return tx.AutoMigrate(&models.SchoolClass{}, &models.Section{})
             },
         },
-    }
         {
             Version: 5,
             Name:    "student_enrollment",
@@ -105,6 +104,8 @@ func Migrate(db *gorm.DB) error {
                 return tx.AutoMigrate(&models.StudentEnrollment{})
             },
         },
+    }
+
     for _, migration := range migrations {
         var applied Migration
         result := db.Where("version = ?", migration.Version).First(&applied)

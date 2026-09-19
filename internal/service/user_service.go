@@ -4,15 +4,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/onoja217/users-management-app/internal/models"
 	"github.com/onoja217/users-management-app/internal/repository"
+	"gorm.io/gorm"
 )
 
 type UserService struct {
 	repo repository.UserRepository
-	
+	db *gorm.DB
 }
 
-func NewUserService(r repository.UserRepository) *UserService {
-	return &UserService{repo: r}
+func NewUserService(r repository.UserRepository, db *gorm.DB) *UserService {
+	return &UserService{repo: r, db: db}
 }
 
 func (s *UserService) CreateUser(name, email string) models.User {
@@ -39,3 +40,5 @@ func (s *UserService) DeleteUser(id uuid.UUID) error {
 func (s *UserService) UpdateUser(user models.User) error {
 	return s.repo.Update(user)
 }
+
+func (s *UserService) DB() *gorm.DB { return s.db }

@@ -18,13 +18,14 @@ const (
     PermissionUsersActivate = "users.activate"
     PermissionUsersDeactivate = "users.deactivate"
     PermissionRolesAssign = "roles.assign"
+    PermissionAuditRead = "audit.read"
 )
 
 var rolePermissions = map[string]map[string]bool{
     RoleSuperAdmin: {
         PermissionUsersRead: true, PermissionUsersCreate: true, PermissionUsersUpdate: true,
         PermissionUsersDelete: true, PermissionUsersActivate: true, PermissionUsersDeactivate: true,
-        PermissionRolesAssign: true,
+        PermissionRolesAssign: true, PermissionAuditRead: true,
     },
     RoleSchoolAdmin: {
         PermissionUsersRead: true, PermissionUsersCreate: true, PermissionUsersUpdate: true,

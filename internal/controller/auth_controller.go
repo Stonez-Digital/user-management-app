@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/onoja217/users-management-app/internal/auth"
 	"github.com/onoja217/users-management-app/internal/authz"
+	"github.com/onoja217/users-management-app/internal/audit"
 	"github.com/onoja217/users-management-app/internal/models"
 	"gorm.io/gorm"
 )
@@ -82,12 +83,14 @@ func (ac *AuthController) ResetPassword(c *gin.Context) {
 		return
 	}
 
+	targetUserID := uuid.Nil
 	err := ac.DB.Transaction(func(tx *gorm.DB) error {
 		var reset models.PasswordResetToken
 		if err := tx.Where("token = ? AND used = false", req.Token).First(&reset).Error; err != nil {
 			return gorm.ErrRecordNotFound
 		}
 		if time.Now().After(reset.ExpiresAt) { return errResetExpired }
+		targetUserID = reset.UserID
 
 		hash, err := auth.HashPassword(req.NewPassword)
 		if err != nil { return err }
@@ -106,6 +109,7 @@ func (ac *AuthController) ResetPassword(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset password"})
 		return
 	}
+	_ = audit.Record(ac.DB, c, nil, "security.password_reset", "user", &targetUserID, nil)
 	c.JSON(http.StatusOK, gin.H{"message": "password reset successful"})
 }
 
@@ -125,6 +129,7 @@ func (ac *AuthController) Register(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unable to create account"})
 		return
 	}
+	_ = audit.Record(ac.DB, c, &user.ID, "user.create", "user", &user.ID, map[string]interface{}{"email": user.Email, "role": user.Role})
 	c.JSON(http.StatusCreated, gin.H{"message": "user created"})
 }
 
@@ -150,6 +155,7 @@ func (ac *AuthController) Login(c *gin.Context) {
 		return tx.Create(&models.Session{ID: uuid.New(), UserID: user.ID, RefreshToken: refreshToken, ExpiresAt: expiry, UserAgent: c.Request.UserAgent(), IP: c.ClientIP()}).Error
 	})
 	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session"}); return }
+	_ = audit.Record(ac.DB, c, &user.ID, "auth.login", "user", &user.ID, nil)
 	c.JSON(http.StatusOK, gin.H{"access_token": accessToken, "refresh_token": refreshToken})
 }
 
@@ -213,6 +219,8 @@ func (ac *AuthController) ChangePassword(c *gin.Context) {
 		return tx.Model(&models.Session{}).Where("user_id = ?", user.ID).Update("revoked", true).Error
 	})
 	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to change password"}); return }
+	uid := uuid.MustParse(userID)
+	_ = audit.Record(ac.DB, c, &uid, "security.password_change", "user", &uid, nil)
 	c.JSON(http.StatusOK, gin.H{"message": "password changed successfully; please sign in again"})
 }
 
@@ -260,6 +268,7 @@ func (ac *AuthController) Logout(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to logout"})
 		return
 	}
+	_ = audit.Record(ac.DB, c, &token.UserID, "auth.logout", "user", &token.UserID, nil)
 	c.JSON(http.StatusOK, gin.H{"message": "logged out successfully"})
 }
 
@@ -272,6 +281,8 @@ func (ac *AuthController) LogoutAll(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to logout all devices"})
 		return
 	}
+	uid := uuid.MustParse(userID)
+	_ = audit.Record(ac.DB, c, &uid, "auth.logout_all", "user", &uid, nil)
 	c.JSON(http.StatusOK, gin.H{"message": "logged out from all devices"})
 }
 
@@ -297,6 +308,11 @@ func (ac *AuthController) setUserActive(c *gin.Context, active bool) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update account status"})
 		return
 	}
+	actor := uuid.Nil
+	if raw := c.GetString("user_id"); raw != "" { if parsed, err := uuid.Parse(raw); err == nil { actor = parsed } }
+	action := "user.deactivate"
+	if active { action = "user.activate" }
+	_ = audit.Record(ac.DB, c, &actor, action, "user", &user.ID, nil)
 	c.JSON(http.StatusOK, gin.H{"message": map[bool]string{true: "account activated", false: "account deactivated"}[active]})
 }
 

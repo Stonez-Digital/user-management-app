@@ -2,6 +2,7 @@ package audit
 
 import (
     "testing"
+    "net/http/httptest"
     "github.com/gin-gonic/gin"
     "github.com/google/uuid"
     "github.com/onoja217/users-management-app/internal/models"
@@ -15,7 +16,9 @@ func TestRecordPersistsAuditLog(t *testing.T) {
     if err := db.AutoMigrate(&models.AuditLog{}); err != nil { t.Fatal(err) }
 
     gin.SetMode(gin.TestMode)
-    c, _ := gin.CreateTestContext(nil)
+    w := httptest.NewRecorder()
+    c, _ := gin.CreateTestContext(w)
+    c.Request = httptest.NewRequest("GET", "/", nil)
     actor := uuid.New()
     resource := uuid.New()
 

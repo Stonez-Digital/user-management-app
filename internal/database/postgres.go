@@ -138,6 +138,11 @@ func Migrate(db *gorm.DB) error {
             Name:    "timetable",
             Up: func(tx *gorm.DB) error { return tx.AutoMigrate(&models.TimetableEntry{}) },
         },
+        {
+            Version: 13,
+            Name:    "guardian_relationships",
+            Up: func(tx *gorm.DB) error { return tx.AutoMigrate(&models.GuardianRelationship{}) },
+        },
     }
 
     for _, migration := range migrations {

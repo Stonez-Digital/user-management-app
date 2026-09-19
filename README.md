@@ -131,3 +131,30 @@ CI/CD pipeline
 ### Author
 
 Built by Onoja217
+
+## School RBAC
+
+The API defines these roles:
+
+- `super_admin`
+- `school_admin`
+- `teacher`
+- `student`
+- `parent`
+- `accountant`
+- `staff`
+
+Administrative permissions are enforced by middleware rather than trusting the role in the JWT alone. The current database role is loaded on every authenticated request, so a role change takes effect immediately.
+
+### Administrative endpoints
+
+- `GET /admin/roles` — list roles and permissions
+- `POST /admin/users` — create a user
+- `GET /admin/users` — list users
+- `GET /admin/users/:id` — view a user
+- `PUT /admin/users/:id/role` — assign a role (super admin)
+- `DELETE /admin/users/:id` — delete a user
+- `POST /admin/users/:id/activate` — activate an account
+- `POST /admin/users/:id/deactivate` — deactivate an account
+
+Role changes are recorded with actor, target, previous role, new role, IP address, and timestamp.

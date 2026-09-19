@@ -15,7 +15,7 @@ type UserController struct {
 }
 type UpdateMeRequest struct {
 	Name  string `json:"name" binding:"omitempty,min=2,max=100"`
-	Email string `json:"email" validate:"omitempty,email,max=255"`
+	Email string `json:"email" binding:"omitempty,email,max=255"`
 }
 
 func NewUserController(s *service.UserService) *UserController {
@@ -23,8 +23,8 @@ func NewUserController(s *service.UserService) *UserController {
 }
 
 type CreateUserRequest struct {
-	Name  string `json:"name" validate:"required,min=2,max=100"`
-	Email string `json:"email" validate:"required,email,max=255"`
+	Name  string `json:"name" binding:"required,min=2,max=100"`
+	Email string `json:"email" binding:"required,email,max=255"`
 }
 
 // CREATE

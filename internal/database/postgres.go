@@ -38,6 +38,7 @@ func Migrate(db *gorm.DB) error {
         {Version:4,Name:"classes_and_sections",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.SchoolClass{},&models.Section{})}},
         {Version:5,Name:"student_enrollment",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.StudentEnrollment{})}},
         {Version:6,Name:"attendance_records",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.AttendanceRecord{})}},
+        {Version:7,Name:"assessments",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.Assessment{})}},
     }
     for _,migration:=range migrations{
         var applied Migration

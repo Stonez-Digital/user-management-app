@@ -1,0 +1,45 @@
+package service
+
+import (
+	"testing"
+
+	"github.com/onoja217/users-management-app/internal/models"
+	"github.com/onoja217/users-management-app/internal/repository"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+)
+
+func enrollmentTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	if err != nil { t.Fatal(err) }
+	if err := db.AutoMigrate(&models.User{}, &models.Student{}, &models.AcademicSession{}, &models.Term{}, &models.SchoolClass{}, &models.Section{}, &models.StudentEnrollment{}); err != nil { t.Fatal(err) }
+	return db
+}
+
+func TestCreateEnrollmentValidatesRelationshipsAndDuplicate(t *testing.T) {
+	db := enrollmentTestDB(t)
+	user := models.User{Name:"Test Student",Email:"student@example.com",Role:"student",Active:true}
+	if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
+	student := models.Student{UserID:user.ID,AdmissionNumber:"ADM-001"}
+	if err := db.Create(&student).Error; err != nil { t.Fatal(err) }
+	session := models.AcademicSession{Name:"2026/2027"}
+	if err := db.Create(&session).Error; err != nil { t.Fatal(err) }
+	class := models.SchoolClass{Name:"JSS 1",Level:1}
+	if err := db.Create(&class).Error; err != nil { t.Fatal(err) }
+	section := models.Section{ClassID:class.ID,Name:"A"}
+	if err := db.Create(&section).Error; err != nil { t.Fatal(err) }
+
+	svc := NewEnrollmentService(repository.NewEnrollmentRepository(db),db)
+	enrollment, err := svc.Create(models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session.ID,ClassID:class.ID,SectionID:section.ID})
+	if err != nil { t.Fatal(err) }
+	if enrollment.Status != models.EnrollmentStatusActive { t.Fatalf("expected active status, got %s", enrollment.Status) }
+
+	_, err = svc.Create(models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session.ID,ClassID:class.ID,SectionID:section.ID})
+	if err != ErrEnrollmentDuplicate { t.Fatalf("expected duplicate error, got %v", err) }
+
+	otherClass := models.SchoolClass{Name:"JSS 2",Level:2}
+	if err := db.Create(&otherClass).Error; err != nil { t.Fatal(err) }
+	_, err = svc.Create(models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session.ID,ClassID:otherClass.ID,SectionID:section.ID})
+	if err != ErrEnrollmentSectionMismatch { t.Fatalf("expected section/class mismatch, got %v", err) }
+}

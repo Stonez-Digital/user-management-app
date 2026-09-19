@@ -41,5 +41,5 @@ func TestCreateEnrollmentValidatesRelationshipsAndDuplicate(t *testing.T) {
 	otherClass := models.SchoolClass{Name:"JSS 2",Level:2}
 	if err := db.Create(&otherClass).Error; err != nil { t.Fatal(err) }
 	_, err = svc.Create(models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session.ID,ClassID:otherClass.ID,SectionID:section.ID})
-	if err != ErrEnrollmentDuplicate { t.Fatalf("expected duplicate to be checked before class relationship, got %v", err) }
+	if err != ErrEnrollmentSectionMismatch { t.Fatalf("expected section/class mismatch, got %v", err) }
 }

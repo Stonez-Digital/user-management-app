@@ -14,7 +14,7 @@ type UserController struct {
 	service *service.UserService
 }
 type UpdateMeRequest struct {
-	Name  string `json:"name" validate:"omitempty,min=2,max=100"`
+	Name  string `json:"name" binding:"omitempty,min=2,max=100"`
 	Email string `json:"email" validate:"omitempty,email,max=255"`
 }
 

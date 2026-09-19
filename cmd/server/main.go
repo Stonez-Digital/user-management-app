@@ -40,7 +40,7 @@ func main() {
     r := gin.Default()
     r.SetTrustedProxies(nil)
     repo := repository.NewUserRepository(db)
-    svc := service.NewUserService(repo)
+    svc := service.NewUserService(repo, db)
     ctrl := controller.NewUserController(svc)
     authController := controller.NewAuthController(db)
 

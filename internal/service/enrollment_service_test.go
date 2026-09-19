@@ -1,4 +1,52 @@
 package service
 
-import("testing";"time";"github.com/google/uuid";"github.com/onoja217/users-management-app/internal/models";"github.com/onoja217/users-management-app/internal/repository";"gorm.io/driver/sqlite";"gorm.io/gorm")
-func TestEnrollmentRejectsDuplicateSession(t *testing.T){db,e:=gorm.Open(sqlite.Open("file:enrollment-test?mode=memory&cache=shared"),&gorm.Config{});if e!=nil{t.Fatal(e)};if e=db.AutoMigrate(&models.User{},&models.Student{},&models.AcademicSession{},&models.SchoolClass{},&models.Section{},&models.StudentEnrollment{});e!=nil{t.Fatal(e)};uid:=uuid.New();db.Create(&models.User{ID:uid,Name:"Student",Email:"student@test.local"});sid:=uuid.New();db.Create(&models.Student{ID:sid,UserID:uid,AdmissionNumber:"ADM-1"});session:=models.AcademicSession{ID:uuid.New(),Name:"2026/2027",StartDate:time.Now(),EndDate:time.Now().AddDate(1,0,0)};db.Create(&session);cl:=models.SchoolClass{ID:uuid.New(),Name:"JSS 1",Level:1};db.Create(&cl);sec:=models.Section{ID:uuid.New(),ClassID:cl.ID,Name:"A"};db.Create(&sec);svc:=NewEnrollmentService(repository.NewEnrollmentRepository(db),db);v:=models.StudentEnrollment{StudentID:sid,AcademicSessionID:session.ID,ClassID:cl.ID,SectionID:sec.ID};if _,e=svc.Create(v);e!=nil{t.Fatal(e)};if _,e=svc.Create(v);e!=ErrEnrollmentDuplicate{t.Fatalf("expected duplicate, got %v",e)}}
+import (
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/onoja217/users-management-app/internal/models"
+	"github.com/onoja217/users-management-app/internal/repository"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+)
+
+func TestEnrollmentRejectsDuplicateSession(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:enrollment-test?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&models.User{}, &models.Student{}, &models.AcademicSession{}, &models.SchoolClass{}, &models.Section{}, &models.StudentEnrollment{}); err != nil {
+		t.Fatal(err)
+	}
+
+	user := models.User{Name: "Student", Email: "student@test.local"}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatal(err)
+	}
+	student := models.Student{UserID: user.ID, AdmissionNumber: "ADM-1"}
+	if err := db.Create(&student).Error; err != nil {
+		t.Fatal(err)
+	}
+	session := models.AcademicSession{ID: uuid.New(), Name: "2026/2027", StartDate: time.Now(), EndDate: time.Now().AddDate(1, 0, 0)}
+	if err := db.Create(&session).Error; err != nil {
+		t.Fatal(err)
+	}
+	class := models.SchoolClass{ID: uuid.New(), Name: "JSS 1", Level: 1}
+	if err := db.Create(&class).Error; err != nil {
+		t.Fatal(err)
+	}
+	section := models.Section{ID: uuid.New(), ClassID: class.ID, Name: "A"}
+	if err := db.Create(&section).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewEnrollmentService(repository.NewEnrollmentRepository(db), db)
+	v := models.StudentEnrollment{StudentID: student.ID, AcademicSessionID: session.ID, ClassID: class.ID, SectionID: section.ID}
+	if _, err := svc.Create(v); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Create(v); err != ErrEnrollmentDuplicate {
+		t.Fatalf("expected duplicate, got %v", err)
+	}
+}

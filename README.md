@@ -1,167 +1,496 @@
-# User Management API (Go + Gin + PostgreSQL)
+# Stonez Digital School Management System
 
-A RESTful User Management API built with Go (Golang), Gin framework, and GORM ORM, following a clean layered architecture (MVC-like).
-The project supports full CRUD operations and is structured for scalability and production readiness.
+A full-stack school management platform being developed by **Stonez Digital** to help schools centralize administration, student records, academic operations, and communication in one system.
 
-## Features:
-Create, read, update, and delete users (CRUD)
-REST API built with Gin
-PostgreSQL integration using GORM
-Clean architecture (Controller → Service → Repository)
-UUID-based user IDs
-Environment-ready database configuration
-Structured project layout for scalability
+The project started as a Go-based user management API and has evolved into the foundation of a **market-ready School Management SaaS platform**. The current release combines a secure backend with an administrative web dashboard, while the next development phase focuses on the academic and operational workflows schools use every day.
 
-+ Tech Stack
-Go 1.25+
-Gin (HTTP framework)
-GORM (ORM)
-PostgreSQL
-UUID (github.com/google/uuid)
-## Project Structure
+## Current Product Level
+
+**Current stage: School Management MVP — Foundation & Administration**
+
+The platform has moved beyond basic user CRUD and now includes the core security, administration, student management, database, and dashboard foundations required for a real school management product.
+
+### Current capabilities
+
+- Secure user authentication
+- JWT access and refresh token authentication
+- Refresh-token rotation and reuse protection
+- Logout and logout-all session controls
+- Password change and password reset flows
+- Role-based access control (RBAC)
+- Seven school roles:
+  - `super_admin`
+  - `school_admin`
+  - `teacher`
+  - `student`
+  - `parent`
+  - `accountant`
+  - `staff`
+- Administrative user management
+- Role assignment and account activation/deactivation
+- Administrative audit logging
+- Standardized API validation and error responses
+- Versioned database migrations
+- SQLite support for local development
+- PostgreSQL support for production deployments
+- Student profiles and enrollment records
+- Student CRUD operations
+- Next.js administrative dashboard
+- Dashboard overview and school statistics
+- Student search
+- User and role management interface
+- Audit log viewer
+- Session expiry and sign-out handling
+- GitHub Actions CI for backend and frontend checks
+- One-command Windows local development launcher
+
+## Product Vision
+
+The goal is to build more than a user-management application.
+
+Stonez Digital is developing this platform as a **complete digital operating system for schools**, allowing administrators, teachers, students, parents, and other staff to manage their daily activities from one central platform.
+
+The long-term platform will cover:
+
+**Administration → Students → Academics → Attendance → Assessments → Results → Fees → Timetable → Communication → Parent Access**
+
+This creates an opportunity to package the system as a scalable school technology product that can be piloted with schools, refined from real-world usage, and eventually offered to multiple institutions.
+
+## Architecture
+
+### Backend
+
+Built with Go using a layered architecture:
+
 ```
-backend/
+HTTP Request
+     ↓
+Gin Controller
+     ↓
+Middleware / RBAC
+     ↓
+Service Layer
+     ↓
+Repository Layer
+     ↓
+GORM
+     ↓
+Database
+```
+
+### Frontend
+
+The administrative dashboard is being built with:
+
+- Next.js 16
+- React 19
+- TypeScript
+- Responsive dashboard UI
+- Local API proxy during development
+
+### Database
+
+- PostgreSQL for production
+- SQLite for local development
+- Versioned migration system
+- GORM ORM
+- UUID-based identifiers
+
+## Technology Stack
+
+### Backend
+
+- Go 1.25+
+- Gin
+- GORM
+- PostgreSQL
+- SQLite
+- JWT
+- UUID
+- bcrypt/password hashing
+
+### Frontend
+
+- Next.js 16
+- React 19
+- TypeScript
+- Next.js App Router
+
+### Engineering & DevOps
+
+- GitHub
+- GitHub Actions
+- Pull-request based development
+- Protected main branch
+- Automated backend testing
+- Frontend production-build checks
+
+## School Roles
+
+| Role | Purpose |
+|---|---|
+| `super_admin` | Platform-level administration and security control |
+| `school_admin` | School administration and user management |
+| `teacher` | Teaching and future academic workflows |
+| `student` | Student access and academic profile |
+| `parent` | Future parent portal and student monitoring |
+| `accountant` | Future financial and fee-management workflows |
+| `staff` | General school staff operations |
+
+Administrative permissions are enforced through middleware and the current database role is checked on authenticated requests so role changes take effect immediately.
+
+## Authentication & Security
+
+The authentication foundation includes:
+
+- JWT access tokens
+- Refresh tokens
+- Refresh-token rotation
+- Refresh-token reuse protection
+- Active-account checks
+- Password hashing
+- Password change
+- Password reset
+- Logout
+- Logout from all sessions
+- Protected routes
+- Role-based authorization
+- Administrative permission checks
+- Audit logging for sensitive administrative actions
+- Environment-based secrets and database configuration
+
+## Student Management
+
+The current student management foundation supports:
+
+- Student profiles
+- Unique admission numbers
+- Date of birth
+- Gender
+- Guardian information
+- Enrollment status
+- Student-to-user relationship
+- Create, read, update, and delete operations
+- Administrative student management endpoints
+
+Current student management provides the foundation for the next academic modules.
+
+## Administrative Dashboard
+
+The web dashboard currently provides the foundation for school administration.
+
+Current areas include:
+
+- Dashboard overview
+- Student statistics
+- User statistics
+- Active account statistics
+- Role distribution
+- Recent students
+- Student search
+- User and role management
+- Account activation/deactivation
+- Audit log viewing
+- Session expiry handling
+- Sign-out
+
+The dashboard is currently being finalized and tested as the first major web administration release.
+
+## API Endpoints
+
+### Authentication
+
+- `POST /auth/register`
+- `POST /auth/login`
+- `POST /auth/refresh`
+- `POST /auth/logout`
+- `POST /auth/logout-all`
+- `POST /auth/change-password`
+- `POST /auth/forgot-password`
+- `POST /auth/reset-password`
+
+### Current User
+
+- `GET /me`
+- `PUT /me`
+- `GET /sessions`
+- `DELETE /sessions/:id`
+
+### Administration
+
+- `GET /admin/roles`
+- `GET /admin/audit-logs`
+- `POST /admin/users`
+- `GET /admin/users`
+- `GET /admin/users/:id`
+- `PUT /admin/users/:id/role`
+- `DELETE /admin/users/:id`
+- `POST /admin/users/:id/activate`
+- `POST /admin/users/:id/deactivate`
+
+### Students
+
+- `POST /admin/students`
+- `GET /admin/students`
+- `GET /admin/students/:id`
+- `PUT /admin/students/:id`
+- `DELETE /admin/students/:id`
+
+## Database & Migrations
+
+The application uses versioned database migrations rather than relying only on automatic schema creation.
+
+Development:
+
+```env
+DB_DRIVER=sqlite
+DB_PATH=users.db
+```
+
+Production:
+
+```env
+DB_DRIVER=postgres
+DATABASE_URL=...
+```
+
+PostgreSQL can also be configured using:
+
+```env
+DB_HOST=
+DB_PORT=5432
+DB_USER=
+DB_PASSWORD=
+DB_NAME=
+DB_SSLMODE=require
+```
+
+Never commit production secrets to the repository.
+
+## Local Development
+
+### Requirements
+
+Install:
+
+- Go 1.25+
+- Node.js 22+
+- npm
+- PostgreSQL for production-style development, or SQLite for local development
+
+### Backend
+
+From the project root:
+
+```bash
+go mod tidy
+go test ./...
+go run ./cmd/server
+```
+
+The API runs on:
+
+```
+http://localhost:8080
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The dashboard runs on:
+
+```
+http://localhost:3000
+```
+
+### Windows One-Command Launcher
+
+From the project root in PowerShell:
+
+```powershell
+.\\start.ps1
+```
+
+This starts the local Go API and Next.js frontend with development configuration.
+
+## Testing
+
+Run backend tests:
+
+```bash
+go test ./...
+```
+
+Run the frontend production build:
+
+```bash
+cd frontend
+npm run build
+```
+
+GitHub Actions runs automated checks for backend and frontend changes.
+
+## Current Development Roadmap
+
+### Phase 1 — Platform Foundation
+
+- [x] Authentication
+- [x] JWT and refresh tokens
+- [x] RBAC
+- [x] Audit logging
+- [x] API validation
+- [x] Database migrations
+- [x] PostgreSQL support
+- [x] Student management foundation
+- [x] Administrative dashboard foundation
+- [ ] Finalize and merge the current dashboard release
+- [ ] Complete frontend automated checks
+
+### Phase 2 — Academic Management
+
+The next major product phase is the academic engine:
+
+1. Academic sessions and terms
+2. Classes and sections
+3. Subjects
+4. Teacher assignments
+5. Student enrollment
+6. Attendance
+7. Assessments and examinations
+8. Scores and grading
+9. Results processing
+10. Automated report cards
+
+### Phase 3 — School Operations
+
+- Fees and payment tracking
+- Receipts
+- Timetable management
+- Notifications
+- School announcements
+- Parent portal
+- Teacher workflows
+- Student portal
+- Administrative reporting
+
+### Phase 4 — Commercial Product
+
+Once the core platform is stable:
+
+- Pilot with selected schools
+- Collect operational feedback
+- Improve onboarding
+- Define subscription/pricing plans
+- Build product demonstrations
+- Establish customer support workflows
+- Prepare production deployment
+- Expand to additional schools
+
+## Business Direction
+
+The platform is being developed with a commercial product mindset.
+
+Instead of selling isolated software development work, Stonez Digital can use this platform as a reusable **School Management SaaS product** that can be configured and deployed for different schools.
+
+The business model can eventually support:
+
+- School subscription plans
+- Institution-based pricing
+- Optional premium modules
+- Implementation/onboarding services
+- Custom integrations
+- Support and maintenance packages
+
+The immediate priority remains product quality: build the core workflows, test them with real school operations, and refine the platform before broad market deployment.
+
+## Project Structure
+
+```
+user-management-app/
 ├── cmd/
 │   └── server/
 │       └── main.go
 ├── internal/
+│   ├── auth/
+│   ├── authz/
 │   ├── controller/
-│   ├── service/
-│   ├── repository/
+│   ├── database/
+│   ├── httpx/
+│   ├── middleware/
 │   ├── models/
-│   └── database/
+│   ├── repository/
+│   └── service/
 ├── migrations/
-├── tests/
+├── frontend/
+│   └── app/
+├── scripts/
+│   ├── dev.ps1
+│   └── ...
+├── .github/
+│   └── workflows/
+├── start.ps1
 ├── go.mod
-└── go.sum
+├── go.sum
+└── README.md
 ```
-### Setup Instructions
 
-1. Clone Repository
-```
-git clone https://github.com/Onoja217/user-management-app.git
-```
-```
-cd user-management-app/backend
-```
-2. Install Dependencies
-go mod tidy
+## Development Workflow
 
-3. Configure Database
-
-### Update PostgreSQL connection in:
-
-internal/database/postgres.go
-
-### Example:
-
-dsn := "host=localhost user=postgres password=postgres dbname=usersdb port=5432 sslmode=disable"
-
-4. Run the Application
-go run cmd/server/main.go
-
-### Server runs on:
-```
-http://localhost:8080
-```
-### API Endpoints
-Create User
-POST /users
-
-### Request body:
-```
-{
-  "name": "John Doe",
-  "email": "john@test.com"
-}
-Get All Users
-GET /users
-Get User by ID
-GET /users/{id}
-Update User
-PUT /users/{id}
-Delete User
-DELETE /users/{id}
-```
-### Architecture Overview
-```
-Client → Controller → Service → Repository → Database
-```
-### Controller: 
-
-+ Handles HTTP requests
-
-### Service: 
-
-+ Business logic
-
-### Repository: 
-
-+ Database operations
-
-### Model: 
-
-+ Data structures
-
-### Database
-
-PostgreSQL is used for persistence
-
-### GORM handles migrations automatically:
-
-db.AutoMigrate(&models.User{})
-
-+ Testing
-
-Tests are located in the tests/ folder.
-
-### Run tests:
+Development follows a pull-request based workflow:
 
 ```
-go test ./...
+Feature Branch
+      ↓
+Implementation
+      ↓
+Tests / Build
+      ↓
+Pull Request
+      ↓
+Code Review
+      ↓
+CI Checks
+      ↓
+Merge to main
 ```
-### Future Improvements
-JWT Authentication
-Swagger API documentation (/docs)
-Docker support
-AWS SQS messaging integration
-React frontend
-CI/CD pipeline
 
-### Author
+The `main` branch is protected, and feature work should be developed through dedicated branches and pull requests.
 
-Built by Onoja217
+## Project Status
 
-## School RBAC
+**Status: Active development**
 
-The API defines these roles:
+The system currently has a strong backend and administration foundation. The first web dashboard release is being finalized, after which development will move into the academic management engine.
 
-- `super_admin`
-- `school_admin`
-- `teacher`
-- `student`
-- `parent`
-- `accountant`
-- `staff`
+The immediate objective is to transform the current foundation into a usable school platform that can support a pilot institution and provide a solid base for commercial expansion.
 
-Administrative permissions are enforced by middleware rather than trusting the role in the JWT alone. The current database role is loaded on every authenticated request, so a role change takes effect immediately.
+## Roadmap Summary
 
-### Administrative endpoints
+```
+Authentication & Security       ██████████  Complete
+RBAC & Administration           ██████████  Complete
+Audit & Validation              ██████████  Complete
+Database & PostgreSQL            ██████████  Complete
+Student Management              █████████░  Foundation complete
+Admin Dashboard                 ████████░░  In progress
+Academic Management             ██░░░░░░░░  Next
+School Operations               ░░░░░░░░░░  Planned
+Commercial SaaS                 ░░░░░░░░░░  Planned
+```
 
-- `GET /admin/roles` — list roles and permissions
-- `POST /admin/users` — create a user
-- `GET /admin/users` — list users
-- `GET /admin/users/:id` — view a user
-- `PUT /admin/users/:id/role` — assign a role (super admin)
-- `DELETE /admin/users/:id` — delete a user
-- `POST /admin/users/:id/activate` — activate an account
-- `POST /admin/users/:id/deactivate` — deactivate an account
+## Author
 
-Role changes are recorded with actor, target, previous role, new role, IP address, and timestamp.
+**Onoja Monday Ojonugba**
 
+Software Engineer & Founder, **Stonez Digital**
 
-### Production database
+GitHub: https://github.com/Onoja217
 
-Production deployments can use PostgreSQL through GORM's PostgreSQL driver. Set `DB_DRIVER=postgres` and either provide `DATABASE_URL` or the `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, and `DB_SSLMODE` settings. SQLite remains available for local development with `DB_DRIVER=sqlite`.
+---
 
-The GORM PostgreSQL driver uses pgx underneath and supports a PostgreSQL DSN such as `host=localhost user=postgres password=... dbname=usersdb port=5432 sslmode=require`. citeturn1search1turn2view0
+Built by **Stonez Digital** with the goal of helping schools move from fragmented administration to a connected digital school management platform.

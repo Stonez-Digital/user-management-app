@@ -90,6 +90,13 @@ func Migrate(db *gorm.DB) error {
                 return tx.AutoMigrate(&models.AcademicSession{}, &models.Term{})
             },
         },
+        {
+            Version: 4,
+            Name:    "classes_and_sections",
+            Up: func(tx *gorm.DB) error {
+                return tx.AutoMigrate(&models.SchoolClass{}, &models.Section{})
+            },
+        },
     }
 
     for _, migration := range migrations {

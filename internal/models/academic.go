@@ -33,9 +33,7 @@ type AcademicSession struct {
 
 func (s *AcademicSession) BeforeCreate(tx *gorm.DB) error {
 	s.ID = uuid.New()
-	if s.Status == "" {
-		s.Status = AcademicStatusPlanned
-	}
+	if s.Status == "" { s.Status = AcademicStatusPlanned }
 	return nil
 }
 
@@ -53,8 +51,6 @@ type Term struct {
 
 func (t *Term) BeforeCreate(tx *gorm.DB) error {
 	t.ID = uuid.New()
-	if t.Status == "" {
-		t.Status = AcademicStatusPlanned
-	}
+	if t.Status == "" { t.Status = AcademicStatusPlanned }
 	return nil
 }

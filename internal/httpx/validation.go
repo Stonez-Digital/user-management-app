@@ -1,7 +1,7 @@
 package httpx
 
 import (
-	"strings"
+	"errors"
 
 	"github.com/go-playground/validator/v10"
 )
@@ -13,10 +13,7 @@ type FieldError struct {
 
 func ValidationErrors(err error) []FieldError {
 	var ve validator.ValidationErrors
-	if !strings.Contains(err.Error(), "validation") && !strings.Contains(err.Error(), "required") {
-		return []FieldError{{Field: "body", Rule: "invalid_json"}}
-	}
-	if errorsAs(err, &ve) {
+	if errors.As(err, &ve) {
 		out := make([]FieldError, 0, len(ve))
 		for _, e := range ve {
 			out = append(out, FieldError{Field: e.Field(), Rule: e.Tag()})
@@ -26,11 +23,3 @@ func ValidationErrors(err error) []FieldError {
 	return []FieldError{{Field: "body", Rule: "invalid"}}
 }
 
-func errorsAs(err error, target interface{}) bool {
-	switch t := target.(type) {
-	case *validator.ValidationErrors:
-		ve, ok := err.(validator.ValidationErrors)
-		if ok { *t = ve; return true }
-	}
-	return false
-}

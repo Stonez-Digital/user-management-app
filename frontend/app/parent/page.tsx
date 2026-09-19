@@ -9,7 +9,7 @@ type Attendance = { date:string; status:string; note?:string };
 type Invoice = { id:string; invoice_number:string; total_amount:number; paid_amount:number; balance:number; status:string; due_date?:string };
 type Payment = { id:string; invoice_id:string; amount:number; provider:string; reference:string; status:string; paid_at?:string };
 type Timetable = { day_of_week:number; start_time:string; end_time:string; room?:string };
-type Report = { items?:Array<{subject_name:string; score:number; max_score:number; percentage:number}> };
+type Report = { items?:Array<{subject_name:string; score:number; max_score:number; percentage:number}> };\ntype Term = { id:string; name:string; start_date:string; end_date:string };
 
 async function api(path:string){
   const token=localStorage.getItem("access_token");
@@ -30,11 +30,11 @@ export default function ParentPortal(){
   const [invoices,setInvoices]=useState<Invoice[]>([]);
   const [payments,setPayments]=useState<Payment[]>([]);
   const [timetable,setTimetable]=useState<Timetable[]>([]);
-  const [report,setReport]=useState<Report>({});
+  const [report,setReport]=useState<Report>({});\n  const [terms,setTerms]=useState<Term[]>([]);\n  const [termId,setTermId]=useState("");
   const [error,setError]=useState("");
   const [loading,setLoading]=useState(true);
 
-  useEffect(()=>{api("/parent/children").then((d)=>{const list=Array.isArray(d)?d:d?.children||[];setChildren(list);if(list[0])setSelected(list[0].student_id)}).catch(e=>{setError(e.message);if(e.message==="Session expired")router.push("/")}).finally(()=>setLoading(false))},[router]);
+  useEffect(()=>{api("/parent/terms").then((d)=>{const list=Array.isArray(d)?d:[];setTerms(list);if(list[0])setTermId(list[0].id)}).catch(()=>{});api("/parent/children").then((d)=>{const list=Array.isArray(d)?d:d?.children||[];setChildren(list);if(list[0])setSelected(list[0].student_id)}).catch(e=>{setError(e.message);if(e.message==="Session expired")router.push("/")}).finally(()=>setLoading(false))},[router]);
 
   useEffect(()=>{
     if(!selected)return;
@@ -77,7 +77,7 @@ export default function ParentPortal(){
         <div className="panel"><div className="panel-head"><div><h2>Fees</h2><p>Invoices and balances</p></div></div><div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Status</th><th>Balance</th></tr></thead><tbody>{invoices.slice(0,8).map(x=><tr key={x.id}><td>{x.invoice_number}</td><td><span className={"pill "+x.status}>{x.status}</span></td><td>₦{Number(x.balance||0).toLocaleString()}</td></tr>)}</tbody></table>{!invoices.length&&<div className="empty">No invoices.</div>}</div></div>
       </section>
       <section className="panel"><div className="panel-head"><div><h2>Timetable</h2><p>Current class schedule</p></div></div><div className="table-wrap"><table><thead><tr><th>Day</th><th>Time</th><th>Room</th></tr></thead><tbody>{timetable.map((x,i)=><tr key={i}><td>{days[x.day_of_week]||"Day "+x.day_of_week}</td><td>{x.start_time} – {x.end_time}</td><td>{x.room||"—"}</td></tr>)}</tbody></table>{!timetable.length&&<div className="empty">No timetable entries.</div>}</div></section>
-      <section className="panel"><div className="panel-head"><div><h2>Report card</h2><p>Load a term report card using its term ID.</p></div></div><div className="form-row"><input id="term-id" placeholder="Term ID"/><button onClick={()=>{const v=(document.getElementById("term-id") as HTMLInputElement)?.value.trim();if(v)loadReport(v)}}>Load report</button></div>{report.items?.length?<div className="table-wrap"><table><thead><tr><th>Subject</th><th>Score</th><th>Percentage</th></tr></thead><tbody>{report.items.map((x,i)=><tr key={i}><td>{x.subject_name}</td><td>{x.score} / {x.max_score}</td><td>{Number(x.percentage||0).toFixed(1)}%</td></tr>)}</tbody></table></div>:null}</section></>}
+      <section className="panel"><div className="panel-head"><div><h2>Report card</h2><p>Select a term to view academic performance.</p></div></div><div className="form-row"><select value={termId} onChange={e=>setTermId(e.target.value)}><option value="">Select term</option>{terms.map(t=><option key={t.id} value={t.id}>{t.name} · {t.start_date} to {t.end_date}</option>)}</select><button disabled={!termId} onClick={()=>loadReport(termId)}>Load report</button></div>{report.items?.length?<div className="table-wrap"><table><thead><tr><th>Subject</th><th>Score</th><th>Percentage</th></tr></thead><tbody>{report.items.map((x,i)=><tr key={i}><td>{x.subject_name}</td><td>{x.score} / {x.max_score}</td><td>{Number(x.percentage||0).toFixed(1)}%</td></tr>)}</tbody></table></div>:null}</section></>}
     </main>
   </div>;
 }

@@ -18,7 +18,7 @@ func TestSuperAdminHasAllDefinedPermissions(t *testing.T) {
     permissions := []string{
         PermissionUsersRead, PermissionUsersCreate, PermissionUsersUpdate,
         PermissionUsersDelete, PermissionUsersActivate, PermissionUsersDeactivate,
-        PermissionRolesAssign,
+        PermissionRolesAssign, PermissionEnrollmentRead, PermissionEnrollmentManage,
     }
     for _, permission := range permissions {
         if !HasPermission(RoleSuperAdmin, permission) {

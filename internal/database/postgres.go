@@ -21,6 +21,7 @@ func Connect() *gorm.DB {
 		&models.Session{},
 		&models.PasswordResetToken{},
 		&models.RoleChangeAudit{},
+		&models.AuditLog{},
 	)
 
 	if err != nil {

@@ -25,13 +25,13 @@ var errResetExpired = errors.New("reset token expired")
 var errRefreshReused = errors.New("refresh token already rotated")
 
 type ForgotPasswordRequest struct { Email string `json:"email" binding:"required,email,max=255"` }
-type ResetPasswordRequest struct { Token string `json:"token" validate:"required"`; NewPassword string `json:"new_password" validate:"required,min=8,max=128"` }
-type ChangePasswordRequest struct { CurrentPassword string `json:"current_password" validate:"required"`; NewPassword string `json:"new_password" validate:"required,min=8,max=128"` }
-type RefreshRequest struct { RefreshToken string `json:"refresh_token" validate:"required"` }
-type LogoutRequest struct { RefreshToken string `json:"refresh_token" validate:"required"` }
-type RegisterRequest struct { Name string `json:"name" validate:"required,min=2,max=100"`; Email string `json:"email" validate:"required,email,max=255"`; Password string `json:"password" validate:"required,min=8,max=128"` }
-type LoginRequest struct { Email string `json:"email" validate:"required,email,max=255"`; Password string `json:"password" validate:"required"` }
-type AssignRoleRequest struct { Role string `json:"role" validate:"required"` }
+type ResetPasswordRequest struct { Token string `json:"token" binding:"required"`; NewPassword string `json:"new_password" binding:"required,min=8,max=128"` }
+type ChangePasswordRequest struct { CurrentPassword string `json:"current_password" binding:"required"`; NewPassword string `json:"new_password" binding:"required,min=8,max=128"` }
+type RefreshRequest struct { RefreshToken string `json:"refresh_token" binding:"required"` }
+type LogoutRequest struct { RefreshToken string `json:"refresh_token" binding:"required"` }
+type RegisterRequest struct { Name string `json:"name" binding:"required,min=2,max=100"`; Email string `json:"email" binding:"required,email,max=255"`; Password string `json:"password" binding:"required,min=8,max=128"` }
+type LoginRequest struct { Email string `json:"email" binding:"required,email,max=255"`; Password string `json:"password" binding:"required"` }
+type AssignRoleRequest struct { Role string `json:"role" binding:"required"` }
 
 
 type AuthController struct { DB *gorm.DB }

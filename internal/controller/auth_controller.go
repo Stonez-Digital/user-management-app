@@ -24,7 +24,7 @@ const minPasswordLength = 8
 var errResetExpired = errors.New("reset token expired")
 var errRefreshReused = errors.New("refresh token already rotated")
 
-type ForgotPasswordRequest struct { Email string `json:"email" validate:"required,email,max=255"` }
+type ForgotPasswordRequest struct { Email string `json:"email" binding:"required,email,max=255"` }
 type ResetPasswordRequest struct { Token string `json:"token" validate:"required"`; NewPassword string `json:"new_password" validate:"required,min=8,max=128"` }
 type ChangePasswordRequest struct { CurrentPassword string `json:"current_password" validate:"required"`; NewPassword string `json:"new_password" validate:"required,min=8,max=128"` }
 type RefreshRequest struct { RefreshToken string `json:"refresh_token" validate:"required"` }

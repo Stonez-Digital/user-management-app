@@ -38,7 +38,7 @@ const (
     PermissionAssessmentsRead = "assessments.read"
     PermissionAssessmentsManage = "assessments.manage"
     PermissionResultsRead = "results.read"
-    PermissionResultsManage = "results.manage"\n    PermissionFinanceRead = "finance.read"\n    PermissionFinanceManage = "finance.manage"\n    PermissionTimetableRead = "timetable.read"\n    PermissionTimetableManage = "timetable.manage"
+    PermissionResultsManage = "results.manage"\n    PermissionFinanceRead = "finance.read"\n    PermissionFinanceManage = "finance.manage"\n    PermissionTimetableRead = "timetable.read"\n    PermissionTimetableManage = "timetable.manage"\n    PermissionParentPortalRead = "parent_portal.read"\n    PermissionParentPortalManage = "parent_portal.manage"
 )
 
 var rolePermissions = map[string]map[string]bool{
@@ -61,7 +61,7 @@ var rolePermissions = map[string]map[string]bool{
         PermissionResultsRead: true, PermissionResultsManage: true,
     },
     RoleStudent: {},
-    RoleParent: {},
+    RoleParent: {PermissionParentPortalRead: true},
     RoleAccountant: {},
     RoleStaff: {},
 }

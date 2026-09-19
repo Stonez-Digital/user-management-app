@@ -16,7 +16,7 @@ func NewUserService(r repository.UserRepository, db *gorm.DB) *UserService {
 	return &UserService{repo: r, db: db}
 }
 
-func (s *UserService) CreateUser(name, email string) models.User {
+func (s *UserService) CreateUser(name, email string) (models.User, error) {
 	user := models.User{
 		ID:    uuid.New(),
 		Name:  name,
@@ -26,7 +26,7 @@ func (s *UserService) CreateUser(name, email string) models.User {
 	return s.repo.Create(user)
 }
 
-func (s *UserService) GetUsers() []models.User {
+func (s *UserService) GetUsers() ([]models.User, error) {
 	return s.repo.GetAll()
 }
 

@@ -7,8 +7,8 @@ import (
 )
 
 type UserRepository interface {
-	Create(user models.User) models.User
-	GetAll() []models.User
+	Create(user models.User) (models.User, error)
+	GetAll() ([]models.User, error)
 	GetByID(id uuid.UUID) (models.User, error)
 	Delete(id uuid.UUID) error
 	Update(user models.User) error
@@ -25,15 +25,15 @@ func (r *userRepo) Update(user models.User) error {
 	return r.db.Save(&user).Error
 }
 
-func (r *userRepo) Create(user models.User) models.User {
-	r.db.Create(&user)
-	return user
+func (r *userRepo) Create(user models.User) (models.User, error) {
+	if err := r.db.Create(&user).Error; err != nil { return user, err }
+	return user, nil
 }
 
-func (r *userRepo) GetAll() []models.User {
+func (r *userRepo) GetAll() ([]models.User, error) {
 	var users []models.User
-	r.db.Find(&users)
-	return users
+	if err := r.db.Find(&users).Error; err != nil { return nil, err }
+	return users, nil
 }
 
 func (r *userRepo) GetByID(id uuid.UUID) (models.User, error) {

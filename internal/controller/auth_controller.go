@@ -14,6 +14,7 @@ import (
 	"github.com/onoja217/users-management-app/internal/auth"
 	"github.com/onoja217/users-management-app/internal/authz"
 	"github.com/onoja217/users-management-app/internal/audit"
+	"github.com/onoja217/users-management-app/internal/httpx"
 	"github.com/onoja217/users-management-app/internal/models"
 	"gorm.io/gorm"
 )
@@ -23,14 +24,14 @@ const minPasswordLength = 8
 var errResetExpired = errors.New("reset token expired")
 var errRefreshReused = errors.New("refresh token already rotated")
 
-type ForgotPasswordRequest struct { Email string `json:"email"` }
-type ResetPasswordRequest struct { Token string `json:"token"`; NewPassword string `json:"new_password"` }
-type ChangePasswordRequest struct { CurrentPassword string `json:"current_password"`; NewPassword string `json:"new_password"` }
-type RefreshRequest struct { RefreshToken string `json:"refresh_token"` }
-type LogoutRequest struct { RefreshToken string `json:"refresh_token"` }
-type RegisterRequest struct { Name string `json:"name"`; Email string `json:"email"`; Password string `json:"password"` }
-type LoginRequest struct { Email string `json:"email"`; Password string `json:"password"` }
-type AssignRoleRequest struct { Role string `json:"role"` }
+type ForgotPasswordRequest struct { Email string `json:"email" binding:"required,email,max=255"` }
+type ResetPasswordRequest struct { Token string `json:"token" binding:"required"`; NewPassword string `json:"new_password" binding:"required,min=8,max=128"` }
+type ChangePasswordRequest struct { CurrentPassword string `json:"current_password" binding:"required"`; NewPassword string `json:"new_password" binding:"required,min=8,max=128"` }
+type RefreshRequest struct { RefreshToken string `json:"refresh_token" binding:"required"` }
+type LogoutRequest struct { RefreshToken string `json:"refresh_token" binding:"required"` }
+type RegisterRequest struct { Name string `json:"name" binding:"required,min=2,max=100"`; Email string `json:"email" binding:"required,email,max=255"`; Password string `json:"password" binding:"required,min=8,max=128"` }
+type LoginRequest struct { Email string `json:"email" binding:"required,email,max=255"`; Password string `json:"password" binding:"required"` }
+type AssignRoleRequest struct { Role string `json:"role" binding:"required"` }
 
 
 type AuthController struct { DB *gorm.DB }
@@ -48,8 +49,7 @@ func newResetToken() (string, error) {
 func (ac *AuthController) ForgotPassword(c *gin.Context) {
 	var req ForgotPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
-		return
+		httpx.Validation(c, httpx.ValidationErrors(err)); return
 	}
 
 	var user models.User
@@ -78,9 +78,8 @@ func (ac *AuthController) ForgotPassword(c *gin.Context) {
 
 func (ac *AuthController) ResetPassword(c *gin.Context) {
 	var req ResetPasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil || !validPassword(req.NewPassword) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid password reset request"})
-		return
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Validation(c, httpx.ValidationErrors(err)); return
 	}
 
 	targetUserID := uuid.Nil
@@ -115,9 +114,8 @@ func (ac *AuthController) ResetPassword(c *gin.Context) {
 
 func (ac *AuthController) Register(c *gin.Context) {
 	var req RegisterRequest
-	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.Email) == "" || !validPassword(req.Password) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name, email and a password of at least 8 characters are required"})
-		return
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Validation(c, httpx.ValidationErrors(err)); return
 	}
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
@@ -136,8 +134,7 @@ func (ac *AuthController) Register(c *gin.Context) {
 func (ac *AuthController) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
-		return
+		httpx.Validation(c, httpx.ValidationErrors(err)); return
 	}
 	var user models.User
 	if err := ac.DB.Where("email = ?", strings.ToLower(strings.TrimSpace(req.Email))).First(&user).Error; err != nil || !user.Active || !auth.CheckPassword(user.PasswordHash, req.Password) {
@@ -161,9 +158,8 @@ func (ac *AuthController) Login(c *gin.Context) {
 
 func (ac *AuthController) Refresh(c *gin.Context) {
 	var req RefreshRequest
-	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.RefreshToken) == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid refresh request"})
-		return
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Validation(c, httpx.ValidationErrors(err)); return
 	}
 
 	var stored models.RefreshToken
@@ -202,9 +198,8 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 func (ac *AuthController) ChangePassword(c *gin.Context) {
 	userID := c.GetString("user_id")
 	var req ChangePasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil || !validPassword(req.NewPassword) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "new password must be at least 8 characters"})
-		return
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Validation(c, httpx.ValidationErrors(err)); return
 	}
 	var user models.User
 	if err := ac.DB.First(&user, "id = ? AND active = true", userID).Error; err != nil || !auth.CheckPassword(user.PasswordHash, req.CurrentPassword) {
@@ -253,8 +248,7 @@ func (ac *AuthController) RevokeSession(c *gin.Context) {
 func (ac *AuthController) Logout(c *gin.Context) {
 	var req LogoutRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
-		return
+		httpx.Validation(c, httpx.ValidationErrors(err)); return
 	}
 	var token models.RefreshToken
 	if err := ac.DB.Where("token = ? AND revoked = false", req.RefreshToken).First(&token).Error; err != nil {
@@ -327,9 +321,11 @@ func (ac *AuthController) AssignRole(c *gin.Context) {
     }
 
     var req AssignRoleRequest
-    if err := c.ShouldBindJSON(&req); err != nil || !authz.IsValidRole(req.Role) {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "invalid role"})
-        return
+    if err := c.ShouldBindJSON(&req); err != nil {
+        httpx.Validation(c, httpx.ValidationErrors(err)); return
+    }
+    if !authz.IsValidRole(req.Role) {
+        httpx.Error(c, http.StatusBadRequest, "invalid_role", "invalid role"); return
     }
 
     actorID, err := uuid.Parse(c.GetString("user_id"))

@@ -29,8 +29,6 @@ const (
     PermissionClassesManage = "classes.manage"
     PermissionSubjectsRead = "subjects.read"
     PermissionSubjectsManage = "subjects.manage"
-    PermissionAssignmentsRead = "assignments.read"
-    PermissionAssignmentsManage = "assignments.manage"
     PermissionEnrollmentRead = "enrollment.read"
     PermissionEnrollmentManage = "enrollment.manage"
     PermissionAttendanceRead = "attendance.read"

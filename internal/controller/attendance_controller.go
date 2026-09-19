@@ -16,10 +16,14 @@ import (
 type AttendanceController struct{ service *service.AttendanceService }
 func NewAttendanceController(s *service.AttendanceService) *AttendanceController { return &AttendanceController{service:s} }
 
+func parseAttendanceDate(value string) (time.Time, error) {
+    return time.Parse("2006-01-02", value)
+}
+
 type attendanceRequest struct {
     EnrollmentID uuid.UUID `json:"enrollment_id"`
     TermID uuid.UUID `json:"term_id"`
-    Date time.Time `json:"date"`
+    Date string `json:"date"`
     Status string `json:"status"`
     Note string `json:"note"`
 }
@@ -53,7 +57,9 @@ func (ctrl *AttendanceController) Create(c *gin.Context) {
     if err:=c.ShouldBindJSON(&req); err!=nil || req.EnrollmentID==uuid.Nil || req.TermID==uuid.Nil || req.Date.IsZero() || req.Status=="" {
         httpx.Error(c,400,"invalid_attendance_request","enrollment, term, date and status are required"); return
     }
-    item,err:=ctrl.service.Create(models.AttendanceRecord{EnrollmentID:req.EnrollmentID,TermID:req.TermID,Date:req.Date,Status:req.Status,Note:req.Note})
+    date,err:=parseAttendanceDate(req.Date)
+    if err!=nil { httpx.Error(c,400,"invalid_attendance_date","date must use YYYY-MM-DD format"); return }
+    item,err:=ctrl.service.Create(models.AttendanceRecord{EnrollmentID:req.EnrollmentID,TermID:req.TermID,Date:date,Status:req.Status,Note:req.Note})
     if err!=nil { attendanceError(c,err); return }
     actor,_:=uuid.Parse(c.GetString("user_id"))
     _=audit.Record(ctrl.service.DB(),c,&actor,"attendance.create","attendance_record",&item.ID,nil)
@@ -66,9 +72,11 @@ func (ctrl *AttendanceController) Update(c *gin.Context) {
     if err:=c.ShouldBindJSON(&req); err!=nil || req.EnrollmentID==uuid.Nil || req.TermID==uuid.Nil || req.Date.IsZero() || req.Status=="" {
         httpx.Error(c,400,"invalid_attendance_request","enrollment, term, date and status are required"); return
     }
+    date,err:=parseAttendanceDate(req.Date)
+    if err!=nil { httpx.Error(c,400,"invalid_attendance_date","date must use YYYY-MM-DD format"); return }
     item,err:=ctrl.service.Get(id)
     if err!=nil { attendanceError(c,err); return }
-    item.EnrollmentID=req.EnrollmentID; item.TermID=req.TermID; item.Date=req.Date; item.Status=req.Status; item.Note=req.Note
+    item.EnrollmentID=req.EnrollmentID; item.TermID=req.TermID; item.Date=date; item.Status=req.Status; item.Note=req.Note
     if err:=ctrl.service.Update(item); err!=nil { attendanceError(c,err); return }
     actor,_:=uuid.Parse(c.GetString("user_id"))
     _=audit.Record(ctrl.service.DB(),c,&actor,"attendance.update","attendance_record",&item.ID,nil)

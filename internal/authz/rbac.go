@@ -31,11 +31,11 @@ var rolePermissions = map[string]map[string]bool{
         PermissionUsersDelete: true, PermissionUsersActivate: true, PermissionUsersDeactivate: true,
         PermissionStudentsRead: true, PermissionStudentsCreate: true, PermissionStudentsUpdate: true, PermissionStudentsDelete: true,
         PermissionRolesAssign: true, PermissionAuditRead: true,
-        PermissionStudentsRead: true, PermissionStudentsCreate: true, PermissionStudentsUpdate: true, PermissionStudentsDelete: true,
     },
     RoleSchoolAdmin: {
         PermissionUsersRead: true, PermissionUsersCreate: true, PermissionUsersUpdate: true,
         PermissionUsersActivate: true, PermissionUsersDeactivate: true,
+        PermissionStudentsRead: true, PermissionStudentsCreate: true, PermissionStudentsUpdate: true, PermissionStudentsDelete: true,
     },
     RoleTeacher: {},
     RoleStudent: {},

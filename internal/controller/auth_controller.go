@@ -19,6 +19,7 @@ import (
 const minPasswordLength = 8
 
 var errResetExpired = errors.New("reset token expired")
+var errRefreshReused = errors.New("refresh token already rotated")
 
 type ForgotPasswordRequest struct { Email string `json:"email"` }
 type ResetPasswordRequest struct { Token string `json:"token"`; NewPassword string `json:"new_password"` }
@@ -173,12 +174,18 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate refresh token"}); return }
 
 	err = ac.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&models.RefreshToken{}).Where("id = ? AND revoked = false", stored.ID).Update("revoked", true).Error; err != nil { return err }
+		result := tx.Model(&models.RefreshToken{}).Where("id = ? AND revoked = false", stored.ID).Update("revoked", true)
+		if result.Error != nil { return result.Error }
+		if result.RowsAffected != 1 { return errRefreshReused }
 		expiry := time.Now().Add(auth.RefreshTokenTTL)
 		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, Token: newRefreshToken, ExpiresAt: expiry}).Error; err != nil { return err }
 		if err := tx.Model(&models.Session{}).Where("refresh_token = ? AND revoked = false", req.RefreshToken).Updates(map[string]interface{}{"refresh_token": newRefreshToken, "expires_at": expiry}).Error; err != nil { return err }
 		return nil
 	})
+	if errors.Is(err, errRefreshReused) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or already used refresh token"})
+		return
+	}
 	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rotate refresh token"}); return }
 	c.JSON(http.StatusOK, gin.H{"access_token": accessToken, "refresh_token": newRefreshToken})
 }

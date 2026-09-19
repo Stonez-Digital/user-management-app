@@ -97,6 +97,21 @@ func Migrate(db *gorm.DB) error {
                 return tx.AutoMigrate(&models.SchoolClass{}, &models.Section{})
             },
         },
+        {
+            Version: 5,
+            Name:    "subjects",
+            Up: func(tx *gorm.DB) error { return tx.AutoMigrate(&models.Subject{}) },
+        },
+        {
+            Version: 6,
+            Name:    "teacher_assignments",
+            Up: func(tx *gorm.DB) error { return tx.AutoMigrate(&models.TeacherAssignment{}) },
+        },
+        {
+            Version: 7,
+            Name:    "student_enrollment",
+            Up: func(tx *gorm.DB) error { return tx.AutoMigrate(&models.StudentEnrollment{}) },
+        },
     }
 
     for _, migration := range migrations {

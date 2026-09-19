@@ -5,7 +5,7 @@ import Link from "next/link";
 
 type Enrollment={id:string;status:string;student?:{admission_number:string;user?:{name:string}};academic_session?:{id:string;name:string};class?:{name:string};section?:{name:string}};
 type Term={id:string;name:string;status:string;start_date:string;end_date:string};
-type Attendance={id:string;date:string;status:string;note?:string;enrollment?:Enrollment;term?:Term};
+type Attendance={id:string;date:string;status:string;note?:string;enrollment_id?:string;term_id?:string;enrollment?:Enrollment;term?:Term};
 
 async function api(path:string,options:RequestInit={}) {
   const token=localStorage.getItem("access_token");

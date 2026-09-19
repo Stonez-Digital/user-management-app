@@ -18,6 +18,8 @@ import (
 
 const minPasswordLength = 8
 
+var errResetExpired = errors.New("reset token expired")
+
 type ForgotPasswordRequest struct { Email string `json:"email"` }
 type ResetPasswordRequest struct { Token string `json:"token"`; NewPassword string `json:"new_password"` }
 type ChangePasswordRequest struct { CurrentPassword string `json:"current_password"`; NewPassword string `json:"new_password"` }
@@ -81,7 +83,7 @@ func (ac *AuthController) ResetPassword(c *gin.Context) {
 		if err := tx.Where("token = ? AND used = false", req.Token).First(&reset).Error; err != nil {
 			return gorm.ErrRecordNotFound
 		}
-		if time.Now().After(reset.ExpiresAt) { return errors.New("reset token expired") }
+		if time.Now().After(reset.ExpiresAt) { return errResetExpired }
 
 		hash, err := auth.HashPassword(req.NewPassword)
 		if err != nil { return err }
@@ -92,7 +94,7 @@ func (ac *AuthController) ResetPassword(c *gin.Context) {
 		if err := tx.Model(&models.RefreshToken{}).Where("user_id = ?", reset.UserID).Update("revoked", true).Error; err != nil { return err }
 		return tx.Model(&models.Session{}).Where("user_id = ?", reset.UserID).Update("revoked", true).Error
 	})
-	if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, errors.New("reset token expired")) {
+	if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, errResetExpired) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired reset token"})
 		return
 	}

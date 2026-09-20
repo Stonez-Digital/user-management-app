@@ -2,6 +2,7 @@ package service
 
 import("errors";"strings";"github.com/google/uuid";"github.com/onoja217/users-management-app/internal/authz";"github.com/onoja217/users-management-app/internal/models";"github.com/onoja217/users-management-app/internal/repository";"gorm.io/gorm")
 var(ErrGuardianInvalid=errors.New("invalid guardian relationship");ErrGuardianForbidden=errors.New("guardian is not linked to student"))
+// GuardianService exposes only data reachable through an active guardian relationship.
 type GuardianService struct{repo repository.GuardianRepository;db *gorm.DB}
 func NewGuardianService(r repository.GuardianRepository,db *gorm.DB)*GuardianService{return &GuardianService{repo:r,db:db}}
 func(s *GuardianService)DB()*gorm.DB{return s.db}

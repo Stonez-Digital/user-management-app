@@ -5,6 +5,8 @@ import (
     "os"
 
     "github.com/onoja217/users-management-app/internal/models"
+    "github.com/onoja217/users-management-app/internal/auth"
+    "github.com/google/uuid"
     "gorm.io/driver/postgres"
     "gorm.io/driver/sqlite"
     "gorm.io/gorm"
@@ -46,6 +48,54 @@ func Migrate(db *gorm.DB) error {
         {Version:10,Name:"timetable",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.TimetableEntry{})}},
         {Version:11,Name:"guardian_relationships",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.GuardianRelationship{})}},
         {Version:12,Name:"notifications",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.Announcement{},&models.Notification{})}},
+        {Version:13,Name:"hash_refresh_tokens",Up:func(tx *gorm.DB) error {
+            if err:=tx.AutoMigrate(&models.RefreshToken{},&models.Session{});err!=nil{return err}
+            var tokens []struct{ID uuid.UUID; Token string}
+            if tx.Migrator().HasColumn(&models.RefreshToken{},"token") {
+                if err:=tx.Raw("SELECT id, token FROM refresh_tokens WHERE token IS NOT NULL AND token <> ''").Scan(&tokens).Error;err!=nil{return err}
+            }
+            for _,token:=range tokens {
+                if err:=tx.Model(&models.RefreshToken{}).Where("id = ?",token.ID).Update("token_hash",auth.HashRefreshToken(token.Token)).Error;err!=nil{return err}
+            }
+            var sessions []struct{ID uuid.UUID; RefreshToken string}
+            if tx.Migrator().HasColumn(&models.Session{},"refresh_token") {
+                if err:=tx.Raw("SELECT id, refresh_token FROM sessions WHERE refresh_token IS NOT NULL AND refresh_token <> ''").Scan(&sessions).Error;err!=nil{return err}
+            }
+            for _,session:=range sessions {
+                if err:=tx.Model(&models.Session{}).Where("id = ?",session.ID).Update("refresh_token_hash",auth.HashRefreshToken(session.RefreshToken)).Error;err!=nil{return err}
+            }
+            if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_refresh_tokens_token_hash ON refresh_tokens(token_hash)").Error;err!=nil{return err}
+            if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_refresh_token_hash ON sessions(refresh_token_hash)").Error;err!=nil{return err}
+            if tx.Migrator().HasColumn(&models.RefreshToken{},"token") { if err:=tx.Migrator().DropColumn(&models.RefreshToken{},"token");err!=nil{return err} }
+            if tx.Migrator().HasColumn(&models.Session{},"refresh_token") { if err:=tx.Migrator().DropColumn(&models.Session{},"refresh_token");err!=nil{return err} }
+            return nil
+        }},
+        {Version:14,Name:"refresh_token_families",Up:func(tx *gorm.DB) error {
+            if err:=tx.AutoMigrate(&models.RefreshToken{},&models.Session{});err!=nil{return err}
+            var sessions []models.Session
+            if err:=tx.Find(&sessions).Error;err!=nil{return err}
+            for _,session:=range sessions {
+                if session.FamilyID != uuid.Nil {continue}
+                familyID:=uuid.New()
+                if session.RefreshTokenHash!="" {
+                    var token models.RefreshToken
+                    if err:=tx.Where("token_hash = ?",session.RefreshTokenHash).First(&token).Error;err==nil {
+                        familyID=token.FamilyID
+                        if familyID==uuid.Nil {
+                            familyID=uuid.New()
+                            if err:=tx.Model(&token).Update("family_id",familyID).Error;err!=nil{return err}
+                        }
+                    }
+                }
+                if err:=tx.Model(&session).Update("family_id",familyID).Error;err!=nil{return err}
+            }
+            var tokens []models.RefreshToken
+            if err:=tx.Where("family_id = ?",uuid.Nil).Find(&tokens).Error;err!=nil{return err}
+            for _,token:=range tokens {
+                if err:=tx.Model(&token).Update("family_id",uuid.New()).Error;err!=nil{return err}
+            }
+            return nil
+        }},
     }
     for _,migration:=range migrations{
         var applied Migration

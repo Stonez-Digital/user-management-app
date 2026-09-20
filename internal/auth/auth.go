@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -60,6 +62,11 @@ func GenerateToken(userID, role string) (string, error) {
 		IssuedAt: jwt.NewNumericDate(time.Now()),
 	}}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(Secret)
+}
+
+func HashRefreshToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 func GenerateRefreshToken(userID string) (string, error) {

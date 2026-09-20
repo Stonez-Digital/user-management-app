@@ -30,6 +30,7 @@ func(s *AssessmentResultService) TeacherCreate(schoolID,teacherID uuid.UUID,v mo
  if a.TeacherAssignment.TeacherID!=teacherID||!a.TeacherAssignment.Active{return v,ErrResultAssessmentMissing}
  return s.Create(schoolID,v)
 }
+func(s *AssessmentResultService)List(schoolID uuid.UUID)([]models.AssessmentResult,error){return s.repo.List(schoolID)}
 func(s *AssessmentResultService)Get(schoolID,id uuid.UUID)(models.AssessmentResult,error){v,e:=s.repo.Get(schoolID,id);if errors.Is(e,gorm.ErrRecordNotFound){return v,ErrResultNotFound};return v,e}
 func(s *AssessmentResultService)Update(schoolID uuid.UUID,v models.AssessmentResult)error{if _,e:=s.Get(schoolID,v.ID);e!=nil{return e};v.SchoolID=schoolID;if e:=s.validate(schoolID,v);e!=nil{return e};var x models.AssessmentResult;e:=s.db.Where("school_id = ? AND assessment_id = ? AND student_enrollment_id = ? AND id <> ?",schoolID,v.AssessmentID,v.StudentEnrollmentID,v.ID).First(&x).Error;if e==nil{return ErrResultDuplicate};if !errors.Is(e,gorm.ErrRecordNotFound){return e};return s.repo.Update(schoolID,v)}
 func(s *AssessmentResultService)Delete(schoolID,id uuid.UUID)error{if _,e:=s.Get(schoolID,id);e!=nil{return e};return s.repo.Delete(schoolID,id)}

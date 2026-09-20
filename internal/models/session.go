@@ -9,7 +9,7 @@ import (
 type Session struct {
 	ID           uuid.UUID `gorm:"type:uuid;primaryKey"`
 	UserID       uuid.UUID `gorm:"type:uuid;index"`
-	RefreshToken string `gorm:"uniqueIndex" json:"-"`
+	RefreshTokenHash string `gorm:"uniqueIndex;size:64" json:"-"`
 
 	ExpiresAt time.Time
 	Revoked   bool `gorm:"default:false"`

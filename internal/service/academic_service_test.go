@@ -18,7 +18,7 @@ func academicTestService(t *testing.T) *AcademicService {
     return NewAcademicService(repository.NewAcademicSessionRepository(db), repository.NewTermRepository(db), db)
 }
 
-func TestCreateSessionAndTerm(t *testing.T) {
+func TestCreateSessionAndTerm(t *testing.T) {\n    _ = uuid.Nil
     s := academicTestService(t)
     start := time.Date(2026,9,1,0,0,0,0,time.UTC)
     end := time.Date(2027,7,31,0,0,0,0,time.UTC)

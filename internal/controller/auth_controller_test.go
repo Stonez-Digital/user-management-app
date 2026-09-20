@@ -19,6 +19,7 @@ import (
 
 func authControllerTestDB(t *testing.T) *gorm.DB {
     t.Helper()
+    if err := auth.ConfigureSecret("test-auth-secret-for-controller-tests-32chars"); err != nil { t.Fatal(err) }
     db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
     if err != nil { t.Fatal(err) }
     if err := db.AutoMigrate(&models.User{}, &models.RefreshToken{}, &models.Session{}); err != nil { t.Fatal(err) }

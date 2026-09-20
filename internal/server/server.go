@@ -51,16 +51,6 @@ func (l *rateLimiter) allow(key string, now time.Time) (bool, int) {
 	return true, authRateLimit - entry.count
 }
 
-func (l *rateLimiter) cleanup(now time.Time) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	for key, entry := range l.entries {
-		if now.Sub(entry.windowStart) >= authRateWindow {
-			delete(l.entries, key)
-		}
-	}
-}
-
 func ValidateEnvironment() error {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
 		if strings.TrimSpace(os.Getenv("DB_DRIVER")) != "postgres" {
@@ -130,14 +120,6 @@ func Configure(r *gin.Engine) {
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
-
-	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
-		defer ticker.Stop()
-		for now := range ticker.C {
-			limiter.cleanup(now)
-		}
-	}()
 }
 
 func configuredOrigins() map[string]bool {

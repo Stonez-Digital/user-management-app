@@ -41,6 +41,10 @@ func enrollmentError(c *gin.Context, err error) {
 	}
 }
 
+func (ctrl *EnrollmentController) TeacherList(c *gin.Context) { schoolID,ok:=requireSchoolID(c);if !ok{return}
+ teacherID,e:=uuid.Parse(c.GetString("user_id"));if e!=nil{httpx.Error(c,401,"invalid_user","invalid authenticated user");return}
+ items,e:=ctrl.service.ListForTeacher(schoolID,teacherID);if e!=nil{enrollmentError(c,e);return};c.JSON(http.StatusOK,items)
+}
 func (ctrl *EnrollmentController) List(c *gin.Context) { schoolID,ok:=requireSchoolID(c);if !ok{return}
 	items, err := ctrl.service.List(schoolID)
 	if err != nil { enrollmentError(c, err); return }

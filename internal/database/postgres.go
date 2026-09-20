@@ -260,6 +260,99 @@ func Migrate(db *gorm.DB) error {
             return nil
         }},
     }
+        {Version:18,Name:"database_tenant_integrity_constraints",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+
+            checks:=[]struct{name,query string}{
+                {"students.users","SELECT COUNT(*) FROM students s JOIN users u ON u.id=s.user_id WHERE s.school_id<>u.school_id"},
+                {"terms.sessions","SELECT COUNT(*) FROM terms t JOIN academic_sessions s ON s.id=t.academic_session_id WHERE t.school_id<>s.school_id"},
+                {"sections.classes","SELECT COUNT(*) FROM sections s JOIN school_classes c ON c.id=s.class_id WHERE s.school_id<>c.school_id"},
+                {"enrollments.students","SELECT COUNT(*) FROM student_enrollments e JOIN students s ON s.id=e.student_id WHERE e.school_id<>s.school_id"},
+                {"enrollments.sessions","SELECT COUNT(*) FROM student_enrollments e JOIN academic_sessions s ON s.id=e.academic_session_id WHERE e.school_id<>s.school_id"},
+                {"enrollments.classes","SELECT COUNT(*) FROM student_enrollments e JOIN school_classes c ON c.id=e.class_id WHERE e.school_id<>c.school_id"},
+                {"enrollments.sections","SELECT COUNT(*) FROM student_enrollments e JOIN sections s ON s.id=e.section_id WHERE e.school_id<>s.school_id"},
+                {"attendance.enrollments","SELECT COUNT(*) FROM attendance_records a JOIN student_enrollments e ON e.id=a.enrollment_id WHERE a.school_id<>e.school_id"},
+                {"attendance.terms","SELECT COUNT(*) FROM attendance_records a JOIN terms t ON t.id=a.term_id WHERE a.school_id<>t.school_id"},
+                {"teacher_assignments.teachers","SELECT COUNT(*) FROM teacher_assignments ta JOIN users u ON u.id=ta.teacher_id WHERE ta.school_id<>u.school_id"},
+                {"teacher_assignments.subjects","SELECT COUNT(*) FROM teacher_assignments ta JOIN subjects s ON s.id=ta.subject_id WHERE ta.school_id<>s.school_id"},
+                {"teacher_assignments.sessions","SELECT COUNT(*) FROM teacher_assignments ta JOIN academic_sessions s ON s.id=ta.academic_session_id WHERE ta.school_id<>s.school_id"},
+                {"teacher_assignments.terms","SELECT COUNT(*) FROM teacher_assignments ta JOIN terms t ON t.id=ta.term_id WHERE ta.school_id<>t.school_id"},
+                {"teacher_assignments.classes","SELECT COUNT(*) FROM teacher_assignments ta JOIN school_classes c ON c.id=ta.class_id WHERE ta.school_id<>c.school_id"},
+                {"teacher_assignments.sections","SELECT COUNT(*) FROM teacher_assignments ta JOIN sections s ON s.id=ta.section_id WHERE ta.section_id IS NOT NULL AND ta.school_id<>s.school_id"},
+                {"assessments.assignments","SELECT COUNT(*) FROM assessments a JOIN teacher_assignments ta ON ta.id=a.teacher_assignment_id WHERE a.school_id<>ta.school_id"},
+                {"results.assessments","SELECT COUNT(*) FROM assessment_results r JOIN assessments a ON a.id=r.assessment_id WHERE r.school_id<>a.school_id"},
+                {"results.enrollments","SELECT COUNT(*) FROM assessment_results r JOIN student_enrollments e ON e.id=r.student_enrollment_id WHERE r.school_id<>e.school_id"},
+                {"fee_items.terms","SELECT COUNT(*) FROM fee_items f JOIN terms t ON t.id=f.term_id WHERE f.school_id<>t.school_id"},
+                {"invoices.enrollments","SELECT COUNT(*) FROM invoices i JOIN student_enrollments e ON e.id=i.student_enrollment_id WHERE i.school_id<>e.school_id"},
+                {"invoices.terms","SELECT COUNT(*) FROM invoices i JOIN terms t ON t.id=i.term_id WHERE i.school_id<>t.school_id"},
+                {"invoice_lines.invoices","SELECT COUNT(*) FROM invoice_lines l JOIN invoices i ON i.id=l.invoice_id WHERE l.school_id<>i.school_id"},
+                {"invoice_lines.fee_items","SELECT COUNT(*) FROM invoice_lines l JOIN fee_items f ON f.id=l.fee_item_id WHERE l.fee_item_id IS NOT NULL AND l.school_id<>f.school_id"},
+                {"payments.invoices","SELECT COUNT(*) FROM payments p JOIN invoices i ON i.id=p.invoice_id WHERE p.school_id<>i.school_id"},
+                {"timetable.sessions","SELECT COUNT(*) FROM timetable_entries t JOIN academic_sessions s ON s.id=t.academic_session_id WHERE t.school_id<>s.school_id"},
+                {"timetable.terms","SELECT COUNT(*) FROM timetable_entries t JOIN terms x ON x.id=t.term_id WHERE t.school_id<>x.school_id"},
+                {"timetable.assignments","SELECT COUNT(*) FROM timetable_entries t JOIN teacher_assignments a ON a.id=t.teacher_assignment_id WHERE t.school_id<>a.school_id"},
+                {"timetable.classes","SELECT COUNT(*) FROM timetable_entries t JOIN school_classes c ON c.id=t.class_id WHERE t.school_id<>c.school_id"},
+                {"timetable.sections","SELECT COUNT(*) FROM timetable_entries t JOIN sections s ON s.id=t.section_id WHERE t.section_id IS NOT NULL AND t.school_id<>s.school_id"},
+                {"guardians.users","SELECT COUNT(*) FROM guardian_relationships g JOIN users u ON u.id=g.guardian_user_id WHERE g.school_id<>u.school_id"},
+                {"guardians.students","SELECT COUNT(*) FROM guardian_relationships g JOIN students s ON s.id=g.student_id WHERE g.school_id<>s.school_id"},
+                {"announcements.users","SELECT COUNT(*) FROM announcements a JOIN users u ON u.id=a.created_by WHERE a.school_id<>u.school_id"},
+                {"announcements.classes","SELECT COUNT(*) FROM announcements a JOIN school_classes c ON c.id=a.class_id WHERE a.class_id IS NOT NULL AND a.school_id<>c.school_id"},
+                {"notifications.users","SELECT COUNT(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.school_id<>u.school_id"},
+                {"notifications.announcements","SELECT COUNT(*) FROM notifications n JOIN announcements a ON a.id=n.announcement_id WHERE n.announcement_id IS NOT NULL AND n.school_id<>a.school_id"},
+            }
+            for _,check:=range checks {
+                var count int64
+                if err:=tx.Raw(check.query).Scan(&count).Error;err!=nil{return fmt.Errorf("check %s tenant consistency: %w",check.name,err)}
+                if count!=0{return fmt.Errorf("tenant consistency violation in %s: %d rows",check.name,count)}
+            }
+
+            parentTables:=[]string{"users","students","academic_sessions","terms","school_classes","sections","subjects","student_enrollments","teacher_assignments","assessments","assessment_results","fee_items","invoices","announcements"}
+            for _,table:=range parentTables {
+                if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_"+table+"_school_id ON "+table+"(school_id,id)").Error;err!=nil{return err}
+            }
+
+            constraints:=[]struct{name,table,columns,parent string}{
+                {"student_user_school_fk","students","school_id,user_id","users(school_id,id)"},
+                {"term_session_school_fk","terms","school_id,academic_session_id","academic_sessions(school_id,id)"},
+                {"section_class_school_fk","sections","school_id,class_id","school_classes(school_id,id)"},
+                {"enrollment_student_school_fk","student_enrollments","school_id,student_id","students(school_id,id)"},
+                {"enrollment_session_school_fk","student_enrollments","school_id,academic_session_id","academic_sessions(school_id,id)"},
+                {"enrollment_class_school_fk","student_enrollments","school_id,class_id","school_classes(school_id,id)"},
+                {"enrollment_section_school_fk","student_enrollments","school_id,section_id","sections(school_id,id)"},
+                {"attendance_enrollment_school_fk","attendance_records","school_id,enrollment_id","student_enrollments(school_id,id)"},
+                {"attendance_term_school_fk","attendance_records","school_id,term_id","terms(school_id,id)"},
+                {"teacher_assignment_teacher_school_fk","teacher_assignments","school_id,teacher_id","users(school_id,id)"},
+                {"teacher_assignment_subject_school_fk","teacher_assignments","school_id,subject_id","subjects(school_id,id)"},
+                {"teacher_assignment_session_school_fk","teacher_assignments","school_id,academic_session_id","academic_sessions(school_id,id)"},
+                {"teacher_assignment_term_school_fk","teacher_assignments","school_id,term_id","terms(school_id,id)"},
+                {"teacher_assignment_class_school_fk","teacher_assignments","school_id,class_id","school_classes(school_id,id)"},
+                {"teacher_assignment_section_school_fk","teacher_assignments","school_id,section_id","sections(school_id,id)"},
+                {"assessment_assignment_school_fk","assessments","school_id,teacher_assignment_id","teacher_assignments(school_id,id)"},
+                {"result_assessment_school_fk","assessment_results","school_id,assessment_id","assessments(school_id,id)"},
+                {"result_enrollment_school_fk","assessment_results","school_id,student_enrollment_id","student_enrollments(school_id,id)"},
+                {"fee_item_term_school_fk","fee_items","school_id,term_id","terms(school_id,id)"},
+                {"invoice_enrollment_school_fk","invoices","school_id,student_enrollment_id","student_enrollments(school_id,id)"},
+                {"invoice_term_school_fk","invoices","school_id,term_id","terms(school_id,id)"},
+                {"invoice_line_invoice_school_fk","invoice_lines","school_id,invoice_id","invoices(school_id,id)"},
+                {"invoice_line_fee_item_school_fk","invoice_lines","school_id,fee_item_id","fee_items(school_id,id)"},
+                {"payment_invoice_school_fk","payments","school_id,invoice_id","invoices(school_id,id)"},
+                {"timetable_session_school_fk","timetable_entries","school_id,academic_session_id","academic_sessions(school_id,id)"},
+                {"timetable_term_school_fk","timetable_entries","school_id,term_id","terms(school_id,id)"},
+                {"timetable_assignment_school_fk","timetable_entries","school_id,teacher_assignment_id","teacher_assignments(school_id,id)"},
+                {"timetable_class_school_fk","timetable_entries","school_id,class_id","school_classes(school_id,id)"},
+                {"timetable_section_school_fk","timetable_entries","school_id,section_id","sections(school_id,id)"},
+                {"guardian_user_school_fk","guardian_relationships","school_id,guardian_user_id","users(school_id,id)"},
+                {"guardian_student_school_fk","guardian_relationships","school_id,student_id","students(school_id,id)"},
+                {"announcement_user_school_fk","announcements","school_id,created_by","users(school_id,id)"},
+                {"announcement_class_school_fk","announcements","school_id,class_id","school_classes(school_id,id)"},
+                {"notification_user_school_fk","notifications","school_id,user_id","users(school_id,id)"},
+                {"notification_announcement_school_fk","notifications","school_id,announcement_id","announcements(school_id,id)"},
+            }
+            for _,fk:=range constraints {
+                if err:=tx.Exec("ALTER TABLE "+fk.table+" ADD CONSTRAINT "+fk.name+" FOREIGN KEY ("+fk.columns+") REFERENCES "+fk.parent+" ON UPDATE CASCADE ON DELETE RESTRICT").Error;err!=nil{return fmt.Errorf("add %s: %w",fk.name,err)}
+            }
+            return nil
+        }},
     for _,migration:=range migrations{
         var applied Migration
         result:=db.Where("version = ?",migration.Version).First(&applied)

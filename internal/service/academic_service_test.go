@@ -57,3 +57,29 @@ func TestOnlyOneActiveSession(t *testing.T) {
     if err != nil { t.Fatal(err) }
     if old.Status == models.AcademicStatusActive { t.Fatal("expected previous active session to be closed") }
 }
+
+
+func TestAcademicSessionsAreIsolatedBySchool(t *testing.T) {
+    s := academicTestService(t)
+    firstSchool := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+    secondSchool := uuid.MustParse("00000000-0000-0000-0000-000000000002")
+    start := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+    end := time.Date(2027, 7, 31, 0, 0, 0, 0, time.UTC)
+
+    first, err := s.CreateSession(firstSchool, models.AcademicSession{Name: "2026/2027", StartDate: start, EndDate: end})
+    if err != nil { t.Fatal(err) }
+    second, err := s.CreateSession(secondSchool, models.AcademicSession{Name: "2026/2027", StartDate: start, EndDate: end})
+    if err != nil { t.Fatal(err) }
+
+    firstSessions, err := s.GetSessions(firstSchool)
+    if err != nil { t.Fatal(err) }
+    secondSessions, err := s.GetSessions(secondSchool)
+    if err != nil { t.Fatal(err) }
+
+    if len(firstSessions) != 1 || firstSessions[0].ID != first.ID { t.Fatalf("unexpected first-school sessions: %+v", firstSessions) }
+    if len(secondSessions) != 1 || secondSessions[0].ID != second.ID { t.Fatalf("unexpected second-school sessions: %+v", secondSessions) }
+
+    if _, err := s.GetSession(firstSchool, second.ID); err != ErrAcademicSessionNotFound {
+        t.Fatalf("expected cross-school session lookup to be hidden, got %v", err)
+    }
+}

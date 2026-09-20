@@ -86,7 +86,7 @@ func(s *FinanceService)CreatePayment(v models.Payment)(models.Payment,error){
     }
     if v.ReceiptNumber==""{v.ReceiptNumber=fmt.Sprintf("RCT-%s-%s",time.Now().UTC().Format("20060102"),uuid.NewString()[:8])}
     if v.Metadata!=""{var raw interface{};if json.Unmarshal([]byte(v.Metadata),&raw)!=nil{return v,ErrPaymentInvalid}}
-    err=s.db.Transaction(func(tx *gorm.DB)error{
+    err:=s.db.Transaction(func(tx *gorm.DB)error{
         if e:=tx.Create(&v).Error;e!=nil{return e}
         if v.Status==models.PaymentStatusSucceeded{
             var sum float64

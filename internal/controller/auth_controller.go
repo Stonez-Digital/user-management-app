@@ -169,8 +169,13 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 		return
 	}
 	if stored.Revoked {
-		_ = ac.DB.Model(&models.RefreshToken{}).Where("family_id = ?", stored.FamilyID).Updates(map[string]interface{}{"revoked": true})
-		_ = ac.DB.Model(&models.Session{}).Where("family_id = ?", stored.FamilyID).Updates(map[string]interface{}{"revoked": true})
+		_ = ac.DB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Model(&models.RefreshToken{}).Where("family_id = ?", stored.FamilyID).Updates(map[string]interface{}{"revoked": true}).Error; err != nil {
+				return err
+			}
+			return tx.Model(&models.Session{}).Where("family_id = ?", stored.FamilyID).Updates(map[string]interface{}{"revoked": true}).Error
+		})
+		_ = audit.Record(ac.DB, c, &stored.UserID, "security.refresh_token_reuse", "user", &stored.UserID, map[string]interface{}{"family_id": stored.FamilyID.String()})
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or already used refresh token; session revoked"})
 		return
 	}
@@ -200,8 +205,13 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 		return nil
 	})
 	if errors.Is(err, errRefreshReused) {
-		_ = ac.DB.Model(&models.RefreshToken{}).Where("family_id = ?", stored.FamilyID).Updates(map[string]interface{}{"revoked": true})
-		_ = ac.DB.Model(&models.Session{}).Where("family_id = ?", stored.FamilyID).Updates(map[string]interface{}{"revoked": true})
+		_ = ac.DB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Model(&models.RefreshToken{}).Where("family_id = ?", stored.FamilyID).Updates(map[string]interface{}{"revoked": true}).Error; err != nil {
+				return err
+			}
+			return tx.Model(&models.Session{}).Where("family_id = ?", stored.FamilyID).Updates(map[string]interface{}{"revoked": true}).Error
+		})
+		_ = audit.Record(ac.DB, c, &stored.UserID, "security.refresh_token_reuse", "user", &stored.UserID, map[string]interface{}{"family_id": stored.FamilyID.String()})
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or already used refresh token; session revoked"})
 		return
 	}

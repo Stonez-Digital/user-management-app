@@ -57,7 +57,7 @@ var rolePermissions = map[string]map[string]bool{
     RoleSchoolAdmin: {
         PermissionUsersRead: true, PermissionUsersCreate: true, PermissionUsersUpdate: true,
         PermissionUsersActivate: true, PermissionUsersDeactivate: true,
-        PermissionStudentsRead: true, PermissionStudentsCreate: true, PermissionStudentsUpdate: true, PermissionStudentsDelete: true, PermissionAcademicRead: true, PermissionAcademicManage: true, PermissionClassesRead: true, PermissionClassesManage: true, PermissionSubjectsRead: true, PermissionSubjectsManage: true, PermissionAssignmentsRead: true, PermissionAssignmentsManage: true, PermissionEnrollmentRead: true, PermissionEnrollmentManage: true, PermissionAttendanceRead: true, PermissionAttendanceManage: true, PermissionAssessmentsRead: true, PermissionAssessmentsManage: true, PermissionResultsRead: true, PermissionResultsManage: true, PermissionFeesRead: true, PermissionInvoicesRead: true, PermissionPaymentsRead: true,
+        PermissionStudentsRead: true, PermissionStudentsCreate: true, PermissionStudentsUpdate: true, PermissionStudentsDelete: true, PermissionAcademicRead: true, PermissionAcademicManage: true, PermissionClassesRead: true, PermissionClassesManage: true, PermissionSubjectsRead: true, PermissionSubjectsManage: true, PermissionAssignmentsRead: true, PermissionAssignmentsManage: true, PermissionEnrollmentRead: true, PermissionEnrollmentManage: true, PermissionAttendanceRead: true, PermissionAttendanceManage: true, PermissionAssessmentsRead: true, PermissionAssessmentsManage: true, PermissionResultsRead: true, PermissionResultsManage: true, PermissionFeesRead: true, PermissionFeesManage: true, PermissionInvoicesRead: true, PermissionInvoicesManage: true, PermissionPaymentsRead: true, PermissionPaymentsManage: true,
     },
     RoleTeacher: {
         PermissionAcademicRead: true, PermissionClassesRead: true, PermissionSubjectsRead: true,
@@ -68,7 +68,7 @@ var rolePermissions = map[string]map[string]bool{
     },
     RoleStudent: {},
     RoleParent: {},
-    RoleAccountant: {},
+    RoleAccountant: { PermissionFeesRead: true, PermissionFeesManage: true, PermissionInvoicesRead: true, PermissionInvoicesManage: true, PermissionPaymentsRead: true, PermissionPaymentsManage: true },
     RoleStaff: {},
 }
 

@@ -43,8 +43,8 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     if err := db.Model(&Migration{}).Count(&migrationCount).Error; err != nil {
         t.Fatal(err)
     }
-    if migrationCount != 18 {
-        t.Fatalf("expected 18 migrations, got %d", migrationCount)
+    if migrationCount != 19 {
+        t.Fatalf("expected 19 migrations, got %d", migrationCount)
     }
 
     var nullable int64

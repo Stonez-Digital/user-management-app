@@ -352,6 +352,19 @@ func Migrate(db *gorm.DB) error {
             }
             return nil
         }},
+        {Version:19,Name:"align_tenant_relationship_delete_semantics",Up:func(tx *gorm.DB) error {
+        if tx.Dialector.Name()!="postgres" { return nil }
+        changes:=[]struct{table,name,parent,onDelete string}{
+            {"sections","section_class_school_fk","school_classes(school_id,id)","CASCADE"},
+            {"terms","term_session_school_fk","academic_sessions(school_id,id)","CASCADE"},
+            {"invoice_lines","invoice_line_invoice_school_fk","invoices(school_id,id)","CASCADE"},
+        }
+        for _,v:=range changes {
+            if err:=tx.Exec("ALTER TABLE "+v.table+" DROP CONSTRAINT IF EXISTS "+v.name).Error;err!=nil{return err}
+            if err:=tx.Exec("ALTER TABLE "+v.table+" ADD CONSTRAINT "+v.name+" FOREIGN KEY (school_id,"+map[string]string{"section_class_school_fk":"class_id","term_session_school_fk":"academic_session_id","invoice_line_invoice_school_fk":"invoice_id"}[v.name]+") REFERENCES "+v.parent+" ON UPDATE CASCADE ON DELETE "+v.onDelete).Error;err!=nil{return fmt.Errorf("recreate %s: %w",v.name,err)}
+        }
+        return nil
+    }},
     }
     for _,migration:=range migrations{
         var applied Migration

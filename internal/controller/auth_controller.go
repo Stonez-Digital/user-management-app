@@ -15,6 +15,7 @@ import (
 	"github.com/onoja217/users-management-app/internal/authz"
 	"github.com/onoja217/users-management-app/internal/audit"
 	"github.com/onoja217/users-management-app/internal/httpx"
+	"github.com/onoja217/users-management-app/internal/middleware"
 	"github.com/onoja217/users-management-app/internal/models"
 	"gorm.io/gorm"
 )
@@ -310,8 +311,13 @@ func (ac *AuthController) setUserActive(c *gin.Context, active bool) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
 		return
 	}
+	schoolID, ok := middleware.SchoolIDFromContext(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "school context required"})
+		return
+	}
 	var user models.User
-	if err := ac.DB.First(&user, "id = ?", id).Error; err != nil {
+	if err := ac.DB.Where("school_id = ? AND id = ?", schoolID, id).First(&user).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
 	}
@@ -358,8 +364,14 @@ func (ac *AuthController) AssignRole(c *gin.Context) {
         return
     }
 
+    schoolID, ok := middleware.SchoolIDFromContext(c)
+    if !ok {
+        c.JSON(http.StatusForbidden, gin.H{"error": "school context required"})
+        return
+    }
+
     var target models.User
-    if err := ac.DB.First(&target, "id = ?", targetID).Error; err != nil {
+    if err := ac.DB.Where("school_id = ? AND id = ?", schoolID, targetID).First(&target).Error; err != nil {
         c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
         return
     }

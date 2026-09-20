@@ -318,6 +318,37 @@ From the project root in PowerShell:
 
 This starts the local Go API and Next.js frontend with development configuration.
 
+## Cloudflare Deployment
+
+The frontend is prepared for deployment to **Cloudflare Workers** using Cloudflare's current recommended **vinext** path for Next.js 16. The Go/Gin API remains the backend origin and is reached by the frontend `/backend/*` rewrite.
+
+### Cloudflare architecture
+
+```text
+Browser
+   ↓
+Cloudflare Worker (Next.js / vinext)
+   ↓ /backend/*
+Go/Gin API
+   ↓
+PostgreSQL
+```
+
+From `frontend/`:
+
+```bash
+npm install
+npm run build:vinext
+npm run cf-typegen
+npm run deploy
+```
+
+Before deployment, authenticate Wrangler and configure the Cloudflare account. The Worker name is `stonez-school-management`. Set `API_SERVER_URL` in the Cloudflare build/runtime configuration to the public HTTPS origin of the Go API; do not commit API URLs containing credentials or other secrets.
+
+For Git-connected Cloudflare Workers Builds, use `frontend` as the root directory, `npm install`/`npm run build:vinext` as the build step, and `npm run deploy` as the deployment command. Store Cloudflare credentials and sensitive backend configuration as Cloudflare secrets rather than repository files.
+
+Cloudflare deployment is intentionally limited to the frontend in this phase: the existing Go/Gin API still requires a Go-compatible server/runtime and PostgreSQL database. Cloudflare Workers should not be treated as a native Go/Gin hosting environment.
+
 ## Testing
 
 Run backend tests:

@@ -17,11 +17,6 @@ func attendanceTestDB(t *testing.T) *gorm.DB {
 	if err != nil { t.Fatal(err) }
 	if err := db.AutoMigrate(&models.User{}, &models.Student{}, &models.AcademicSession{}, &models.Term{}, &models.SchoolClass{}, &models.Section{}, &models.StudentEnrollment{}, &models.AttendanceRecord{}); err != nil { t.Fatal(err) }
 	return db
-	_, err = svc.Create(models.AttendanceRecord{EnrollmentID:enrollment.ID,TermID:term.ID,Date:time.Date(2026,12,16,0,0,0,0,time.UTC),Status:models.AttendancePresent})
-	if err != ErrAttendanceTermMismatch { t.Fatalf("expected out-of-term attendance to be rejected, got %v", err) }
-	_, err = svc.Create(models.AttendanceRecord{EnrollmentID:enrollment.ID,TermID:term.ID,Date:time.Time{},Status:models.AttendancePresent})
-	if err == nil { t.Fatal("expected zero attendance date to be rejected") }
-
 }
 
 func TestAttendanceValidatesEnrollmentTermAndDuplicate(t *testing.T) {
@@ -59,4 +54,9 @@ func TestAttendanceValidatesEnrollmentTermAndDuplicate(t *testing.T) {
 
 	_, err = svc.Create(models.AttendanceRecord{EnrollmentID:enrollment.ID,TermID:term.ID,Date:time.Date(2026,9,21,0,0,0,0,time.UTC),Status:"unknown"})
 	if err != ErrAttendanceInvalidStatus { t.Fatalf("expected invalid status, got %v", err) }
+
+	_, err = svc.Create(models.AttendanceRecord{EnrollmentID:enrollment.ID,TermID:term.ID,Date:time.Date(2026,12,16,0,0,0,0,time.UTC),Status:models.AttendancePresent})
+	if err != ErrAttendanceTermMismatch { t.Fatalf("expected out-of-term attendance to be rejected, got %v", err) }
+	_, err = svc.Create(models.AttendanceRecord{EnrollmentID:enrollment.ID,TermID:term.ID,Date:time.Time{},Status:models.AttendancePresent})
+	if err == nil { t.Fatal("expected zero attendance date to be rejected") }
 }

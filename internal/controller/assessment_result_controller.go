@@ -75,7 +75,6 @@ func (ctrl *AssessmentResultController) Delete(c *gin.Context) {
 func (ctrl *AssessmentResultController) ReportCard(c *gin.Context) {
     enrollmentID, e := uuid.Parse(c.Param("enrollmentId")); if e != nil { httpx.Error(c, 400, "invalid_enrollment_id", "invalid enrollment id"); return }
     termID, e := uuid.Parse(c.Query("term_id")); if e != nil { httpx.Error(c, 400, "invalid_term_id", "term_id is required"); return }
-    if e = ctrl.service.ValidateReportCard(enrollmentID, termID); e != nil { assessmentResultError(c, e); return }
     v, e := ctrl.service.ReportCard(enrollmentID, termID); if e != nil { assessmentResultError(c, e); return }
     c.JSON(http.StatusOK, v)
 }

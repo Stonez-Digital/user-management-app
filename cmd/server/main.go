@@ -21,8 +21,6 @@ func main() {
     db,err:=database.Connect();if err!=nil{log.Fatal(err)}
     if err:=database.Migrate(db);err!=nil{log.Fatal(err)}
     if err:=bootstrap.EnsureInitialAdmin(db);err!=nil{log.Fatal(err)}
-    db.Model(&models.User{}).Where("role = ?","admin").Update("role",authz.RoleSuperAdmin)
-    db.Model(&models.User{}).Where("role = ?","user").Update("role",authz.RoleStudent)
     r:=gin.Default();r.SetTrustedProxies(nil);server.Configure(r)
     repo:=repository.NewUserRepository(db);svc:=service.NewUserService(repo,db);ctrl:=controller.NewUserController(svc)
     authController:=controller.NewAuthController(db);auditController:=controller.NewAuditController(db)
@@ -40,7 +38,7 @@ func main() {
     guardianRepo:=repository.NewGuardianRepository(db);guardianService:=service.NewGuardianService(guardianRepo,db);guardianController:=controller.NewGuardianController(guardianService)
     notificationRepo:=repository.NewNotificationRepository(db);notificationService:=service.NewNotificationService(notificationRepo,db);notificationController:=controller.NewNotificationController(notificationService);studentPortalService:=service.NewStudentPortalService(db);studentPortalController:=controller.NewStudentPortalController(studentPortalService)
 
-    r.POST("/auth/refresh",authController.Refresh);r.POST("/auth/register",authController.Register);r.POST("/auth/login",authController.Login);r.POST("/auth/logout",authController.Logout);r.POST("/auth/forgot-password",authController.ForgotPassword);r.POST("/auth/reset-password",authController.ResetPassword)
+    r.POST("/auth/refresh",authController.Refresh);r.POST("/auth/login",authController.Login);r.POST("/auth/logout",authController.Logout);r.POST("/auth/forgot-password",authController.ForgotPassword);r.POST("/auth/reset-password",authController.ResetPassword)
     protected:=r.Group("/");protected.Use(middleware.AuthMiddleware(db));protected.Use(middleware.RequireSchoolContext(db));protected.GET("/me",ctrl.GetMe);protected.GET("/teacher/timetable",middleware.RequirePermission(authz.PermissionTimetableRead),timetableController.TeacherView);protected.PUT("/me",ctrl.UpdateMe);protected.POST("/auth/change-password",authController.ChangePassword);protected.POST("/auth/logout-all",authController.LogoutAll);protected.GET("/sessions",authController.GetSessions);protected.DELETE("/sessions/:id",authController.RevokeSession)
     admin:=r.Group("/admin");admin.Use(middleware.AuthMiddleware(db));admin.Use(middleware.RequireSchoolContext(db))
     admin.GET("/roles",middleware.RequirePermission(authz.PermissionRolesAssign),authController.ListRoles);admin.GET("/audit-logs",middleware.RequirePermission(authz.PermissionAuditRead),auditController.List)

@@ -73,7 +73,7 @@ func TestClassAndSectionServiceIsolatesSchools(t *testing.T) {
     classB, err := svc.CreateClass(schoolB, models.SchoolClass{Name: "JSS 1", Level: 1})
     if err != nil { t.Fatal(err) }
 
-    sectionA, err := svc.CreateSection(schoolA, models.Section{ClassID: classA.ID, Name: "A"})
+    _, err = svc.CreateSection(schoolA, models.Section{ClassID: classA.ID, Name: "A"})
     if err != nil { t.Fatal(err) }
     sectionB, err := svc.CreateSection(schoolB, models.Section{ClassID: classB.ID, Name: "A"})
     if err != nil { t.Fatal(err) }

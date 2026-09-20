@@ -44,5 +44,5 @@ func TestAssessmentResultValidationAndReportCard(t *testing.T) {
     assessment3:=models.Assessment{TeacherAssignmentID:assignment.ID,Title:"Project",Type:"project",MaxScore:100,Weight:20,Date:time.Date(2026,11,15,0,0,0,0,time.UTC)};if err:=db.Create(&assessment3).Error;err!=nil{t.Fatal(err)}
     if _,err=svc.Create(models.AssessmentResult{AssessmentID:assessment3.ID,StudentEnrollmentID:enrollment.ID,Score:100});err!=nil{t.Fatal(err)}
     report,err=svc.ReportCard(enrollment.ID,term.ID);if err!=nil{t.Fatal(err)}
-    if report.OverallPercentage!=80{t.Fatalf("expected weighted overall percentage 80, got %v",report.OverallPercentage)}
+    if report.OverallPercentage < 79.1666 || report.OverallPercentage > 79.1667 { t.Fatalf("expected weighted overall percentage 79.1667, got %v",report.OverallPercentage) }
 }

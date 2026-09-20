@@ -30,7 +30,9 @@ func Connect() (*gorm.DB, error) {
 func envOrDefault(key,fallback string) string { if value:=os.Getenv(key); value!="" { return value }; return fallback }
 
 func Migrate(db *gorm.DB) error {
-    if err:=db.AutoMigrate(&Migration{}); err!=nil{return fmt.Errorf("create migration table: %w",err)}
+    if !db.Migrator().HasTable(&Migration{}) {
+        if err:=db.AutoMigrate(&Migration{});err!=nil{return fmt.Errorf("create migration table: %w",err)}
+    }
     migrations:=[]MigrationStep{
         {Version:1,Name:"initial_school_management_schema",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.User{},&models.RefreshToken{},&models.Session{},&models.PasswordResetToken{},&models.RoleChangeAudit{},&models.AuditLog{})}},
         {Version:2,Name:"student_management",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.Student{})}},

@@ -183,7 +183,7 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 		if result.Error != nil { return result.Error }
 		if result.RowsAffected != 1 { return errRefreshReused }
 		expiry := time.Now().Add(auth.RefreshTokenTTL)
-		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, Token: newRefreshToken, ExpiresAt: expiry}).Error; err != nil { return err }
+		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, TokenHash: auth.HashRefreshToken(newRefreshToken), ExpiresAt: expiry}).Error; err != nil { return err }
 		if err := tx.Model(&models.Session{}).Where("refresh_token_hash = ? AND revoked = false", auth.HashRefreshToken(req.RefreshToken)).Updates(map[string]interface{}{"refresh_token_hash": auth.HashRefreshToken(newRefreshToken), "expires_at": expiry}).Error; err != nil { return err }
 		return nil
 	})
@@ -251,7 +251,7 @@ func (ac *AuthController) Logout(c *gin.Context) {
 		httpx.Validation(c, httpx.ValidationErrors(err)); return
 	}
 	var token models.RefreshToken
-	if err := ac.DB.Where("token = ? AND revoked = false", req.RefreshToken).First(&token).Error; err != nil {
+	if err := ac.DB.Where("token_hash = ? AND revoked = false", auth.HashRefreshToken(req.RefreshToken)).First(&token).Error; err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 		return
 	}

@@ -10,6 +10,7 @@ import (
     "github.com/onoja217/users-management-app/internal/models"
     "github.com/onoja217/users-management-app/internal/repository"
     "gorm.io/gorm"
+    "gorm.io/gorm/clause"
 )
 
 var (
@@ -76,17 +77,23 @@ func(s *FinanceService)GetInvoice(id uuid.UUID)(models.Invoice,error){v,e:=s.inv
 
 func(s *FinanceService)CreatePayment(v models.Payment)(models.Payment,error){
     if v.InvoiceID==uuid.Nil||v.Amount<=0||strings.TrimSpace(v.Provider)==""||strings.TrimSpace(v.Reference)==""{return v,ErrPaymentInvalid}
-    invoice,e:=s.GetInvoice(v.InvoiceID);if e!=nil{return v,e}
-    if invoice.Status==models.InvoiceStatusCancelled||invoice.Balance<=0{return v,ErrPaymentInvalid}
-    _,e=s.payments.GetByReference(v.Reference);if e==nil{return v,ErrPaymentDuplicate};if !errors.Is(e,gorm.ErrRecordNotFound){return v,e}
     if v.Status==""{v.Status=models.PaymentStatusPending}
-    if v.Status==models.PaymentStatusSucceeded{
-        if v.Amount>invoice.Balance+0.000001{return v,ErrPaymentExceedsBalance}
-        if v.PaidAt==nil{now:=time.Now().UTC();v.PaidAt=&now}
-    }
-    if v.ReceiptNumber==""{v.ReceiptNumber=fmt.Sprintf("RCT-%s-%s",time.Now().UTC().Format("20060102"),uuid.NewString()[:8])}
+    if v.Status!=models.PaymentStatusPending&&v.Status!=models.PaymentStatusSucceeded&&v.Status!=models.PaymentStatusFailed&&v.Status!=models.PaymentStatusRefunded{return v,ErrPaymentInvalid}
     if v.Metadata!=""{var raw interface{};if json.Unmarshal([]byte(v.Metadata),&raw)!=nil{return v,ErrPaymentInvalid}}
+    if v.ReceiptNumber==""{v.ReceiptNumber=fmt.Sprintf("RCT-%s-%s",time.Now().UTC().Format("20060102"),uuid.NewString()[:8])}
     err:=s.db.Transaction(func(tx *gorm.DB)error{
+        var invoice models.Invoice
+        if e:=tx.Clauses(clause.Locking{Strength:"UPDATE"}).First(&invoice,"id = ?",v.InvoiceID).Error;e!=nil{
+            if errors.Is(e,gorm.ErrRecordNotFound){return ErrInvoiceNotFound}
+            return e
+        }
+        if invoice.Status==models.InvoiceStatusCancelled||invoice.Balance<=0{return ErrPaymentInvalid}
+        var existing models.Payment
+        if e:=tx.Where("reference = ?",v.Reference).First(&existing).Error;e==nil{return ErrPaymentDuplicate}else if !errors.Is(e,gorm.ErrRecordNotFound){return e}
+        if v.Status==models.PaymentStatusSucceeded{
+            if v.Amount>invoice.Balance+0.000001{return ErrPaymentExceedsBalance}
+            if v.PaidAt==nil{now:=time.Now().UTC();v.PaidAt=&now}
+        }
         if e:=tx.Create(&v).Error;e!=nil{return e}
         if v.Status==models.PaymentStatusSucceeded{
             var sum float64

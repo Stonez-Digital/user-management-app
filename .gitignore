@@ -3,3 +3,8 @@
 !.env.example
 users.db
 *.db
+
+# Cloudflare / Wrangler
+.wrangler/
+.dev.vars*
+!.dev.vars.example

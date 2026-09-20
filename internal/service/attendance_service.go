@@ -40,6 +40,7 @@ func validAttendanceStatus(status string) bool {
 }
 
 func (s *AttendanceService) validate(v models.AttendanceRecord) error {
+	if v.Date.IsZero() { return errors.New("attendance date is required") }
 	var enrollment models.StudentEnrollment
 	if err := s.db.First(&enrollment, "id = ?", v.EnrollmentID).Error; errors.Is(err, gorm.ErrRecordNotFound) {
 		return ErrAttendanceEnrollmentMissing

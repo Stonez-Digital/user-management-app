@@ -15,6 +15,7 @@ import (
     "github.com/onoja217/users-management-app/internal/service"
 )
 func main() {
+    if err:=server.ValidateEnvironment();err!=nil{log.Fatal(err)}
     if err:=auth.ConfigureSecret(os.Getenv("JWT_SECRET"));err!=nil{log.Fatal(err)}
     db,err:=database.Connect();if err!=nil{log.Fatal(err)}
     if err:=database.Migrate(db);err!=nil{log.Fatal(err)}

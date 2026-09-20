@@ -2,7 +2,8 @@ package service
 
 import (
 	"fmt"
-	"testing"\n    "github.com/google/uuid"
+	"testing"
+    "github.com/google/uuid"
 
 	"github.com/onoja217/users-management-app/internal/models"
 	"github.com/onoja217/users-management-app/internal/repository"
@@ -31,7 +32,9 @@ func TestCreateEnrollmentValidatesRelationshipsAndDuplicate(t *testing.T) {
 	section := models.Section{ClassID:class.ID,Name:"A"}
 	if err := db.Create(&section).Error; err != nil { t.Fatal(err) }
 
-	schoolID := uuid.MustParse("00000000-0000-0000-0000-000000000001")\n\tschoolID2 := uuid.MustParse("00000000-0000-0000-0000-000000000002")\n\tsvc := NewEnrollmentService(repository.NewEnrollmentRepository(db),db)
+	schoolID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+\tschoolID2 := uuid.MustParse("00000000-0000-0000-0000-000000000002")
+\tsvc := NewEnrollmentService(repository.NewEnrollmentRepository(db),db)
 	enrollment, err := svc.Create(schoolID,uuid.MustParse("00000000-0000-0000-0000-000000000001"),models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session.ID,ClassID:class.ID,SectionID:section.ID})
 	if err != nil { t.Fatal(err) }
 	if enrollment.Status != models.EnrollmentStatusActive { t.Fatalf("expected active status, got %s", enrollment.Status) }

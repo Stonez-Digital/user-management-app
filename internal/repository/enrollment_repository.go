@@ -7,29 +7,17 @@ import (
 )
 
 type EnrollmentRepository interface {
-	Create(models.StudentEnrollment) (models.StudentEnrollment, error)
-	List() ([]models.StudentEnrollment, error)
-	Get(uuid.UUID) (models.StudentEnrollment, error)
-	Update(models.StudentEnrollment) error
-	Delete(uuid.UUID) error
+	Create(uuid.UUID, models.StudentEnrollment) (models.StudentEnrollment, error)
+	List(uuid.UUID) ([]models.StudentEnrollment, error)
+	Get(uuid.UUID, uuid.UUID) (models.StudentEnrollment, error)
+	Update(uuid.UUID, models.StudentEnrollment) error
+	Delete(uuid.UUID, uuid.UUID) error
 }
 
 type enrollmentRepo struct{ db *gorm.DB }
-
 func NewEnrollmentRepository(db *gorm.DB) EnrollmentRepository { return &enrollmentRepo{db: db} }
-
-func (r *enrollmentRepo) Create(v models.StudentEnrollment) (models.StudentEnrollment, error) {
-	return v, r.db.Create(&v).Error
-}
-func (r *enrollmentRepo) List() ([]models.StudentEnrollment, error) {
-	var out []models.StudentEnrollment
-	err := r.db.Preload("Student.User").Preload("AcademicSession").Preload("SchoolClass").Preload("Section").Order("enrolled_at DESC").Find(&out).Error
-	return out, err
-}
-func (r *enrollmentRepo) Get(id uuid.UUID) (models.StudentEnrollment, error) {
-	var v models.StudentEnrollment
-	err := r.db.Preload("Student.User").Preload("AcademicSession").Preload("SchoolClass").Preload("Section").First(&v, "id = ?", id).Error
-	return v, err
-}
-func (r *enrollmentRepo) Update(v models.StudentEnrollment) error { return r.db.Save(&v).Error }
-func (r *enrollmentRepo) Delete(id uuid.UUID) error { return r.db.Delete(&models.StudentEnrollment{}, "id = ?", id).Error }
+func (r *enrollmentRepo) Create(schoolID uuid.UUID, v models.StudentEnrollment) (models.StudentEnrollment, error) { v.SchoolID=schoolID; return v, r.db.Create(&v).Error }
+func (r *enrollmentRepo) List(schoolID uuid.UUID) ([]models.StudentEnrollment, error) { var out []models.StudentEnrollment; err := r.db.Where("school_id = ?",schoolID).Preload("Student.User","school_id = ?",schoolID).Preload("AcademicSession","school_id = ?",schoolID).Preload("SchoolClass","school_id = ?",schoolID).Preload("Section","school_id = ?",schoolID).Order("enrolled_at DESC").Find(&out).Error; return out, err }
+func (r *enrollmentRepo) Get(schoolID,id uuid.UUID) (models.StudentEnrollment, error) { var v models.StudentEnrollment; err := r.db.Where("school_id = ?",schoolID).Preload("Student.User","school_id = ?",schoolID).Preload("AcademicSession","school_id = ?",schoolID).Preload("SchoolClass","school_id = ?",schoolID).Preload("Section","school_id = ?",schoolID).First(&v,"id = ?",id).Error; return v, err }
+func (r *enrollmentRepo) Update(schoolID uuid.UUID,v models.StudentEnrollment) error { v.SchoolID=schoolID; return r.db.Model(&models.StudentEnrollment{}).Where("id = ? AND school_id = ?",v.ID,schoolID).Updates(&v).Error }
+func (r *enrollmentRepo) Delete(schoolID,id uuid.UUID) error { return r.db.Where("school_id = ?",schoolID).Delete(&models.StudentEnrollment{},"id = ?",id).Error }

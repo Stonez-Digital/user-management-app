@@ -20,7 +20,7 @@ func(s *AttendanceService) TeacherCreate(schoolID,teacherID uuid.UUID,v models.A
  if e:=s.db.Where("id = ? AND school_id = ?",v.EnrollmentID,schoolID).First(&en).Error;e!=nil{return v,ErrAttendanceEnrollmentMissing}
  var a models.TeacherAssignment
  q:=s.db.Where("school_id = ? AND teacher_id = ? AND active = ? AND class_id = ? AND academic_session_id = ? AND term_id = ?",schoolID,teacherID,true,en.ClassID,en.AcademicSessionID,v.TermID)
- if en.SectionID != nil { q=q.Where("section_id = ? OR section_id IS NULL",*en.SectionID) }
+ if en.SectionID != uuid.Nil { q=q.Where("section_id = ? OR section_id = ?",en.SectionID,uuid.Nil) }
  if e:=q.First(&a).Error;e!=nil{return v,ErrAttendanceEnrollmentMissing}
  return s.Create(schoolID,v)
 }

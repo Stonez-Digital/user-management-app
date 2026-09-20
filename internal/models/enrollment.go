@@ -6,10 +6,10 @@ const ( EnrollmentStatusActive="active"; EnrollmentStatusCompleted="completed"; 
 
 type StudentEnrollment struct {
  ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
- SchoolID uuid.UUID `gorm:"type:uuid;not null;index;uniqueIndex:uq_school_student_session" json:"school_id"`
+ SchoolID uuid.UUID `gorm:"type:uuid;not null;index;uniqueIndex:uq_school_student_session,priority:1" json:"school_id"`
  School School `gorm:"foreignKey:SchoolID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
- StudentID uuid.UUID `gorm:"type:uuid;not null;index;uniqueIndex:uq_school_student_session" json:"student_id"`
- AcademicSessionID uuid.UUID `gorm:"type:uuid;not null;index;uniqueIndex:uq_school_student_session" json:"academic_session_id"`
+ StudentID uuid.UUID `gorm:"type:uuid;not null;index;uniqueIndex:uq_school_student_session,priority:2" json:"student_id"`
+ AcademicSessionID uuid.UUID `gorm:"type:uuid;not null;index;uniqueIndex:uq_school_student_session,priority:3" json:"academic_session_id"`
  ClassID uuid.UUID `gorm:"type:uuid;not null;index" json:"class_id"`
  SectionID uuid.UUID `gorm:"type:uuid;not null;index" json:"section_id"`
  Status string `gorm:"size:20;not null;default:active;index" json:"status"`

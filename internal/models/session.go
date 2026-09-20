@@ -7,7 +7,8 @@ import (
 )
 
 type Session struct {
-	ID           uuid.UUID `gorm:"type:uuid;primaryKey"`
+	ID              uuid.UUID `gorm:"type:uuid;primaryKey"`
+	FamilyID        uuid.UUID `gorm:"type:uuid;index"`
 	UserID       uuid.UUID `gorm:"type:uuid;index"`
 	RefreshTokenHash string `gorm:"uniqueIndex;size:64" json:"-"`
 

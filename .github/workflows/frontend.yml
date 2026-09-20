@@ -6,11 +6,13 @@ on:
     paths:
       - "frontend/**"
       - ".github/workflows/frontend.yml"
+      - ".github/workflows/cloudflare-deploy.yml"
   push:
     branches: [main]
     paths:
       - "frontend/**"
       - ".github/workflows/frontend.yml"
+      - ".github/workflows/cloudflare-deploy.yml"
 
 jobs:
   build:

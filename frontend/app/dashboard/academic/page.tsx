@@ -129,7 +129,7 @@ export default function AcademicPage() {
         <div className="logo"><span>S</span><div><strong>Stonez</strong><small>School OS</small></div></div>
         <nav>
           <Link href="/dashboard">Overview</Link><Link className="active" href="/dashboard/academic">Academic</Link>
-          <Link href="/dashboard/students">Students</Link><Link href="/dashboard/enrollments">Enrollment</Link>
+          <Link href="/dashboard/students">Students</Link><Link href="/dashboard/enrollments">Enrollment</Link><Link href="/dashboard/teacher-assignments">Teacher Assignments</Link>
           <Link href="/dashboard/attendance">Attendance</Link><Link href="/dashboard/assessments">Assessments</Link>
           <Link href="/dashboard/results">Results</Link><Link href="/dashboard/timetable">Timetable</Link>
           <Link href="/dashboard/operations">Operations</Link><Link href="/dashboard/users">Users & Roles</Link><Link href="/dashboard/audit">Audit Logs</Link>

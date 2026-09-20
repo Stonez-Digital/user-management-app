@@ -58,7 +58,7 @@ func TestRefreshRotatesTokenAndRejectsOldToken(t *testing.T) {
     db := authControllerTestDB(t)
     hash, err := auth.HashPassword("password123")
     if err != nil { t.Fatal(err) }
-    user := models.User{Name: "Refresh Test", Email: "refresh-" + t.Name() + "@example.com", PasswordHash: hash, Role: authz.RoleStudent, Active: true}
+    user := models.User{Name: "Refresh Test", Email: "refresh-" + strings.ToLower(t.Name()) + "@example.com", PasswordHash: hash, Role: authz.RoleStudent, Active: true}
     if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
     ac := NewAuthController(db)
     _, refresh := decodeAuthTokens(t, authJSONRequest(t, ac, http.MethodPost, "/login", "{\"email\":\""+user.Email+"\",\"password\":\"password123\"}"))
@@ -80,7 +80,7 @@ func TestLogoutRevokesRefreshTokenAndSession(t *testing.T) {
     db := authControllerTestDB(t)
     hash, err := auth.HashPassword("password123")
     if err != nil { t.Fatal(err) }
-    user := models.User{Name: "Logout Test", Email: "logout-" + t.Name() + "@example.com", PasswordHash: hash, Role: authz.RoleStudent, Active: true}
+    user := models.User{Name: "Logout Test", Email: "logout-" + strings.ToLower(t.Name()) + "@example.com", PasswordHash: hash, Role: authz.RoleStudent, Active: true}
     if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
     ac := NewAuthController(db)
     _, refresh := decodeAuthTokens(t, authJSONRequest(t, ac, http.MethodPost, "/login", "{\"email\":\""+user.Email+"\",\"password\":\"password123\"}"))
@@ -100,8 +100,7 @@ func TestRefreshRejectsExpiredToken(t *testing.T) {
     db := authControllerTestDB(t)
     user := models.User{Name: "Expired Test", Email: "expired-" + t.Name() + "@example.com", Role: authz.RoleStudent, Active: true}
     if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
-    refresh, err := auth.GenerateRefreshToken(user.ID.String())
-    if err != nil { t.Fatal(err) }
+    refresh := strings.Repeat("expired-refresh-token-", 4)
     if err := db.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: uuid.New(), TokenHash: auth.HashRefreshToken(refresh), ExpiresAt: time.Now().Add(-time.Minute), Revoked: false}).Error; err != nil { t.Fatal(err) }
     rec := authJSONRequest(t, NewAuthController(db), http.MethodPost, "/refresh", "{\"refresh_token\":\""+refresh+"\"}")
     if rec.Code != http.StatusUnauthorized { t.Fatalf("expected expired token to be rejected, got %d: %s", rec.Code, rec.Body.String()) }

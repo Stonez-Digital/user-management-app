@@ -22,6 +22,8 @@ func(s *TimetableService)validate(v models.TimetableEntry)error{
 }
 func(s *TimetableService)Create(v models.TimetableEntry)(models.TimetableEntry,error){if e:=s.validate(v);e!=nil{return v,e};return s.repo.Create(v)}
 func(s *TimetableService)List()([]models.TimetableEntry,error){return s.repo.List()}
+func(s *TimetableService)ListForTeacher(userID uuid.UUID)([]models.TimetableEntry,error){var v []models.TimetableEntry;e:=s.db.Joins("JOIN teacher_assignments ta ON ta.id = timetable_entries.teacher_assignment_id").Where("ta.teacher_id = ? AND timetable_entries.active = ?",userID,true).Order("day_of_week,start_time").Find(&v).Error;return v,e}
+func(s *TimetableService)ListForStudent(userID uuid.UUID)([]models.TimetableEntry,error){var student models.Student;if e:=s.db.Where("user_id = ?",userID).First(&student).Error;e!=nil{return nil,e};var v []models.TimetableEntry;e:=s.db.Joins("JOIN student_enrollments se ON se.class_id = timetable_entries.class_id AND se.section_id = timetable_entries.section_id AND se.academic_session_id = timetable_entries.academic_session_id").Where("se.student_id = ? AND se.status = ? AND timetable_entries.active = ?",student.ID,models.EnrollmentStatusActive,true).Order("day_of_week,start_time").Find(&v).Error;return v,e}
 func(s *TimetableService)Get(id uuid.UUID)(models.TimetableEntry,error){v,e:=s.repo.Get(id);if errors.Is(e,gorm.ErrRecordNotFound){return v,ErrTimetableNotFound};return v,e}
 func(s *TimetableService)Update(v models.TimetableEntry)error{if _,e:=s.Get(v.ID);e!=nil{return e};if e:=s.validate(v);e!=nil{return e};return s.repo.Update(v)}
 func(s *TimetableService)Delete(id uuid.UUID)error{if _,e:=s.Get(id);e!=nil{return e};return s.repo.Delete(id)}

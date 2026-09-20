@@ -68,6 +68,8 @@ func TestRefreshRotatesTokenAndRejectsOldToken(t *testing.T) {
     if rotated == refresh { t.Fatal("expected refresh token rotation") }
     reused := authJSONRequest(t, ac, http.MethodPost, "/refresh", "{\"refresh_token\":\""+refresh+"\"}")
     if reused.Code != http.StatusUnauthorized { t.Fatalf("expected reused token to be rejected, got %d: %s", reused.Code, reused.Body.String()) }
+    var reuseAudit models.AuditLog
+    if err := db.Where("action = ? AND resource_id = ?", "security.refresh_token_reuse", user.ID).First(&reuseAudit).Error; err != nil { t.Fatalf("expected refresh-token reuse audit event: %v", err) }
     var tokens []models.RefreshToken
     if err := db.Where("user_id = ?", user.ID).Find(&tokens).Error; err != nil { t.Fatal(err) }
     for _, token := range tokens { if !token.Revoked { t.Fatalf("expected token %s to be revoked after reuse detection", token.ID) } }
@@ -157,4 +159,59 @@ func TestResetPasswordConsumesHashedTokenAndRevokesSessions(t *testing.T) {
     reuseRec := httptest.NewRecorder()
     router.ServeHTTP(reuseRec, reuseReq)
     if reuseRec.Code != http.StatusUnauthorized { t.Fatalf("expected reused reset token to be rejected, got %d: %s", reuseRec.Code, reuseRec.Body.String()) }
+}
+
+
+func TestRefreshRejectsInactiveUser(t *testing.T) {
+    db := authControllerTestDB(t)
+    user := models.User{Name: "Inactive Refresh", Email: "inactive-refresh-"+strings.ToLower(t.Name())+"@example.com", Role: authz.RoleStudent, Active: false}
+    if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
+    if err := db.Model(&user).Update("active", false).Error; err != nil { t.Fatal(err) }
+    refresh := strings.Repeat("inactive-refresh-token-", 4)
+    if err := db.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: uuid.New(), TokenHash: auth.HashRefreshToken(refresh), ExpiresAt: time.Now().Add(time.Hour), Revoked: false}).Error; err != nil { t.Fatal(err) }
+    rec := authJSONRequest(t, NewAuthController(db), http.MethodPost, "/refresh", "{\"refresh_token\":\""+refresh+"\"}")
+    if rec.Code != http.StatusUnauthorized { t.Fatalf("expected inactive user refresh to be rejected, got %d: %s", rec.Code, rec.Body.String()) }
+}
+
+func TestRefreshRejectsMalformedOrUnknownToken(t *testing.T) {
+    db := authControllerTestDB(t)
+    ac := NewAuthController(db)
+    for _, token := range []string{"not-a-jwt", "short", strings.Repeat("x", 32)} {
+        rec := authJSONRequest(t, ac, http.MethodPost, "/refresh", "{\"refresh_token\":\""+token+"\"}")
+        if rec.Code != http.StatusUnauthorized { t.Fatalf("expected token %q to be rejected, got %d: %s", token, rec.Code, rec.Body.String()) }
+    }
+}
+
+func TestPasswordChangeRevokesAllSessionsAndRefreshTokens(t *testing.T) {
+    db := authControllerTestDB(t)
+    hash, err := auth.HashPassword("current-password123")
+    if err != nil { t.Fatal(err) }
+    user := models.User{Name: "Password Change", Email: "password-change-"+strings.ToLower(t.Name())+"@example.com", PasswordHash: hash, Role: authz.RoleStudent, Active: true}
+    if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
+
+    for i := 0; i < 2; i++ {
+        familyID := uuid.New()
+        refresh := strings.Repeat("change-password-refresh-"+string(rune('a'+i)), 3)
+        if err := db.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: auth.HashRefreshToken(refresh), ExpiresAt: time.Now().Add(time.Hour), Revoked: false}).Error; err != nil { t.Fatal(err) }
+        if err := db.Create(&models.Session{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, RefreshTokenHash: auth.HashRefreshToken(refresh), ExpiresAt: time.Now().Add(time.Hour), Revoked: false}).Error; err != nil { t.Fatal(err) }
+    }
+
+    ac := NewAuthController(db)
+    router := gin.New()
+    router.POST("/change-password", func(c *gin.Context) {
+        c.Set("user_id", user.ID.String())
+        ac.ChangePassword(c)
+    })
+    req := httptest.NewRequest(http.MethodPost, "/change-password", strings.NewReader("{\"current_password\":\"current-password123\",\"new_password\":\"new-password123\"}"))
+    req.Header.Set("Content-Type", "application/json")
+    rec := httptest.NewRecorder()
+    router.ServeHTTP(rec, req)
+    if rec.Code != http.StatusOK { t.Fatalf("expected password change 200, got %d: %s", rec.Code, rec.Body.String()) }
+
+    var tokens []models.RefreshToken
+    if err := db.Where("user_id = ?", user.ID).Find(&tokens).Error; err != nil { t.Fatal(err) }
+    for _, token := range tokens { if !token.Revoked { t.Fatalf("expected refresh token %s to be revoked", token.ID) } }
+    var sessions []models.Session
+    if err := db.Where("user_id = ?", user.ID).Find(&sessions).Error; err != nil { t.Fatal(err) }
+    for _, session := range sessions { if !session.Revoked { t.Fatalf("expected session %s to be revoked", session.ID) } }
 }

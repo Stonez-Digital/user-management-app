@@ -121,6 +121,106 @@ func Migrate(db *gorm.DB) error {
             if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_users_school_id ON users(school_id)").Error;err!=nil{return err}
             return nil
         }},
+        {Version:17,Name:"school_scope_academic_finance_data",Up:func(tx *gorm.DB) error {
+            if err:=tx.AutoMigrate(
+                &models.Student{}, &models.AcademicSession{}, &models.Term{},
+                &models.SchoolClass{}, &models.Section{}, &models.Subject{},
+                &models.StudentEnrollment{}, &models.AttendanceRecord{},
+                &models.TeacherAssignment{}, &models.Assessment{}, &models.AssessmentResult{},
+                &models.FeeItem{}, &models.Invoice{}, &models.InvoiceLine{}, &models.Payment{},
+                &models.TimetableEntry{}, &models.GuardianRelationship{},
+                &models.Announcement{}, &models.Notification{},
+            );err!=nil{return err}
+
+            var school models.School
+            if err:=tx.Where("code = ?", "DEFAULT").First(&school).Error;err!=nil{return err}
+
+            backfills:=[]string{
+                "UPDATE students SET school_id = (SELECT school_id FROM users WHERE users.id = students.user_id) WHERE school_id IS NULL",
+                "UPDATE academic_sessions SET school_id = ? WHERE school_id IS NULL",
+                "UPDATE terms SET school_id = (SELECT school_id FROM academic_sessions WHERE academic_sessions.id = terms.academic_session_id) WHERE school_id IS NULL",
+                "UPDATE school_classes SET school_id = ? WHERE school_id IS NULL",
+                "UPDATE sections SET school_id = (SELECT school_id FROM school_classes WHERE school_classes.id = sections.class_id) WHERE school_id IS NULL",
+                "UPDATE subjects SET school_id = ? WHERE school_id IS NULL",
+                "UPDATE student_enrollments SET school_id = (SELECT school_id FROM students WHERE students.id = student_enrollments.student_id) WHERE school_id IS NULL",
+                "UPDATE attendance_records SET school_id = (SELECT school_id FROM student_enrollments WHERE student_enrollments.id = attendance_records.enrollment_id) WHERE school_id IS NULL",
+                "UPDATE teacher_assignments SET school_id = (SELECT school_id FROM users WHERE users.id = teacher_assignments.teacher_id) WHERE school_id IS NULL",
+                "UPDATE assessments SET school_id = (SELECT school_id FROM teacher_assignments WHERE teacher_assignments.id = assessments.teacher_assignment_id) WHERE school_id IS NULL",
+                "UPDATE assessment_results SET school_id = (SELECT school_id FROM student_enrollments WHERE student_enrollments.id = assessment_results.student_enrollment_id) WHERE school_id IS NULL",
+                "UPDATE fee_items SET school_id = (SELECT school_id FROM terms WHERE terms.id = fee_items.term_id) WHERE school_id IS NULL",
+                "UPDATE invoices SET school_id = (SELECT school_id FROM student_enrollments WHERE student_enrollments.id = invoices.student_enrollment_id) WHERE school_id IS NULL",
+                "UPDATE invoice_lines SET school_id = (SELECT school_id FROM invoices WHERE invoices.id = invoice_lines.invoice_id) WHERE school_id IS NULL",
+                "UPDATE payments SET school_id = (SELECT school_id FROM invoices WHERE invoices.id = payments.invoice_id) WHERE school_id IS NULL",
+                "UPDATE timetable_entries SET school_id = (SELECT school_id FROM academic_sessions WHERE academic_sessions.id = timetable_entries.academic_session_id) WHERE school_id IS NULL",
+                "UPDATE guardian_relationships SET school_id = (SELECT school_id FROM students WHERE students.id = guardian_relationships.student_id) WHERE school_id IS NULL",
+                "UPDATE announcements SET school_id = (SELECT school_id FROM users WHERE users.id = announcements.created_by) WHERE school_id IS NULL",
+                "UPDATE notifications SET school_id = (SELECT school_id FROM users WHERE users.id = notifications.user_id) WHERE school_id IS NULL",
+            }
+            for i,query:=range backfills {
+                var err error
+                if i==1 || i==3 || i==5 { err=tx.Exec(query,school.ID).Error } else { err=tx.Exec(query).Error }
+                if err!=nil{return err}
+            }
+
+            required:=[]struct{table,column string}{
+                {"students","school_id"},{"academic_sessions","school_id"},{"terms","school_id"},
+                {"school_classes","school_id"},{"sections","school_id"},{"subjects","school_id"},
+                {"student_enrollments","school_id"},{"attendance_records","school_id"},
+                {"teacher_assignments","school_id"},{"assessments","school_id"},{"assessment_results","school_id"},
+                {"fee_items","school_id"},{"invoices","school_id"},{"invoice_lines","school_id"},
+                {"payments","school_id"},{"timetable_entries","school_id"},{"guardian_relationships","school_id"},
+                {"announcements","school_id"},{"notifications","school_id"},
+            }
+            for _,item:=range required {
+                var count int64
+                if err:=tx.Table(item.table).Where(item.column+" IS NULL").Count(&count).Error;err!=nil{return err}
+                if count!=0{return fmt.Errorf("%s.%s has %d unassigned rows after school backfill",item.table,item.column,count)}
+            }
+
+            drops:=[]string{
+                "DROP INDEX IF EXISTS uni_students_admission_number",
+                "DROP INDEX IF EXISTS idx_students_admission_number",
+                "DROP INDEX IF EXISTS uni_academic_sessions_name",
+                "DROP INDEX IF EXISTS idx_academic_sessions_name",
+                "DROP INDEX IF EXISTS uni_school_classes_name",
+                "DROP INDEX IF EXISTS idx_school_classes_name",
+                "DROP INDEX IF EXISTS uni_subjects_code",
+                "DROP INDEX IF EXISTS uni_subjects_name",
+                "DROP INDEX IF EXISTS idx_subjects_code",
+                "DROP INDEX IF EXISTS idx_subjects_name",
+                "DROP INDEX IF EXISTS uq_session_term",
+                "DROP INDEX IF EXISTS uq_fee_term_name",
+                "DROP INDEX IF EXISTS uni_invoices_invoice_number",
+                "DROP INDEX IF EXISTS idx_invoices_invoice_number",
+                "DROP INDEX IF EXISTS uq_student_session",
+                "DROP INDEX IF EXISTS uq_attendance_enrollment_date",
+                "DROP INDEX IF EXISTS uq_assessment_assignment_title",
+                "DROP INDEX IF EXISTS uq_result_assessment_enrollment",
+                "DROP INDEX IF EXISTS ux_guardian_student",
+                "DROP INDEX IF EXISTS uq_notification_user_source",
+            }
+            for _,query:=range drops { if err:=tx.Exec(query).Error;err!=nil{return err} }
+
+            indexes:=[]string{
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_student_admission ON students(school_id, admission_number)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_session_name ON academic_sessions(school_id, name)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_session_term ON terms(school_id, academic_session_id, name)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_class_name ON school_classes(school_id, name)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_class_section ON sections(school_id, class_id, name)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_subject_code ON subjects(school_id, code)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_subject_name ON subjects(school_id, name)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_student_session ON student_enrollments(school_id, student_id, academic_session_id)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_attendance_enrollment_date ON attendance_records(school_id, enrollment_id, term_id, date)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_assessment_assignment_title ON assessments(school_id, teacher_assignment_id, title)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_result_assessment_enrollment ON assessment_results(school_id, assessment_id, student_enrollment_id)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_fee_term_name ON fee_items(school_id, term_id, name)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_invoice_number ON invoices(school_id, invoice_number)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_school_guardian_student ON guardian_relationships(school_id, guardian_user_id, student_id)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_notification_user_source ON notifications(school_id, user_id, announcement_id)",
+            }
+            for _,query:=range indexes { if err:=tx.Exec(query).Error;err!=nil{return err} }
+            return nil
+        }},
     }
     for _,migration:=range migrations{
         var applied Migration

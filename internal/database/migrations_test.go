@@ -13,7 +13,7 @@ func TestMigrateIsVersionedAndIdempotent(t *testing.T) {
     if err:=Migrate(db);err!=nil{t.Fatal(err)}
     var count int64
     if err:=db.Model(&Migration{}).Count(&count).Error;err!=nil{t.Fatal(err)}
-    if count!=16{t.Fatalf("expected sixteen applied migrations, got %d",count)}
+    if count!=17{t.Fatalf("expected seventeen applied migrations, got %d",count)}
     if !db.Migrator().HasTable(&models.User{}){t.Fatal("expected users table after migration")}
     if !db.Migrator().HasTable(&models.School{}){t.Fatal("expected schools table after migration")}
     var schools int64
@@ -34,4 +34,39 @@ func TestMigrateIsVersionedAndIdempotent(t *testing.T) {
     if !db.Migrator().HasTable(&models.TimetableEntry{}){t.Fatal("expected timetable table after migration")}
     if !db.Migrator().HasTable(&models.GuardianRelationship{}){t.Fatal("expected guardian relationships table after migration")}
     if !db.Migrator().HasTable(&models.Notification{}){t.Fatal("expected notifications table after migration")}
+}
+
+
+func TestSchoolScopedUniquenessAllowsSameAcademicDataAcrossSchools(t *testing.T) {
+    db,err:=gorm.Open(sqlite.Open("file::memory:?cache=shared"),&gorm.Config{})
+    if err!=nil{t.Fatal(err)}
+    if err:=Migrate(db);err!=nil{t.Fatal(err)}
+
+    var first models.School
+    if err:=db.Where("code = ?","DEFAULT").First(&first).Error;err!=nil{t.Fatal(err)}
+    second:=models.School{Name:"Second School",Code:"SECOND",Status:models.SchoolStatusActive}
+    if err:=db.Create(&second).Error;err!=nil{t.Fatal(err)}
+
+    classes:=[]models.SchoolClass{
+        {SchoolID:first.ID,Name:"JSS 1",Level:1},
+        {SchoolID:second.ID,Name:"JSS 1",Level:1},
+    }
+    if err:=db.Create(&classes).Error;err!=nil{t.Fatalf("same class name should be allowed across schools: %v",err)}
+
+    subjects:=[]models.Subject{
+        {SchoolID:first.ID,Code:"MTH",Name:"Mathematics",Active:true},
+        {SchoolID:second.ID,Code:"MTH",Name:"Mathematics",Active:true},
+    }
+    if err:=db.Create(&subjects).Error;err!=nil{t.Fatalf("same subject code/name should be allowed across schools: %v",err)}
+
+    users:=[]models.User{
+        {SchoolID:&first.ID,Name:"First Student",Email:"first-student@example.com",Role:"student",Active:true},
+        {SchoolID:&second.ID,Name:"Second Student",Email:"second-student@example.com",Role:"student",Active:true},
+    }
+    if err:=db.Create(&users).Error;err!=nil{t.Fatal(err)}
+    students:=[]models.Student{
+        {SchoolID:first.ID,UserID:users[0].ID,AdmissionNumber:"ADM-001"},
+        {SchoolID:second.ID,UserID:users[1].ID,AdmissionNumber:"ADM-001"},
+    }
+    if err:=db.Create(&students).Error;err!=nil{t.Fatalf("same admission number should be allowed across schools: %v",err)}
 }

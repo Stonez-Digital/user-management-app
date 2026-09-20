@@ -209,7 +209,6 @@ func Migrate(db *gorm.DB) error {
             for _,query:=range indexes { if err:=tx.Exec(query).Error;err!=nil{return err} }
             return nil
         }},
-,
     }
     for _,migration:=range migrations{
         var applied Migration

@@ -47,6 +47,7 @@ func TestUserRepositoryEnforcesSchoolIsolation(t *testing.T) {
     }
 
     userA.Name = "A User Updated"
+    userA.SchoolID = &schoolB.ID
     if err := repo.Update(schoolA.ID, userA); err != nil { t.Fatal(err) }
     var unchanged models.User
     if err := db.First(&unchanged, "id = ?", userB.ID).Error; err != nil { t.Fatal(err) }
@@ -68,6 +69,9 @@ func TestUserRepositoryEnforcesSchoolIsolation(t *testing.T) {
     var stored models.User
     if err := db.First(&stored, "id = ?", userA.ID).Error; err != nil { t.Fatal(err) }
     if stored.SchoolID == nil || *stored.SchoolID != schoolA.ID {
-        t.Fatal("expected repository create to force School A ownership")
+        t.Fatal("expected repository create/update to force School A ownership")
+    }
+    if stored.Name != "A User Updated" {
+        t.Fatal("expected School A user update to persist")
     }
 }

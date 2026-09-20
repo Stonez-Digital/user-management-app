@@ -34,10 +34,6 @@ func main() {
     }
     db.Model(&models.User{}).Where("role = ?","admin").Update("role",authz.RoleSuperAdmin)
     db.Model(&models.User{}).Where("role = ?","user").Update("role",authz.RoleStudent)
-    var adminUser models.User
-    if err:=db.Where("email = ?","admin@example.com").First(&adminUser).Error;err==nil{
-        if !adminUser.Active||adminUser.Role!=authz.RoleSuperAdmin{adminUser.Role=authz.RoleSuperAdmin;adminUser.Active=true;if err:=db.Save(&adminUser).Error;err!=nil{log.Fatal("failed to configure admin user: ",err)}}
-    }
     r:=gin.Default();r.SetTrustedProxies(nil);server.Configure(r)
     repo:=repository.NewUserRepository(db);svc:=service.NewUserService(repo,db);ctrl:=controller.NewUserController(svc)
     authController:=controller.NewAuthController(db);auditController:=controller.NewAuditController(db)

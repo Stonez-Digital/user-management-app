@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -73,9 +74,14 @@ func GenerateRefreshToken(userID string) (string, error) {
 	if len(Secret) == 0 {
 		return "", errors.New("authentication secret is not configured")
 	}
+	jtiBytes := make([]byte, 16)
+	if _, err := rand.Read(jtiBytes); err != nil {
+		return "", fmt.Errorf("failed to generate refresh token id: %w", err)
+	}
 	claims := Claims{UserID: userID, Role: "refresh", RegisteredClaims: jwt.RegisteredClaims{
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(RefreshTokenTTL)),
 		IssuedAt: jwt.NewNumericDate(time.Now()),
+		ID: hex.EncodeToString(jtiBytes),
 	}}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(Secret)
 }

@@ -7,41 +7,42 @@ import (
 )
 
 type UserRepository interface {
-	Create(user models.User) (models.User, error)
-	GetAll() ([]models.User, error)
-	GetByID(id uuid.UUID) (models.User, error)
-	Delete(id uuid.UUID) error
-	Update(user models.User) error
+	Create(uuid.UUID, models.User) (models.User, error)
+	GetAll(uuid.UUID) ([]models.User, error)
+	GetByID(uuid.UUID, uuid.UUID) (models.User, error)
+	Delete(uuid.UUID, uuid.UUID) error
+	Update(uuid.UUID, models.User) error
 }
 
-type userRepo struct {
-	db *gorm.DB
+type userRepo struct { db *gorm.DB }
+
+func NewUserRepository(db *gorm.DB) UserRepository { return &userRepo{db: db} }
+
+func (r *userRepo) Update(schoolID uuid.UUID, user models.User) error {
+	return r.db.Where("school_id = ?", schoolID).Save(&user).Error
 }
 
-func NewUserRepository(db *gorm.DB) UserRepository {
-	return &userRepo{db: db}
-}
-func (r *userRepo) Update(user models.User) error {
-	return r.db.Save(&user).Error
-}
-
-func (r *userRepo) Create(user models.User) (models.User, error) {
+func (r *userRepo) Create(schoolID uuid.UUID, user models.User) (models.User, error) {
+	user.SchoolID = &schoolID
 	if err := r.db.Create(&user).Error; err != nil { return user, err }
 	return user, nil
 }
 
-func (r *userRepo) GetAll() ([]models.User, error) {
+func (r *userRepo) GetAll(schoolID uuid.UUID) ([]models.User, error) {
 	var users []models.User
-	if err := r.db.Find(&users).Error; err != nil { return nil, err }
+	if err := r.db.Where("school_id = ?", schoolID).Find(&users).Error; err != nil { return nil, err }
 	return users, nil
 }
 
-func (r *userRepo) GetByID(id uuid.UUID) (models.User, error) {
+func (r *userRepo) GetByID(schoolID, id uuid.UUID) (models.User, error) {
 	var user models.User
-	err := r.db.First(&user, "id = ?", id).Error
+	err := r.db.Where("school_id = ? AND id = ?", schoolID, id).First(&user).Error
 	return user, err
 }
 
-func (r *userRepo) Delete(id uuid.UUID) error {
-	return r.db.Delete(&models.User{}, "id = ?", id).Error
+func (r *userRepo) Delete(schoolID, id uuid.UUID) error {
+	result := r.db.Where("school_id = ? AND id = ?", schoolID, id).Delete(&models.User{})
+	if result.Error != nil { return result.Error }
+	if result.RowsAffected == 0 { return gorm.ErrRecordNotFound }
+	return nil
 }

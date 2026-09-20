@@ -1,0 +1,78 @@
+package models
+
+import (
+    "time"
+    "github.com/google/uuid"
+    "gorm.io/gorm"
+)
+
+const (
+    InvoiceStatusIssued = "issued"
+    InvoiceStatusPartiallyPaid = "partially_paid"
+    InvoiceStatusPaid = "paid"
+    InvoiceStatusCancelled = "cancelled"
+    PaymentStatusPending = "pending"
+    PaymentStatusSucceeded = "succeeded"
+    PaymentStatusFailed = "failed"
+    PaymentStatusRefunded = "refunded"
+)
+
+type FeeItem struct {
+    ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+    TermID uuid.UUID `gorm:"type:uuid;not null;index;uniqueIndex:uq_fee_term_name" json:"term_id"`
+    Term Term `gorm:"foreignKey:TermID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"term,omitempty"`
+    Name string `gorm:"size:150;not null;uniqueIndex:uq_fee_term_name" json:"name"`
+    Description string `gorm:"size:500" json:"description"`
+    Amount float64 `gorm:"not null" json:"amount"`
+    Active bool `gorm:"not null;default:true;index" json:"active"`
+    CreatedAt time.Time `json:"created_at"`
+    UpdatedAt time.Time `json:"updated_at"`
+}
+func (f *FeeItem) BeforeCreate(tx *gorm.DB) error { f.ID=uuid.New(); return nil }
+
+type Invoice struct {
+    ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+    InvoiceNumber string `gorm:"size:50;not null;uniqueIndex" json:"invoice_number"`
+    StudentEnrollmentID uuid.UUID `gorm:"type:uuid;not null;index" json:"student_enrollment_id"`
+    StudentEnrollment StudentEnrollment `gorm:"foreignKey:StudentEnrollmentID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"student_enrollment,omitempty"`
+    TermID uuid.UUID `gorm:"type:uuid;not null;index" json:"term_id"`
+    Term Term `gorm:"foreignKey:TermID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"term,omitempty"`
+    DueDate time.Time `gorm:"not null;index" json:"due_date"`
+    TotalAmount float64 `gorm:"not null" json:"total_amount"`
+    PaidAmount float64 `gorm:"not null;default:0" json:"paid_amount"`
+    Balance float64 `gorm:"not null;default:0" json:"balance"`
+    Status string `gorm:"size:30;not null;default:issued;index" json:"status"`
+    CreatedAt time.Time `json:"created_at"`
+    UpdatedAt time.Time `json:"updated_at"`
+    Lines []InvoiceLine `gorm:"foreignKey:InvoiceID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"lines,omitempty"`
+    Payments []Payment `gorm:"foreignKey:InvoiceID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"payments,omitempty"`
+}
+func (i *Invoice) BeforeCreate(tx *gorm.DB) error { i.ID=uuid.New(); if i.Status=="" { i.Status=InvoiceStatusIssued }; return nil }
+
+type InvoiceLine struct {
+    ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+    InvoiceID uuid.UUID `gorm:"type:uuid;not null;index" json:"invoice_id"`
+    FeeItemID *uuid.UUID `gorm:"type:uuid;index" json:"fee_item_id,omitempty"`
+    FeeItem *FeeItem `gorm:"foreignKey:FeeItemID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"fee_item,omitempty"`
+    Description string `gorm:"size:250;not null" json:"description"`
+    Quantity float64 `gorm:"not null" json:"quantity"`
+    UnitAmount float64 `gorm:"not null" json:"unit_amount"`
+    Amount float64 `gorm:"not null" json:"amount"`
+}
+func (l *InvoiceLine) BeforeCreate(tx *gorm.DB) error { l.ID=uuid.New(); return nil }
+
+type Payment struct {
+    ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+    InvoiceID uuid.UUID `gorm:"type:uuid;not null;index" json:"invoice_id"`
+    Invoice Invoice `gorm:"foreignKey:InvoiceID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"invoice,omitempty"`
+    Amount float64 `gorm:"not null" json:"amount"`
+    Provider string `gorm:"size:50;not null" json:"provider"`
+    Reference string `gorm:"size:150;not null;uniqueIndex" json:"reference"`
+    ReceiptNumber string `gorm:"size:80;not null;uniqueIndex" json:"receipt_number"`
+    Status string `gorm:"size:30;not null;default:pending;index" json:"status"`
+    PaidAt *time.Time `json:"paid_at,omitempty"`
+    Metadata string `gorm:"type:text" json:"metadata,omitempty"`
+    CreatedAt time.Time `json:"created_at"`
+    UpdatedAt time.Time `json:"updated_at"`
+}
+func (p *Payment) BeforeCreate(tx *gorm.DB) error { p.ID=uuid.New(); if p.Status=="" { p.Status=PaymentStatusPending }; return nil }

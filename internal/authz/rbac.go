@@ -39,6 +39,12 @@ const (
     PermissionResultsManage = "results.manage"
     PermissionAssignmentsRead = "teacher_assignments.read"
     PermissionAssignmentsManage = "teacher_assignments.manage"
+    PermissionFeesRead = "fees.read"
+    PermissionFeesManage = "fees.manage"
+    PermissionInvoicesRead = "invoices.read"
+    PermissionInvoicesManage = "invoices.manage"
+    PermissionPaymentsRead = "payments.read"
+    PermissionPaymentsManage = "payments.manage"
 )
 
 var rolePermissions = map[string]map[string]bool{
@@ -46,12 +52,12 @@ var rolePermissions = map[string]map[string]bool{
         PermissionUsersRead: true, PermissionUsersCreate: true, PermissionUsersUpdate: true,
         PermissionUsersDelete: true, PermissionUsersActivate: true, PermissionUsersDeactivate: true,
         PermissionStudentsRead: true, PermissionStudentsCreate: true, PermissionStudentsUpdate: true, PermissionStudentsDelete: true,
-        PermissionRolesAssign: true, PermissionAuditRead: true, PermissionAcademicRead: true, PermissionAcademicManage: true, PermissionClassesRead: true, PermissionClassesManage: true, PermissionSubjectsRead: true, PermissionSubjectsManage: true, PermissionAssignmentsRead: true, PermissionAssignmentsManage: true, PermissionEnrollmentRead: true, PermissionEnrollmentManage: true, PermissionAttendanceRead: true, PermissionAttendanceManage: true, PermissionAssessmentsRead: true, PermissionAssessmentsManage: true, PermissionResultsRead: true, PermissionResultsManage: true,
+        PermissionRolesAssign: true, PermissionAuditRead: true, PermissionAcademicRead: true, PermissionAcademicManage: true, PermissionClassesRead: true, PermissionClassesManage: true, PermissionSubjectsRead: true, PermissionSubjectsManage: true, PermissionAssignmentsRead: true, PermissionAssignmentsManage: true, PermissionEnrollmentRead: true, PermissionEnrollmentManage: true, PermissionAttendanceRead: true, PermissionAttendanceManage: true, PermissionAssessmentsRead: true, PermissionAssessmentsManage: true, PermissionResultsRead: true, PermissionResultsManage: true, PermissionFeesRead: true, PermissionFeesManage: true, PermissionInvoicesRead: true, PermissionInvoicesManage: true, PermissionPaymentsRead: true, PermissionPaymentsManage: true,
     },
     RoleSchoolAdmin: {
         PermissionUsersRead: true, PermissionUsersCreate: true, PermissionUsersUpdate: true,
         PermissionUsersActivate: true, PermissionUsersDeactivate: true,
-        PermissionStudentsRead: true, PermissionStudentsCreate: true, PermissionStudentsUpdate: true, PermissionStudentsDelete: true, PermissionAcademicRead: true, PermissionAcademicManage: true, PermissionClassesRead: true, PermissionClassesManage: true, PermissionSubjectsRead: true, PermissionSubjectsManage: true, PermissionAssignmentsRead: true, PermissionAssignmentsManage: true, PermissionEnrollmentRead: true, PermissionEnrollmentManage: true, PermissionAttendanceRead: true, PermissionAttendanceManage: true, PermissionAssessmentsRead: true, PermissionAssessmentsManage: true, PermissionResultsRead: true, PermissionResultsManage: true,
+        PermissionStudentsRead: true, PermissionStudentsCreate: true, PermissionStudentsUpdate: true, PermissionStudentsDelete: true, PermissionAcademicRead: true, PermissionAcademicManage: true, PermissionClassesRead: true, PermissionClassesManage: true, PermissionSubjectsRead: true, PermissionSubjectsManage: true, PermissionAssignmentsRead: true, PermissionAssignmentsManage: true, PermissionEnrollmentRead: true, PermissionEnrollmentManage: true, PermissionAttendanceRead: true, PermissionAttendanceManage: true, PermissionAssessmentsRead: true, PermissionAssessmentsManage: true, PermissionResultsRead: true, PermissionResultsManage: true, PermissionFeesRead: true, PermissionFeesManage: true, PermissionInvoicesRead: true, PermissionInvoicesManage: true, PermissionPaymentsRead: true, PermissionPaymentsManage: true,
     },
     RoleTeacher: {
         PermissionAcademicRead: true, PermissionClassesRead: true, PermissionSubjectsRead: true,
@@ -62,7 +68,7 @@ var rolePermissions = map[string]map[string]bool{
     },
     RoleStudent: {},
     RoleParent: {},
-    RoleAccountant: {},
+    RoleAccountant: { PermissionFeesRead: true, PermissionFeesManage: true, PermissionInvoicesRead: true, PermissionInvoicesManage: true, PermissionPaymentsRead: true, PermissionPaymentsManage: true },
     RoleStaff: {},
 }
 

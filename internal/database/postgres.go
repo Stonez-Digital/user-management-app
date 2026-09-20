@@ -96,6 +96,19 @@ func Migrate(db *gorm.DB) error {
             }
             return nil
         }},
+        {Version:15,Name:"hash_password_reset_tokens",Up:func(tx *gorm.DB) error {
+            if err:=tx.AutoMigrate(&models.PasswordResetToken{});err!=nil{return err}
+            var tokens []struct{ID uuid.UUID; Token string}
+            if tx.Migrator().HasColumn(&models.PasswordResetToken{},"token") {
+                if err:=tx.Raw("SELECT id, token FROM password_reset_tokens WHERE token IS NOT NULL AND token <> ''").Scan(&tokens).Error;err!=nil{return err}
+                for _,token:=range tokens {
+                    if err:=tx.Model(&models.PasswordResetToken{}).Where("id = ?",token.ID).Update("token_hash",auth.HashResetToken(token.Token)).Error;err!=nil{return err}
+                }
+                if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_password_reset_tokens_token_hash ON password_reset_tokens(token_hash)").Error;err!=nil{return err}
+                if err:=tx.Migrator().DropColumn(&models.PasswordResetToken{},"token");err!=nil{return err}
+            }
+            return nil
+        }},
     }
     for _,migration:=range migrations{
         var applied Migration

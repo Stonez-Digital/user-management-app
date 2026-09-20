@@ -53,7 +53,7 @@ func (ac *AuthController) ForgotPassword(c *gin.Context) {
 	}
 
 	var user models.User
-	if err := ac.DB.Where("email = ? AND active = true", strings.TrimSpace(req.Email)).First(&user).Error; err != nil {
+	if err := ac.DB.Where("email = ? AND active = true", strings.ToLower(strings.TrimSpace(req.Email))).First(&user).Error; err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "if the account exists, a reset link will be sent"})
 		return
 	}
@@ -63,7 +63,7 @@ func (ac *AuthController) ForgotPassword(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create reset token"})
 		return
 	}
-	reset := models.PasswordResetToken{ID: uuid.New(), UserID: user.ID, Token: token, ExpiresAt: time.Now().Add(15 * time.Minute)}
+	reset := models.PasswordResetToken{ID: uuid.New(), UserID: user.ID, TokenHash: auth.HashResetToken(token), ExpiresAt: time.Now().Add(15 * time.Minute)}
 	if err := ac.DB.Create(&reset).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create reset token"})
 		return
@@ -85,7 +85,7 @@ func (ac *AuthController) ResetPassword(c *gin.Context) {
 	targetUserID := uuid.Nil
 	err := ac.DB.Transaction(func(tx *gorm.DB) error {
 		var reset models.PasswordResetToken
-		if err := tx.Where("token = ? AND used = false", req.Token).First(&reset).Error; err != nil {
+		if err := tx.Where("token_hash = ? AND used = false", auth.HashResetToken(req.Token)).First(&reset).Error; err != nil {
 			return gorm.ErrRecordNotFound
 		}
 		if time.Now().After(reset.ExpiresAt) { return errResetExpired }

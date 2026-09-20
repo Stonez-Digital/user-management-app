@@ -13,7 +13,9 @@ func bootstrapTestDB(t *testing.T) *gorm.DB {
     t.Helper()
     db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
     if err != nil { t.Fatal(err) }
-    if err := db.AutoMigrate(&models.User{}); err != nil { t.Fatal(err) }
+    if err := db.AutoMigrate(&models.School{}, &models.User{}); err != nil { t.Fatal(err) }
+    school := models.School{Name: "Default School", Code: "DEFAULT", Status: models.SchoolStatusActive}
+    if err := db.Create(&school).Error; err != nil { t.Fatal(err) }
     return db
 }
 
@@ -56,4 +58,8 @@ func TestEnsureInitialAdminCreatesOnlyFirstUser(t *testing.T) {
     if err := db.First(&user).Error; err != nil { t.Fatal(err) }
     if user.Email != "admin@example.com" { t.Fatalf("expected normalized bootstrap email, got %q", user.Email) }
     if user.Role != authz.RoleSuperAdmin { t.Fatalf("expected superadmin role, got %q", user.Role) }
+    if user.SchoolID == nil { t.Fatal("expected bootstrap administrator to have a school context") }
+    var school models.School
+    if err := db.First(&school, "code = ?", "DEFAULT").Error; err != nil { t.Fatal(err) }
+    if *user.SchoolID != school.ID { t.Fatal("expected bootstrap administrator to use the default school") }
 }

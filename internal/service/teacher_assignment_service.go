@@ -50,6 +50,15 @@ func (s *TeacherAssignmentService) Create(schoolID uuid.UUID, v models.TeacherAs
 }
 
 func (s *TeacherAssignmentService) List(schoolID uuid.UUID) ([]models.TeacherAssignment, error) { return s.repo.List(schoolID) }
+func (s *TeacherAssignmentService) ListForTeacher(schoolID, teacherID uuid.UUID) ([]models.TeacherAssignment, error) {
+    items, err := s.repo.List(schoolID)
+    if err != nil { return nil, err }
+    filtered := make([]models.TeacherAssignment, 0)
+    for _, item := range items {
+        if item.TeacherID == teacherID { filtered = append(filtered, item) }
+    }
+    return filtered, nil
+}
 func (s *TeacherAssignmentService) Get(schoolID, id uuid.UUID) (models.TeacherAssignment, error) { v,err:=s.repo.Get(schoolID,id); if errors.Is(err,gorm.ErrRecordNotFound){return v,ErrAssignmentNotFound}; return v,err }
 func (s *TeacherAssignmentService) Update(schoolID uuid.UUID, v models.TeacherAssignment) error { if _,err:=s.Get(schoolID,v.ID);err!=nil{return err};v.SchoolID=schoolID;if err:=s.validate(schoolID,v);err!=nil{return err};return s.repo.Update(schoolID,v) }
 func (s *TeacherAssignmentService) Delete(schoolID,id uuid.UUID) error { if _,err:=s.Get(schoolID,id);err!=nil{return err};return s.repo.Delete(schoolID,id) }

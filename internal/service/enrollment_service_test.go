@@ -2,7 +2,7 @@ package service
 
 import (
 	"fmt"
-	"testing"
+	"testing"\n    "github.com/google/uuid"
 
 	"github.com/onoja217/users-management-app/internal/models"
 	"github.com/onoja217/users-management-app/internal/repository"
@@ -32,15 +32,15 @@ func TestCreateEnrollmentValidatesRelationshipsAndDuplicate(t *testing.T) {
 	if err := db.Create(&section).Error; err != nil { t.Fatal(err) }
 
 	svc := NewEnrollmentService(repository.NewEnrollmentRepository(db),db)
-	enrollment, err := svc.Create(models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session.ID,ClassID:class.ID,SectionID:section.ID})
+	enrollment, err := svc.Create(uuid.MustParse("00000000-0000-0000-0000-000000000001"),models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session.ID,ClassID:class.ID,SectionID:section.ID})
 	if err != nil { t.Fatal(err) }
 	if enrollment.Status != models.EnrollmentStatusActive { t.Fatalf("expected active status, got %s", enrollment.Status) }
 
-	_, err = svc.Create(models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session.ID,ClassID:class.ID,SectionID:section.ID})
+	_, err = svc.Create(uuid.MustParse("00000000-0000-0000-0000-000000000001"),models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session.ID,ClassID:class.ID,SectionID:section.ID})
 	if err != ErrEnrollmentDuplicate { t.Fatalf("expected duplicate error, got %v", err) }
 
 	otherClass := models.SchoolClass{Name:"JSS 2",Level:2}
 	if err := db.Create(&otherClass).Error; err != nil { t.Fatal(err) }
-	_, err = svc.Create(models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session.ID,ClassID:otherClass.ID,SectionID:section.ID})
+	_, err = svc.Create(uuid.MustParse("00000000-0000-0000-0000-000000000001"),models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session.ID,ClassID:otherClass.ID,SectionID:section.ID})
 	if err != ErrEnrollmentSectionMismatch { t.Fatalf("expected section/class mismatch, got %v", err) }
 }

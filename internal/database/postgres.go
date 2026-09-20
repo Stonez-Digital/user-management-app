@@ -60,6 +60,8 @@ func Migrate(db *gorm.DB) error {
             for _,session:=range sessions {
                 if err:=tx.Model(&models.Session{}).Where("id = ?",session.ID).Update("refresh_token_hash",auth.HashRefreshToken(session.RefreshToken)).Error;err!=nil{return err}
             }
+            if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_refresh_tokens_token_hash ON refresh_tokens(token_hash)").Error;err!=nil{return err}
+            if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_refresh_token_hash ON sessions(refresh_token_hash)").Error;err!=nil{return err}
             if tx.Migrator().HasColumn(&models.RefreshToken{},"token") { if err:=tx.Migrator().DropColumn(&models.RefreshToken{},"token");err!=nil{return err} }
             if tx.Migrator().HasColumn(&models.Session{},"refresh_token") { if err:=tx.Migrator().DropColumn(&models.Session{},"refresh_token");err!=nil{return err} }
             return nil

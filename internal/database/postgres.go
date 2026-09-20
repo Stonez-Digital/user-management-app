@@ -365,6 +365,7 @@ func Migrate(db *gorm.DB) error {
             if err:=tx.Exec("ALTER TABLE "+v.table+" ADD CONSTRAINT "+v.name+" FOREIGN KEY (school_id,"+map[string]string{"section_class_school_fk":"class_id","term_session_school_fk":"academic_session_id","invoice_line_invoice_school_fk":"invoice_id"}[v.name]+") REFERENCES "+v.parent+" ON UPDATE CASCADE ON DELETE "+v.onDelete).Error;err!=nil{return fmt.Errorf("recreate %s: %w",v.name,err)}
         }
         return nil
+    }},
     }
     for _,migration:=range migrations{
         var applied Migration

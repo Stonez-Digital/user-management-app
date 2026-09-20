@@ -318,6 +318,53 @@ From the project root in PowerShell:
 
 This starts the local Go API and Next.js frontend with development configuration.
 
+## Cloudflare Deployment
+
+The frontend is prepared for deployment to **Cloudflare Workers** using Cloudflare's current recommended **vinext** path for Next.js 16. The Go/Gin API remains the backend origin and is reached by the frontend `/backend/*` rewrite.
+
+### Cloudflare architecture
+
+```text
+Browser
+   ↓
+Cloudflare Worker (Next.js / vinext)
+   ↓ /backend/*
+Go/Gin API
+   ↓
+PostgreSQL
+```
+
+From `frontend/`:
+
+```bash
+npm install
+npm run build:vinext
+npm run cf-typegen
+npm run deploy
+```
+
+The repository also includes a GitHub Actions production deployment workflow at `.github/workflows/cloudflare-deploy.yml`. After the required GitHub Actions secrets are configured, every qualifying push to `main` automatically installs dependencies, runs the normal Next.js production build, runs the vinext/Cloudflare compatibility build, and deploys the Worker.
+
+Configure these repository/environment secrets in GitHub:
+
+- `CLOUDFLARE_API_TOKEN` — Cloudflare API token with permission to deploy the Worker
+- `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID
+- `API_SERVER_URL` — public HTTPS origin of the Go/Gin API
+- `CLOUDFLARE_WORKER_URL` — deployed Worker URL used for deployment verification
+
+The Worker name is `stonez-school-management`. Secrets are injected only at workflow runtime and are not committed to the repository. The production workflow is restricted to the `production` environment and uses a concurrency lock so overlapping production deployments are cancelled rather than racing each other.
+
+For manual deployment from `frontend/`, use:
+
+```bash
+npm install
+npm run build:vinext
+npm run cf-typegen
+npm run deploy
+```
+
+Cloudflare deployment is intentionally limited to the frontend in this phase: the existing Go/Gin API still requires a Go-compatible server/runtime and PostgreSQL database. Cloudflare Workers should not be treated as a native Go/Gin hosting environment.
+
 ## Testing
 
 Run backend tests:

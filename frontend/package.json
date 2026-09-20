@@ -2,21 +2,35 @@
   "name": "school-management-frontend",
   "private": true,
   "version": "0.1.0",
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "dev:windows": "powershell -ExecutionPolicy Bypass -File ../scripts/dev.ps1",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "dev:vinext": "vinext dev",
+    "build:vinext": "vinext build",
+    "start:vinext": "vinext start",
+    "deploy": "vinext-cloudflare deploy",
+    "preview": "vinext-cloudflare deploy --preview",
+    "cf-typegen": "wrangler types"
   },
   "dependencies": {
     "next": "16.3.4",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "vinext": "^1.0.0-beta.8",
+    "react-server-dom-webpack": "^19.3.0"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.54.2",
+    "@vitejs/plugin-rsc": "^0.5.26",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vite": "^8.2.2",
+    "wrangler": "^4.132.0",
+    "@vinext/cloudflare": "^1.0.0-beta.6"
   }
 }

@@ -343,9 +343,25 @@ npm run cf-typegen
 npm run deploy
 ```
 
-Before deployment, authenticate Wrangler and configure the Cloudflare account. The Worker name is `stonez-school-management`. Set `API_SERVER_URL` in the Cloudflare build/runtime configuration to the public HTTPS origin of the Go API; do not commit API URLs containing credentials or other secrets.
+The repository also includes a GitHub Actions production deployment workflow at `.github/workflows/cloudflare-deploy.yml`. After the required GitHub Actions secrets are configured, every qualifying push to `main` automatically installs dependencies, runs the normal Next.js production build, runs the vinext/Cloudflare compatibility build, and deploys the Worker.
 
-For Git-connected Cloudflare Workers Builds, use `frontend` as the root directory, `npm install`/`npm run build:vinext` as the build step, and `npm run deploy` as the deployment command. Store Cloudflare credentials and sensitive backend configuration as Cloudflare secrets rather than repository files.
+Configure these repository/environment secrets in GitHub:
+
+- `CLOUDFLARE_API_TOKEN` — Cloudflare API token with permission to deploy the Worker
+- `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID
+- `API_SERVER_URL` — public HTTPS origin of the Go/Gin API
+- `CLOUDFLARE_WORKER_URL` — deployed Worker URL used for deployment verification
+
+The Worker name is `stonez-school-management`. Secrets are injected only at workflow runtime and are not committed to the repository. The production workflow is restricted to the `production` environment and uses a concurrency lock so overlapping production deployments are cancelled rather than racing each other.
+
+For manual deployment from `frontend/`, use:
+
+```bash
+npm install
+npm run build:vinext
+npm run cf-typegen
+npm run deploy
+```
 
 Cloudflare deployment is intentionally limited to the frontend in this phase: the existing Go/Gin API still requires a Go-compatible server/runtime and PostgreSQL database. Cloudflare Workers should not be treated as a native Go/Gin hosting environment.
 

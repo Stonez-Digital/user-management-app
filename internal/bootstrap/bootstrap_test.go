@@ -1,7 +1,6 @@
 package bootstrap
 
 import (
-    "os"
     "testing"
 
     "github.com/onoja217/users-management-app/internal/authz"

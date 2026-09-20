@@ -1,125 +1,13 @@
 package service
-
-import (
-	"errors"
-	"strings"
-	"time"
-
-	"github.com/google/uuid"
-	"github.com/onoja217/users-management-app/internal/models"
-	"github.com/onoja217/users-management-app/internal/repository"
-	"gorm.io/gorm"
-)
-
-var (
-	ErrAttendanceNotFound       = errors.New("attendance record not found")
-	ErrAttendanceEnrollmentMissing = errors.New("enrollment not found")
-	ErrAttendanceTermMissing    = errors.New("term not found")
-	ErrAttendanceTermMismatch   = errors.New("term does not belong to enrollment academic session")
-	ErrAttendanceDuplicate      = errors.New("attendance already recorded for enrollment on date")
-	ErrAttendanceInvalidStatus  = errors.New("invalid attendance status")
-)
-
-type AttendanceService struct {
-	repo repository.AttendanceRepository
-	db   *gorm.DB
-}
-
-func NewAttendanceService(repo repository.AttendanceRepository, db *gorm.DB) *AttendanceService {
-	return &AttendanceService{repo: repo, db: db}
-}
-func (s *AttendanceService) DB() *gorm.DB { return s.db }
-
-func validAttendanceStatus(status string) bool {
-	switch status {
-	case models.AttendancePresent, models.AttendanceAbsent, models.AttendanceLate, models.AttendanceExcused:
-		return true
-	default:
-		return false
-	}
-}
-
-func (s *AttendanceService) validate(v models.AttendanceRecord) error {
-	if v.Date.IsZero() { return errors.New("attendance date is required") }
-	var enrollment models.StudentEnrollment
-	if err := s.db.First(&enrollment, "id = ?", v.EnrollmentID).Error; errors.Is(err, gorm.ErrRecordNotFound) {
-		return ErrAttendanceEnrollmentMissing
-	} else if err != nil {
-		return err
-	}
-	if enrollment.Status != models.EnrollmentStatusActive {
-		return ErrAttendanceEnrollmentMissing
-	}
-
-	var term models.Term
-	if err := s.db.First(&term, "id = ?", v.TermID).Error; errors.Is(err, gorm.ErrRecordNotFound) {
-		return ErrAttendanceTermMissing
-	} else if err != nil {
-		return err
-	}
-	if term.AcademicSessionID != enrollment.AcademicSessionID {
-		return ErrAttendanceTermMismatch
-	}
-	day := time.Date(v.Date.Year(), v.Date.Month(), v.Date.Day(), 0, 0, 0, 0, time.UTC)
-	termStart := time.Date(term.StartDate.Year(), term.StartDate.Month(), term.StartDate.Day(), 0, 0, 0, 0, time.UTC)
-	termEnd := time.Date(term.EndDate.Year(), term.EndDate.Month(), term.EndDate.Day(), 0, 0, 0, 0, time.UTC)
-	if day.Before(termStart) || day.After(termEnd) { return ErrAttendanceTermMismatch }
-
-	v.Status = strings.ToLower(strings.TrimSpace(v.Status))
-	if !validAttendanceStatus(v.Status) {
-		return ErrAttendanceInvalidStatus
-	}
-	return nil
-}
-
-func (s *AttendanceService) Create(v models.AttendanceRecord) (models.AttendanceRecord, error) {
-	if v.Date.IsZero() {
-		return v, errors.New("attendance date is required")
-	}
-	v.Date = time.Date(v.Date.Year(), v.Date.Month(), v.Date.Day(), 0, 0, 0, 0, time.UTC)
-	if err := s.validate(v); err != nil {
-		return v, err
-	}
-	var existing models.AttendanceRecord
-	err := s.db.Where("enrollment_id = ? AND date = ?", v.EnrollmentID, v.Date).First(&existing).Error
-	if err == nil {
-		return v, ErrAttendanceDuplicate
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return v, err
-	}
-	v.Status = strings.ToLower(strings.TrimSpace(v.Status))
-	return s.repo.Create(v)
-}
-
-func (s *AttendanceService) List() ([]models.AttendanceRecord, error) { return s.repo.List() }
-
-func (s *AttendanceService) Get(id uuid.UUID) (models.AttendanceRecord, error) {
-	v, err := s.repo.Get(id)
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return v, ErrAttendanceNotFound
-	}
-	return v, err
-}
-
-func (s *AttendanceService) Update(v models.AttendanceRecord) error {
-	current, err := s.Get(v.ID)
-	if err != nil { return err }
-	if err := s.validate(v); err != nil { return err }
-	v.Date = time.Date(v.Date.Year(), v.Date.Month(), v.Date.Day(), 0, 0, 0, 0, time.UTC)
-	if current.EnrollmentID != v.EnrollmentID || !current.Date.Equal(v.Date) {
-		var duplicate models.AttendanceRecord
-		if err := s.db.Where("enrollment_id = ? AND date = ? AND id <> ?", v.EnrollmentID, v.Date, v.ID).First(&duplicate).Error; err == nil {
-			return ErrAttendanceDuplicate
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-	}
-	v.Status = strings.ToLower(strings.TrimSpace(v.Status))
-	return s.repo.Update(v)
-}
-
-func (s *AttendanceService) Delete(id uuid.UUID) error {
-	if _, err := s.Get(id); err != nil { return err }
-	return s.repo.Delete(id)
-}
+import("errors";"strings";"time";"github.com/google/uuid";"github.com/onoja217/users-management-app/internal/models";"github.com/onoja217/users-management-app/internal/repository";"gorm.io/gorm")
+var(ErrAttendanceNotFound=errors.New("attendance record not found");ErrAttendanceEnrollmentMissing=errors.New("enrollment not found");ErrAttendanceTermMissing=errors.New("term not found");ErrAttendanceTermMismatch=errors.New("term does not belong to enrollment academic session");ErrAttendanceDuplicate=errors.New("attendance already recorded for enrollment on date");ErrAttendanceInvalidStatus=errors.New("invalid attendance status"))
+type AttendanceService struct{repo repository.AttendanceRepository;db *gorm.DB}
+func NewAttendanceService(r repository.AttendanceRepository,db *gorm.DB)*AttendanceService{return &AttendanceService{r,db}}
+func(s *AttendanceService)DB()*gorm.DB{return s.db}
+func validAttendanceStatus(v string)bool{switch v{case models.AttendancePresent,models.AttendanceAbsent,models.AttendanceLate,models.AttendanceExcused:return true};return false}
+func(s *AttendanceService)validate(schoolID uuid.UUID,v models.AttendanceRecord)error{if v.Date.IsZero(){return errors.New("attendance date is required")};var en models.StudentEnrollment;if e:=s.db.Where("id = ? AND school_id = ?",v.EnrollmentID,schoolID).First(&en).Error;e!=nil{if errors.Is(e,gorm.ErrRecordNotFound){return ErrAttendanceEnrollmentMissing};return e};if en.Status!=models.EnrollmentStatusActive{return ErrAttendanceEnrollmentMissing};var term models.Term;if e:=s.db.Where("id = ? AND school_id = ?",v.TermID,schoolID).First(&term).Error;e!=nil{if errors.Is(e,gorm.ErrRecordNotFound){return ErrAttendanceTermMissing};return e};if term.AcademicSessionID!=en.AcademicSessionID{return ErrAttendanceTermMismatch};day:=time.Date(v.Date.Year(),v.Date.Month(),v.Date.Day(),0,0,0,0,time.UTC);start:=time.Date(term.StartDate.Year(),term.StartDate.Month(),term.StartDate.Day(),0,0,0,0,time.UTC);end:=time.Date(term.EndDate.Year(),term.EndDate.Month(),term.EndDate.Day(),0,0,0,0,time.UTC);if day.Before(start)||day.After(end){return ErrAttendanceTermMismatch};v.Status=strings.ToLower(strings.TrimSpace(v.Status));if !validAttendanceStatus(v.Status){return ErrAttendanceInvalidStatus};return nil}
+func(s *AttendanceService)Create(schoolID uuid.UUID,v models.AttendanceRecord)(models.AttendanceRecord,error){if v.Date.IsZero(){return v,errors.New("attendance date is required")};v.Date=time.Date(v.Date.Year(),v.Date.Month(),v.Date.Day(),0,0,0,0,time.UTC);if e:=s.validate(schoolID,v);e!=nil{return v,e};var x models.AttendanceRecord;e:=s.db.Where("school_id = ? AND enrollment_id = ? AND date = ?",schoolID,v.EnrollmentID,v.Date).First(&x).Error;if e==nil{return v,ErrAttendanceDuplicate};if !errors.Is(e,gorm.ErrRecordNotFound){return v,e};v.Status=strings.ToLower(strings.TrimSpace(v.Status));v.SchoolID=schoolID;return s.repo.Create(schoolID,v)}
+func(s *AttendanceService)List(schoolID uuid.UUID)([]models.AttendanceRecord,error){return s.repo.List(schoolID)}
+func(s *AttendanceService)Get(schoolID,id uuid.UUID)(models.AttendanceRecord,error){v,e:=s.repo.Get(schoolID,id);if errors.Is(e,gorm.ErrRecordNotFound){return v,ErrAttendanceNotFound};return v,e}
+func(s *AttendanceService)Update(schoolID uuid.UUID,v models.AttendanceRecord)error{cur,e:=s.Get(schoolID,v.ID);if e!=nil{return e};if e=s.validate(schoolID,v);e!=nil{return e};v.Date=time.Date(v.Date.Year(),v.Date.Month(),v.Date.Day(),0,0,0,0,time.UTC);if cur.EnrollmentID!=v.EnrollmentID||!cur.Date.Equal(v.Date){var x models.AttendanceRecord;if e=s.db.Where("school_id = ? AND enrollment_id = ? AND date = ? AND id <> ?",schoolID,v.EnrollmentID,v.Date,v.ID).First(&x).Error;e==nil{return ErrAttendanceDuplicate}else if !errors.Is(e,gorm.ErrRecordNotFound){return e}};v.Status=strings.ToLower(strings.TrimSpace(v.Status));v.SchoolID=schoolID;return s.repo.Update(schoolID,v)}
+func(s *AttendanceService)Delete(schoolID,id uuid.UUID)error{if _,e:=s.Get(schoolID,id);e!=nil{return e};return s.repo.Delete(schoolID,id)}

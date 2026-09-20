@@ -41,6 +41,7 @@ func Migrate(db *gorm.DB) error {
         {Version:7,Name:"assessments",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.Assessment{})}},
         {Version:8,Name:"assessment_results",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.AssessmentResult{})}},
         {Version:9,Name:"finance",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.FeeItem{},&models.Invoice{},&models.InvoiceLine{},&models.Payment{})}},
+        {Version:10,Name:"timetable",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.TimetableEntry{})}},
     }
     for _,migration:=range migrations{
         var applied Migration

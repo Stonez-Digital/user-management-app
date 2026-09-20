@@ -32,12 +32,18 @@ func EnsureInitialAdmin(db *gorm.DB) error {
         return nil
     }
 
+    var school models.School
+    if err := db.Where("code = ?", "DEFAULT").First(&school).Error; err != nil {
+        return fmt.Errorf("load default school for administrator bootstrap: %w", err)
+    }
+
     user := models.User{
-        Name: name,
-        Email: email,
+        SchoolID:     &school.ID,
+        Name:         name,
+        Email:        email,
         PasswordHash: passwordHash,
-        Role: authz.RoleSuperAdmin,
-        Active: true,
+        Role:         authz.RoleSuperAdmin,
+        Active:       true,
     }
     if err := db.Create(&user).Error; err != nil {
         return fmt.Errorf("create administrator bootstrap user: %w", err)

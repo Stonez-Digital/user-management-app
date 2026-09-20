@@ -49,3 +49,23 @@ func TestTeacherAssignmentSchoolIsolation(t *testing.T) {
 	if err := db.First(&persisted, "id = ?", assignment.ID).Error; err != nil { t.Fatal(err) }
 	if persisted.SchoolID != schoolA { t.Fatalf("assignment school changed unexpectedly: %s", persisted.SchoolID) }
 }
+
+
+func TestTeacherAssignmentListForTeacherIsScoped(t *testing.T) {
+    db := teacherAssignmentTestDB(t)
+    schoolID := uuid.New()
+    if err := db.Create(&models.School{ID:schoolID,Name:"School",Code:"TA-C",Status:models.SchoolStatusActive}).Error; err != nil { t.Fatal(err) }
+    teacherA := models.User{SchoolID:&schoolID,Name:"Teacher A",Email:"a@example.com",Role:"teacher",Active:true}
+    teacherB := models.User{SchoolID:&schoolID,Name:"Teacher B",Email:"b@example.com",Role:"teacher",Active:true}
+    if err := db.Create(&teacherA).Error; err != nil { t.Fatal(err) }
+    if err := db.Create(&teacherB).Error; err != nil { t.Fatal(err) }
+    subject := models.Subject{SchoolID:schoolID,Code:"ENG",Name:"English",Active:true}; if err:=db.Create(&subject).Error;err!=nil{t.Fatal(err)}
+    session := models.AcademicSession{SchoolID:schoolID,Name:"2026/2027",StartDate:time.Date(2026,9,1,0,0,0,0,time.UTC),EndDate:time.Date(2027,7,31,0,0,0,0,time.UTC)}; if err:=db.Create(&session).Error;err!=nil{t.Fatal(err)}
+    term := models.Term{SchoolID:schoolID,AcademicSessionID:session.ID,Name:models.TermFirst,StartDate:session.StartDate,EndDate:time.Date(2026,12,15,0,0,0,0,time.UTC)}; if err:=db.Create(&term).Error;err!=nil{t.Fatal(err)}
+    class := models.SchoolClass{SchoolID:schoolID,Name:"JSS 2",Level:2}; if err:=db.Create(&class).Error;err!=nil{t.Fatal(err)}
+    svc:=NewTeacherAssignmentService(repository.NewTeacherAssignmentRepository(db),db)
+    a,err:=svc.Create(schoolID,models.TeacherAssignment{TeacherID:teacherA.ID,SubjectID:subject.ID,AcademicSessionID:session.ID,TermID:term.ID,ClassID:class.ID,Active:true});if err!=nil{t.Fatal(err)}
+    if _,err=svc.Create(schoolID,models.TeacherAssignment{TeacherID:teacherB.ID,SubjectID:subject.ID,AcademicSessionID:session.ID,TermID:term.ID,ClassID:class.ID,Active:true});err!=nil{t.Fatal(err)}
+    got,err:=svc.ListForTeacher(schoolID,teacherA.ID);if err!=nil{t.Fatal(err)}
+    if len(got)!=1||got[0].ID!=a.ID||got[0].TeacherID!=teacherA.ID{t.Fatalf("teacher A received wrong assignments: %#v",got)}
+}

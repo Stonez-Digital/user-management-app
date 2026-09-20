@@ -32,6 +32,12 @@ func assignmentError(c *gin.Context, e error) {
 	default: httpx.Error(c,500,"assignment_operation_failed","teacher assignment operation failed")
 	}
 }
+func (ctrl *TeacherAssignmentController) TeacherList(c *gin.Context) {
+    schoolID,ok:=requireSchoolID(c);if !ok{return}
+    teacherID,e:=uuid.Parse(c.GetString("user_id"));if e!=nil{httpx.Error(c,401,"invalid_user","invalid authenticated user");return}
+    v,e:=ctrl.service.ListForTeacher(schoolID,teacherID);if e!=nil{assignmentError(c,e);return}
+    c.JSON(http.StatusOK,v)
+}
 func (ctrl *TeacherAssignmentController) List(c *gin.Context) { schoolID,ok:=requireSchoolID(c);if !ok{return};v,e:=ctrl.service.List(schoolID);if e!=nil{assignmentError(c,e);return};c.JSON(http.StatusOK,v) }
 func (ctrl *TeacherAssignmentController) Get(c *gin.Context) { schoolID,ok:=requireSchoolID(c);if !ok{return};id,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_assignment_id","invalid assignment id");return};v,e:=ctrl.service.Get(schoolID,id);if e!=nil{assignmentError(c,e);return};c.JSON(http.StatusOK,v) }
 func (ctrl *TeacherAssignmentController) Create(c *gin.Context) { schoolID,ok:=requireSchoolID(c);if !ok{return};var r teacherAssignmentRequest;if e:=c.ShouldBindJSON(&r);e!=nil{httpx.Validation(c,httpx.ValidationErrors(e));return};active:=true;if r.Active!=nil{active=*r.Active};v,e:=ctrl.service.Create(schoolID,models.TeacherAssignment{TeacherID:r.TeacherID,SubjectID:r.SubjectID,AcademicSessionID:r.AcademicSessionID,TermID:r.TermID,ClassID:r.ClassID,SectionID:r.SectionID,Active:active});if e!=nil{assignmentError(c,e);return};actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(ctrl.service.DB(),c,&actor,"teacher_assignment.create","teacher_assignment",&v.ID,nil);c.JSON(http.StatusCreated,v) }

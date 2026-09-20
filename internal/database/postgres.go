@@ -122,7 +122,7 @@ func Migrate(db *gorm.DB) error {
             return nil
         }},
         {Version:17,Name:"school_scope_academic_finance_data",Up:func(tx *gorm.DB) error {
-            if err:=tx.AutoMigrate(
+            schoolScopedModels:=[]interface{}{
                 &models.Student{}, &models.AcademicSession{}, &models.Term{},
                 &models.SchoolClass{}, &models.Section{}, &models.Subject{},
                 &models.StudentEnrollment{}, &models.AttendanceRecord{},
@@ -130,7 +130,15 @@ func Migrate(db *gorm.DB) error {
                 &models.FeeItem{}, &models.Invoice{}, &models.InvoiceLine{}, &models.Payment{},
                 &models.TimetableEntry{}, &models.GuardianRelationship{},
                 &models.Announcement{}, &models.Notification{},
-            );err!=nil{return err}
+            }
+            if tx.Dialector.Name()=="postgres" {
+                tables:=[]string{"students","academic_sessions","terms","school_classes","sections","subjects","student_enrollments","attendance_records","teacher_assignments","assessments","assessment_results","fee_items","invoices","invoice_lines","payments","timetable_entries","guardian_relationships","announcements","notifications"}
+                for _,table:=range tables {
+                    if err:=tx.Exec("ALTER TABLE "+table+" ADD COLUMN IF NOT EXISTS school_id uuid").Error;err!=nil{return err}
+                }
+            } else {
+                if err:=tx.AutoMigrate(schoolScopedModels...);err!=nil{return err}
+            }
 
             var school models.School
             if err:=tx.Where("code = ?", "DEFAULT").First(&school).Error;err!=nil{return err}
@@ -219,6 +227,36 @@ func Migrate(db *gorm.DB) error {
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_notification_user_source ON notifications(school_id, user_id, announcement_id)",
             }
             for _,query:=range indexes { if err:=tx.Exec(query).Error;err!=nil{return err} }
+
+            if tx.Dialector.Name()=="postgres" {
+                for _,item:=range required {
+                    if err:=tx.Exec("ALTER TABLE "+item.table+" ALTER COLUMN "+item.column+" SET NOT NULL").Error;err!=nil{return err}
+                }
+                constraints:=map[string]string{
+                    "students":"student_school_fk",
+                    "academic_sessions":"academic_session_school_fk",
+                    "terms":"term_school_fk",
+                    "school_classes":"school_class_school_fk",
+                    "sections":"section_school_fk",
+                    "subjects":"subject_school_fk",
+                    "student_enrollments":"student_enrollment_school_fk",
+                    "attendance_records":"attendance_record_school_fk",
+                    "teacher_assignments":"teacher_assignment_school_fk",
+                    "assessments":"assessment_school_fk",
+                    "assessment_results":"assessment_result_school_fk",
+                    "fee_items":"fee_item_school_fk",
+                    "invoices":"invoice_school_fk",
+                    "invoice_lines":"invoice_line_school_fk",
+                    "payments":"payment_school_fk",
+                    "timetable_entries":"timetable_entry_school_fk",
+                    "guardian_relationships":"guardian_relationship_school_fk",
+                    "announcements":"announcement_school_fk",
+                    "notifications":"notification_school_fk",
+                }
+                for table,constraint:=range constraints {
+                    if err:=tx.Exec("ALTER TABLE "+table+" ADD CONSTRAINT "+constraint+" FOREIGN KEY (school_id) REFERENCES schools(id) ON UPDATE CASCADE ON DELETE RESTRICT").Error;err!=nil{return err}
+                }
+            }
             return nil
         }},
     }

@@ -259,7 +259,6 @@ func Migrate(db *gorm.DB) error {
             }
             return nil
         }},
-    }
         {Version:18,Name:"database_tenant_integrity_constraints",Up:func(tx *gorm.DB) error {
             if tx.Dialector.Name()!="postgres" { return nil }
 
@@ -353,6 +352,7 @@ func Migrate(db *gorm.DB) error {
             }
             return nil
         }},
+    }
     for _,migration:=range migrations{
         var applied Migration
         result:=db.Where("version = ?",migration.Version).First(&applied)

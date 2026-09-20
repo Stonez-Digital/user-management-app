@@ -13,7 +13,7 @@ import (
 
 func academicTestService(t *testing.T) *AcademicService {
     t.Helper()
-    db, err := gorm.Open(sqlite.Open("file:academic_test?mode=memory&cache=shared"), &gorm.Config{})
+    db, err := gorm.Open(sqlite.Open("file:academic_test_"+uuid.New().String()+"?mode=memory&cache=shared"), &gorm.Config{})
     if err != nil { t.Fatal(err) }
     if err := db.AutoMigrate(&models.AcademicSession{}, &models.Term{}); err != nil { t.Fatal(err) }
     return NewAcademicService(repository.NewAcademicSessionRepository(db), repository.NewTermRepository(db), db)

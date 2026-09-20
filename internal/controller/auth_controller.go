@@ -391,6 +391,7 @@ func (ac *AuthController) AssignRole(c *gin.Context) {
         }
         audit := models.RoleChangeAudit{
             ID: uuid.New(),
+            SchoolID: &schoolID,
             ActorID: actorID,
             TargetID: target.ID,
             FromRole: previousRole,

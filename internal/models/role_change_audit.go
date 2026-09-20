@@ -7,6 +7,7 @@ import (
 
 type RoleChangeAudit struct {
     ID        uuid.UUID `gorm:"type:uuid;primaryKey"`
+    SchoolID  *uuid.UUID `gorm:"type:uuid;index"`
     ActorID   uuid.UUID `gorm:"type:uuid;index;not null"`
     TargetID  uuid.UUID `gorm:"type:uuid;index;not null"`
     FromRole  string    `gorm:"not null"`

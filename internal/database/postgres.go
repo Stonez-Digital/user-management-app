@@ -95,6 +95,7 @@ func Migrate(db *gorm.DB) error {
                 if err:=tx.Model(&token).Update("family_id",uuid.New()).Error;err!=nil{return err}
             }
             return nil
+        }},
         {Version:15,Name:"hash_password_reset_tokens",Up:func(tx *gorm.DB) error {
             if err:=tx.AutoMigrate(&models.PasswordResetToken{});err!=nil{return err}
             var tokens []struct{ID uuid.UUID; Token string}
@@ -107,7 +108,6 @@ func Migrate(db *gorm.DB) error {
                 if err:=tx.Migrator().DropColumn(&models.PasswordResetToken{},"token");err!=nil{return err}
             }
             return nil
-        }},
         }},
     }
     for _,migration:=range migrations{

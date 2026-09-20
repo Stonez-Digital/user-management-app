@@ -11,7 +11,6 @@ import (
     "github.com/onoja217/users-management-app/internal/controller"
     "github.com/onoja217/users-management-app/internal/database"
     "github.com/onoja217/users-management-app/internal/middleware"
-    "github.com/onoja217/users-management-app/internal/models"
     "github.com/onoja217/users-management-app/internal/repository"
     "github.com/onoja217/users-management-app/internal/service"
 )

@@ -7,7 +7,7 @@
     "dev:windows": "powershell -ExecutionPolicy Bypass -File ../scripts/dev.ps1",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "next": "16.3.4",

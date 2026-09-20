@@ -1,6 +1,7 @@
 FROM golang:1.25-alpine AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
+RUN apk add --no-cache gcc musl-dev
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=1 GOOS=linux go build -o /out/school-api ./cmd/server

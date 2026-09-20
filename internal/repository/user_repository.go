@@ -19,7 +19,21 @@ type userRepo struct { db *gorm.DB }
 func NewUserRepository(db *gorm.DB) UserRepository { return &userRepo{db: db} }
 
 func (r *userRepo) Update(schoolID uuid.UUID, user models.User) error {
-	return r.db.Where("school_id = ?", schoolID).Save(&user).Error
+    user.SchoolID = &schoolID
+    result := r.db.Model(&models.User{}).Where("school_id = ? AND id = ?", schoolID, user.ID).Updates(map[string]interface{}{
+        "name":          user.Name,
+        "email":         user.Email,
+        "password_hash": user.PasswordHash,
+        "role":          user.Role,
+        "active":        user.Active,
+    })
+    if result.Error != nil {
+        return result.Error
+    }
+    if result.RowsAffected == 0 {
+        return gorm.ErrRecordNotFound
+    }
+    return nil
 }
 
 func (r *userRepo) Create(schoolID uuid.UUID, user models.User) (models.User, error) {

@@ -352,8 +352,7 @@ func Migrate(db *gorm.DB) error {
             }
             return nil
         }},
-    },
-    {Version:19,Name:"align_tenant_relationship_delete_semantics",Up:func(tx *gorm.DB) error {
+        {Version:19,Name:"align_tenant_relationship_delete_semantics",Up:func(tx *gorm.DB) error {
         if tx.Dialector.Name()!="postgres" { return nil }
         changes:=[]struct{table,name,parent,onDelete string}{
             {"sections","section_class_school_fk","school_classes(school_id,id)","CASCADE"},

@@ -48,15 +48,20 @@ func Migrate(db *gorm.DB) error {
         {Version:10,Name:"timetable",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.TimetableEntry{})}},
         {Version:11,Name:"guardian_relationships",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.GuardianRelationship{})}},
         {Version:12,Name:"notifications",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.Announcement{},&models.Notification{})}},
+        {Version:14,Name:"refresh_token_families",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.RefreshToken{},&models.Session{})}},
         {Version:13,Name:"hash_refresh_tokens",Up:func(tx *gorm.DB) error {
             if err:=tx.AutoMigrate(&models.RefreshToken{},&models.Session{});err!=nil{return err}
             var tokens []struct{ID uuid.UUID; Token string}
-            if err:=tx.Raw("SELECT id, token FROM refresh_tokens WHERE token IS NOT NULL AND token <> ''").Scan(&tokens).Error;err!=nil{return err}
+            if tx.Migrator().HasColumn(&models.RefreshToken{},"token") {
+                if err:=tx.Raw("SELECT id, token FROM refresh_tokens WHERE token IS NOT NULL AND token <> ''").Scan(&tokens).Error;err!=nil{return err}
+            }
             for _,token:=range tokens {
                 if err:=tx.Model(&models.RefreshToken{}).Where("id = ?",token.ID).Update("token_hash",auth.HashRefreshToken(token.Token)).Error;err!=nil{return err}
             }
             var sessions []struct{ID uuid.UUID; RefreshToken string}
-            if err:=tx.Raw("SELECT id, refresh_token FROM sessions WHERE refresh_token IS NOT NULL AND refresh_token <> ''").Scan(&sessions).Error;err!=nil{return err}
+            if tx.Migrator().HasColumn(&models.Session{},"refresh_token") {
+                if err:=tx.Raw("SELECT id, refresh_token FROM sessions WHERE refresh_token IS NOT NULL AND refresh_token <> ''").Scan(&sessions).Error;err!=nil{return err}
+            }
             for _,session:=range sessions {
                 if err:=tx.Model(&models.Session{}).Where("id = ?",session.ID).Update("refresh_token_hash",auth.HashRefreshToken(session.RefreshToken)).Error;err!=nil{return err}
             }

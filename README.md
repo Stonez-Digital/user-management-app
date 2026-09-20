@@ -320,50 +320,147 @@ This starts the local Go API and Next.js frontend with development configuration
 
 ## Cloudflare Deployment
 
-The frontend is prepared for deployment to **Cloudflare Workers** using Cloudflare's current recommended **vinext** path for Next.js 16. The Go/Gin API remains the backend origin and is reached by the frontend `/backend/*` rewrite.
+The frontend is prepared for deployment to **Cloudflare Workers** using **vinext** for the current Next.js 16 stack.
 
-### Cloudflare architecture
+### Current production architecture
 
 ```text
 Browser
    ↓
-Cloudflare Worker (Next.js / vinext)
-   ↓ /backend/*
-Go/Gin API
-   ↓
-PostgreSQL
+Cloudflare Worker
+   │  Next.js 16 + vinext
+   │
+   └── /backend/*
+          ↓
+      Go/Gin API
+          ↓
+      PostgreSQL
 ```
+
+The Cloudflare Worker is **frontend/edge infrastructure only**. The Go/Gin API is deployed separately as a public HTTPS backend. The current production API origin is `https://stonez-digital-school-api.onrender.com`.
+
+The frontend rewrite in `frontend/next.config.ts` maps `/backend/*` to `API_SERVER_URL/*`. Local development defaults to `http://localhost:8080`; production uses `API_SERVER_URL`.
+
+### Cloudflare Worker
+
+- Worker name: `stonez-school-management`
+- Configuration: `frontend/wrangler.jsonc`
+- Runtime entry: `vinext/server/fetch-handler`
+- Compatibility flag: `nodejs_compat`
+- Compatibility date: `2026-09-20`
+- Observability: enabled
+- Deployment: `npm run deploy`
 
 From `frontend/`:
 
 ```bash
 npm install
+npm run build
 npm run build:vinext
 npm run cf-typegen
 npm run deploy
 ```
 
-The repository also includes a GitHub Actions production deployment workflow at `.github/workflows/cloudflare-deploy.yml`. After the required GitHub Actions secrets are configured, every qualifying push to `main` automatically installs dependencies, runs the normal Next.js production build, runs the vinext/Cloudflare compatibility build, and deploys the Worker.
-
-Configure these repository/environment secrets in GitHub:
-
-- `CLOUDFLARE_API_TOKEN` — Cloudflare API token with permission to deploy the Worker
-- `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID
-- `API_SERVER_URL` — public HTTPS origin of the Go/Gin API
-- `CLOUDFLARE_WORKER_URL` — deployed Worker URL used for deployment verification
-
-The Worker name is `stonez-school-management`. Secrets are injected only at workflow runtime and are not committed to the repository. The production workflow is restricted to the `production` environment and uses a concurrency lock so overlapping production deployments are cancelled rather than racing each other.
-
-For manual deployment from `frontend/`, use:
+Preview deployment:
 
 ```bash
-npm install
-npm run build:vinext
-npm run cf-typegen
-npm run deploy
+npm run preview
 ```
 
-Cloudflare deployment is intentionally limited to the frontend in this phase: the existing Go/Gin API still requires a Go-compatible server/runtime and PostgreSQL database. Cloudflare Workers should not be treated as a native Go/Gin hosting environment.
+### Automated deployment
+
+Production deployment is defined in `.github/workflows/cloudflare-deploy.yml`.
+
+A qualifying push to `main` runs the normal Next.js build, Cloudflare/vinext compatibility build, deployment configuration validation, Worker deployment, and Wrangler deployment verification.
+
+The workflow uses the `production` GitHub environment and a concurrency lock.
+
+Required production environment secrets/variables:
+
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `API_SERVER_URL`
+
+`CLOUDFLARE_WORKER_URL` is not currently required by the workflow; deployment verification is performed through Wrangler against `stonez-school-management`.
+
+### Cloudflare deployment boundary
+
+Cloudflare Workers host the Next.js frontend. They are not the Go/Gin hosting environment for this project. The backend requires a Go-compatible server runtime and PostgreSQL.
+
+The intended production separation is:
+
+```text
+Cloudflare Workers
+    = Next.js frontend / edge
+
+Render or another Go-compatible host
+    = Go/Gin API
+
+PostgreSQL / Supabase Postgres
+    = relational database
+```
+
+## Supabase / PostgreSQL
+
+The application currently uses **PostgreSQL as its production database layer**, with GORM and the project's versioned migration system. The repository does **not currently use the Supabase JavaScript client or Supabase Auth**.
+
+Supabase can be used as the managed PostgreSQL provider because the backend connects through a standard PostgreSQL `DATABASE_URL`.
+
+```text
+Cloudflare Worker
+       ↓
+Go/Gin API
+       ↓
+Supabase PostgreSQL
+```
+
+### Current database model
+
+- Local development: SQLite
+- Production: PostgreSQL
+- ORM: GORM
+- Identifiers: UUID
+- Application migrations: **20**
+- Tenant isolation: school-scoped data using `school_id`
+- PostgreSQL tenant integrity: composite foreign keys, tenant-scoped unique indexes, and controlled delete/update semantics
+- Audit records: school-scoped using `school_id`
+
+### Supabase configuration
+
+If Supabase is selected as the production PostgreSQL provider, configure the backend with the Supabase Postgres connection string:
+
+```env
+DB_DRIVER=postgres
+DATABASE_URL=...
+```
+
+Keep database credentials private. Never put the Supabase database password, service-role key, or other private credentials in frontend code or GitHub source.
+
+The Go API should be the only application layer connecting to PostgreSQL. The Cloudflare frontend communicates with the API and does not connect directly to the database.
+
+### Migrations and Supabase
+
+The Go application's migration system owns the database schema:
+
+```bash
+go test ./...
+go run ./cmd/server
+```
+
+When the API starts against PostgreSQL, pending application migrations are applied. The current schema includes the completed multi-school tenant boundary and audit-log isolation work.
+
+**Important:** Supabase is currently a **PostgreSQL hosting option**, not the application's authentication provider. Authentication remains implemented by the Go backend using JWT access/refresh tokens, RBAC, and session controls.
+
+### Production responsibility split
+
+| Component | Responsibility |
+|---|---|
+| Cloudflare Workers | Next.js frontend, edge delivery and frontend routing |
+| Go/Gin API | Authentication, RBAC, business logic and API |
+| Supabase PostgreSQL | Managed PostgreSQL database, if selected |
+| GitHub Actions | CI and Cloudflare deployment automation |
+
+This keeps database credentials and school-tenant authorization inside the backend while allowing Cloudflare to serve the web application globally.
 
 ## Testing
 

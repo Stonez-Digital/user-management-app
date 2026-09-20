@@ -3,6 +3,7 @@ package main
 import (
     "log"
     "os"
+    "github.com/onoja217/users-management-app/internal/server"
     "github.com/gin-gonic/gin"
     "github.com/onoja217/users-management-app/internal/auth"
     "github.com/onoja217/users-management-app/internal/authz"
@@ -23,7 +24,7 @@ func main() {
     if err:=db.Where("email = ?","admin@example.com").First(&adminUser).Error;err==nil{
         if !adminUser.Active||adminUser.Role!=authz.RoleSuperAdmin{adminUser.Role=authz.RoleSuperAdmin;adminUser.Active=true;if err:=db.Save(&adminUser).Error;err!=nil{log.Fatal("failed to configure admin user: ",err)}}
     }
-    r:=gin.Default();r.SetTrustedProxies(nil)
+    r:=gin.Default();r.SetTrustedProxies(nil);server.Configure(r)
     repo:=repository.NewUserRepository(db);svc:=service.NewUserService(repo,db);ctrl:=controller.NewUserController(svc)
     authController:=controller.NewAuthController(db);auditController:=controller.NewAuditController(db)
     studentRepo:=repository.NewStudentRepository(db);studentService:=service.NewStudentService(studentRepo,db);studentController:=controller.NewStudentController(studentService)
@@ -62,5 +63,5 @@ func main() {
     parent:=r.Group("/parent");parent.Use(middleware.AuthMiddleware(db));parent.Use(middleware.RequirePermission(authz.PermissionParentPortalRead));protected.GET("/notifications",middleware.RequirePermission(authz.PermissionNotificationsRead),notificationController.Mine);protected.POST("/notifications/:id/read",middleware.RequirePermission(authz.PermissionNotificationsRead),notificationController.Read)
     parent.GET("/terms",guardianController.Terms);parent.GET("/children",guardianController.Children);parent.GET("/children/:studentId/attendance",guardianController.Attendance);parent.GET("/children/:studentId/report-cards/:termId",guardianController.ReportCard);parent.GET("/children/:studentId/timetable",guardianController.Timetable);parent.GET("/children/:studentId/invoices",guardianController.Invoices);parent.GET("/children/:studentId/payments",guardianController.Payments)
     admin.POST("/users/:id/activate",middleware.RequirePermission(authz.PermissionUsersActivate),authController.ActivateUser);admin.POST("/users/:id/deactivate",middleware.RequirePermission(authz.PermissionUsersDeactivate),authController.DeactivateUser)
-    port:=os.Getenv("APP_PORT");if port==""{port="8080"};log.Println("Server running on :"+port);if err:=r.Run(":"+port);err!=nil{log.Fatal(err)}
+    port:=os.Getenv("APP_PORT");if port==""{port="8080"};if err:=server.Start(r,port);err!=nil{log.Fatal(err)}
 }

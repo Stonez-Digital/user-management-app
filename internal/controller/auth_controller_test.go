@@ -105,3 +105,59 @@ func TestRefreshRejectsExpiredToken(t *testing.T) {
     rec := authJSONRequest(t, NewAuthController(db), http.MethodPost, "/refresh", "{\"refresh_token\":\""+refresh+"\"}")
     if rec.Code != http.StatusUnauthorized { t.Fatalf("expected expired token to be rejected, got %d: %s", rec.Code, rec.Body.String()) }
 }
+
+func TestResetPasswordConsumesHashedTokenAndRevokesSessions(t *testing.T) {
+    db := authControllerTestDB(t)
+    hash, err := auth.HashPassword("old-password123")
+    if err != nil { t.Fatal(err) }
+    user := models.User{Name: "Reset Test", Email: "reset-"+strings.ToLower(t.Name())+"@example.com", PasswordHash: hash, Role: authz.RoleStudent, Active: true}
+    if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
+
+    rawToken := strings.Repeat("reset-token-", 4)
+    familyID := uuid.New()
+    if err := db.Create(&models.RefreshToken{
+        ID: uuid.New(), UserID: user.ID, FamilyID: familyID,
+        TokenHash: auth.HashRefreshToken("refresh-reset-test"),
+        ExpiresAt: time.Now().Add(time.Hour), Revoked: false,
+    }).Error; err != nil { t.Fatal(err) }
+    if err := db.Create(&models.Session{
+        ID: uuid.New(), UserID: user.ID, FamilyID: familyID,
+        RefreshTokenHash: auth.HashRefreshToken("refresh-reset-test"),
+        ExpiresAt: time.Now().Add(time.Hour), Revoked: false,
+    }).Error; err != nil { t.Fatal(err) }
+    reset := models.PasswordResetToken{
+        ID: uuid.New(), UserID: user.ID, TokenHash: auth.HashResetToken(rawToken),
+        ExpiresAt: time.Now().Add(15 * time.Minute), Used: false,
+    }
+    if err := db.Create(&reset).Error; err != nil { t.Fatal(err) }
+
+    router := gin.New()
+    router.POST("/reset-password", NewAuthController(db).ResetPassword)
+    req := httptest.NewRequest(http.MethodPost, "/reset-password", strings.NewReader(
+        "{\"token\":\""+rawToken+"\",\"new_password\":\"new-password123\"}",
+    ))
+    req.Header.Set("Content-Type", "application/json")
+    rec := httptest.NewRecorder()
+    router.ServeHTTP(rec, req)
+    if rec.Code != http.StatusOK { t.Fatalf("expected reset 200, got %d: %s", rec.Code, rec.Body.String()) }
+
+    var stored models.PasswordResetToken
+    if err := db.First(&stored, "id = ?", reset.ID).Error; err != nil { t.Fatal(err) }
+    if stored.Used != true { t.Fatal("expected reset token to be marked used") }
+    if stored.TokenHash != auth.HashResetToken(rawToken) { t.Fatal("expected reset token to remain hashed") }
+
+    var session models.Session
+    if err := db.First(&session, "id = ?", reset.ID).Error; err == nil {
+        t.Fatal("unexpected session lookup by reset token id")
+    }
+    if err := db.Where("user_id = ?", user.ID).First(&session).Error; err != nil { t.Fatal(err) }
+    if !session.Revoked { t.Fatal("expected password reset to revoke sessions") }
+
+    reuseReq := httptest.NewRequest(http.MethodPost, "/reset-password", strings.NewReader(
+        "{\"token\":\""+rawToken+"\",\"new_password\":\"another-password123\"}",
+    ))
+    reuseReq.Header.Set("Content-Type", "application/json")
+    reuseRec := httptest.NewRecorder()
+    router.ServeHTTP(reuseRec, reuseReq)
+    if reuseRec.Code != http.StatusUnauthorized { t.Fatalf("expected reused reset token to be rejected, got %d: %s", reuseRec.Code, reuseRec.Body.String()) }
+}

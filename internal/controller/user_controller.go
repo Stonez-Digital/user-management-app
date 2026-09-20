@@ -13,8 +13,8 @@ import (
 )
 
 type UserController struct { service *service.UserService }
-type UpdateMeRequest struct { Name string \`json:"name" binding:"omitempty,min=2,max=100"\`; Email string \`json:"email" binding:"omitempty,email,max=255"\` }
-type CreateUserRequest struct { Name string \`json:"name" binding:"required,min=2,max=100"\`; Email string \`json:"email" binding:"required,email,max=255"\` }
+type UpdateMeRequest struct { Name string `json:"name" binding:"omitempty,min=2,max=100"`; Email string `json:"email" binding:"omitempty,email,max=255"` }
+type CreateUserRequest struct { Name string `json:"name" binding:"required,min=2,max=100"`; Email string `json:"email" binding:"required,email,max=255"` }
 
 func NewUserController(s *service.UserService) *UserController { return &UserController{service:s} }
 

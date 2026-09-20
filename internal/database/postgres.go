@@ -365,6 +365,17 @@ func Migrate(db *gorm.DB) error {
         }
         return nil
     }},
+        {Version:20,Name:"scope_audit_records_by_school",Up:func(tx *gorm.DB) error {
+            if err:=tx.AutoMigrate(&models.AuditLog{},&models.RoleChangeAudit{});err!=nil{return err}
+            if tx.Dialector.Name()=="postgres" {
+                if err:=tx.Exec("UPDATE audit_logs a SET school_id=u.school_id FROM users u WHERE a.school_id IS NULL AND a.actor_id=u.id AND u.school_id IS NOT NULL").Error;err!=nil{return err}
+                if err:=tx.Exec("UPDATE audit_logs a SET school_id=u.school_id FROM users u WHERE a.school_id IS NULL AND a.resource='user' AND a.resource_id=u.id AND u.school_id IS NOT NULL").Error;err!=nil{return err}
+                if err:=tx.Exec("UPDATE role_change_audits r SET school_id=u.school_id FROM users u WHERE r.school_id IS NULL AND r.target_id=u.id AND u.school_id IS NOT NULL").Error;err!=nil{return err}
+                if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_audit_logs_school_created_at ON audit_logs(school_id,created_at)").Error;err!=nil{return err}
+                if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_role_change_audits_school_created_at ON role_change_audits(school_id,created_at)").Error;err!=nil{return err}
+            }
+            return nil
+        }},
     }
     for _,migration:=range migrations{
         var applied Migration

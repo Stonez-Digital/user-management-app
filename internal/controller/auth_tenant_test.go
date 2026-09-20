@@ -28,6 +28,10 @@ func tenantContextRouter(handler gin.HandlerFunc, schoolID string, userID string
     r.Handle(method, path, func(c *gin.Context) {
         c.Set(middleware.SchoolIDKey, schoolID)
         c.Set(middleware.UserIDKey, userID)
+        if id := strings.TrimPrefix(path, "/admin/users/"); id != path {
+            id = strings.TrimSuffix(strings.TrimSuffix(id, "/deactivate"), "/role")
+            c.Params = gin.Params{{Key: "id", Value: id}}
+        }
         handler(c)
     })
     req := httptest.NewRequest(method, path, strings.NewReader(body))

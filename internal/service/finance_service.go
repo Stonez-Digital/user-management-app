@@ -93,7 +93,7 @@ func(s *FinanceService)CreatePayment(v models.Payment)(models.Payment,error){
             if e:=tx.Model(&models.Payment{}).Where("invoice_id=? AND status=?",invoice.ID,models.PaymentStatusSucceeded).Select("COALESCE(SUM(amount),0)").Scan(&sum).Error;e!=nil{return e}
             invoice.PaidAmount=sum;invoice.Balance=invoice.TotalAmount-sum;if invoice.Balance<0{invoice.Balance=0}
             if invoice.Balance==0{invoice.Status=models.InvoiceStatusPaid}else{invoice.Status=models.InvoiceStatusPartiallyPaid}
-            if e:=tx.Save(&invoice).Error;e!=nil{return e}
+            if e:=tx.Model(&models.Invoice{}).Where("id = ?",invoice.ID).Updates(map[string]interface{}{"paid_amount":invoice.PaidAmount,"balance":invoice.Balance,"status":invoice.Status}).Error;e!=nil{return e}
         }
         return nil
     })

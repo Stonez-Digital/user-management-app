@@ -20,6 +20,11 @@ func TestNonAdminRolesHaveNoAdministrativePermissions(t *testing.T) {
     permissions:=[]string{PermissionUsersRead,PermissionUsersCreate,PermissionUsersUpdate,PermissionUsersDelete,PermissionUsersActivate,PermissionUsersDeactivate,PermissionRolesAssign}
     for _,role:=range roles{for _,permission:=range permissions{if HasPermission(role,permission){t.Fatalf("role %q unexpectedly has %q",role,permission)}}}
 }
+func TestStudentHasPortalAccess(t *testing.T) {
+    if !HasPermission(RoleStudent, PermissionStudentPortalRead) { t.Fatal("student should have student portal access") }
+    if HasPermission(RoleStudent, PermissionStudentsRead) { t.Fatal("student should not have administrative student-read permission") }
+}
+
 func TestTeacherCanManageAttendance(t *testing.T) {
     if !HasPermission(RoleTeacher,PermissionAttendanceRead){t.Fatal("teacher should read attendance")}
     if !HasPermission(RoleTeacher,PermissionAttendanceManage){t.Fatal("teacher should manage attendance")}

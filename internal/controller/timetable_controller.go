@@ -11,3 +11,6 @@ func(ctrl *TimetableController)Get(c *gin.Context){id,e:=uuid.Parse(c.Param("id"
 func(ctrl *TimetableController)Create(c *gin.Context){ctrl.save(c,false)}
 func(ctrl *TimetableController)Update(c *gin.Context){ctrl.save(c,true)}
 func(ctrl *TimetableController)Delete(c *gin.Context){id,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_timetable_id","invalid timetable id");return};if e=ctrl.service.Delete(id);e!=nil{timetableError(c,e);return};actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(ctrl.service.DB(),c,&actor,"timetable.delete","timetable",&id,nil);c.JSON(200,gin.H{"message":"timetable entry deleted"})}
+
+func(ctrl *TimetableController)TeacherView(c *gin.Context){id,e:=uuid.Parse(c.GetString("user_id"));if e!=nil{httpx.Error(c,401,"invalid_user","invalid authenticated user");return};v,e:=ctrl.service.ListForTeacher(id);if e!=nil{timetableError(c,e);return};c.JSON(200,v)}
+func(ctrl *TimetableController)StudentView(c *gin.Context){id,e:=uuid.Parse(c.GetString("user_id"));if e!=nil{httpx.Error(c,401,"invalid_user","invalid authenticated user");return};v,e:=ctrl.service.ListForStudent(id);if e!=nil{timetableError(c,e);return};c.JSON(200,v)}

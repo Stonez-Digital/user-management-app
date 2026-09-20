@@ -7,6 +7,7 @@ import (
     "github.com/gin-gonic/gin"
     "github.com/onoja217/users-management-app/internal/auth"
     "github.com/onoja217/users-management-app/internal/authz"
+    "github.com/onoja217/users-management-app/internal/bootstrap"
     "github.com/onoja217/users-management-app/internal/controller"
     "github.com/onoja217/users-management-app/internal/database"
     "github.com/onoja217/users-management-app/internal/middleware"
@@ -19,19 +20,7 @@ func main() {
     if err:=auth.ConfigureSecret(os.Getenv("JWT_SECRET"));err!=nil{log.Fatal(err)}
     db,err:=database.Connect();if err!=nil{log.Fatal(err)}
     if err:=database.Migrate(db);err!=nil{log.Fatal(err)}
-    bootstrapPasswordHash:=os.Getenv("ADMIN_BOOTSTRAP_PASSWORD_HASH")
-    if bootstrapPasswordHash!="" {
-        bootstrapEmail:=os.Getenv("ADMIN_BOOTSTRAP_EMAIL")
-        bootstrapName:=os.Getenv("ADMIN_BOOTSTRAP_NAME")
-        if bootstrapEmail==""||bootstrapName==""{log.Fatal("ADMIN_BOOTSTRAP_EMAIL and ADMIN_BOOTSTRAP_NAME are required when ADMIN_BOOTSTRAP_PASSWORD_HASH is set")}
-        var userCount int64
-        if err:=db.Model(&models.User{}).Count(&userCount).Error;err!=nil{log.Fatal("failed to check administrator bootstrap state: ",err)}
-        if userCount==0 {
-            adminUser:=models.User{Name:bootstrapName,Email:bootstrapEmail,PasswordHash:bootstrapPasswordHash,Role:authz.RoleSuperAdmin,Active:true}
-            if err:=db.Create(&adminUser).Error;err!=nil{log.Fatal("failed to create administrator bootstrap user: ",err)}
-            log.Printf("created initial superadmin account for %s",bootstrapEmail)
-        }
-    }
+    if err:=bootstrap.EnsureInitialAdmin(db);err!=nil{log.Fatal(err)}
     db.Model(&models.User{}).Where("role = ?","admin").Update("role",authz.RoleSuperAdmin)
     db.Model(&models.User{}).Where("role = ?","user").Update("role",authz.RoleStudent)
     r:=gin.Default();r.SetTrustedProxies(nil);server.Configure(r)

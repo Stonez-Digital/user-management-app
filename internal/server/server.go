@@ -6,13 +6,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"syscall"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
-
 
 func ValidateEnvironment() error {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
@@ -30,10 +29,6 @@ func ValidateEnvironment() error {
 }
 
 func Configure(r *gin.Engine) {
-	r.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
-
 	allowed := configuredOrigins()
 	r.Use(func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
@@ -55,6 +50,10 @@ func Configure(r *gin.Engine) {
 			return
 		}
 		c.Next()
+	})
+
+	r.GET("/healthz", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 }
 
@@ -102,10 +101,7 @@ func Start(r *gin.Engine, port string) error {
 func shutdownSignal() <-chan struct{} {
 	ch := make(chan struct{})
 	go func() {
-		// The signal channel is intentionally initialized in a small helper so
-		// the HTTP server lifecycle remains isolated from application wiring.
 		signalCh := make(chan os.Signal, 1)
-		// SIGINT/SIGTERM are registered without importing signal handling into main.
 		signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
 		<-signalCh
 		close(ch)

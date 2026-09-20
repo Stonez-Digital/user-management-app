@@ -1,0 +1,13 @@
+package controller
+import("errors";"net/http";"github.com/gin-gonic/gin";"github.com/google/uuid";"github.com/onoja217/users-management-app/internal/httpx";"github.com/onoja217/users-management-app/internal/service")
+type StudentPortalController struct{service *service.StudentPortalService}
+func NewStudentPortalController(s *service.StudentPortalService)*StudentPortalController{return &StudentPortalController{s}}
+func studentPortalError(c *gin.Context,e error){switch{case errors.Is(e,service.ErrStudentPortalForbidden):httpx.Error(c,403,"student_portal_forbidden","student portal access is restricted to the authenticated student");case errors.Is(e,service.ErrStudentPortalNotFound):httpx.Error(c,404,"student_portal_not_found","student portal record not found");default:httpx.Error(c,500,"student_portal_operation_failed","student portal operation failed")}}
+func(ctrl *StudentPortalController)uid(c *gin.Context)(uuid.UUID,bool){id,e:=uuid.Parse(c.GetString("user_id"));if e!=nil{httpx.Error(c,401,"invalid_user","invalid authenticated user");return uuid.Nil,false};return id,true}
+func(ctrl *StudentPortalController)Profile(c *gin.Context){id,ok:=ctrl.uid(c);if !ok{return};v,e:=ctrl.service.Profile(id);if e!=nil{studentPortalError(c,e);return};c.JSON(http.StatusOK,v)}
+func(ctrl *StudentPortalController)Enrollment(c *gin.Context){id,ok:=ctrl.uid(c);if !ok{return};v,e:=ctrl.service.Enrollment(id);if e!=nil{studentPortalError(c,e);return};c.JSON(http.StatusOK,v)}
+func(ctrl *StudentPortalController)Attendance(c *gin.Context){id,ok:=ctrl.uid(c);if !ok{return};v,e:=ctrl.service.Attendance(id);if e!=nil{studentPortalError(c,e);return};c.JSON(http.StatusOK,v)}
+func(ctrl *StudentPortalController)Timetable(c *gin.Context){id,ok:=ctrl.uid(c);if !ok{return};v,e:=ctrl.service.Timetable(id);if e!=nil{studentPortalError(c,e);return};c.JSON(http.StatusOK,v)}
+func(ctrl *StudentPortalController)ReportCard(c *gin.Context){id,ok:=ctrl.uid(c);if !ok{return};tid,e:=uuid.Parse(c.Param("termId"));if e!=nil{httpx.Error(c,400,"invalid_term_id","invalid term id");return};v,e:=ctrl.service.ReportCard(id,tid);if e!=nil{studentPortalError(c,e);return};c.JSON(http.StatusOK,v)}
+func(ctrl *StudentPortalController)Invoices(c *gin.Context){id,ok:=ctrl.uid(c);if !ok{return};v,e:=ctrl.service.Invoices(id);if e!=nil{studentPortalError(c,e);return};c.JSON(http.StatusOK,v)}
+func(ctrl *StudentPortalController)Payments(c *gin.Context){id,ok:=ctrl.uid(c);if !ok{return};v,e:=ctrl.service.Payments(id);if e!=nil{studentPortalError(c,e);return};c.JSON(http.StatusOK,v)}

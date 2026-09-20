@@ -50,7 +50,7 @@ func TestFinanceInvoiceAndPaymentWorkflow(t *testing.T){
 func TestFinanceSchoolIsolation(t *testing.T){
     db:=financeTestDB(t)
     schoolA,termA,enrollmentA:=financeFixture(t,db,"A")
-    schoolB,termB,enrollmentB:=financeFixture(t,db,"B")
+    schoolB,termB,_:=financeFixture(t,db,"B")
     svc:=NewFinanceService(repository.NewFeeItemRepository(db),repository.NewInvoiceRepository(db),repository.NewPaymentRepository(db),db)
     feeA,e:=svc.CreateFee(schoolA,models.FeeItem{TermID:termA.ID,Name:"Tuition",Amount:50000,Active:true});if e!=nil{t.Fatal(e)}
     feeB,e:=svc.CreateFee(schoolB,models.FeeItem{TermID:termB.ID,Name:"Tuition",Amount:50000,Active:true});if e!=nil{t.Fatal(e)}

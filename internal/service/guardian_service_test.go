@@ -1,6 +1,6 @@
 package service
 
-import("testing";"github.com/onoja217/users-management-app/internal/authz";"github.com/onoja217/users-management-app/internal/models";"github.com/onoja217/users-management-app/internal/repository";"gorm.io/driver/sqlite";"gorm.io/gorm")
+import("errors";"testing";"github.com/onoja217/users-management-app/internal/authz";"github.com/onoja217/users-management-app/internal/models";"github.com/onoja217/users-management-app/internal/repository";"gorm.io/driver/sqlite";"gorm.io/gorm")
 func TestGuardianRelationshipAccessAndSchoolIsolation(t *testing.T){
  db,err:=gorm.Open(sqlite.Open("file:guardian_test?mode=memory&cache=shared"),&gorm.Config{});if err!=nil{t.Fatal(err)}
  if err=db.AutoMigrate(&models.School{},&models.User{},&models.Student{},&models.AcademicSession{},&models.Term{},&models.SchoolClass{},&models.Section{},&models.StudentEnrollment{},&models.AttendanceRecord{},&models.Assessment{},&models.AssessmentResult{},&models.TeacherAssignment{},&models.Subject{},&models.TimetableEntry{},&models.Invoice{},&models.InvoiceLine{},&models.Payment{},&models.GuardianRelationship{});err!=nil{t.Fatal(err)}
@@ -14,5 +14,5 @@ func TestGuardianRelationshipAccessAndSchoolIsolation(t *testing.T){
  if _,err=svc.Attendance(b.ID,parentB.ID,student.ID);err!=ErrGuardianForbidden{t.Fatalf("expected cross-school access to be forbidden, got %v",err)}
  if _,err=svc.CreateLink(b.ID,parentB.ID,student.ID,"father",false);err!=ErrGuardianInvalid{t.Fatalf("expected cross-school link rejection, got %v",err)}
  if _,err=svc.CreateLink(a.ID,parentA.ID,student.ID,"father",false);err!=ErrGuardianInvalid{t.Fatalf("expected duplicate link rejection, got %v",err)}
- if _,err=rel.Find(b.ID,parentA.ID,student.ID);!gorm.IsRecordNotFoundError(err){t.Fatalf("expected school-scoped repository lookup to miss, got %v",err)}
+ if _,err=rel.Find(b.ID,parentA.ID,student.ID);!errors.Is(err,gorm.ErrRecordNotFound){t.Fatalf("expected school-scoped repository lookup to miss, got %v",err)}
 }

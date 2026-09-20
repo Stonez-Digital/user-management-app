@@ -33,8 +33,6 @@ func TestCreateEnrollmentValidatesRelationshipsAndDuplicate(t *testing.T) {
 	section := models.Section{SchoolID:schoolID,ClassID:class.ID,Name:"A"}
 	if err := db.Create(&section).Error; err != nil { t.Fatal(err) }
 
-	schoolID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
-	schoolID2 := uuid.MustParse("00000000-0000-0000-0000-000000000002")
 	svc := NewEnrollmentService(repository.NewEnrollmentRepository(db),db)
 	enrollment, err := svc.Create(schoolID,models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session.ID,ClassID:class.ID,SectionID:section.ID})
 	if err != nil { t.Fatal(err) }

@@ -78,7 +78,7 @@ func(s *FinanceService)CreatePayment(v models.Payment)(models.Payment,error){
     if v.InvoiceID==uuid.Nil||v.Amount<=0||strings.TrimSpace(v.Provider)==""||strings.TrimSpace(v.Reference)==""{return v,ErrPaymentInvalid}
     invoice,e:=s.GetInvoice(v.InvoiceID);if e!=nil{return v,e}
     if invoice.Status==models.InvoiceStatusCancelled||invoice.Balance<=0{return v,ErrPaymentInvalid}
-    existing,e:=s.payments.GetByReference(v.Reference);if e==nil{return v,ErrPaymentDuplicate};if !errors.Is(e,gorm.ErrRecordNotFound){return v,e}
+    _,e:=s.payments.GetByReference(v.Reference);if e==nil{return v,ErrPaymentDuplicate};if !errors.Is(e,gorm.ErrRecordNotFound){return v,e}
     if v.Status==""{v.Status=models.PaymentStatusPending}
     if v.Status==models.PaymentStatusSucceeded{
         if v.Amount>invoice.Balance+0.000001{return v,ErrPaymentExceedsBalance}

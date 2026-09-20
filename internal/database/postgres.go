@@ -48,7 +48,6 @@ func Migrate(db *gorm.DB) error {
         {Version:10,Name:"timetable",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.TimetableEntry{})}},
         {Version:11,Name:"guardian_relationships",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.GuardianRelationship{})}},
         {Version:12,Name:"notifications",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.Announcement{},&models.Notification{})}},
-        {Version:14,Name:"refresh_token_families",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.RefreshToken{},&models.Session{})}},
         {Version:13,Name:"hash_refresh_tokens",Up:func(tx *gorm.DB) error {
             if err:=tx.AutoMigrate(&models.RefreshToken{},&models.Session{});err!=nil{return err}
             var tokens []struct{ID uuid.UUID; Token string}
@@ -71,6 +70,7 @@ func Migrate(db *gorm.DB) error {
             if tx.Migrator().HasColumn(&models.Session{},"refresh_token") { if err:=tx.Migrator().DropColumn(&models.Session{},"refresh_token");err!=nil{return err} }
             return nil
         }},
+        {Version:14,Name:"refresh_token_families",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.RefreshToken{},&models.Session{})}},
     }
     for _,migration:=range migrations{
         var applied Migration

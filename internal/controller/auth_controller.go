@@ -148,8 +148,8 @@ func (ac *AuthController) Login(c *gin.Context) {
 
 	err = ac.DB.Transaction(func(tx *gorm.DB) error {
 		expiry := time.Now().Add(auth.RefreshTokenTTL)
-		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, Token: refreshToken, ExpiresAt: expiry}).Error; err != nil { return err }
-		return tx.Create(&models.Session{ID: uuid.New(), UserID: user.ID, RefreshToken: refreshToken, ExpiresAt: expiry, UserAgent: c.Request.UserAgent(), IP: c.ClientIP()}).Error
+		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, TokenHash: auth.HashRefreshToken(refreshToken), ExpiresAt: expiry}).Error; err != nil { return err }
+		return tx.Create(&models.Session{ID: uuid.New(), UserID: user.ID, RefreshTokenHash: auth.HashRefreshToken(refreshToken), ExpiresAt: expiry, UserAgent: c.Request.UserAgent(), IP: c.ClientIP()}).Error
 	})
 	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session"}); return }
 	_ = audit.Record(ac.DB, c, &user.ID, "auth.login", "user", &user.ID, nil)
@@ -163,7 +163,7 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 	}
 
 	var stored models.RefreshToken
-	if err := ac.DB.Where("token = ? AND revoked = false", req.RefreshToken).First(&stored).Error; err != nil || time.Now().After(stored.ExpiresAt) {
+	if err := ac.DB.Where("token_hash = ? AND revoked = false", auth.HashRefreshToken(req.RefreshToken)).First(&stored).Error; err != nil || time.Now().After(stored.ExpiresAt) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
 		return
 	}
@@ -184,7 +184,7 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 		if result.RowsAffected != 1 { return errRefreshReused }
 		expiry := time.Now().Add(auth.RefreshTokenTTL)
 		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, Token: newRefreshToken, ExpiresAt: expiry}).Error; err != nil { return err }
-		if err := tx.Model(&models.Session{}).Where("refresh_token = ? AND revoked = false", req.RefreshToken).Updates(map[string]interface{}{"refresh_token": newRefreshToken, "expires_at": expiry}).Error; err != nil { return err }
+		if err := tx.Model(&models.Session{}).Where("refresh_token_hash = ? AND revoked = false", auth.HashRefreshToken(req.RefreshToken)).Updates(map[string]interface{}{"refresh_token_hash": auth.HashRefreshToken(newRefreshToken), "expires_at": expiry}).Error; err != nil { return err }
 		return nil
 	})
 	if errors.Is(err, errRefreshReused) {
@@ -237,7 +237,7 @@ func (ac *AuthController) RevokeSession(c *gin.Context) {
 	}
 	if err := ac.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&session).Update("revoked", true).Error; err != nil { return err }
-		return tx.Model(&models.RefreshToken{}).Where("token = ? AND user_id = ?", session.RefreshToken, userID).Update("revoked", true).Error
+		return tx.Model(&models.RefreshToken{}).Where("token_hash = ? AND user_id = ?", session.RefreshTokenHash, userID).Update("revoked", true).Error
 	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revoke session"})
 		return
@@ -257,7 +257,7 @@ func (ac *AuthController) Logout(c *gin.Context) {
 	}
 	if err := ac.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&token).Update("revoked", true).Error; err != nil { return err }
-		return tx.Model(&models.Session{}).Where("refresh_token = ?", req.RefreshToken).Update("revoked", true).Error
+		return tx.Model(&models.Session{}).Where("refresh_token_hash = ?", auth.HashRefreshToken(req.RefreshToken)).Update("revoked", true).Error
 	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to logout"})
 		return

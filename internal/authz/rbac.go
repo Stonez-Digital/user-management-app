@@ -68,7 +68,7 @@ var rolePermissions = map[string]map[string]bool{
         PermissionAssessmentsRead: true, PermissionAssessmentsManage: true,
         PermissionResultsRead: true, PermissionResultsManage: true, PermissionTimetableRead: true,
     },
-    RoleStudent: {},
+    RoleStudent: { PermissionTimetableRead: true },
     RoleParent: {},
     RoleAccountant: { PermissionFeesRead: true, PermissionFeesManage: true, PermissionInvoicesRead: true, PermissionInvoicesManage: true, PermissionPaymentsRead: true, PermissionPaymentsManage: true },
     RoleStaff: {},

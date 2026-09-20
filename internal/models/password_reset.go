@@ -9,7 +9,7 @@ import (
 type PasswordResetToken struct {
 	ID        uuid.UUID `gorm:"type:uuid;primaryKey"`
 	UserID    uuid.UUID `gorm:"type:uuid;index"`
-	Token     string    `gorm:"uniqueIndex"`
+	TokenHash string    `gorm:"size:64;uniqueIndex"`
 	ExpiresAt time.Time
 	Used      bool `gorm:"default:false"`
 	CreatedAt time.Time

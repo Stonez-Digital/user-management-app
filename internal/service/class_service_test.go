@@ -1,7 +1,8 @@
 package service
 
 import (
- "testing"\n    "github.com/google/uuid"
+ "testing"
+    "github.com/google/uuid"
  "github.com/onoja217/users-management-app/internal/models"
  "github.com/onoja217/users-management-app/internal/repository"
  "gorm.io/driver/sqlite"

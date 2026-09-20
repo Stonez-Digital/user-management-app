@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,6 +12,22 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+
+func ValidateEnvironment() error {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
+		if strings.TrimSpace(os.Getenv("DB_DRIVER")) != "postgres" {
+			return fmt.Errorf("production requires DB_DRIVER=postgres")
+		}
+		if strings.TrimSpace(os.Getenv("DATABASE_URL")) == "" {
+			return fmt.Errorf("production requires DATABASE_URL")
+		}
+		if strings.TrimSpace(os.Getenv("CORS_ALLOWED_ORIGINS")) == "" {
+			return fmt.Errorf("production requires CORS_ALLOWED_ORIGINS")
+		}
+	}
+	return nil
+}
 
 func Configure(r *gin.Engine) {
 	r.GET("/healthz", func(c *gin.Context) {

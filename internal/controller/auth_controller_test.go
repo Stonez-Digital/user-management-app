@@ -166,6 +166,7 @@ func TestRefreshRejectsInactiveUser(t *testing.T) {
     db := authControllerTestDB(t)
     user := models.User{Name: "Inactive Refresh", Email: "inactive-refresh-"+strings.ToLower(t.Name())+"@example.com", Role: authz.RoleStudent, Active: false}
     if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
+    if err := db.Model(&user).Update("active", false).Error; err != nil { t.Fatal(err) }
     refresh := strings.Repeat("inactive-refresh-token-", 4)
     if err := db.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: uuid.New(), TokenHash: auth.HashRefreshToken(refresh), ExpiresAt: time.Now().Add(time.Hour), Revoked: false}).Error; err != nil { t.Fatal(err) }
     rec := authJSONRequest(t, NewAuthController(db), http.MethodPost, "/refresh", "{\"refresh_token\":\""+refresh+"\"}")

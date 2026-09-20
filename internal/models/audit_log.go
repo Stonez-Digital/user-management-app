@@ -7,6 +7,7 @@ import (
 
 type AuditLog struct {
     ID         uuid.UUID  `gorm:"type:uuid;primaryKey"`
+    SchoolID   *uuid.UUID `gorm:"type:uuid;index"`
     ActorID    *uuid.UUID `gorm:"type:uuid;index"`
     Action     string     `gorm:"not null;index"`
     Resource   string     `gorm:"not null;index"`

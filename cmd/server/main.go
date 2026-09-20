@@ -19,16 +19,15 @@ func main() {
     if err:=auth.ConfigureSecret(os.Getenv("JWT_SECRET"));err!=nil{log.Fatal(err)}
     db,err:=database.Connect();if err!=nil{log.Fatal(err)}
     if err:=database.Migrate(db);err!=nil{log.Fatal(err)}
-    bootstrapPassword:=os.Getenv("ADMIN_BOOTSTRAP_PASSWORD")
-    if bootstrapPassword!="" {
+    bootstrapPasswordHash:=os.Getenv("ADMIN_BOOTSTRAP_PASSWORD_HASH")
+    if bootstrapPasswordHash!="" {
         bootstrapEmail:=os.Getenv("ADMIN_BOOTSTRAP_EMAIL")
         bootstrapName:=os.Getenv("ADMIN_BOOTSTRAP_NAME")
-        if bootstrapEmail==""||bootstrapName==""{log.Fatal("ADMIN_BOOTSTRAP_EMAIL and ADMIN_BOOTSTRAP_NAME are required when ADMIN_BOOTSTRAP_PASSWORD is set")}
+        if bootstrapEmail==""||bootstrapName==""{log.Fatal("ADMIN_BOOTSTRAP_EMAIL and ADMIN_BOOTSTRAP_NAME are required when ADMIN_BOOTSTRAP_PASSWORD_HASH is set")}
         var userCount int64
         if err:=db.Model(&models.User{}).Count(&userCount).Error;err!=nil{log.Fatal("failed to check administrator bootstrap state: ",err)}
         if userCount==0 {
-            passwordHash,err:=auth.HashPassword(bootstrapPassword);if err!=nil{log.Fatal("failed to hash administrator bootstrap password: ",err)}
-            adminUser:=models.User{Name:bootstrapName,Email:bootstrapEmail,PasswordHash:passwordHash,Role:authz.RoleSuperAdmin,Active:true}
+            adminUser:=models.User{Name:bootstrapName,Email:bootstrapEmail,PasswordHash:bootstrapPasswordHash,Role:authz.RoleSuperAdmin,Active:true}
             if err:=db.Create(&adminUser).Error;err!=nil{log.Fatal("failed to create administrator bootstrap user: ",err)}
             log.Printf("created initial superadmin account for %s",bootstrapEmail)
         }

@@ -135,17 +135,20 @@ func (s *AssessmentResultService) ReportCard(enrollmentID, termID uuid.UUID) (Re
         g.WeightedContribution += (result.Score / result.Assessment.MaxScore) * result.Assessment.Weight
     }
     subjects := make([]ReportSubject, 0, len(groups))
-    var totalScore, totalMax, weighted float64
+    var totalScore, totalMax, weighted, totalWeight float64
     for _, g := range groups {
         if g.TotalMaxScore > 0 { g.Percentage = (g.TotalScore / g.TotalMaxScore) * 100 }
         totalScore += g.TotalScore
         totalMax += g.TotalMaxScore
         weighted += g.WeightedContribution
+        for _, result := range results {
+            if result.Assessment.TeacherAssignment.TermID == term.ID && result.Assessment.TeacherAssignment.SubjectID == g.SubjectID { totalWeight += result.Assessment.Weight }
+        }
         subjects = append(subjects, *g)
     }
     sort.Slice(subjects, func(i, j int) bool { return subjects[i].SubjectName < subjects[j].SubjectName })
     overall := 0.0
-    if totalMax > 0 { overall = (totalScore / totalMax) * 100 }
+    if totalWeight > 0 { overall = (weighted / totalWeight) * 100 } else if totalMax > 0 { overall = (totalScore / totalMax) * 100 }
     _ = term
     return ReportCard{StudentEnrollmentID: enrollment.ID, StudentID: enrollment.StudentID, TermID: term.ID, Subjects: subjects, OverallPercentage: overall, TotalWeightedContribution: weighted}, nil
 }

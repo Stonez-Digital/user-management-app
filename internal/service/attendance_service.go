@@ -40,6 +40,7 @@ func validAttendanceStatus(status string) bool {
 }
 
 func (s *AttendanceService) validate(v models.AttendanceRecord) error {
+	if v.Date.IsZero() { return errors.New("attendance date is required") }
 	var enrollment models.StudentEnrollment
 	if err := s.db.First(&enrollment, "id = ?", v.EnrollmentID).Error; errors.Is(err, gorm.ErrRecordNotFound) {
 		return ErrAttendanceEnrollmentMissing
@@ -59,6 +60,10 @@ func (s *AttendanceService) validate(v models.AttendanceRecord) error {
 	if term.AcademicSessionID != enrollment.AcademicSessionID {
 		return ErrAttendanceTermMismatch
 	}
+	day := time.Date(v.Date.Year(), v.Date.Month(), v.Date.Day(), 0, 0, 0, 0, time.UTC)
+	termStart := time.Date(term.StartDate.Year(), term.StartDate.Month(), term.StartDate.Day(), 0, 0, 0, 0, time.UTC)
+	termEnd := time.Date(term.EndDate.Year(), term.EndDate.Month(), term.EndDate.Day(), 0, 0, 0, 0, time.UTC)
+	if day.Before(termStart) || day.After(termEnd) { return ErrAttendanceTermMismatch }
 
 	v.Status = strings.ToLower(strings.TrimSpace(v.Status))
 	if !validAttendanceStatus(v.Status) {

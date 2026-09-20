@@ -109,6 +109,18 @@ func Migrate(db *gorm.DB) error {
             }
             return nil
         }},
+        {Version:16,Name:"multi_school_tenant_foundation",Up:func(tx *gorm.DB) error {
+            if err:=tx.AutoMigrate(&models.School{},&models.User{});err!=nil{return err}
+            var school models.School
+            result:=tx.Where("code = ?", "DEFAULT").First(&school)
+            if result.Error==gorm.ErrRecordNotFound {
+                school=models.School{Name:"Default School",Code:"DEFAULT",Status:models.SchoolStatusActive}
+                if err:=tx.Create(&school).Error;err!=nil{return err}
+            } else if result.Error!=nil {return result.Error}
+            if err:=tx.Model(&models.User{}).Where("school_id IS NULL").Update("school_id",school.ID).Error;err!=nil{return err}
+            if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_users_school_id ON users(school_id)").Error;err!=nil{return err}
+            return nil
+        }},
         {Version:17,Name:"school_scope_academic_finance_data",Up:func(tx *gorm.DB) error {
             if err:=tx.AutoMigrate(
                 &models.Student{}, &models.AcademicSession{}, &models.Term{},

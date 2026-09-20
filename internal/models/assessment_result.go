@@ -1,6 +1,7 @@
 package models
 
-import (\n    "time"
+import (
+    "time"
     "github.com/google/uuid"
     "gorm.io/gorm"
 )

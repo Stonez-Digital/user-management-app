@@ -1,0 +1,17 @@
+package service
+
+import ("testing";"time";"github.com/google/uuid";"github.com/onoja217/users-management-app/internal/models";"github.com/onoja217/users-management-app/internal/repository";"gorm.io/driver/sqlite";"gorm.io/gorm")
+func timetableDB(t *testing.T)*gorm.DB{db,e:=gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"),&gorm.Config{});if e!=nil{t.Fatal(e)};if e=db.AutoMigrate(&models.User{},&models.AcademicSession{},&models.Term{},&models.SchoolClass{},&models.Section{},&models.Subject{},&models.TeacherAssignment{},&models.TimetableEntry{});e!=nil{t.Fatal(e)};return db}
+func TestTimetableConflictValidation(t *testing.T){
+ db:=timetableDB(t); teacher:=models.User{Name:"Teacher",Email:"teacher-"+uuid.NewString()+"@example.com",Role:"teacher",Active:true};if e:=db.Create(&teacher).Error;e!=nil{t.Fatal(e)}
+ sess:=models.AcademicSession{Name:"2026/2027",StartDate:time.Date(2026,9,1,0,0,0,0,time.UTC),EndDate:time.Date(2027,7,31,0,0,0,0,time.UTC)};if e:=db.Create(&sess).Error;e!=nil{t.Fatal(e)}
+ term:=models.Term{AcademicSessionID:sess.ID,Name:models.TermFirst,StartDate:sess.StartDate,EndDate:time.Date(2026,12,15,0,0,0,0,time.UTC)};if e:=db.Create(&term).Error;e!=nil{t.Fatal(e)}
+ class:=models.SchoolClass{Name:"JSS "+uuid.NewString()[:5],Level:1};if e:=db.Create(&class).Error;e!=nil{t.Fatal(e)};section:=models.Section{ClassID:class.ID,Name:"A"};if e:=db.Create(&section).Error;e!=nil{t.Fatal(e)}
+ subject:=models.Subject{Name:"Mathematics "+uuid.NewString()[:5]};if e:=db.Create(&subject).Error;e!=nil{t.Fatal(e)}
+ assignment:=models.TeacherAssignment{TeacherID:teacher.ID,SubjectID:subject.ID,AcademicSessionID:sess.ID,TermID:term.ID,ClassID:class.ID,SectionID:&section.ID,Active:true};if e:=db.Create(&assignment).Error;e!=nil{t.Fatal(e)}
+ svc:=NewTimetableService(repository.NewTimetableRepository(db),db)
+ first,e:=svc.Create(models.TimetableEntry{AcademicSessionID:sess.ID,TermID:term.ID,TeacherAssignmentID:assignment.ID,ClassID:class.ID,SectionID:&section.ID,DayOfWeek:models.TimetableMonday,StartTime:"08:00",EndTime:"09:00",Active:true});if e!=nil{t.Fatal(e)}
+ if first.ID==uuid.Nil{t.Fatal("expected timetable id")}
+ _,e=svc.Create(models.TimetableEntry{AcademicSessionID:sess.ID,TermID:term.ID,TeacherAssignmentID:assignment.ID,ClassID:class.ID,SectionID:&section.ID,DayOfWeek:models.TimetableMonday,StartTime:"08:30",EndTime:"09:30",Active:true});if e!=ErrTimetableConflict{t.Fatalf("expected teacher/class conflict, got %v",e)}
+ _,e=svc.Create(models.TimetableEntry{AcademicSessionID:sess.ID,TermID:term.ID,TeacherAssignmentID:assignment.ID,ClassID:class.ID,SectionID:&section.ID,DayOfWeek:models.TimetableMonday,StartTime:"09:00",EndTime:"10:00",Active:true});if e!=nil{t.Fatalf("adjacent slots should be allowed: %v",e)}
+}

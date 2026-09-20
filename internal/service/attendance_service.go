@@ -24,6 +24,7 @@ func(s *AttendanceService) TeacherCreate(schoolID,teacherID uuid.UUID,v models.A
  if e:=q.First(&a).Error;e!=nil{return v,ErrAttendanceEnrollmentMissing}
  return s.Create(schoolID,v)
 }
+func(s *AttendanceService)List(schoolID uuid.UUID)([]models.AttendanceRecord,error){return s.repo.List(schoolID)}
 func(s *AttendanceService)Get(schoolID,id uuid.UUID)(models.AttendanceRecord,error){v,e:=s.repo.Get(schoolID,id);if errors.Is(e,gorm.ErrRecordNotFound){return v,ErrAttendanceNotFound};return v,e}
 func(s *AttendanceService)Update(schoolID uuid.UUID,v models.AttendanceRecord)error{cur,e:=s.Get(schoolID,v.ID);if e!=nil{return e};if e=s.validate(schoolID,v);e!=nil{return e};v.Date=time.Date(v.Date.Year(),v.Date.Month(),v.Date.Day(),0,0,0,0,time.UTC);if cur.EnrollmentID!=v.EnrollmentID||!cur.Date.Equal(v.Date){var x models.AttendanceRecord;if e=s.db.Where("school_id = ? AND enrollment_id = ? AND date = ? AND id <> ?",schoolID,v.EnrollmentID,v.Date,v.ID).First(&x).Error;e==nil{return ErrAttendanceDuplicate}else if !errors.Is(e,gorm.ErrRecordNotFound){return e}};v.Status=strings.ToLower(strings.TrimSpace(v.Status));v.SchoolID=schoolID;return s.repo.Update(schoolID,v)}
 func(s *AttendanceService)Delete(schoolID,id uuid.UUID)error{if _,e:=s.Get(schoolID,id);e!=nil{return e};return s.repo.Delete(schoolID,id)}

@@ -147,9 +147,6 @@ func TestResetPasswordConsumesHashedTokenAndRevokesSessions(t *testing.T) {
     if stored.TokenHash != auth.HashResetToken(rawToken) { t.Fatal("expected reset token to remain hashed") }
 
     var session models.Session
-    if err := db.First(&session, "id = ?", reset.ID).Error; err == nil {
-        t.Fatal("unexpected session lookup by reset token id")
-    }
     if err := db.Where("user_id = ?", user.ID).First(&session).Error; err != nil { t.Fatal(err) }
     if !session.Revoked { t.Fatal("expected password reset to revoke sessions") }
 

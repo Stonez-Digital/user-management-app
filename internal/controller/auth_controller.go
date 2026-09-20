@@ -164,7 +164,17 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 	}
 
 	var stored models.RefreshToken
-	if err := ac.DB.Where("token_hash = ? AND revoked = false", auth.HashRefreshToken(req.RefreshToken)).First(&stored).Error; err != nil || time.Now().After(stored.ExpiresAt) {
+	if err := ac.DB.Where("token_hash = ?", auth.HashRefreshToken(req.RefreshToken)).First(&stored).Error; err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
+		return
+	}
+	if stored.Revoked {
+		_ = ac.DB.Model(&models.RefreshToken{}).Where("family_id = ?", stored.FamilyID).Updates(map[string]interface{}{"revoked": true})
+		_ = ac.DB.Model(&models.Session{}).Where("family_id = ?", stored.FamilyID).Updates(map[string]interface{}{"revoked": true})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or already used refresh token; session revoked"})
+		return
+	}
+	if time.Now().After(stored.ExpiresAt) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
 		return
 	}

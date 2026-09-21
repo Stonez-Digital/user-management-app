@@ -16,7 +16,12 @@ async function api(path: string, options: RequestInit = {}) {
   let d: any = {};
   try { d = text ? JSON.parse(text) : {}; } catch { d = { error: text }; }
   if (r.status === 401) throw new Error("Session expired");
-  if (!r.ok) throw new Error(d?.error?.message || d?.error || "Request failed");
+  if (!r.ok) {
+    const code = d?.error?.code;
+    const message = d?.error?.message || d?.error || "Request failed";
+    const detail = code ? `[${code}]` : `[HTTP ${r.status}]`;
+    throw new Error(`${message} ${detail}`);
+  }
   return d;
 }
 const list = (d: any, key: string) => Array.isArray(d) ? d : d?.[key] || [];

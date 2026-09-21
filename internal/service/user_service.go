@@ -21,7 +21,7 @@ func NewUserService(r repository.UserRepository, db *gorm.DB) *UserService { ret
 func (s *UserService) CreateUser(schoolID uuid.UUID, name, email, password, role string) (models.User, error) {
     role = strings.TrimSpace(role)
     if role == "" { role = authz.RoleStudent }
-    if role == authz.RoleSuperAdmin || role == authz.RoleSchoolAdmin {
+    if !authz.IsValidRole(role) || role == authz.RoleSuperAdmin || role == authz.RoleSchoolAdmin {
         return models.User{}, ErrInvalidSchoolUserRole
     }
     hash, err := auth.HashPassword(password)

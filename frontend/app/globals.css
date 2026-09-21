@@ -223,3 +223,158 @@ td small { color: var(--text-soft); }
 @media (max-width: 700px) {
   .theme-toggle { top: 10px; right: 10px; min-height: 38px; padding: 8px 10px; }
 }
+
+
+/* Complete theme coverage: remove remaining fixed light/dark surfaces */
+.brand-mark {
+  background: var(--primary);
+  color: #fff;
+}
+
+.auth-shell,
+.auth-card,
+.stat,
+.panel,
+.status,
+.module,
+.school-code-card,
+.tenant-cards > div {
+  background-color: var(--surface);
+}
+
+.auth-shell {
+  background: linear-gradient(135deg, var(--surface-soft), var(--page-bg));
+}
+
+.content,
+.standalone,
+.app-shell {
+  color: var(--text);
+}
+
+.logo > span {
+  background-color: var(--surface);
+  color: var(--primary);
+}
+
+.sidebar nav a:hover,
+.sidebar nav a.active {
+  background: color-mix(in srgb, var(--sidebar-text) 10%, transparent);
+  color: var(--sidebar-text);
+}
+
+.sidebar-bottom {
+  border-top-color: color-mix(in srgb, var(--sidebar-text) 12%, transparent);
+}
+
+.ghost {
+  background: transparent;
+  color: var(--sidebar-text);
+  border-color: color-mix(in srgb, var(--sidebar-text) 22%, transparent);
+}
+
+.avatar {
+  background: var(--primary);
+  color: #fff;
+}
+
+.tenant-note,
+.nested-list {
+  background: var(--surface-muted);
+  border-color: var(--border);
+}
+
+.nested-item {
+  background: var(--surface-soft);
+  color: var(--text-muted);
+}
+
+.form input,
+.toolbar input,
+.form-grid input,
+.form-grid select,
+.inline-form input,
+.inline-form select,
+.search-inline {
+  background-color: var(--input-bg);
+  color: var(--text);
+}
+
+select option {
+  background: var(--surface);
+  color: var(--text);
+}
+
+button,
+button:hover:not(:disabled) {
+  color: #fff;
+}
+
+.theme-toggle {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.theme-toggle:hover {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+html[data-theme="dark"] .auth-logo,
+html[data-theme="dark"] .logo > span {
+  filter: none;
+}
+
+/* Respect the Stonez red / blue / white / grey palette in both themes. */
+html[data-theme="light"] {
+  --page-bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-muted: #f1f3f5;
+  --surface-soft: #e7ebf0;
+  --border: #d6dbe2;
+  --border-soft: #e5e8ed;
+  --text: #182033;
+  --text-muted: #5f6b7a;
+  --text-soft: #7b8796;
+  --primary: #162a72;
+  --primary-hover: #0f205c;
+  --primary-soft: #e9edff;
+  --primary-text: #2747a0;
+  --danger-bg: #fff0f0;
+  --danger-border: #f3b8bd;
+  --danger-text: #b4232d;
+  --success-bg: #edf8f1;
+  --success-text: #167044;
+  --sidebar-bg: #111b36;
+  --sidebar-text: #f5f7ff;
+  --sidebar-muted: #b7c1d9;
+  --input-bg: #ffffff;
+  --shadow: #17213a1f;
+}
+
+html[data-theme="dark"] {
+  --page-bg: #0b1020;
+  --surface: #151c2b;
+  --surface-muted: #101827;
+  --surface-soft: #1b2434;
+  --border: #344055;
+  --border-soft: #2a3445;
+  --text: #f8fafc;
+  --text-muted: #b7c1d1;
+  --text-soft: #8996aa;
+  --primary: #4b66c8;
+  --primary-hover: #5d78dd;
+  --primary-soft: #202b4a;
+  --primary-text: #9eb1ff;
+  --danger-bg: #3a1720;
+  --danger-border: #7f1d2d;
+  --danger-text: #fecdd3;
+  --success-bg: #123525;
+  --success-text: #86efac;
+  --sidebar-bg: #080e1c;
+  --sidebar-text: #edf2ff;
+  --sidebar-muted: #aebbd6;
+  --input-bg: #0d1524;
+  --shadow: #00000055;
+}

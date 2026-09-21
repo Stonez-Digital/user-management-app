@@ -7,6 +7,7 @@ import (
 	"github.com/onoja217/users-management-app/internal/models"
 	"github.com/onoja217/users-management-app/internal/repository"
 	"gorm.io/gorm"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 var (
@@ -62,7 +63,13 @@ func (s *TeacherAssignmentService) Create(schoolID uuid.UUID, v models.TeacherAs
 	q := s.db.Where("school_id = ? AND teacher_id = ? AND subject_id = ? AND academic_session_id = ? AND term_id = ? AND class_id = ? AND allocation_type = ?", schoolID, v.TeacherID, v.SubjectID, v.AcademicSessionID, v.TermID, v.ClassID, v.AllocationType)
 	if v.SectionID == nil { q = q.Where("section_id IS NULL") } else { q = q.Where("section_id = ?", *v.SectionID) }
 	if err := q.First(&existing).Error; err == nil { return v, ErrAssignmentDuplicate } else if !errors.Is(err, gorm.ErrRecordNotFound) { return v, err }
-	return s.repo.Create(schoolID, v)
+	created, err := s.repo.Create(schoolID, v)
+	if err != nil {
+		if isPostgresUniqueViolation(err, "uq_active_class_teacher_unsectioned") || isPostgresUniqueViolation(err, "uq_active_class_teacher_sectioned") { return v, ErrAssignmentConflict }
+		if isPostgresUniqueViolation(err, "uq_teacher_assignment_unsectioned") || isPostgresUniqueViolation(err, "uq_teacher_assignment_sectioned") { return v, ErrAssignmentDuplicate }
+		return v, err
+	}
+	return created, nil
 }
 
 func (s *TeacherAssignmentService) List(schoolID uuid.UUID) ([]models.TeacherAssignment, error) { return s.repo.List(schoolID) }
@@ -86,7 +93,12 @@ func (s *TeacherAssignmentService) Update(schoolID uuid.UUID, v models.TeacherAs
 	q := s.db.Where("school_id = ? AND teacher_id = ? AND subject_id = ? AND academic_session_id = ? AND term_id = ? AND class_id = ? AND allocation_type = ? AND id <> ?", schoolID, v.TeacherID, v.SubjectID, v.AcademicSessionID, v.TermID, v.ClassID, v.AllocationType, v.ID)
 	if v.SectionID == nil { q = q.Where("section_id IS NULL") } else { q = q.Where("section_id = ?", *v.SectionID) }
 	if err := q.First(&existing).Error; err == nil { return ErrAssignmentDuplicate } else if !errors.Is(err, gorm.ErrRecordNotFound) { return err }
-	return s.repo.Update(schoolID, v)
+	if err:=s.repo.Update(schoolID, v);err!=nil {
+	if isPostgresUniqueViolation(err, "uq_active_class_teacher_unsectioned") || isPostgresUniqueViolation(err, "uq_active_class_teacher_sectioned") { return ErrAssignmentConflict }
+	if isPostgresUniqueViolation(err, "uq_teacher_assignment_unsectioned") || isPostgresUniqueViolation(err, "uq_teacher_assignment_sectioned") { return ErrAssignmentDuplicate }
+	return err
+}
+return nil
 }
 func (s *TeacherAssignmentService) Delete(schoolID,id uuid.UUID) error {
 	if _, err := s.Get(schoolID, id); err != nil { return err }
@@ -108,4 +120,9 @@ func (s *TeacherAssignmentService) Coverage(schoolID, sessionID, termID uuid.UUI
 		out = append(out, item)
 	}
 	return out, nil
+}
+
+func isPostgresUniqueViolation(err error,constraint string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err,&pgErr) && pgErr.Code=="23505" && pgErr.ConstraintName==constraint
 }

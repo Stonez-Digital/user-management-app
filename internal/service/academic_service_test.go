@@ -83,3 +83,71 @@ func TestAcademicSessionsAreIsolatedBySchool(t *testing.T) {
         t.Fatalf("expected cross-school session lookup to be hidden, got %v", err)
     }
 }
+
+
+func financeTestService(t *testing.T) *FinanceService {
+    t.Helper()
+    db, err := gorm.Open(sqlite.Open("file:finance_test_"+uuid.New().String()+"?mode=memory&cache=shared"), &gorm.Config{})
+    if err != nil { t.Fatal(err) }
+    if err := db.AutoMigrate(&models.School{}, &models.AcademicSession{}, &models.Term{}, &models.FeeItem{}); err != nil { t.Fatal(err) }
+    return NewFinanceService(repository.NewFeeItemRepository(db), nil, nil, db)
+}
+
+func financeSchoolAndTerm(t *testing.T, db *gorm.DB, schoolID uuid.UUID, name string) models.Term {
+    t.Helper()
+    if err := db.Create(&models.School{ID: schoolID, Name: name, Code: name}).Error; err != nil { t.Fatal(err) }
+    session := models.AcademicSession{SchoolID: schoolID, Name: "2026/2027-" + name, StartDate: time.Date(2026,9,1,0,0,0,0,time.UTC), EndDate: time.Date(2027,7,31,0,0,0,0,time.UTC)}
+    if err := db.Create(&session).Error; err != nil { t.Fatal(err) }
+    term := models.Term{SchoolID: schoolID, AcademicSessionID: session.ID, Name: models.TermFirst, StartDate: session.StartDate, EndDate: time.Date(2026,12,20,0,0,0,0,time.UTC)}
+    if err := db.Create(&term).Error; err != nil { t.Fatal(err) }
+    return term
+}
+
+func TestFinanceFeeItemsAreIsolatedBySchool(t *testing.T) {
+    svc := financeTestService(t)
+    db := svc.DB()
+    schoolA, schoolB := uuid.New(), uuid.New()
+    termA := financeSchoolAndTerm(t, db, schoolA, "School A")
+    termB := financeSchoolAndTerm(t, db, schoolB, "School B")
+
+    feeA, err := svc.CreateFee(schoolA, models.FeeItem{TermID: termA.ID, Name: "Tuition", Amount: 50000, Active: true})
+    if err != nil { t.Fatal(err) }
+    feeB, err := svc.CreateFee(schoolB, models.FeeItem{TermID: termB.ID, Name: "Tuition", Amount: 60000, Active: true})
+    if err != nil { t.Fatal(err) }
+
+    feesA, err := svc.ListFees(schoolA, nil)
+    if err != nil { t.Fatal(err) }
+    if len(feesA) != 1 || feesA[0].ID != feeA.ID || feesA[0].Amount != 50000 { t.Fatalf("unexpected School A fees: %+v", feesA) }
+    feesB, err := svc.ListFees(schoolB, nil)
+    if err != nil { t.Fatal(err) }
+    if len(feesB) != 1 || feesB[0].ID != feeB.ID || feesB[0].Amount != 60000 { t.Fatalf("unexpected School B fees: %+v", feesB) }
+
+    if _, err := svc.GetFee(schoolA, feeB.ID); err != ErrFeeNotFound { t.Fatalf("expected cross-school fee lookup to be hidden, got %v", err) }
+}
+
+func TestFinanceFeeDuplicateCheckIsSchoolScoped(t *testing.T) {
+    svc := financeTestService(t)
+    db := svc.DB()
+    schoolA, schoolB := uuid.New(), uuid.New()
+    termA := financeSchoolAndTerm(t, db, schoolA, "School C")
+    termB := financeSchoolAndTerm(t, db, schoolB, "School D")
+
+    if _, err := svc.CreateFee(schoolA, models.FeeItem{TermID: termA.ID, Name: "Uniform", Amount: 10000}); err != nil { t.Fatal(err) }
+    if _, err := svc.CreateFee(schoolB, models.FeeItem{TermID: termB.ID, Name: "Uniform", Amount: 12000}); err != nil { t.Fatalf("same fee name should be allowed in another school: %v", err) }
+    if _, err := svc.CreateFee(schoolA, models.FeeItem{TermID: termA.ID, Name: " uniform ", Amount: 11000}); err != ErrFeeDuplicate { t.Fatalf("expected same-school duplicate rejection, got %v", err) }
+}
+
+func TestFinanceFeeMutationCannotCrossSchool(t *testing.T) {
+    svc := financeTestService(t)
+    db := svc.DB()
+    schoolA, schoolB := uuid.New(), uuid.New()
+    termA := financeSchoolAndTerm(t, db, schoolA, "School E")
+    fee, err := svc.CreateFee(schoolA, models.FeeItem{TermID: termA.ID, Name: "Exam", Amount: 5000})
+    if err != nil { t.Fatal(err) }
+
+    cross := fee
+    cross.Name, cross.Amount = "Changed", 9000
+    if err := svc.UpdateFee(schoolB, cross); err != ErrFeeNotFound { t.Fatalf("expected cross-school update to be blocked, got %v", err) }
+    if err := svc.DeleteFee(schoolB, fee.ID); err != ErrFeeNotFound { t.Fatalf("expected cross-school delete to be blocked, got %v", err) }
+    if _, err := svc.GetFee(schoolA, fee.ID); err != nil { t.Fatal(err) }
+}

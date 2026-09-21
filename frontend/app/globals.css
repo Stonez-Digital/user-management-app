@@ -84,22 +84,142 @@ td strong,td small{display:block}td small{font-size:11px;color:#94a3b8;margin-to
 @media (max-width:560px){.content,.standalone{padding:16px}.sidebar{width:58px;padding:16px 7px}.sidebar .logo{padding-bottom:20px}.sidebar nav{gap:3px}.sidebar nav a{padding:10px 5px}.content,.standalone{margin-left:58px}.stats{grid-template-columns:1fr 1fr;gap:10px}.stat{padding:15px}.stat strong{font-size:26px}.grid-2{gap:0}.panel{margin-bottom:12px}.auth-card,.auth-card-wide{width:calc(100% - 20px);padding:22px}.auth-logo{width:100px;height:50px}.auth-card h1,.topbar h1{font-size:25px}.form{gap:15px;margin-top:22px}.form input,.form-grid input,.form-grid select{min-height:46px}.toolbar{display:grid;grid-template-columns:1fr}.toolbar input{width:100%}.inline-form{display:grid;grid-template-columns:1fr}.inline-form input,.inline-form select,.inline-form button{width:100%;min-height:44px}}
 @media (max-width:380px){.content,.standalone{padding:12px}.sidebar{width:52px;padding-left:5px;padding-right:5px}.content,.standalone{margin-left:52px}.stats{grid-template-columns:1fr}.auth-card,.auth-card-wide{width:calc(100% - 16px);padding:18px}}
 
-/* Platform dark mode */
-:root{color-scheme:dark}
-body{background:#0b1020;color:#e5e7eb}
-.auth-shell{background:linear-gradient(135deg,#0b1020,#111827)}
-.auth-card,.stat,.panel,.status{background:#111827;border-color:#273247;color:#e5e7eb}
-.muted,.stat span,.stat small,.panel-head p,.form label,.hint,.logo small,.mini-user small,.tenant-note span,.auth-footer span,.auth-footer strong,.school-code-card small,.school-code-card span,.tenant-cards span,.tenant-cards small{color:#94a3b8}
-.form input,.toolbar input,.form-grid input,.form-grid select,.inline-form input,.inline-form select,.search-inline{background:#0f172a;color:#e5e7eb;border-color:#334155}
-.form input::placeholder,.toolbar input::placeholder,.search-inline::placeholder{color:#64748b}
-.form input:focus,.toolbar input:focus,.form-grid input:focus,.inline-form input:focus,.form-grid select:focus,.inline-form select:focus,.search-inline:focus{border-color:#6b82d6;box-shadow:0 0 0 3px #6b82d633}
-.error{background:#3a1720;color:#fecdd3;border-color:#7f1d2d}
-.status{color:#cbd5e1}
-table th{color:#94a3b8}th,td{border-bottom-color:#263142}td small{color:#64748b}
-.role-list div{border-bottom-color:#263142}
-.module,.school-code-card,.tenant-cards>div{border-color:#273247;background:#111827}
-.nested-list{background:#0f172a}.nested-item{background:#1e293b;color:#cbd5e1}
-.tenant-note{background:#0f172a;border-color:#273247}
-.auth-footer{border-top-color:#263142}
-.school-code-card strong,.tenant-cards strong{color:#f8fafc}
-@media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+
+/* Theme system: Stonez red / blue / white / grey */
+:root {
+  color-scheme: light;
+  --page-bg: #f6f7fb;
+  --surface: #ffffff;
+  --surface-muted: #f8fafc;
+  --surface-soft: #eef2f6;
+  --border: #e2e8f0;
+  --border-soft: #edf0f4;
+  --text: #172033;
+  --text-muted: #64748b;
+  --text-soft: #94a3b8;
+  --primary: #162a72;
+  --primary-hover: #1e3a8a;
+  --primary-soft: #eef2ff;
+  --primary-text: #3154b4;
+  --danger-bg: #fff1f2;
+  --danger-border: #fecdd3;
+  --danger-text: #b42318;
+  --success-bg: #ecfdf3;
+  --success-text: #027a48;
+  --sidebar-bg: #101a35;
+  --sidebar-text: #dce4ff;
+  --sidebar-muted: #aeb9d8;
+  --input-bg: #ffffff;
+  --shadow: #1d274015;
+}
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --page-bg: #0b1020;
+  --surface: #151c2b;
+  --surface-muted: #101827;
+  --surface-soft: #1b2434;
+  --border: #344055;
+  --border-soft: #2a3445;
+  --text: #f8fafc;
+  --text-muted: #b7c1d1;
+  --text-soft: #8996aa;
+  --primary: #3f5fc7;
+  --primary-hover: #5271dc;
+  --primary-soft: #202b4a;
+  --primary-text: #91a7ff;
+  --danger-bg: #3a1720;
+  --danger-border: #7f1d2d;
+  --danger-text: #fecdd3;
+  --success-bg: #123525;
+  --success-text: #86efac;
+  --sidebar-bg: #0b1224;
+  --sidebar-text: #e5ecff;
+  --sidebar-muted: #aebbd6;
+  --input-bg: #0d1524;
+  --shadow: #00000055;
+}
+html, body { background: var(--page-bg); color: var(--text); }
+body { transition: background-color .18s ease, color .18s ease; }
+.auth-shell { background: linear-gradient(135deg, var(--surface-soft), var(--page-bg)); }
+.auth-card, .stat, .panel, .status {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+  box-shadow: 0 20px 60px var(--shadow);
+}
+.muted, .stat span, .stat small, .panel-head p, .hint,
+.logo small, .mini-user small, .tenant-note span, .auth-footer span,
+.auth-footer strong, .school-code-card small, .school-code-card span,
+.tenant-cards span, .tenant-cards small { color: var(--text-muted); }
+.form input, .toolbar input, .form-grid input, .form-grid select,
+.inline-form input, .inline-form select, .search-inline {
+  background: var(--input-bg);
+  color: var(--text);
+  border-color: var(--border);
+}
+.form input::placeholder, .toolbar input::placeholder, .search-inline::placeholder { color: var(--text-soft); }
+.form input:focus, .toolbar input:focus, .form-grid input:focus,
+.inline-form input:focus, .form-grid select:focus,
+.inline-form select:focus, .search-inline:focus {
+  border-color: var(--primary-text);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-text) 18%, transparent);
+}
+button { background: var(--primary); color: #fff; }
+button:hover:not(:disabled) { background: var(--primary-hover); }
+.error { background: var(--danger-bg); color: var(--danger-text); border-color: var(--danger-border); }
+.status { color: var(--text-muted); }
+table th { color: var(--text-muted); }
+th, td { border-bottom-color: var(--border-soft); }
+td small { color: var(--text-soft); }
+.role-list div { border-bottom-color: var(--border-soft); }
+.pill { background: var(--primary-soft); color: var(--primary-text); }
+.pill.active { background: var(--success-bg); color: var(--success-text); }
+.pill.inactive, .pill.withdrawn { background: var(--danger-bg); color: var(--danger-text); }
+.pill.graduated { background: var(--primary-soft); color: var(--primary-text); }
+.module, .school-code-card, .tenant-cards>div {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+.module-icon { background: var(--primary-soft); color: var(--primary-text); }
+.module p { color: var(--text-muted); }
+.module>span { color: var(--primary-text); }
+.nested-list { background: var(--surface-muted); color: var(--text); }
+.nested-item { background: var(--surface-soft); color: var(--text-muted); }
+.tenant-note { background: var(--surface-muted); border-color: var(--border); }
+.tenant-badge { color: var(--primary-text); background: var(--primary-soft); }
+.tenant-next { background: var(--primary-soft); }
+.tenant-next strong { color: var(--primary-text); }
+.tenant-next span { color: var(--text-muted); }
+.panel-head>a, .back, .link-button { color: var(--primary-text); }
+.auth-footer { border-top-color: var(--border-soft); }
+.school-code-card strong, .tenant-cards strong { color: var(--text); }
+.sidebar { background: var(--sidebar-bg); color: var(--sidebar-text); }
+.sidebar nav a { color: var(--sidebar-muted); }
+.sidebar nav a:hover, .sidebar nav a.active { background: #ffffff18; color: #fff; }
+.sidebar-bottom { border-top-color: #ffffff18; }
+.avatar { background: #334477; }
+.logo>span { background-color: #fff; }
+.ghost { background: transparent; color: #cbd5e1; border-color: #ffffff30; }
+.theme-toggle {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 8px 24px var(--shadow);
+  font-size: 12px;
+  font-weight: 800;
+}
+.theme-toggle:hover { background: var(--surface-soft); color: var(--text); }
+@media (max-width: 700px) {
+  .theme-toggle { top: 10px; right: 10px; min-height: 38px; padding: 8px 10px; }
+}

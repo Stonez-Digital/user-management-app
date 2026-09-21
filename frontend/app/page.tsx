@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 async function readResponse(response: Response) {
  const text = await response.text();
@@ -47,7 +48,7 @@ export default function LoginPage() {
     {error&&<div className="error">{error}</div>}
     <button disabled={loading}>{loading?"Signing in...":"Sign in to school"}</button>
    </form>
-   <div className="auth-footer"><span>Need a new school workspace?</span><strong>Ask your Stonez Digital administrator to configure it.</strong></div>
+   <div className="auth-footer"><span>Need a new school workspace?</span><Link href="/school-signup">Register your school</Link></div>
    <p className="hint">Protected multi-tenant workspace · Connected to Stonez Digital School API</p>
   </section>
  </main>;

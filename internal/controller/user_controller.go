@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/onoja217/users-management-app/internal/audit"
+    "github.com/onoja217/users-management-app/internal/authz"
 	"github.com/onoja217/users-management-app/internal/httpx"
 	"github.com/onoja217/users-management-app/internal/middleware"
 	"github.com/onoja217/users-management-app/internal/service"

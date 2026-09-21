@@ -2,6 +2,7 @@
 import {useEffect,useState} from "react";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
+import { normalizeAuthUser } from "../../lib/auth-session";
 
 type User={id:string;name:string;email:string;role:string;active:boolean};
 type School={id:string;name:string;code:string;status:string;user_count:number};
@@ -29,7 +30,9 @@ export default function Dashboard(){
 
  useEffect(()=>{
   let timer:ReturnType<typeof setInterval>|undefined;
-  api("/me").then(async m=>{
+  api("/me").then(async payload=>{
+   const m=normalizeAuthUser(payload);
+   if(!m) throw Error("Unable to load your account profile");
    setMe(m);
    if(m?.role==="teacher"){router.replace("/dashboard/teacher");return}
    if(m?.role==="super_admin"){

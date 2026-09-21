@@ -1,6 +1,6 @@
 package service
 import("errors";"strings";"github.com/google/uuid";"github.com/onoja217/users-management-app/internal/models";"github.com/onoja217/users-management-app/internal/repository";"gorm.io/gorm")
-var(ErrEnrollmentNotFound=errors.New("enrollment not found");ErrEnrollmentDuplicate=errors.New("student already enrolled in academic session");ErrEnrollmentStudentMissing=errors.New("student not found");ErrEnrollmentSessionMissing=errors.New("academic session not found");ErrEnrollmentClassMissing=errors.New("class not found");ErrEnrollmentSectionMissing=errors.New("section not found");ErrEnrollmentSectionMismatch=errors.New("section does not belong to class");ErrEnrollmentInvalidStatus=errors.New("invalid enrollment status");ErrEnrollmentSchoolMismatch=errors.New("related record belongs to another school"))
+var(ErrEnrollmentNotFound=errors.New("enrollment not found");ErrEnrollmentDuplicate=errors.New("student already enrolled in academic session");ErrEnrollmentStudentMissing=errors.New("student not found");ErrEnrollmentSessionMissing=errors.New("academic session not found");ErrEnrollmentClassMissing=errors.New("class not found");ErrEnrollmentSectionMissing=errors.New("section not found");ErrEnrollmentSectionMismatch=errors.New("section does not belong to class");ErrEnrollmentInvalidStatus=errors.New("invalid enrollment status");ErrEnrollmentSchoolMismatch=errors.New("related record belongs to another school");ErrEnrollmentInUse=errors.New("enrollment is already used by academic or financial records"))
 type EnrollmentService struct{repo repository.EnrollmentRepository;db *gorm.DB}
 func NewEnrollmentService(repo repository.EnrollmentRepository,db *gorm.DB)*EnrollmentService{return &EnrollmentService{repo,db}}
 func(s *EnrollmentService)DB()*gorm.DB{return s.db}
@@ -24,4 +24,12 @@ func(s *EnrollmentService)ListForTeacher(schoolID,teacherID uuid.UUID)([]models.
 }
 func(s *EnrollmentService)Get(schoolID,id uuid.UUID)(models.StudentEnrollment,error){v,err:=s.repo.Get(schoolID,id);if errors.Is(err,gorm.ErrRecordNotFound){return v,ErrEnrollmentNotFound};return v,err}
 func(s *EnrollmentService)Update(schoolID uuid.UUID,v models.StudentEnrollment)error{current,err:=s.Get(schoolID,v.ID);if err!=nil{return err};if v.Status!=models.EnrollmentStatusActive&&v.Status!=models.EnrollmentStatusCompleted&&v.Status!=models.EnrollmentStatusWithdrawn{return ErrEnrollmentInvalidStatus};if v.StudentID!=current.StudentID||v.AcademicSessionID!=current.AcademicSessionID||v.ClassID!=current.ClassID||v.SectionID!=current.SectionID{return ErrEnrollmentSchoolMismatch};return s.repo.Update(schoolID,v)}
-func(s *EnrollmentService)Delete(schoolID,id uuid.UUID)error{if _,err:=s.Get(schoolID,id);err!=nil{return err};return s.repo.Delete(schoolID,id)}
+func(s *EnrollmentService)Delete(schoolID,id uuid.UUID)error{
+ if _,err:=s.Get(schoolID,id);err!=nil{return err}
+ var attendanceCount, resultCount, invoiceCount int64
+ if err:=s.db.Model(&models.AttendanceRecord{}).Where("school_id = ? AND enrollment_id = ?",schoolID,id).Count(&attendanceCount).Error;err!=nil{return err}
+ if err:=s.db.Model(&models.AssessmentResult{}).Where("school_id = ? AND student_enrollment_id = ?",schoolID,id).Count(&resultCount).Error;err!=nil{return err}
+ if err:=s.db.Model(&models.Invoice{}).Where("school_id = ? AND student_enrollment_id = ?",schoolID,id).Count(&invoiceCount).Error;err!=nil{return err}
+ if attendanceCount>0||resultCount>0||invoiceCount>0{return ErrEnrollmentInUse}
+ return s.repo.Delete(schoolID,id)
+}

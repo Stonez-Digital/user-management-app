@@ -37,6 +37,7 @@ func enrollmentError(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrEnrollmentSectionMissing): httpx.Error(c, 404, "section_not_found", "section not found")
 	case errors.Is(err, service.ErrEnrollmentSectionMismatch): httpx.Error(c, 400, "section_class_mismatch", "section does not belong to selected class")
 	case errors.Is(err, service.ErrEnrollmentInvalidStatus): httpx.Error(c, 400, "invalid_enrollment_status", "invalid enrollment status")
+	case errors.Is(err, service.ErrEnrollmentInUse): httpx.Error(c, 409, "enrollment_in_use", "enrollment cannot be deleted because it is referenced by attendance, results or invoices")
 	default: httpx.Error(c, 500, "enrollment_operation_failed", "enrollment operation failed")
 	}
 }

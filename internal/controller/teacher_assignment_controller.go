@@ -29,6 +29,7 @@ func assignmentError(c *gin.Context, e error) {
 	case errors.Is(e, service.ErrAssignmentNotFound): httpx.Error(c,404,"assignment_not_found","teacher assignment not found")
 	case errors.Is(e, service.ErrAssignmentDuplicate): httpx.Error(c,409,"assignment_duplicate","teacher assignment already exists")
 	case errors.Is(e, service.ErrAssignmentInvalid): httpx.Error(c,400,"invalid_assignment","teacher, subject, session, term, class or section is invalid")
+	case errors.Is(e, service.ErrAssignmentInUse): httpx.Error(c,409,"assignment_in_use","teacher assignment cannot be deleted because it is referenced by assessments or timetable records")
 	default: httpx.Error(c,500,"assignment_operation_failed","teacher assignment operation failed")
 	}
 }

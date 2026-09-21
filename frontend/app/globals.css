@@ -84,28 +84,34 @@ td strong,td small{display:block}td small{font-size:11px;color:#94a3b8;margin-to
 @media (max-width:560px){.content,.standalone{padding:16px}.sidebar{width:58px;padding:16px 7px}.sidebar .logo{padding-bottom:20px}.sidebar nav{gap:3px}.sidebar nav a{padding:10px 5px}.content,.standalone{margin-left:58px}.stats{grid-template-columns:1fr 1fr;gap:10px}.stat{padding:15px}.stat strong{font-size:26px}.grid-2{gap:0}.panel{margin-bottom:12px}.auth-card,.auth-card-wide{width:calc(100% - 20px);padding:22px}.auth-logo{width:100px;height:50px}.auth-card h1,.topbar h1{font-size:25px}.form{gap:15px;margin-top:22px}.form input,.form-grid input,.form-grid select{min-height:46px}.toolbar{display:grid;grid-template-columns:1fr}.toolbar input{width:100%}.inline-form{display:grid;grid-template-columns:1fr}.inline-form input,.inline-form select,.inline-form button{width:100%;min-height:44px}}
 @media (max-width:380px){.content,.standalone{padding:12px}.sidebar{width:52px;padding-left:5px;padding-right:5px}.content,.standalone{margin-left:52px}.stats{grid-template-columns:1fr}.auth-card,.auth-card-wide{width:calc(100% - 16px);padding:18px}}
 
-/* Platform dark mode — red, blue, white, grey palette */
-:root{color-scheme:dark}
-body{background:#111827;color:#f8fafc}
-.auth-shell{background:linear-gradient(135deg,#111827,#1e3a8a)}
-.auth-card,.stat,.panel,.status{background:#172033;border-color:#475569;color:#f8fafc}
-.muted,.stat span,.stat small,.panel-head p,.form label,.hint,.logo small,.mini-user small,.tenant-note span,.auth-footer span,.auth-footer strong,.school-code-card small,.school-code-card span,.tenant-cards span,.tenant-cards small{color:#cbd5e1}
-.form input,.toolbar input,.form-grid input,.form-grid select,.inline-form input,.inline-form select,.search-inline{background:#1f2937;color:#f8fafc;border-color:#64748b}
-.form input::placeholder,.toolbar input::placeholder,.search-inline::placeholder{color:#9ca3af}
-.form input:focus,.toolbar input:focus,.form-grid input:focus,.inline-form input:focus,.form-grid select:focus,.inline-form select:focus,.search-inline:focus{border-color:#3b82f6;box-shadow:0 0 0 3px #3b82f633}
-button{background:#1d4ed8;color:#fff}
-button:hover{background:#2563eb}
-.error{background:#3f1d24;color:#fecaca;border-color:#b91c1c}
-.status{color:#e5e7eb}
-table th{color:#cbd5e1}th,td{border-bottom-color:#374151}td small{color:#9ca3af}
-.role-list div{border-bottom-color:#374151}
-.module,.school-code-card,.tenant-cards>div{border-color:#475569;background:#172033}
-.module-icon{background:#1e3a8a;color:#dbeafe}
-.nested-list{background:#1f2937}.nested-item{background:#374151;color:#f3f4f6}
-.tenant-note{background:#1f2937;border-color:#475569}
-.tenant-next{background:#1e3a8a}.tenant-next strong{color:#dbeafe}.tenant-next span{color:#d1d5db}
-.auth-footer{border-top-color:#374151}
-.school-code-card strong,.tenant-cards strong{color:#fff}
-.link-button,.back,.panel-head>a{color:#60a5fa}
-.pill{background:#1e3a8a;color:#dbeafe}.pill.active{background:#14532d;color:#bbf7d0}.pill.inactive,.pill.withdrawn{background:#3f1d24;color:#fecaca}.pill.graduated{background:#172554;color:#bfdbfe}
+/* Platform theme — red, blue, white, grey palette */
+[data-theme="dark"]{color-scheme:dark}
+[data-theme="dark"] body{background:#111827;color:#f8fafc}
+[data-theme="dark"] .auth-shell{background:linear-gradient(135deg,#111827,#1e3a8a)}
+[data-theme="dark"] .auth-card,.stat,.panel,.status{background:#172033;border-color:#475569;color:#f8fafc}
+[data-theme="dark"] .muted,.stat span,.stat small,.panel-head p,.form label,.hint,.logo small,.mini-user small,.tenant-note span,.auth-footer span,.auth-footer strong,.school-code-card small,.school-code-card span,.tenant-cards span,.tenant-cards small{color:#cbd5e1}
+[data-theme="dark"] .form input,.toolbar input,.form-grid input,.form-grid select,.inline-form input,.inline-form select,.search-inline{background:#1f2937;color:#f8fafc;border-color:#64748b}
+[data-theme="dark"] .form input::placeholder,.toolbar input::placeholder,.search-inline::placeholder{color:#9ca3af}
+[data-theme="dark"] .form input:focus,.toolbar input:focus,.form-grid input:focus,.inline-form input:focus,.form-grid select:focus,.inline-form select:focus,.search-inline:focus{border-color:#3b82f6;box-shadow:0 0 0 3px #3b82f633}
+[data-theme="dark"] button{background:#1d4ed8;color:#fff}
+[data-theme="dark"] button:hover{background:#2563eb}
+[data-theme="dark"] .error{background:#3f1d24;color:#fecaca;border-color:#b91c1c}
+[data-theme="dark"] .status{color:#e5e7eb}
+[data-theme="dark"] table th{color:#cbd5e1}th,td{border-bottom-color:#374151}td small{color:#9ca3af}
+[data-theme="dark"] .role-list div{border-bottom-color:#374151}
+[data-theme="dark"] .module,.school-code-card,.tenant-cards>div{border-color:#475569;background:#172033}
+[data-theme="dark"] .module-icon{background:#1e3a8a;color:#dbeafe}
+[data-theme="dark"] .nested-list{background:#1f2937}.nested-item{background:#374151;color:#f3f4f6}
+[data-theme="dark"] .tenant-note{background:#1f2937;border-color:#475569}
+[data-theme="dark"] .tenant-next{background:#1e3a8a}.tenant-next strong{color:#dbeafe}.tenant-next span{color:#d1d5db}
+[data-theme="dark"] .auth-footer{border-top-color:#374151}
+[data-theme="dark"] .school-code-card strong,.tenant-cards strong{color:#fff}
+[data-theme="dark"] .link-button,.back,.panel-head>a{color:#60a5fa}
+[data-theme="dark"] .pill{background:#1e3a8a;color:#dbeafe}.pill.active{background:#14532d;color:#bbf7d0}.pill.inactive,.pill.withdrawn{background:#3f1d24;color:#fecaca}.pill.graduated{background:#172554;color:#bfdbfe}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+
+.theme-toggle{position:fixed;top:18px;right:18px;z-index:100;display:inline-flex;align-items:center;gap:7px;min-height:40px;padding:9px 13px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#172033;font-size:12px;font-weight:750;box-shadow:0 8px 24px #0f172a18}
+[data-theme="dark"] .theme-toggle{background:#1f2937;color:#f8fafc;border-color:#64748b}
+.theme-toggle:hover{background:#f1f5f9}
+[data-theme="dark"] .theme-toggle:hover{background:#374151}
+@media (max-width:560px){.theme-toggle{top:10px;right:10px;padding:8px 10px;font-size:11px}}

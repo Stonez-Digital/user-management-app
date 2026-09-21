@@ -10,8 +10,8 @@ import (
     "gorm.io/gorm"
 )
 
-// EnsureInitialAdmin creates the first superadmin only when the database is empty
-// and the explicit bootstrap environment variables are configured.
+// EnsureInitialAdmin creates the first Stonez Digital platform administrator.
+// Platform administrators are not assigned to a school tenant.
 func EnsureInitialAdmin(db *gorm.DB) error {
     passwordHash := strings.TrimSpace(os.Getenv("ADMIN_BOOTSTRAP_PASSWORD_HASH"))
     if passwordHash == "" {
@@ -32,13 +32,9 @@ func EnsureInitialAdmin(db *gorm.DB) error {
         return nil
     }
 
-    var school models.School
-    if err := db.Where("code = ?", "DEFAULT").First(&school).Error; err != nil {
-        return fmt.Errorf("load default school for administrator bootstrap: %w", err)
-    }
-
+    // Platform administrators operate above the school-tenant layer.
     user := models.User{
-        SchoolID:     &school.ID,
+        SchoolID:     nil,
         Name:         name,
         Email:        email,
         PasswordHash: passwordHash,

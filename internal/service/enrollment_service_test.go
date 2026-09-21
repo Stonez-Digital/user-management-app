@@ -66,3 +66,30 @@ func TestEnrollmentDeleteProtectsAcademicHistory(t *testing.T) {
     if err:=db.Create(&models.AttendanceRecord{SchoolID:schoolID,EnrollmentID:enrollment.ID,Date:time.Now().UTC(),TermID:term.ID,Status:"present"}).Error;err!=nil{t.Fatal(err)}
     if err:=svc.Delete(schoolID,enrollment.ID);err!=ErrEnrollmentInUse{t.Fatalf("expected in-use error, got %v",err)}
 }
+
+
+func TestEnrollmentHistoryIsSchoolScoped(t *testing.T) {
+    db := enrollmentTestDB(t)
+    schoolID := uuid.New()
+    otherSchoolID := uuid.New()
+    user := models.User{SchoolID:&schoolID,Name:"History Student",Email:"history-"+schoolID.String()+"@example.com",Role:"student",Active:true}
+    if err:=db.Create(&user).Error;err!=nil{t.Fatal(err)}
+    student := models.Student{SchoolID:schoolID,UserID:user.ID,AdmissionNumber:"H-001"}
+    if err:=db.Create(&student).Error;err!=nil{t.Fatal(err)}
+    otherUser := models.User{SchoolID:&otherSchoolID,Name:"Other Student",Email:"other-"+otherSchoolID.String()+"@example.com",Role:"student",Active:true}
+    if err:=db.Create(&otherUser).Error;err!=nil{t.Fatal(err)}
+    otherStudent := models.Student{SchoolID:otherSchoolID,UserID:otherUser.ID,AdmissionNumber:"H-002"}
+    if err:=db.Create(&otherStudent).Error;err!=nil{t.Fatal(err)}
+    session := models.AcademicSession{SchoolID:schoolID,Name:"2030/2031"}
+    if err:=db.Create(&session).Error;err!=nil{t.Fatal(err)}
+    class := models.SchoolClass{SchoolID:schoolID,Name:"JSS 2",Level:2}
+    if err:=db.Create(&class).Error;err!=nil{t.Fatal(err)}
+    section := models.Section{SchoolID:schoolID,ClassID:class.ID,Name:"A"}
+    if err:=db.Create(&section).Error;err!=nil{t.Fatal(err)}
+    svc:=NewEnrollmentService(repository.NewEnrollmentRepository(db),db)
+    if _,err:=svc.Create(schoolID,models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session.ID,ClassID:class.ID,SectionID:section.ID});err!=nil{t.Fatal(err)}
+    history,err:=svc.History(schoolID,student.ID)
+    if err!=nil{t.Fatal(err)}
+    if len(history)!=1 || history[0].StudentID!=student.ID{t.Fatalf("unexpected history: %#v",history)}
+    if _,err:=svc.History(schoolID,otherStudent.ID);err!=ErrEnrollmentStudentMissing{t.Fatalf("expected school-scoped student lookup to fail, got %v",err)}
+}

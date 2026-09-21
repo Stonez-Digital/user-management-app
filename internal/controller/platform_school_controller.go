@@ -31,7 +31,7 @@ func (ctrl *PlatformSchoolController) Monitoring(c *gin.Context) {
  ctrl.DB.Model(&models.School{}).Where("status = ?", models.SchoolStatusActive).Count(&activeCount)
  ctrl.DB.Model(&models.School{}).Where("status = ?", models.SchoolStatusSuspended).Count(&suspendedCount)
  ctrl.DB.Model(&models.User{}).Where("school_id IS NOT NULL").Count(&userCount)
- type Activity struct { Action string `+"`json:"action"`"+`; Resource string `+"`json:"resource"`"+`; CreatedAt time.Time `+"`json:"created_at"`"+` }
+ type Activity struct { Action string `json:"action"`; Resource string `json:"resource"`; CreatedAt time.Time `json:"created_at"` }
  var activity []Activity
  if err := ctrl.DB.Model(&models.AuditLog{}).Select("action, resource, created_at").Order("created_at DESC").Limit(8).Scan(&activity).Error; err != nil { httpx.Error(c, 500, "monitoring_failed", "failed to load platform activity"); return }
  status := "unhealthy"; if dbHealthy { status = "healthy" }

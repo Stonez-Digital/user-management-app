@@ -409,6 +409,12 @@ func Migrate(db *gorm.DB) error {
         }},        {Version:22,Name:"database_uniqueness_concurrency_hardening",Up:func(tx *gorm.DB) error {
             if tx.Dialector.Name()!="postgres" { return nil }
 
+            // Teacher allocation type was introduced after the original teacher_assignments table
+            // was created. Older PostgreSQL production databases therefore need the additive column
+            // before the duplicate checks and unique indexes below can run.
+            if err:=tx.Exec("ALTER TABLE teacher_assignments ADD COLUMN IF NOT EXISTS allocation_type varchar(30) NOT NULL DEFAULT 'subject_teacher'").Error;err!=nil{return err}
+            if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_teacher_assignments_allocation_type ON teacher_assignments(allocation_type)").Error;err!=nil{return err}
+
             duplicateChecks:=[]struct{name,query string}{
                 {"student enrollments","SELECT 1 FROM student_enrollments GROUP BY school_id,student_id,academic_session_id HAVING COUNT(*)>1 LIMIT 1"},
                 {"sectioned teacher assignments","SELECT 1 FROM teacher_assignments WHERE section_id IS NOT NULL GROUP BY school_id,teacher_id,subject_id,academic_session_id,term_id,class_id,allocation_type,section_id HAVING COUNT(*)>1 LIMIT 1"},

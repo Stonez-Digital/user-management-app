@@ -87,7 +87,7 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     if err := db.Where("code = ?", "DEFAULT").First(&first).Error; err != nil {
         t.Fatal(err)
     }
-    second = models.School{Name: "Integrity Test School", Code: "INTEGRITY"}
+    second = models.School{Name: "Integrity Test School", Code: "INTEGRITY-" + strings.ToUpper(uuid.NewString())}
     if err := db.Create(&second).Error; err != nil {
         t.Fatal(err)
     }

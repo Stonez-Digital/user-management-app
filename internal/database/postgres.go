@@ -110,7 +110,16 @@ func Migrate(db *gorm.DB) error {
             return nil
         }},
         {Version:16,Name:"multi_school_tenant_foundation",Up:func(tx *gorm.DB) error {
-            if err:=tx.AutoMigrate(&models.School{},&models.User{});err!=nil{return err}
+            // Avoid GORM AutoMigrate on the existing PostgreSQL users table here.
+            // Older production databases can have a legacy email constraint/index
+            // name that GORM attempts to drop during AutoMigrate. The tenant
+            // foundation only needs the additive school column and its FK/index.
+            if tx.Dialector.Name()=="postgres" {
+                if err:=tx.AutoMigrate(&models.School{});err!=nil{return err}
+                if err:=tx.Exec("ALTER TABLE users ADD COLUMN IF NOT EXISTS school_id uuid").Error;err!=nil{return err}
+            } else {
+                if err:=tx.AutoMigrate(&models.School{},&models.User{});err!=nil{return err}
+            }
             var school models.School
             result:=tx.Where("code = ?", "DEFAULT").First(&school)
             if result.Error==gorm.ErrRecordNotFound {
@@ -119,6 +128,20 @@ func Migrate(db *gorm.DB) error {
             } else if result.Error!=nil {return result.Error}
             if err:=tx.Model(&models.User{}).Where("school_id IS NULL").Update("school_id",school.ID).Error;err!=nil{return err}
             if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_users_school_id ON users(school_id)").Error;err!=nil{return err}
+            if tx.Dialector.Name()=="postgres" {
+                if err:=tx.Exec(`DO $$ BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname='user_school_fk'
+                          AND conrelid='users'::regclass
+                    ) THEN
+                        ALTER TABLE users
+                        ADD CONSTRAINT user_school_fk
+                        FOREIGN KEY (school_id) REFERENCES schools(id)
+                        ON UPDATE CASCADE ON DELETE RESTRICT;
+                    END IF;
+                END $$`).Error;err!=nil{return err}
+            }
             return nil
         }},
         {Version:17,Name:"school_scope_academic_finance_data",Up:func(tx *gorm.DB) error {

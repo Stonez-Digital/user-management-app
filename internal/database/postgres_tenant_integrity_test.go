@@ -96,7 +96,7 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     user := models.User{
         SchoolID: &first.ID,
         Name: "Tenant Integrity User",
-        Email: "tenant-integrity@example.com",
+        Email: "tenant-integrity-" + uuid.NewString() + "@example.com",
         Role: "student",
         Active: true,
     }
@@ -109,7 +109,7 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     crossSchool := models.Student{
         SchoolID:       second.ID,
         UserID:          user.ID,
-        AdmissionNumber: "CROSS-001",
+        AdmissionNumber: "CROSS-" + uuid.NewString(),
     }
     if err := db.Create(&crossSchool).Error; err == nil {
         t.Fatal("expected cross-school student/user relationship to be rejected")
@@ -118,7 +118,7 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     valid := models.Student{
         SchoolID:       first.ID,
         UserID:          user.ID,
-        AdmissionNumber: "VALID-001",
+        AdmissionNumber: "VALID-" + uuid.NewString(),
     }
     if err := db.Create(&valid).Error; err != nil {
         t.Fatalf("expected same-school relationship to succeed: %v", err)

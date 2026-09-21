@@ -28,6 +28,8 @@ func (r *teacherAssignmentRepo) List(schoolID uuid.UUID) ([]models.TeacherAssign
 	err := r.db.Where("school_id = ?", schoolID).
 		Preload("Teacher", "school_id = ?", schoolID).
 		Preload("Subject", "school_id = ?", schoolID).
+		Preload("Class", "school_id = ?", schoolID).
+		Preload("Section", "school_id = ?", schoolID).
 		Order("created_at DESC").Find(&v).Error
 	return v, err
 }
@@ -37,6 +39,8 @@ func (r *teacherAssignmentRepo) Get(schoolID, id uuid.UUID) (models.TeacherAssig
 	err := r.db.Where("id = ? AND school_id = ?", id, schoolID).
 		Preload("Teacher", "school_id = ?", schoolID).
 		Preload("Subject", "school_id = ?", schoolID).
+		Preload("Class", "school_id = ?", schoolID).
+		Preload("Section", "school_id = ?", schoolID).
 		First(&v).Error
 	return v, err
 }

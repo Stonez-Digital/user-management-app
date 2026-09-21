@@ -406,7 +406,35 @@ func Migrate(db *gorm.DB) error {
             if err:=tx.Model(&models.User{}).Where("role <> ? AND school_id IS NULL", "super_admin").Count(&unassignedTenantUsers).Error;err!=nil{return err}
             if unassignedTenantUsers!=0{return fmt.Errorf("found %d non-platform users without a school tenant", unassignedTenantUsers)}
             return nil
+        }},        {Version:22,Name:"database_uniqueness_concurrency_hardening",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+
+            duplicateChecks:=[]struct{name,query string}{
+                {"student enrollments","SELECT 1 FROM student_enrollments GROUP BY school_id,student_id,academic_session_id HAVING COUNT(*)>1 LIMIT 1"},
+                {"sectioned teacher assignments","SELECT 1 FROM teacher_assignments WHERE section_id IS NOT NULL GROUP BY school_id,teacher_id,subject_id,academic_session_id,term_id,class_id,allocation_type,section_id HAVING COUNT(*)>1 LIMIT 1"},
+                {"unsectioned teacher assignments","SELECT 1 FROM teacher_assignments WHERE section_id IS NULL GROUP BY school_id,teacher_id,subject_id,academic_session_id,term_id,class_id,allocation_type HAVING COUNT(*)>1 LIMIT 1"},
+                {"active sectioned class teachers","SELECT 1 FROM teacher_assignments WHERE active=true AND allocation_type='class_teacher' AND section_id IS NOT NULL GROUP BY school_id,academic_session_id,term_id,class_id,section_id HAVING COUNT(*)>1 LIMIT 1"},
+                {"active unsectioned class teachers","SELECT 1 FROM teacher_assignments WHERE active=true AND allocation_type='class_teacher' AND section_id IS NULL GROUP BY school_id,academic_session_id,term_id,class_id HAVING COUNT(*)>1 LIMIT 1"},
+            }
+            for _,check:=range duplicateChecks {
+                var marker int
+                if err:=tx.Raw(check.query).Scan(&marker).Error;err!=nil{return fmt.Errorf("check %s duplicates: %w",check.name,err)}
+                if marker!=0{return fmt.Errorf("cannot apply uniqueness hardening: duplicate %s exist; resolve duplicates before deployment",check.name)}
+            }
+
+            indexes:=[]string{
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_student_session ON student_enrollments(school_id,student_id,academic_session_id)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_teacher_assignment_unsectioned ON teacher_assignments(school_id,teacher_id,subject_id,academic_session_id,term_id,class_id,allocation_type) WHERE section_id IS NULL",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_teacher_assignment_sectioned ON teacher_assignments(school_id,teacher_id,subject_id,academic_session_id,term_id,class_id,allocation_type,section_id) WHERE section_id IS NOT NULL",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_active_class_teacher_unsectioned ON teacher_assignments(school_id,academic_session_id,term_id,class_id) WHERE active=true AND allocation_type='class_teacher' AND section_id IS NULL",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_active_class_teacher_sectioned ON teacher_assignments(school_id,academic_session_id,term_id,class_id,section_id) WHERE active=true AND allocation_type='class_teacher' AND section_id IS NOT NULL",
+            }
+            for _,query:=range indexes {
+                if err:=tx.Exec(query).Error;err!=nil{return fmt.Errorf("create uniqueness index: %w",err)}
+            }
+            return nil
         }},
+
     }
     for _,migration:=range migrations{
         var applied Migration

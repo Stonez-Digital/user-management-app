@@ -21,7 +21,7 @@ export default function SchoolSettings(){
  const[error,setError]=useState("");
  const[saving,setSaving]=useState(false);
 
- useEffect(()=>{api("/me").then(me=>{if(!["super_admin","school_admin"].includes(me?.role)){router.replace("/dashboard");return} return api("/admin/school")}).then(s=>{if(s){setSchool(s);setName(s.name);setStatus(s.status)}}).catch(e=>{setError(e.message);if(e.message==="Session expired")router.replace("/")})},[router]);
+ useEffect(()=>{api("/me").then(me=>{if(me?.role!=="school_admin"){router.replace(me?.role==="super_admin"?"/platform/schools":"/dashboard");return} return api("/admin/school")}).then(s=>{if(s){setSchool(s);setName(s.name);setStatus(s.status)}}).catch(e=>{setError(e.message);if(e.message==="Session expired")router.replace("/")})},[router]);
 
  async function save(e:React.FormEvent){e.preventDefault();setSaving(true);setError("");try{const s=await api("/admin/school",{method:"PUT",body:JSON.stringify({name})});setSchool(s);setName(s.name);setStatus(s.status)}catch(e){setError(e instanceof Error?e.message:"Unable to save school")}finally{setSaving(false)}}
 

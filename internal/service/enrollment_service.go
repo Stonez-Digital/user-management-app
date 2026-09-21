@@ -13,6 +13,15 @@ func(s *EnrollmentService)Create(schoolID uuid.UUID,v models.StudentEnrollment)(
  var existing models.StudentEnrollment;err:=s.db.Where("school_id = ? AND student_id = ? AND academic_session_id = ?",schoolID,v.StudentID,v.AcademicSessionID).First(&existing).Error;if err==nil{return v,ErrEnrollmentDuplicate};if !errors.Is(err,gorm.ErrRecordNotFound){return v,err};return s.repo.Create(schoolID,v)
 }
 func(s *EnrollmentService)List(schoolID uuid.UUID)([]models.StudentEnrollment,error){return s.repo.List(schoolID)}
+func(s *EnrollmentService)ListForTeacher(schoolID,teacherID uuid.UUID)([]models.StudentEnrollment,error){
+ var items []models.StudentEnrollment
+ err:=s.db.Where("student_enrollments.school_id = ? AND student_enrollments.status = ?",schoolID,models.EnrollmentStatusActive).
+  Joins("JOIN teacher_assignments ta ON ta.school_id = student_enrollments.school_id AND ta.class_id = student_enrollments.class_id AND ta.academic_session_id = student_enrollments.academic_session_id AND ta.teacher_id = ? AND ta.active = ?",teacherID,true).
+  Where("ta.section_id IS NULL OR ta.section_id = student_enrollments.section_id").
+  Preload("Student").Preload("Student.User").Preload("Class").Preload("Section").Preload("AcademicSession").
+  Find(&items).Error
+ return items,err
+}
 func(s *EnrollmentService)Get(schoolID,id uuid.UUID)(models.StudentEnrollment,error){v,err:=s.repo.Get(schoolID,id);if errors.Is(err,gorm.ErrRecordNotFound){return v,ErrEnrollmentNotFound};return v,err}
 func(s *EnrollmentService)Update(schoolID uuid.UUID,v models.StudentEnrollment)error{current,err:=s.Get(schoolID,v.ID);if err!=nil{return err};if v.Status!=models.EnrollmentStatusActive&&v.Status!=models.EnrollmentStatusCompleted&&v.Status!=models.EnrollmentStatusWithdrawn{return ErrEnrollmentInvalidStatus};if v.StudentID!=current.StudentID||v.AcademicSessionID!=current.AcademicSessionID||v.ClassID!=current.ClassID||v.SectionID!=current.SectionID{return ErrEnrollmentSchoolMismatch};return s.repo.Update(schoolID,v)}
 func(s *EnrollmentService)Delete(schoolID,id uuid.UUID)error{if _,err:=s.Get(schoolID,id);err!=nil{return err};return s.repo.Delete(schoolID,id)}

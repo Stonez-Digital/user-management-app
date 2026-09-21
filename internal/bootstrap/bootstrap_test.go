@@ -58,8 +58,5 @@ func TestEnsureInitialAdminCreatesOnlyFirstUser(t *testing.T) {
     if err := db.First(&user).Error; err != nil { t.Fatal(err) }
     if user.Email != "admin@example.com" { t.Fatalf("expected normalized bootstrap email, got %q", user.Email) }
     if user.Role != authz.RoleSuperAdmin { t.Fatalf("expected superadmin role, got %q", user.Role) }
-    if user.SchoolID == nil { t.Fatal("expected bootstrap administrator to have a school context") }
-    var school models.School
-    if err := db.First(&school, "code = ?", "DEFAULT").Error; err != nil { t.Fatal(err) }
-    if *user.SchoolID != school.ID { t.Fatal("expected bootstrap administrator to use the default school") }
+    if user.SchoolID != nil { t.Fatal("expected platform administrator to have no school tenant") }
 }

@@ -11,7 +11,7 @@ type Section = { id: string; class_id: string; name: string };
 type Subject = { id: string; code: string; name: string; active: boolean };
 type Assignment = {
   id: string; teacher_id: string; subject_id: string; academic_session_id: string; term_id: string;
-  class_id: string; section_id?: string | null; active: boolean;
+  class_id: string; section_id?: string | null; allocation_type: string; active: boolean;
   teacher?: User; subject?: Subject;
 };
 
@@ -44,9 +44,12 @@ export default function TeacherAssignmentsPage() {
   const [classId, setClassId] = useState("");
   const [sectionId, setSectionId] = useState("");
   const [subjectId, setSubjectId] = useState("");
+  const [allocationType, setAllocationType] = useState("subject_teacher");
+  const [coverageView, setCoverageView] = useState("teacher");
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [coverage, setCoverage] = useState<Assignment[]>([]);
 
   const sections = useMemo(() => classes.find(c => c.id === classId)?.sections || [], [classes]);
   const maps = useMemo(() => ({
@@ -70,7 +73,10 @@ export default function TeacherAssignmentsPage() {
       setSessions(nextSessions);
       setClasses(list(c, "classes"));
       setSubjects(list(sub, "subjects"));
-      setAssignments(list(a, "assignments"));
+      const nextAssignments = list(a, "assignments");
+      setAssignments(nextAssignments);
+      const coverageData = await api("/admin/teacher-assignments/coverage");
+      setCoverage(list(coverageData, "assignments"));
       if (!sessionId && nextSessions.length) setSessionId(nextSessions.find((x: Session) => x.status === "active")?.id || nextSessions[0].id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to load assignment data");
@@ -110,11 +116,11 @@ export default function TeacherAssignmentsPage() {
       await api("/admin/teacher-assignments", {
         method: "POST",
         body: JSON.stringify({
-          teacher_id: teacherId, subject_id: subjectId, academic_session_id: sessionId,
+          teacher_id: teacherId, subject_id: subjectId, allocation_type: allocationType, academic_session_id: sessionId,
           term_id: termId, class_id: classId, section_id: sectionId || null, active: true,
         }),
       });
-      setTeacherId(""); setSubjectId(""); setSectionId("");
+      setTeacherId(""); setSubjectId(""); setSectionId(""); setAllocationType("subject_teacher");
       await load();
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to create assignment"); }
     finally { setBusy(false); }
@@ -126,7 +132,7 @@ export default function TeacherAssignmentsPage() {
       await api("/admin/teacher-assignments/" + item.id, {
         method: "PUT",
         body: JSON.stringify({
-          teacher_id: item.teacher_id, subject_id: item.subject_id, academic_session_id: item.academic_session_id,
+          teacher_id: item.teacher_id, subject_id: item.subject_id, allocation_type: item.allocation_type || "subject_teacher", academic_session_id: item.academic_session_id,
           term_id: item.term_id, class_id: item.class_id, section_id: item.section_id || null, active: !item.active,
         }),
       });
@@ -160,6 +166,7 @@ export default function TeacherAssignmentsPage() {
       <div className="form-grid">
         <label>Teacher<select value={teacherId} onChange={e => setTeacherId(e.target.value)}><option value="">Select teacher</option>{teachers.map(t => <option key={t.id} value={t.id}>{t.name || t.email}</option>)}</select></label>
         <label>Subject<select value={subjectId} onChange={e => setSubjectId(e.target.value)}><option value="">Select subject</option>{subjects.filter(s => s.active).map(s => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}</select></label>
+        <label>Allocation type<select value={allocationType} onChange={e => setAllocationType(e.target.value)}><option value="subject_teacher">Subject teacher</option><option value="class_teacher">Class/form teacher</option></select></label>
         <label>Academic session<select value={sessionId} onChange={e => setSessionId(e.target.value)}><option value="">Select session</option>{sessions.map(s => <option key={s.id} value={s.id}>{s.name} ({s.status})</option>)}</select></label>
         <label>Term<select value={termId} onChange={e => setTermId(e.target.value)} disabled={!sessionId}><option value="">Select term</option>{terms.map(t => <option key={t.id} value={t.id}>{t.name} ({t.status})</option>)}</select></label>
         <label>Class<select value={classId} onChange={e => setClassId(e.target.value)}><option value="">Select class</option>{classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
@@ -170,9 +177,23 @@ export default function TeacherAssignmentsPage() {
 
     <section className="panel">
       <div className="panel-head"><div><h2>Current assignments</h2><p>{filtered.length} assignment{filtered.length === 1 ? "" : "s"}</p></div><input className="search-inline" placeholder="Search assignments..." value={query} onChange={e => setQuery(e.target.value)}/></div>
-      <div className="table-wrap"><table><thead><tr><th>Teacher</th><th>Subject</th><th>Session / term</th><th>Class</th><th>Section</th><th>Status</th><th>Actions</th></tr></thead>
-        <tbody>{filtered.map(a => <tr key={a.id}><td><strong>{maps.teachers[a.teacher_id] || a.teacher?.name || "Teacher"}</strong></td><td>{maps.subjects[a.subject_id] || a.subject?.name || "—"}</td><td>{maps.sessions[a.academic_session_id] || "—"}<small>{maps.terms[a.term_id] || "—"}</small></td><td>{maps.classes[a.class_id] || "—"}</td><td>{maps.sections[a.section_id || ""] || "Whole class"}</td><td><span className={"pill " + (a.active ? "active" : "withdrawn")}>{a.active ? "active" : "inactive"}</span></td><td><button className="ghost" onClick={() => toggle(a)}>{a.active ? "Deactivate" : "Activate"}</button> <button className="ghost" onClick={() => remove(a.id)}>Delete</button></td></tr>)}</tbody>
+      <div className="table-wrap"><table><thead><tr><th>Teacher</th><th>Type</th><th>Subject</th><th>Session / term</th><th>Class</th><th>Section</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>{filtered.map(a => <tr key={a.id}><td><strong>{maps.teachers[a.teacher_id] || a.teacher?.name || "Teacher"}</strong></td><td>{a.allocation_type === "class_teacher" ? "Class/form" : "Subject"}</td><td>{maps.subjects[a.subject_id] || a.subject?.name || "—"}</td><td>{maps.sessions[a.academic_session_id] || "—"}<small>{maps.terms[a.term_id] || "—"}</small></td><td>{maps.classes[a.class_id] || "—"}</td><td>{maps.sections[a.section_id || ""] || "Whole class"}</td><td><span className={"pill " + (a.active ? "active" : "withdrawn")}>{a.active ? "active" : "inactive"}</span></td><td><button className="ghost" onClick={() => toggle(a)}>{a.active ? "Deactivate" : "Activate"}</button> <button className="ghost" onClick={() => remove(a.id)}>Delete</button></td></tr>)}</tbody>
       </table>{!filtered.length && <div className="empty">No teacher assignments found.</div>}</div>
     </section>
+    <section className="panel">
+      <div className="panel-head"><div><h2>Teaching coverage</h2><p>Review active and historical allocations by operational view.</p></div>
+        <select value={coverageView} onChange={e => setCoverageView(e.target.value)}><option value="teacher">By teacher</option><option value="class">By class</option><option value="subject">By subject</option><option value="section">By section</option></select>
+      </div>
+      <div className="table-wrap"><table><thead><tr><th>Group</th><th>Teacher</th><th>Subject</th><th>Type</th><th>Session / term</th><th>Status</th></tr></thead>
+      <tbody>{coverage.map(a => {
+        const group = coverageView === "teacher" ? (maps.teachers[a.teacher_id] || a.teacher?.name || "Teacher")
+          : coverageView === "class" ? (maps.classes[a.class_id] || "Class")
+          : coverageView === "subject" ? (maps.subjects[a.subject_id] || a.subject?.name || "Subject")
+          : (maps.sections[a.section_id || ""] || "Whole class");
+        return <tr key={a.id}><td><strong>{group}</strong></td><td>{maps.teachers[a.teacher_id] || a.teacher?.name || "—"}</td><td>{maps.subjects[a.subject_id] || a.subject?.name || "—"}</td><td>{a.allocation_type === "class_teacher" ? "Class/form" : "Subject"}</td><td>{maps.sessions[a.academic_session_id] || "—"} · {maps.terms[a.term_id] || "—"}</td><td>{a.active ? "active" : "inactive"}</td></tr>;
+      })}</tbody></table>{!coverage.length && <div className="empty">No teaching coverage records.</div>}</div>
+    </section>
+
   </div>;
 }

@@ -65,8 +65,8 @@ func (s *TeacherAssignmentService) Create(schoolID uuid.UUID, v models.TeacherAs
 	if err := q.First(&existing).Error; err == nil { return v, ErrAssignmentDuplicate } else if !errors.Is(err, gorm.ErrRecordNotFound) { return v, err }
 	created, err := s.repo.Create(schoolID, v)
 	if err != nil {
-		if isPostgresUniqueViolation(err, "uq_active_class_teacher_unsectioned") || isPostgresUniqueViolation(err, "uq_active_class_teacher_sectioned") { return v, ErrAssignmentConflict }
-		if isPostgresUniqueViolation(err, "uq_teacher_assignment_unsectioned") || isPostgresUniqueViolation(err, "uq_teacher_assignment_sectioned") { return v, ErrAssignmentDuplicate }
+		if isPostgresAssignmentUniqueViolation(err, "uq_active_class_teacher_unsectioned") || isPostgresAssignmentUniqueViolation(err, "uq_active_class_teacher_sectioned") { return v, ErrAssignmentConflict }
+		if isPostgresAssignmentUniqueViolation(err, "uq_teacher_assignment_unsectioned") || isPostgresAssignmentUniqueViolation(err, "uq_teacher_assignment_sectioned") { return v, ErrAssignmentDuplicate }
 		return v, err
 	}
 	return created, nil
@@ -94,8 +94,8 @@ func (s *TeacherAssignmentService) Update(schoolID uuid.UUID, v models.TeacherAs
 	if v.SectionID == nil { q = q.Where("section_id IS NULL") } else { q = q.Where("section_id = ?", *v.SectionID) }
 	if err := q.First(&existing).Error; err == nil { return ErrAssignmentDuplicate } else if !errors.Is(err, gorm.ErrRecordNotFound) { return err }
 	if err:=s.repo.Update(schoolID, v);err!=nil {
-	if isPostgresUniqueViolation(err, "uq_active_class_teacher_unsectioned") || isPostgresUniqueViolation(err, "uq_active_class_teacher_sectioned") { return ErrAssignmentConflict }
-	if isPostgresUniqueViolation(err, "uq_teacher_assignment_unsectioned") || isPostgresUniqueViolation(err, "uq_teacher_assignment_sectioned") { return ErrAssignmentDuplicate }
+	if isPostgresAssignmentUniqueViolation(err, "uq_active_class_teacher_unsectioned") || isPostgresAssignmentUniqueViolation(err, "uq_active_class_teacher_sectioned") { return ErrAssignmentConflict }
+	if isPostgresAssignmentUniqueViolation(err, "uq_teacher_assignment_unsectioned") || isPostgresAssignmentUniqueViolation(err, "uq_teacher_assignment_sectioned") { return ErrAssignmentDuplicate }
 	return err
 }
 return nil
@@ -122,7 +122,7 @@ func (s *TeacherAssignmentService) Coverage(schoolID, sessionID, termID uuid.UUI
 	return out, nil
 }
 
-func isPostgresUniqueViolation(err error,constraint string) bool {
+func isPostgresAssignmentUniqueViolation(err error,constraint string) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err,&pgErr) && pgErr.Code=="23505" && pgErr.ConstraintName==constraint
 }

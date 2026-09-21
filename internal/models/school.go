@@ -7,6 +7,7 @@ import (
 )
 
 const (
+    SchoolStatusPending = "pending"
     SchoolStatusActive = "active"
     SchoolStatusSuspended = "suspended"
 )

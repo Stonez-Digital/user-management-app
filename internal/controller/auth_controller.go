@@ -31,6 +31,7 @@ type ChangePasswordRequest struct { CurrentPassword string `json:"current_passwo
 type RefreshRequest struct { RefreshToken string `json:"refresh_token" binding:"required"` }
 type LogoutRequest struct { RefreshToken string `json:"refresh_token" binding:"required"` }
 type RegisterRequest struct { Name string `json:"name" binding:"required,min=2,max=100"`; Email string `json:"email" binding:"required,email,max=255"`; Password string `json:"password" binding:"required,min=8,max=128"` }
+type SchoolSignupRequest struct { SchoolName string `json:"school_name" binding:"required,min=2,max=160"`; SchoolCode string `json:"school_code" binding:"required,min=2,max=50"`; AdminName string `json:"admin_name" binding:"required,min=2,max=100"`; AdminEmail string `json:"admin_email" binding:"required,email,max=255"`; AdminPassword string `json:"admin_password" binding:"required,min=8,max=128"` }
 type LoginRequest struct { Email string `json:"email" binding:"required,email,max=255"`; Password string `json:"password" binding:"required"`; SchoolCode string `json:"school_code" binding:"omitempty,max=50"` }
 type AssignRoleRequest struct { Role string `json:"role" binding:"required"` }
 
@@ -132,6 +133,27 @@ func (ac *AuthController) Register(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "user created"})
 }
 
+func (ac *AuthController) SchoolSignup(c *gin.Context) {
+ var req SchoolSignupRequest
+ if err:=c.ShouldBindJSON(&req);err!=nil{httpx.Validation(c,httpx.ValidationErrors(err));return}
+ name:=strings.TrimSpace(req.SchoolName);code:=strings.ToUpper(strings.TrimSpace(req.SchoolCode));email:=strings.ToLower(strings.TrimSpace(req.AdminEmail))
+ hash,err:=auth.HashPassword(req.AdminPassword);if err!=nil{httpx.Error(c,500,"password_hash_failed","failed to secure administrator password");return}
+ school:=models.School{ID:uuid.New(),Name:name,Code:code,Status:models.SchoolStatusPending}
+ admin:=models.User{ID:uuid.New(),Name:strings.TrimSpace(req.AdminName),Email:email,PasswordHash:hash,Role:authz.RoleSchoolAdmin,Active:true}
+ err=ac.DB.Transaction(func(tx *gorm.DB)error{
+  var existing models.School
+  if e:=tx.Where("lower(code) = ?",strings.ToLower(code)).First(&existing).Error;e==nil{return gorm.ErrDuplicatedKey}else if !errors.Is(e,gorm.ErrRecordNotFound){return e}
+  var existingUser models.User
+  if e:=tx.Where("lower(email) = ?",email).First(&existingUser).Error;e==nil{return gorm.ErrDuplicatedKey}else if !errors.Is(e,gorm.ErrRecordNotFound){return e}
+  if e:=tx.Create(&school).Error;e!=nil{return e}
+  admin.SchoolID=&school.ID
+  return tx.Create(&admin).Error
+ })
+ if err!=nil{if errors.Is(err,gorm.ErrDuplicatedKey){httpx.Error(c,409,"school_or_email_exists","school code or administrator email already exists")}else{httpx.Error(c,500,"school_signup_failed","failed to submit school onboarding")};return}
+ _=audit.Record(ac.DB,c,nil,"school.signup","school",&school.ID,map[string]interface{}{"code":school.Code,"admin_user_id":admin.ID})
+ c.JSON(http.StatusCreated,gin.H{"message":"school onboarding submitted","status":school.Status,"school":gin.H{"id":school.ID,"name":school.Name,"code":school.Code},"administrator":gin.H{"name":admin.Name,"email":admin.Email}})
+}
+
 func (ac *AuthController) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -142,11 +164,17 @@ func (ac *AuthController) Login(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
-	if code := strings.TrimSpace(req.SchoolCode); code != "" {
+	if user.Role != authz.RoleSuperAdmin && user.SchoolID != nil {
 		var school models.School
-		if err := ac.DB.Where("id = ? AND lower(code) = ?", user.SchoolID, strings.ToLower(code)).First(&school).Error; err != nil || school.Status != models.SchoolStatusActive {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "school code does not match your account"})
-			return
+		if err := ac.DB.First(&school, "id = ?", *user.SchoolID).Error; err == nil {
+			if school.Status != models.SchoolStatusActive {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "school onboarding is pending platform approval"})
+				return
+			}
+			if code := strings.TrimSpace(req.SchoolCode); code != "" && !strings.EqualFold(code, school.Code) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "school code does not match your account"})
+				return
+			}
 		}
 	}
 	accessToken, err := auth.GenerateToken(user.ID.String(), user.Role)

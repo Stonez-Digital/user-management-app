@@ -22,7 +22,7 @@ func authControllerTestDB(t *testing.T) *gorm.DB {
     if err := auth.ConfigureSecret("test-auth-secret-for-controller-tests-32chars"); err != nil { t.Fatal(err) }
     db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
     if err != nil { t.Fatal(err) }
-    if err := db.AutoMigrate(&models.User{}, &models.RefreshToken{}, &models.Session{}, &models.PasswordResetToken{}, &models.AuditLog{}); err != nil { t.Fatal(err) }
+    if err := db.AutoMigrate(&models.User{}, &models.School{}, &models.RefreshToken{}, &models.Session{}, &models.PasswordResetToken{}, &models.AuditLog{}); err != nil { t.Fatal(err) }
     return db
 }
 
@@ -32,6 +32,7 @@ func authJSONRequest(t *testing.T, ac *AuthController, method, path, body string
     router := gin.New()
     switch path {
     case "/login": router.POST(path, ac.Login)
+    case "/school-signup": router.POST(path, ac.SchoolSignup)
     case "/refresh": router.POST(path, ac.Refresh)
     case "/logout": router.POST(path, ac.Logout)
     default: t.Fatalf("unsupported test path %s", path)
@@ -214,4 +215,35 @@ func TestPasswordChangeRevokesAllSessionsAndRefreshTokens(t *testing.T) {
     var sessions []models.Session
     if err := db.Where("user_id = ?", user.ID).Find(&sessions).Error; err != nil { t.Fatal(err) }
     for _, session := range sessions { if !session.Revoked { t.Fatalf("expected session %s to be revoked", session.ID) } }
+}
+
+
+func TestSchoolSignupCreatesPendingTenantAndAdmin(t *testing.T) {
+    db := authControllerTestDB(t)
+    ac := NewAuthController(db)
+    rec := authJSONRequest(t, ac, http.MethodPost, "/school-signup", `{"school_name":"Greenfield Academy","school_code":"GREENFIELD","admin_name":"Jane Doe","admin_email":"ADMIN@greenfield.test","admin_password":"password123"}`)
+    if rec.Code != http.StatusCreated { t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String()) }
+    var school models.School
+    if err := db.Where("code = ?", "GREENFIELD").First(&school).Error; err != nil { t.Fatal(err) }
+    if school.Status != models.SchoolStatusPending { t.Fatalf("expected pending school, got %q", school.Status) }
+    var admin models.User
+    if err := db.Where("email = ?", "admin@greenfield.test").First(&admin).Error; err != nil { t.Fatal(err) }
+    if admin.SchoolID == nil || *admin.SchoolID != school.ID { t.Fatal("expected admin to belong to new school tenant") }
+    if admin.Role != authz.RoleSchoolAdmin { t.Fatalf("expected school admin role, got %q", admin.Role) }
+    if !auth.CheckPassword(admin.PasswordHash, "password123") { t.Fatal("expected password to be securely hashed") }
+}
+
+func TestPendingSchoolCannotLoginUntilApproved(t *testing.T) {
+    db := authControllerTestDB(t)
+    hash, err := auth.HashPassword("password123")
+    if err != nil { t.Fatal(err) }
+    school := models.School{ID: uuid.New(), Name: "Pending Academy", Code: "PENDING", Status: models.SchoolStatusPending}
+    if err := db.Create(&school).Error; err != nil { t.Fatal(err) }
+    admin := models.User{Name: "Pending Admin", Email: "pending-admin@example.com", PasswordHash: hash, Role: authz.RoleSchoolAdmin, Active: true, SchoolID: &school.ID}
+    if err := db.Create(&admin).Error; err != nil { t.Fatal(err) }
+    rec := authJSONRequest(t, NewAuthController(db), http.MethodPost, "/login", `{"email":"pending-admin@example.com","password":"password123","school_code":"PENDING"}`)
+    if rec.Code != http.StatusUnauthorized { t.Fatalf("expected pending school login to be rejected, got %d: %s", rec.Code, rec.Body.String()) }
+    if err := db.Model(&school).Update("status", models.SchoolStatusActive).Error; err != nil { t.Fatal(err) }
+    rec = authJSONRequest(t, NewAuthController(db), http.MethodPost, "/login", `{"email":"pending-admin@example.com","password":"password123","school_code":"PENDING"}`)
+    if rec.Code != http.StatusOK { t.Fatalf("expected approved school login to succeed, got %d: %s", rec.Code, rec.Body.String()) }
 }

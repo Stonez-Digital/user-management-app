@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { landingPathForRole, normalizeAuthUser } from "../lib/auth-session";
 
 async function readResponse(response: Response) {
  const text = await response.text();
@@ -29,12 +30,13 @@ export default function LoginPage() {
    localStorage.setItem("access_token",d.access_token); localStorage.setItem("refresh_token",d.refresh_token);
    if(schoolCode.trim()) localStorage.setItem("school_code",schoolCode.trim().toUpperCase());
    const me=await fetch("/backend/me",{headers:{Authorization:"Bearer "+d.access_token}});
-   const user=await readResponse(me);
-   if(!me.ok || !user?.id || !user?.role){
+   const payload=await readResponse(me);
+   const user=normalizeAuthUser(payload);
+   if(!me.ok || !user){
     localStorage.removeItem("access_token"); localStorage.removeItem("refresh_token");
-    throw Error(user?.error?.message||user?.error||"Unable to load your account after sign-in");
+    throw Error((payload as any)?.error?.message||(payload as any)?.error||`Unable to load your account after sign-in (HTTP ${me.status})`);
    }
-   router.push(user?.role==="parent"?"/parent":user?.role==="student"?"/student":"/dashboard");
+   router.push(landingPathForRole(user.role));
   } catch(e) { setError(e instanceof Error?e.message:"Login failed"); } finally { setLoading(false); }
  }
  return <main className="auth-shell">

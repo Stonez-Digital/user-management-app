@@ -2,6 +2,7 @@
 import {useEffect,useState} from "react";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
+import { normalizeAuthUser } from "../../lib/auth-session";
 
 type User={id:string;name:string;email:string;role:string;active:boolean};
 type School={id:string;name:string;code:string;status:string;user_count:number};
@@ -29,10 +30,13 @@ export default function Dashboard(){
 
  useEffect(()=>{
   let timer:ReturnType<typeof setInterval>|undefined;
-  api("/me").then(async m=>{
-   setMe(m);
-   if(m?.role==="teacher"){router.replace("/dashboard/teacher");return}
-   if(m?.role==="super_admin"){
+  api("/me").then(async payload=>{
+   const m=normalizeAuthUser(payload);
+   if(!m) throw Error("Unable to load your account profile");
+   const sessionUser:User={id:m.id,name:m.name??"",email:m.email??"",role:m.role,active:m.active??true};
+   setMe(sessionUser);
+   if(m.role==="teacher"){router.replace("/dashboard/teacher");return}
+   if(m.role==="super_admin"){
     const load=async()=>{try{const [d,mn]=await Promise.all([api("/platform/schools"),api("/platform/monitoring")]);setSchools(Array.isArray(d?.schools)?d.schools:[]);setMonitoring(mn);setLastUpdated(new Date());setError("")}catch(e){setError(e instanceof Error?e.message:"Unable to refresh platform monitoring")}};
     await load();
     timer=setInterval(load,30000);

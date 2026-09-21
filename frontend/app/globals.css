@@ -103,11 +103,11 @@ td strong,td small{display:block}td small{font-size:11px;color:#94a3b8;margin-to
 [data-theme="dark"] .module-icon{background:#1e3a8a;color:#dbeafe}
 [data-theme="dark"] .nested-list{background:#1f2937}.nested-item{background:#374151;color:#f3f4f6}
 [data-theme="dark"] .tenant-note{background:#1f2937;border-color:#475569}
-[data-theme="dark"] .tenant-next{background:#1e3a8a}.tenant-next strong{color:#dbeafe}.tenant-next span{color:#d1d5db}
+[data-theme="dark"] .tenant-next{background:#1e3a8a}[data-theme="dark"] .tenant-next strong{color:#dbeafe}[data-theme="dark"] .tenant-next span{color:#d1d5db}
 [data-theme="dark"] .auth-footer{border-top-color:#374151}
-[data-theme="dark"] .school-code-card strong,.tenant-cards strong{color:#fff}
-[data-theme="dark"] .link-button,.back,.panel-head>a{color:#60a5fa}
-[data-theme="dark"] .pill{background:#1e3a8a;color:#dbeafe}.pill.active{background:#14532d;color:#bbf7d0}.pill.inactive,.pill.withdrawn{background:#3f1d24;color:#fecaca}.pill.graduated{background:#172554;color:#bfdbfe}
+[data-theme="dark"] .school-code-card strong,[data-theme="dark"] .tenant-cards strong{color:#fff}
+[data-theme="dark"] .link-button,[data-theme="dark"] .back,[data-theme="dark"] .panel-head>a{color:#60a5fa}
+[data-theme="dark"] .pill{background:#1e3a8a;color:#dbeafe}[data-theme="dark"] .pill.active{background:#14532d;color:#bbf7d0}[data-theme="dark"] .pill.inactive,[data-theme="dark"] .pill.withdrawn{background:#3f1d24;color:#fecaca}[data-theme="dark"] .pill.graduated{background:#172554;color:#bfdbfe}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
 
 .theme-toggle{position:fixed;top:18px;right:18px;z-index:100;display:inline-flex;align-items:center;gap:7px;min-height:40px;padding:9px 13px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#172033;font-size:12px;font-weight:750;box-shadow:0 8px 24px #0f172a18}

@@ -66,20 +66,34 @@ export default function Dashboard(){
 
    {isPlatform ? <>
     <section className="stats">
-     <Stat label="Schools" value={schools.length} detail="Onboarded tenants"/>
-     <Stat label="Active" value={activeSchools} detail="Active school tenants"/>
-     <Stat label="Suspended" value={suspendedSchools} detail="Suspended tenants"/>
-     <Stat label="Users" value={platformUsers} detail="Across onboarded schools"/>
+     <Stat label="Total schools" value={schools.length} detail="Registered tenants"/>
+     <Stat label="Pending review" value={schools.filter(s=>s.status==="pending").length} detail="Awaiting approval"/>
+     <Stat label="Active" value={activeSchools} detail="Operational tenants"/>
+     <Stat label="Users" value={platformUsers} detail="Across all schools"/>
     </section>
-    <section className="panel">
-     <div className="panel-head"><div><h2>Onboarded schools</h2><p>Each institution operates inside its own isolated tenant.</p></div><Link href="/platform/schools">Manage schools →</Link></div>
-     <div className="table-wrap"><table><thead><tr><th>School</th><th>Code</th><th>Status</th><th>Users</th></tr></thead><tbody>
-      {schools.slice(0,8).map(s=><tr key={s.id}><td><strong>{s.name}</strong></td><td>{s.code}</td><td><span className={"pill "+s.status}>{s.status}</span></td><td>{s.user_count}</td></tr>)}
+    <section className="grid-2">
+     <div className="panel"><div className="panel-head"><div><h2>Platform health</h2><p>Tenant-level operational signals from the platform database.</p></div><span className="pill active">Live</span></div>
+      <div className="role-list">
+       <div><span>Active schools</span><strong>{activeSchools}/{schools.length}</strong></div>
+       <div><span>Schools needing attention</span><strong>{schools.filter(s=>s.status!=="active"||s.user_count===0).length}</strong></div>
+       <div><span>Suspended tenants</span><strong>{suspendedSchools}</strong></div>
+       <div><span>Platform boundary</span><strong>Enforced</strong></div>
+      </div>
+     </div>
+     <div className="panel"><div className="panel-head"><div><h2>Attention queue</h2><p>Items that may require platform action.</p></div><Link href="/platform/schools">Open control center →</Link></div>
+      <div className="table-wrap"><table><thead><tr><th>School</th><th>Signal</th><th>Status</th></tr></thead><tbody>
+       {schools.filter(s=>s.status!=="active"||s.user_count===0).slice(0,6).map(s=><tr key={s.id}><td><strong>{s.name}</strong><small>{s.code}</small></td><td>{s.status==="pending"?"Approval required":s.status==="suspended"?"Suspended tenant":"No users yet"}</td><td><span className={"pill "+s.status}>{s.status}</span></td></tr>)}
+      </tbody></table>{!schools.some(s=>s.status!=="active"||s.user_count===0)&&<div className="empty">No tenant issues detected.</div>}</div>
+     </div>
+    </section>
+    <section className="panel"><div className="panel-head"><div><h2>Tenant monitoring</h2><p>Monitor every school without entering its tenant workspace.</p></div><button className="ghost" onClick={()=>window.location.reload()}>Refresh</button></div>
+     <div className="table-wrap"><table><thead><tr><th>School</th><th>Code</th><th>Users</th><th>Tenant status</th><th>Operational signal</th></tr></thead><tbody>
+      {schools.map(s=>{const signal=s.status==="pending"?"Awaiting approval":s.status==="suspended"?"Access blocked":s.user_count===0?"No users provisioned":"Operational";return <tr key={s.id}><td><strong>{s.name}</strong></td><td>{s.code}</td><td>{s.user_count}</td><td><span className={"pill "+s.status}>{s.status}</span></td><td>{signal}</td></tr>})}
      </tbody></table>{!schools.length&&<div className="empty">No school tenants onboarded yet.</div>}</div>
     </section>
     <section className="grid-2">
-     <div className="panel"><div className="panel-head"><div><h2>Platform boundary</h2><p>Stonez Digital is the platform operator, not a school tenant.</p></div></div><div className="role-list"><div><span>Platform administrator</span><strong>Super Admin</strong></div><div><span>School administrators</span><strong>Tenant scoped</strong></div><div><span>School data</span><strong>Isolated</strong></div></div></div>
-     <div className="panel"><div className="panel-head"><div><h2>Next action</h2><p>Onboard a new institution from the platform control center.</p></div></div><Link className="module" href="/platform/schools"><div className="module-icon">+</div><div><strong>Platform Schools</strong><p>Create, activate and suspend school tenants</p></div><span>Open</span></Link></div>
+     <div className="panel"><div className="panel-head"><div><h2>Platform boundary</h2><p>Stonez Digital operates above the school tenant layer.</p></div></div><div className="role-list"><div><span>Platform administrator</span><strong>Super Admin</strong></div><div><span>School administrators</span><strong>Tenant scoped</strong></div><div><span>School data</span><strong>Isolated</strong></div></div></div>
+     <div className="panel"><div className="panel-head"><div><h2>Control center</h2><p>Take action when monitoring identifies a tenant that needs attention.</p></div></div><Link className="module" href="/platform/schools"><div className="module-icon">+</div><div><strong>Platform Schools</strong><p>Approve, activate, suspend and provision tenants</p></div><span>Open</span></Link></div>
     </section>
    </> : <>
     <section className="stats"><Stat label="Students" value={students.length} detail="Registered profiles"/><Stat label="Users" value={users.length} detail="Accounts"/><Stat label="Active" value={users.filter(u=>u.active).length} detail="Active accounts"/><Stat label="Roles" value={new Set(users.map(u=>u.role)).size} detail="Roles represented"/></section>

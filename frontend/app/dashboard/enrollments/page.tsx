@@ -6,7 +6,7 @@ type Student={id:string;admission_number:string;user?:{name:string;email:string}
 type Session={id:string;name:string;status:string};
 type SchoolClass={id:string;name:string;level:number;sections?:Section[]};
 type Section={id:string;class_id:string;name:string};
-type Enrollment={id:string;status:string;student?:Student;academic_session?:Session;class?:SchoolClass;section?:Section};
+type Enrollment={id:string;status:string;enrolled_at?:string;student?:Student;academic_session?:Session;class?:SchoolClass;section?:Section};
 
 async function api(path:string, options:RequestInit={}) {
   const token=localStorage.getItem("access_token");

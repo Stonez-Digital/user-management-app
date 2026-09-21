@@ -7,32 +7,56 @@ export type AuthUser = {
   school_id?: string | null;
 };
 
-export function normalizeAuthUser(payload: unknown): AuthUser | null {
-  if (!payload || typeof payload !== "object") return null;
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? value as Record<string, unknown> : null;
+}
 
-  const root = payload as Record<string, unknown>;
-  const candidates = [
+function readString(value: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const candidate = value[key];
+    if (typeof candidate === "string" && candidate.trim()) return candidate;
+  }
+  return undefined;
+}
+
+export function normalizeAuthUser(payload: unknown): AuthUser | null {
+  const root = asRecord(payload);
+  if (!root) return null;
+
+  const candidates: unknown[] = [
     root,
     root.user,
     root.data,
-    typeof root.data === "object" && root.data !== null
-      ? (root.data as Record<string, unknown>).user
-      : null,
+    asRecord(root.data)?.user,
   ];
 
   for (const candidate of candidates) {
-    if (!candidate || typeof candidate !== "object") continue;
-    const value = candidate as Record<string, unknown>;
-    if (typeof value.id === "string" && typeof value.role === "string" && value.role.trim()) {
-      return {
-        id: value.id,
-        name: typeof value.name === "string" ? value.name : undefined,
-        email: typeof value.email === "string" ? value.email : undefined,
-        role: value.role,
-        active: typeof value.active === "boolean" ? value.active : undefined,
-        school_id: typeof value.school_id === "string" ? value.school_id : null,
-      };
-    }
+    const value = asRecord(candidate);
+    if (!value) continue;
+
+    // Accept both the explicit API contract ("id"/"role") and legacy Go
+    // JSON serialization ("ID"/"Role") so an older edge deployment cannot
+    // discard an otherwise valid authenticated session.
+    const id = readString(value, "id", "ID", "user_id", "userId");
+    const role = readString(value, "role", "Role");
+    if (!id || !role) continue;
+
+    const name = readString(value, "name", "Name");
+    const email = readString(value, "email", "Email");
+    const schoolId = readString(value, "school_id", "SchoolID", "schoolId");
+
+    return {
+      id,
+      name,
+      email,
+      role,
+      active: typeof value.active === "boolean"
+        ? value.active
+        : typeof value.Active === "boolean"
+          ? value.Active
+          : undefined,
+      school_id: schoolId ?? null,
+    };
   }
 
   return null;

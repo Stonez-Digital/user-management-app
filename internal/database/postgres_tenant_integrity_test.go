@@ -5,6 +5,7 @@ import (
     "strings"
     "testing"
 
+    "github.com/google/uuid"
     "github.com/onoja217/users-management-app/internal/models"
     "gorm.io/driver/postgres"
     "gorm.io/gorm"

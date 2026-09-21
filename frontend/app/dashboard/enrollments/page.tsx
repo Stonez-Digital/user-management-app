@@ -20,6 +20,7 @@ async function api(path:string, options:RequestInit={}) {
 export default function EnrollmentPage(){
   const [students,setStudents]=useState<Student[]>([]),[sessions,setSessions]=useState<Session[]>([]),[classes,setClasses]=useState<SchoolClass[]>([]);
   const [items,setItems]=useState<Enrollment[]>([]),[studentId,setStudentId]=useState(""),[sessionId,setSessionId]=useState(""),[classId,setClassId]=useState(""),[sectionId,setSectionId]=useState(""),[status,setStatus]=useState("active");
+  const [historyStudent,setHistoryStudent]=useState<Student|null>(null),[history,setHistory]=useState<Enrollment[]>([]),[historyBusy,setHistoryBusy]=useState(false);
   const [query,setQuery]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false);
   const sections=useMemo(()=>classes.find(c=>c.id===classId)?.sections||[],[classes]);
   async function load(){
@@ -35,6 +36,7 @@ export default function EnrollmentPage(){
     catch(err){setError(err instanceof Error?err.message:"Unable to create enrollment")}finally{setBusy(false)}
   }
   async function update(id:string,next:string){setError("");try{await api("/admin/enrollments/"+id,{method:"PUT",body:JSON.stringify({status:next})});await load()}catch(err){setError(err instanceof Error?err.message:"Unable to update enrollment")}}
+  async function showHistory(student:Student){setHistoryStudent(student);setHistoryBusy(true);setError("");try{const d=await api("/admin/enrollments/student/"+student.id);setHistory(Array.isArray(d)?d:d?.enrollments||[])}catch(err){setError(err instanceof Error?err.message:"Unable to load enrollment history")}finally{setHistoryBusy(false)}}
   const filtered=items.filter(e=>(e.student?.user?.name+" "+e.student?.admission_number+" "+e.academic_session?.name+" "+e.class?.name+" "+e.section?.name).toLowerCase().includes(query.toLowerCase()));
   return <div className="content standalone">
     <header className="topbar"><div><Link className="back" href="/dashboard">← Dashboard</Link><p className="eyebrow">ACADEMIC OPERATIONS</p><h1>Student Enrollment</h1><p className="muted">Place students into a class and section for an academic session.</p></div></header>
@@ -50,7 +52,8 @@ export default function EnrollmentPage(){
       </div>
     </section>
     <section className="panel"><div className="panel-head"><div><h2>Current enrollments</h2><p>{filtered.length} enrollment record{filtered.length===1?"":"s"}</p></div><input className="search-inline" placeholder="Search..." value={query} onChange={e=>setQuery(e.target.value)}/></div>
-      <div className="table-wrap"><table><thead><tr><th>Student</th><th>Session</th><th>Class</th><th>Section</th><th>Status</th><th>Action</th></tr></thead><tbody>{filtered.map(e=><tr key={e.id}><td><strong>{e.student?.user?.name||"Student"}</strong><small>{e.student?.admission_number}</small></td><td>{e.academic_session?.name||"—"}</td><td>{e.class?.name||"—"}</td><td>{e.section?.name||"—"}</td><td><span className={"pill "+e.status}>{e.status}</span></td><td><select value={e.status} onChange={x=>update(e.id,x.target.value)}><option value="active">active</option><option value="completed">completed</option><option value="withdrawn">withdrawn</option></select></td></tr>)}</tbody></table>{!filtered.length&&<div className="empty">No enrollments found.</div>}</div>
+      <div className="table-wrap"><table><thead><tr><th>Student</th><th>Session</th><th>Class</th><th>Section</th><th>Status</th><th>Action</th><th>History</th></tr></thead><tbody>{filtered.map(e=><tr key={e.id}><td><strong>{e.student?.user?.name||"Student"}</strong><small>{e.student?.admission_number}</small></td><td>{e.academic_session?.name||"—"}</td><td>{e.class?.name||"—"}</td><td>{e.section?.name||"—"}</td><td><span className={"pill "+e.status}>{e.status}</span></td><td><select value={e.status} onChange={x=>update(e.id,x.target.value)}><option value="active">active</option><option value="completed">completed</option><option value="withdrawn">withdrawn</option></select></td><td><button className="ghost" onClick={()=>e.student&&showHistory(e.student)}>View history</button></td></tr>)}</tbody></table>{!filtered.length&&<div className="empty">No enrollments found.</div>}</div>
     </section>
+    {historyStudent&&<section className="panel"><div className="panel-head"><div><h2>Enrollment history</h2><p>{historyStudent.user?.name||"Student"} · {historyStudent.admission_number}</p></div><button className="ghost" onClick={()=>setHistoryStudent(null)}>Close</button></div>{historyBusy?<div className="empty">Loading history...</div>:<div className="table-wrap"><table><thead><tr><th>Session</th><th>Class</th><th>Section</th><th>Status</th><th>Enrolled</th></tr></thead><tbody>{history.map(h=><tr key={h.id}><td>{h.academic_session?.name||"—"}</td><td>{h.class?.name||"—"}</td><td>{h.section?.name||"—"}</td><td><span className={"pill "+h.status}>{h.status}</span></td><td>{h.enrolled_at?.slice(0,10)||"—"}</td></tr>)}</tbody></table>{!history.length&&<div className="empty">No enrollment history found.</div>}</div>}</section>}
   </div>
 }

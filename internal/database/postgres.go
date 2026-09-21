@@ -399,7 +399,14 @@ func Migrate(db *gorm.DB) error {
             }
             return nil
         }},
-        {Version:22,Name:"database_uniqueness_concurrency_hardening",Up:func(tx *gorm.DB) error {
+        {Version:21,Name:"separate_platform_administrators_from_school_tenants",Up:func(tx *gorm.DB) error {
+            // Super admins belong to the Stonez Digital platform, not to a school tenant.
+            if err:=tx.Model(&models.User{}).Where("role = ?", "super_admin").Update("school_id", nil).Error;err!=nil{return err}
+            var unassignedTenantUsers int64
+            if err:=tx.Model(&models.User{}).Where("role <> ? AND school_id IS NULL", "super_admin").Count(&unassignedTenantUsers).Error;err!=nil{return err}
+            if unassignedTenantUsers!=0{return fmt.Errorf("found %d non-platform users without a school tenant", unassignedTenantUsers)}
+            return nil
+        }},        {Version:22,Name:"database_uniqueness_concurrency_hardening",Up:func(tx *gorm.DB) error {
             if tx.Dialector.Name()!="postgres" { return nil }
 
             duplicateChecks:=[]struct{name,query string}{
@@ -427,14 +434,7 @@ func Migrate(db *gorm.DB) error {
             }
             return nil
         }},
-        {Version:21,Name:"separate_platform_administrators_from_school_tenants",Up:func(tx *gorm.DB) error {
-            // Super admins belong to the Stonez Digital platform, not to a school tenant.
-            if err:=tx.Model(&models.User{}).Where("role = ?", "super_admin").Update("school_id", nil).Error;err!=nil{return err}
-            var unassignedTenantUsers int64
-            if err:=tx.Model(&models.User{}).Where("role <> ? AND school_id IS NULL", "super_admin").Count(&unassignedTenantUsers).Error;err!=nil{return err}
-            if unassignedTenantUsers!=0{return fmt.Errorf("found %d non-platform users without a school tenant", unassignedTenantUsers)}
-            return nil
-        }},
+
     }
     for _,migration:=range migrations{
         var applied Migration

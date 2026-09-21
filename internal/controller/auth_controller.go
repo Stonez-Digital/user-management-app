@@ -31,7 +31,7 @@ type ChangePasswordRequest struct { CurrentPassword string `json:"current_passwo
 type RefreshRequest struct { RefreshToken string `json:"refresh_token" binding:"required"` }
 type LogoutRequest struct { RefreshToken string `json:"refresh_token" binding:"required"` }
 type RegisterRequest struct { Name string `json:"name" binding:"required,min=2,max=100"`; Email string `json:"email" binding:"required,email,max=255"`; Password string `json:"password" binding:"required,min=8,max=128"` }
-type LoginRequest struct { Email string `json:"email" binding:"required,email,max=255"`; Password string `json:"password" binding:"required"` }
+type LoginRequest struct { Email string `json:"email" binding:"required,email,max=255"`; Password string `json:"password" binding:"required"`; SchoolCode string `json:"school_code" binding:"omitempty,max=50"` }
 type AssignRoleRequest struct { Role string `json:"role" binding:"required"` }
 
 
@@ -141,6 +141,13 @@ func (ac *AuthController) Login(c *gin.Context) {
 	if err := ac.DB.Where("email = ?", strings.ToLower(strings.TrimSpace(req.Email))).First(&user).Error; err != nil || !user.Active || !auth.CheckPassword(user.PasswordHash, req.Password) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
+	}
+	if code := strings.TrimSpace(req.SchoolCode); code != "" {
+		var school models.School
+		if err := ac.DB.Where("id = ? AND lower(code) = ?", user.SchoolID, strings.ToLower(code)).First(&school).Error; err != nil || school.Status != models.SchoolStatusActive {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "school code does not match your account"})
+			return
+		}
 	}
 	accessToken, err := auth.GenerateToken(user.ID.String(), user.Role)
 	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate access token"}); return }

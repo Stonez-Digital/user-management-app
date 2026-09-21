@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import ThemeToggle from "@/components/theme-toggle";
+import ThemeToggle from "../components/theme-toggle";
 
 export const metadata: Metadata = {
   title: "Stonez School Management",

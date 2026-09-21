@@ -16,7 +16,7 @@ func teacherAssignmentTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
 	if err != nil { t.Fatal(err) }
-	if err := db.AutoMigrate(&models.School{}, &models.User{}, &models.AcademicSession{}, &models.Term{}, &models.SchoolClass{}, &models.Section{}, &models.Subject{}, &models.TeacherAssignment{}); err != nil { t.Fatal(err) }
+	if err := db.AutoMigrate(&models.School{}, &models.User{}, &models.AcademicSession{}, &models.Term{}, &models.SchoolClass{}, &models.Section{}, &models.Subject{}, &models.TeacherAssignment{}, &models.Assessment{}, &models.TimetableEntry{}); err != nil { t.Fatal(err) }
 	return db
 }
 

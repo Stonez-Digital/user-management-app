@@ -1,5 +1,5 @@
 package service
-import("errors";"strings";"github.com/google/uuid";"github.com/onoja217/users-management-app/internal/models";"github.com/onoja217/users-management-app/internal/repository";"gorm.io/gorm")
+import("errors";"strings";"github.com/google/uuid";"github.com/onoja217/users-management-app/internal/models";"github.com/onoja217/users-management-app/internal/repository";"gorm.io/gorm";"github.com/jackc/pgx/v5/pgconn")
 var(ErrEnrollmentNotFound=errors.New("enrollment not found");ErrEnrollmentDuplicate=errors.New("student already enrolled in academic session");ErrEnrollmentStudentMissing=errors.New("student not found");ErrEnrollmentSessionMissing=errors.New("academic session not found");ErrEnrollmentClassMissing=errors.New("class not found");ErrEnrollmentSectionMissing=errors.New("section not found");ErrEnrollmentSectionMismatch=errors.New("section does not belong to class");ErrEnrollmentInvalidStatus=errors.New("invalid enrollment status");ErrEnrollmentSchoolMismatch=errors.New("related record belongs to another school");ErrEnrollmentInUse=errors.New("enrollment is already used by academic or financial records");ErrEnrollmentPromotionSource=errors.New("enrollment is not eligible for the requested placement workflow"))
 type EnrollmentService struct{repo repository.EnrollmentRepository;db *gorm.DB}
 func NewEnrollmentService(repo repository.EnrollmentRepository,db *gorm.DB)*EnrollmentService{return &EnrollmentService{repo,db}}
@@ -10,7 +10,12 @@ func(s *EnrollmentService)Create(schoolID uuid.UUID,v models.StudentEnrollment)(
  var class models.SchoolClass;if err:=s.db.Where("id = ? AND school_id = ?",v.ClassID,schoolID).First(&class).Error;errors.Is(err,gorm.ErrRecordNotFound){return v,ErrEnrollmentClassMissing}else if err!=nil{return v,err}
  var section models.Section;if err:=s.db.Where("id = ? AND school_id = ?",v.SectionID,schoolID).First(&section).Error;errors.Is(err,gorm.ErrRecordNotFound){return v,ErrEnrollmentSectionMissing}else if err!=nil{return v,err};if section.ClassID!=v.ClassID{return v,ErrEnrollmentSectionMismatch}
  v.Status=strings.ToLower(strings.TrimSpace(v.Status));if v.Status==""{v.Status=models.EnrollmentStatusActive};if v.Status!=models.EnrollmentStatusActive&&v.Status!=models.EnrollmentStatusCompleted&&v.Status!=models.EnrollmentStatusWithdrawn{return v,ErrEnrollmentInvalidStatus}
- var existing models.StudentEnrollment;err:=s.db.Where("school_id = ? AND student_id = ? AND academic_session_id = ?",schoolID,v.StudentID,v.AcademicSessionID).First(&existing).Error;if err==nil{return v,ErrEnrollmentDuplicate};if !errors.Is(err,gorm.ErrRecordNotFound){return v,err};return s.repo.Create(schoolID,v)
+ var existing models.StudentEnrollment;err:=s.db.Where("school_id = ? AND student_id = ? AND academic_session_id = ?",schoolID,v.StudentID,v.AcademicSessionID).First(&existing).Error;if err==nil{return v,ErrEnrollmentDuplicate};if !errors.Is(err,gorm.ErrRecordNotFound){return v,err};created, err := s.repo.Create(schoolID,v)
+	if err != nil {
+		if isPostgresUniqueViolation(err, "uq_school_student_session") { return v, ErrEnrollmentDuplicate }
+		return v, err
+	}
+	return created, nil
 }
 
 
@@ -53,7 +58,11 @@ func(s *EnrollmentService)ListForTeacher(schoolID,teacherID uuid.UUID)([]models.
  return items,err
 }
 func(s *EnrollmentService)Get(schoolID,id uuid.UUID)(models.StudentEnrollment,error){v,err:=s.repo.Get(schoolID,id);if errors.Is(err,gorm.ErrRecordNotFound){return v,ErrEnrollmentNotFound};return v,err}
-func(s *EnrollmentService)Update(schoolID uuid.UUID,v models.StudentEnrollment)error{current,err:=s.Get(schoolID,v.ID);if err!=nil{return err};if v.Status!=models.EnrollmentStatusActive&&v.Status!=models.EnrollmentStatusCompleted&&v.Status!=models.EnrollmentStatusWithdrawn{return ErrEnrollmentInvalidStatus};if v.StudentID!=current.StudentID||v.AcademicSessionID!=current.AcademicSessionID||v.ClassID!=current.ClassID||v.SectionID!=current.SectionID{return ErrEnrollmentSchoolMismatch};return s.repo.Update(schoolID,v)}
+func(s *EnrollmentService)Update(schoolID uuid.UUID,v models.StudentEnrollment)error{current,err:=s.Get(schoolID,v.ID);if err!=nil{return err};if v.Status!=models.EnrollmentStatusActive&&v.Status!=models.EnrollmentStatusCompleted&&v.Status!=models.EnrollmentStatusWithdrawn{return ErrEnrollmentInvalidStatus};if v.StudentID!=current.StudentID||v.AcademicSessionID!=current.AcademicSessionID||v.ClassID!=current.ClassID||v.SectionID!=current.SectionID{return ErrEnrollmentSchoolMismatch};if err:=s.repo.Update(schoolID,v);err!=nil {
+	if isPostgresUniqueViolation(err, "uq_school_student_session") { return ErrEnrollmentDuplicate }
+	return err
+}
+return nil}
 func(s *EnrollmentService)Delete(schoolID,id uuid.UUID)error{
  if _,err:=s.Get(schoolID,id);err!=nil{return err}
  var attendanceCount, resultCount, invoiceCount int64
@@ -62,4 +71,9 @@ func(s *EnrollmentService)Delete(schoolID,id uuid.UUID)error{
  if err:=s.db.Model(&models.Invoice{}).Where("school_id = ? AND student_enrollment_id = ?",schoolID,id).Count(&invoiceCount).Error;err!=nil{return err}
  if attendanceCount>0||resultCount>0||invoiceCount>0{return ErrEnrollmentInUse}
  return s.repo.Delete(schoolID,id)
+}
+
+func isPostgresUniqueViolation(err error,constraint string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err,&pgErr) && pgErr.Code=="23505" && pgErr.ConstraintName==constraint
 }

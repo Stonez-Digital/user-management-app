@@ -5,6 +5,7 @@ import (
     "strings"
     "testing"
 
+    "github.com/google/uuid"
     "github.com/onoja217/users-management-app/internal/models"
     "gorm.io/driver/postgres"
     "gorm.io/gorm"
@@ -87,7 +88,7 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     if err := db.Where("code = ?", "DEFAULT").First(&first).Error; err != nil {
         t.Fatal(err)
     }
-    second = models.School{Name: "Integrity Test School", Code: "INTEGRITY"}
+    second = models.School{Name: "Integrity Test School", Code: "INTEGRITY-" + strings.ToUpper(uuid.NewString())}
     if err := db.Create(&second).Error; err != nil {
         t.Fatal(err)
     }
@@ -95,7 +96,7 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     user := models.User{
         SchoolID: &first.ID,
         Name: "Tenant Integrity User",
-        Email: "tenant-integrity@example.com",
+        Email: "tenant-integrity-" + uuid.NewString() + "@example.com",
         Role: "student",
         Active: true,
     }
@@ -108,7 +109,7 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     crossSchool := models.Student{
         SchoolID:       second.ID,
         UserID:          user.ID,
-        AdmissionNumber: "CROSS-001",
+        AdmissionNumber: "CROSS-" + uuid.NewString(),
     }
     if err := db.Create(&crossSchool).Error; err == nil {
         t.Fatal("expected cross-school student/user relationship to be rejected")
@@ -117,7 +118,7 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     valid := models.Student{
         SchoolID:       first.ID,
         UserID:          user.ID,
-        AdmissionNumber: "VALID-001",
+        AdmissionNumber: "VALID-" + uuid.NewString(),
     }
     if err := db.Create(&valid).Error; err != nil {
         t.Fatalf("expected same-school relationship to succeed: %v", err)

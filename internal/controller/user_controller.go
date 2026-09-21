@@ -16,7 +16,7 @@ import (
 
 type UserController struct { service *service.UserService }
 type UpdateMeRequest struct { Name string `json:"name" binding:"omitempty,min=2,max=100"`; Email string `json:"email" binding:"omitempty,email,max=255"` }
-type CreateUserRequest struct { Name string `json:"name" binding:"required,min=2,max=100"`; Email string `json:"email" binding:"required,email,max=255"` }
+type CreateUserRequest struct { Name string `json:"name" binding:"required,min=2,max=100"`; Email string `json:"email" binding:"required,email,max=255"`; Password string `json:"password" binding:"required,min=8,max=128"`; Role string `json:"role" binding:"required"` }
 
 func NewUserController(s *service.UserService) *UserController { return &UserController{service:s} }
 
@@ -30,8 +30,8 @@ func (ctrl *UserController) CreateUser(c *gin.Context) {
 	school,ok:=schoolID(c); if !ok{return}
 	var req CreateUserRequest
 	if err:=c.ShouldBindJSON(&req);err!=nil{httpx.Validation(c,httpx.ValidationErrors(err));return}
-	user,err:=ctrl.service.CreateUser(school,req.Name,req.Email)
-	if err!=nil{httpx.Error(c,500,"user_create_failed","failed to create user");return}
+	user,err:=ctrl.service.CreateUser(school,req.Name,req.Email,req.Password,req.Role)
+	if err!=nil{if errors.Is(err,service.ErrInvalidSchoolUserRole){httpx.Error(c,403,"invalid_school_user_role","school administrators cannot create platform or school administrator accounts");return};if errors.Is(err,gorm.ErrDuplicatedKey){httpx.Error(c,409,"user_email_exists","email already exists");return};httpx.Error(c,500,"user_create_failed","failed to create user");return}
 	actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(ctrl.service.DB(),c,&actor,"user.create","user",&user.ID,nil)
 	c.JSON(http.StatusCreated,user)
 }

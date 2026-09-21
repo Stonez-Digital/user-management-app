@@ -35,7 +35,7 @@ export default function LoginPage() {
  }
  return <main className="auth-shell">
   <section className="auth-card auth-card-wide">
-   <div className="auth-brand"><div className="brand-mark">S</div><div><p className="eyebrow">STONEZ DIGITAL</p><span className="tenant-badge">Multi-school platform</span></div></div>
+   <div className="auth-brand"><img className="auth-logo" src="/stonez-digital-logo.svg" alt="Stonez Digital" /><div><p className="eyebrow">STONEZ DIGITAL</p><span className="tenant-badge">Multi-school platform</span></div></div>
    <h1>School Management</h1>
    <p className="muted">Securely sign in to your school workspace.</p>
    <div className="tenant-note"><strong>One platform. Separate schools.</strong><span>Your account can only access the school it belongs to.</span></div>

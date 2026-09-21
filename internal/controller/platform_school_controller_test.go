@@ -22,6 +22,6 @@ func TestPlatformSchoolCreateProvisionsTenantAndAdmin(t *testing.T){
  req:=httptest.NewRequest(http.MethodPost,"/schools",body);req.Header.Set("Content-Type","application/json");w:=httptest.NewRecorder();r.ServeHTTP(w,req)
  if w.Code!=http.StatusCreated{t.Fatalf("expected 201, got %d: %s",w.Code,w.Body.String())}
  var school models.School;if err=db.Where("code = ?","SCA-001").First(&school).Error;err!=nil{t.Fatal(err)}
- var admin models.User;if err=db.Where("email = ?",email).First(&admin).Error;err!=nil{t.Fatal(err)}
+ var admin models.User;if err=db.Where("email = ?",strings.ToLower(email)).First(&admin).Error;err!=nil{t.Fatal(err)}
  if admin.SchoolID==nil||*admin.SchoolID!=school.ID||admin.Role!=authz.RoleSchoolAdmin||!auth.CheckPassword(admin.PasswordHash,"StrongPass123!"){t.Fatal("provisioned administrator is invalid")}
 }

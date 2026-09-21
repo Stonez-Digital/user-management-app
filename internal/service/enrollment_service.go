@@ -1,6 +1,6 @@
 package service
 import("errors";"strings";"github.com/google/uuid";"github.com/onoja217/users-management-app/internal/models";"github.com/onoja217/users-management-app/internal/repository";"gorm.io/gorm")
-var(ErrEnrollmentNotFound=errors.New("enrollment not found");ErrEnrollmentDuplicate=errors.New("student already enrolled in academic session");ErrEnrollmentStudentMissing=errors.New("student not found");ErrEnrollmentSessionMissing=errors.New("academic session not found");ErrEnrollmentClassMissing=errors.New("class not found");ErrEnrollmentSectionMissing=errors.New("section not found");ErrEnrollmentSectionMismatch=errors.New("section does not belong to class");ErrEnrollmentInvalidStatus=errors.New("invalid enrollment status");ErrEnrollmentSchoolMismatch=errors.New("related record belongs to another school");ErrEnrollmentInUse=errors.New("enrollment is already used by academic or financial records"))
+var(ErrEnrollmentNotFound=errors.New("enrollment not found");ErrEnrollmentDuplicate=errors.New("student already enrolled in academic session");ErrEnrollmentStudentMissing=errors.New("student not found");ErrEnrollmentSessionMissing=errors.New("academic session not found");ErrEnrollmentClassMissing=errors.New("class not found");ErrEnrollmentSectionMissing=errors.New("section not found");ErrEnrollmentSectionMismatch=errors.New("section does not belong to class");ErrEnrollmentInvalidStatus=errors.New("invalid enrollment status");ErrEnrollmentSchoolMismatch=errors.New("related record belongs to another school");ErrEnrollmentInUse=errors.New("enrollment is already used by academic or financial records");ErrEnrollmentPromotionSource=errors.New("enrollment is not eligible for the requested placement workflow"))
 type EnrollmentService struct{repo repository.EnrollmentRepository;db *gorm.DB}
 func NewEnrollmentService(repo repository.EnrollmentRepository,db *gorm.DB)*EnrollmentService{return &EnrollmentService{repo,db}}
 func(s *EnrollmentService)DB()*gorm.DB{return s.db}
@@ -36,7 +36,8 @@ func(s *EnrollmentService) Place(schoolID, sourceID uuid.UUID, req EnrollmentPla
 	}
 	return created, nil
 }
-\nfunc(s *EnrollmentService)List(schoolID uuid.UUID)([]models.StudentEnrollment,error){return s.repo.List(schoolID)}
+
+func(s *EnrollmentService)List(schoolID uuid.UUID)([]models.StudentEnrollment,error){return s.repo.List(schoolID)}
 func(s *EnrollmentService)History(schoolID,studentID uuid.UUID)([]models.StudentEnrollment,error){
  var student models.Student
  if err:=s.db.Where("id = ? AND school_id = ?",studentID,schoolID).First(&student).Error;err!=nil{return nil,ErrEnrollmentStudentMissing}

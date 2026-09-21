@@ -13,6 +13,11 @@ func(s *EnrollmentService)Create(schoolID uuid.UUID,v models.StudentEnrollment)(
  var existing models.StudentEnrollment;err:=s.db.Where("school_id = ? AND student_id = ? AND academic_session_id = ?",schoolID,v.StudentID,v.AcademicSessionID).First(&existing).Error;if err==nil{return v,ErrEnrollmentDuplicate};if !errors.Is(err,gorm.ErrRecordNotFound){return v,err};return s.repo.Create(schoolID,v)
 }
 func(s *EnrollmentService)List(schoolID uuid.UUID)([]models.StudentEnrollment,error){return s.repo.List(schoolID)}
+func(s *EnrollmentService)History(schoolID,studentID uuid.UUID)([]models.StudentEnrollment,error){
+ var student models.Student
+ if err:=s.db.Where("id = ? AND school_id = ?",studentID,schoolID).First(&student).Error;err!=nil{return nil,ErrEnrollmentStudentMissing}
+ return s.repo.History(schoolID,studentID)
+}
 func(s *EnrollmentService)ListForTeacher(schoolID,teacherID uuid.UUID)([]models.StudentEnrollment,error){
  var items []models.StudentEnrollment
  err:=s.db.Where("student_enrollments.school_id = ? AND student_enrollments.status = ?",schoolID,models.EnrollmentStatusActive).

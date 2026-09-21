@@ -29,7 +29,11 @@ export default function LoginPage() {
    localStorage.setItem("access_token",d.access_token); localStorage.setItem("refresh_token",d.refresh_token);
    if(schoolCode.trim()) localStorage.setItem("school_code",schoolCode.trim().toUpperCase());
    const me=await fetch("/backend/me",{headers:{Authorization:"Bearer "+d.access_token}});
-   const user=await me.json();
+   const user=await readResponse(me);
+   if(!me.ok || !user?.id || !user?.role){
+    localStorage.removeItem("access_token"); localStorage.removeItem("refresh_token");
+    throw Error(user?.error?.message||user?.error||"Unable to load your account after sign-in");
+   }
    router.push(user?.role==="parent"?"/parent":user?.role==="student"?"/student":"/dashboard");
   } catch(e) { setError(e instanceof Error?e.message:"Login failed"); } finally { setLoading(false); }
  }

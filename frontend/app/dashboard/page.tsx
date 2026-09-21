@@ -24,6 +24,7 @@ export default function Dashboard(){
  const[school,setSchool]=useState<School|null>(null);
  const[monitoring,setMonitoring]=useState<Monitoring|null>(null);
  const[error,setError]=useState("");
+ const[loading,setLoading]=useState(true);
  const[lastUpdated,setLastUpdated]=useState<Date|null>(null);
 
  useEffect(()=>{
@@ -42,7 +43,7 @@ export default function Dashboard(){
    const [u,st]=await Promise.all([api("/admin/users"),api("/admin/students")]);
    setUsers(Array.isArray(u)?u:u?.users||[]);
    setStudents(Array.isArray(st)?st:st?.students||[]);
-  }).catch(e=>{setError(e.message);if(e.message==="Session expired")router.push("/")});
+  }).catch(e=>{localStorage.removeItem("access_token");localStorage.removeItem("refresh_token");setError(e instanceof Error?e.message:"Unable to load your account");router.push("/")}).finally(()=>setLoading(false));
   return()=>{if(timer)clearInterval(timer)};
  },[router]);
 
@@ -64,10 +65,11 @@ export default function Dashboard(){
    <div className="sidebar-bottom"><div className="mini-user"><div className="avatar">{me?.name?.[0]||"A"}</div><div><strong>{me?.name||"Administrator"}</strong><small>{isPlatform?"Stonez Digital Platform":me?.role||"school_admin"}</small></div></div><button className="ghost" onClick={logout}>Sign out</button></div>
   </aside>
   <main className="content">
-   <header className="topbar">
+   {loading&&<div className="panel"><strong>Loading your workspace…</strong><p className="muted">Verifying your Stonez Digital account and school access.</p></div>}
+   {!loading&&<header className="topbar">
     <div><p className="eyebrow">{isPlatform?"STONEZ DIGITAL":"SCHOOL ADMINISTRATION"}</p><h1>{isPlatform?"Stonez Digital Platform":"School overview"}</h1><p className="muted">{isPlatform?"Monitor and manage onboarded school tenants.":<>Manage <strong>{school?.name||"your school"}</strong>.</>}</p></div>
     <div className="status"><span/> {isPlatform?"Platform operations":school?.name||"School workspace"}</div>
-   </header>
+   </header>}
    {error&&<div className="error banner">{error}</div>}
 
    {isPlatform ? <>

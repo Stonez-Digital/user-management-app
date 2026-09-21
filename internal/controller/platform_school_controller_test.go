@@ -18,7 +18,7 @@ func TestPlatformSchoolCreateProvisionsTenantAndAdmin(t *testing.T){
  actorSchool:=models.School{Name:"Platform",Code:"PLATFORM",Status:models.SchoolStatusActive};if err=db.Create(&actorSchool).Error;err!=nil{t.Fatal(err)}
  actor:=models.User{Name:"Platform Admin",Email:"platform-"+t.Name()+"@example.com",Role:authz.RoleSuperAdmin,Active:true,SchoolID:&actorSchool.ID};if err=db.Create(&actor).Error;err!=nil{t.Fatal(err)}
  gin.SetMode(gin.TestMode);r:=gin.New();r.Use(func(c *gin.Context){c.Set("user_id",actor.ID.String());c.Next()});r.POST("/schools",NewPlatformSchoolController(db).Create)
- email:="admin-"+t.Name()+"@example.com";body:=strings.NewReader("{"name":"School A","code":"SCA-001","admin_name":"School Admin","admin_email":""+email+"","admin_password":"StrongPass123!"}")
+ email:="admin-"+t.Name()+"@example.com";body:=strings.NewReader(` + "`" + `{"name":"School A","code":"SCA-001","admin_name":"School Admin","admin_email":"` + "`" + `+email+` + "`" + `","admin_password":"StrongPass123!"}` + "`" + `)
  req:=httptest.NewRequest(http.MethodPost,"/schools",body);req.Header.Set("Content-Type","application/json");w:=httptest.NewRecorder();r.ServeHTTP(w,req)
  if w.Code!=http.StatusCreated{t.Fatalf("expected 201, got %d: %s",w.Code,w.Body.String())}
  var school models.School;if err=db.Where("code = ?","SCA-001").First(&school).Error;err!=nil{t.Fatal(err)}

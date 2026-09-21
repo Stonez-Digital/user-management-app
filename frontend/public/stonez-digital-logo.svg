@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200">
+<rect width="1200" height="1200" fill="#fff"/>
+<circle cx="600" cy="600" r="570" fill="none" stroke="#12345B" stroke-width="18"/>
+<path d="M305 275h370l-54 82H405c-48 0-78 25-78 59 0 34 30 58 78 58h122c82 0 132 42 132 109 0 70-54 111-141 111H290l55-82h199c48 0 76-23 76-59 0-33-28-55-76-55H423c-83 0-137-45-137-114 0-70 55-109 139-109z" fill="#12345B"/>
+<path d="M598 523h139c111 0 180 55 180 143 0 88-69 143-180 143H545l55-82h136c50 0 81-23 81-61 0-38-31-61-81-61H653z" fill="#E31B23"/>
+<text x="600" y="900" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="112" font-weight="800" letter-spacing="14" fill="#12345B">STONEZ</text>
+<line x1="185" y1="950" x2="380" y2="950" stroke="#C71922" stroke-width="8"/>
+<text x="600" y="982" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="55" font-weight="700" letter-spacing="20" fill="#C71922">DIGITAL</text>
+<line x1="820" y1="950" x2="1015" y2="950" stroke="#C71922" stroke-width="8"/>
+<text x="600" y="1035" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="24" letter-spacing="6" fill="#12345B">BUILDING DIGITAL SOLUTIONS THAT DRIVE IMPACT</text>
+</svg>

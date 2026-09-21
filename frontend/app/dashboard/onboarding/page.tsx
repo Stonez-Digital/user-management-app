@@ -48,6 +48,10 @@ export default function OnboardingPage() {
       setError("Name, email and a password of at least 8 characters are required.");
       return;
     }
+    if (role === "student" && !admission.trim()) {
+      setError("Admission number is required before creating a student account.");
+      return;
+    }
     setBusy(true); setError(""); setMessage("");
     try {
       const user = await api("/admin/users", {

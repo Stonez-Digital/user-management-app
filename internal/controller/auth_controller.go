@@ -164,23 +164,17 @@ func (ac *AuthController) Login(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
-	if user.Role != authz.RoleSuperAdmin {
-		if user.SchoolID == nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "account is not assigned to a school"})
-			return
-		}
+	if user.Role != authz.RoleSuperAdmin && user.SchoolID != nil {
 		var school models.School
-		if err := ac.DB.First(&school, "id = ?", *user.SchoolID).Error; err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "school account is unavailable"})
-			return
-		}
-		if school.Status != models.SchoolStatusActive {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "school onboarding is pending platform approval"})
-			return
-		}
-		if code := strings.TrimSpace(req.SchoolCode); code != "" && !strings.EqualFold(code, school.Code) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "school code does not match your account"})
-			return
+		if err := ac.DB.First(&school, "id = ?", *user.SchoolID).Error; err == nil {
+			if school.Status != models.SchoolStatusActive {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "school onboarding is pending platform approval"})
+				return
+			}
+			if code := strings.TrimSpace(req.SchoolCode); code != "" && !strings.EqualFold(code, school.Code) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "school code does not match your account"})
+				return
+			}
 		}
 	}
 	accessToken, err := auth.GenerateToken(user.ID.String(), user.Role)

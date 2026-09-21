@@ -129,7 +129,7 @@ func Migrate(db *gorm.DB) error {
             if err:=tx.Model(&models.User{}).Where("school_id IS NULL").Update("school_id",school.ID).Error;err!=nil{return err}
             if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_users_school_id ON users(school_id)").Error;err!=nil{return err}
             if tx.Dialector.Name()=="postgres" {
-                if err:=tx.Exec("DO $ BEGIN
+                if err:=tx.Exec(`DO $ BEGIN
                     IF NOT EXISTS (
                         SELECT 1 FROM pg_constraint
                         WHERE conname='user_school_fk'
@@ -140,7 +140,7 @@ func Migrate(db *gorm.DB) error {
                         FOREIGN KEY (school_id) REFERENCES schools(id)
                         ON UPDATE CASCADE ON DELETE RESTRICT;
                     END IF;
-                END $").Error;err!=nil{return err}
+                END $`).Error;err!=nil{return err}
             }
             return nil
         }},

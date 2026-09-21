@@ -13,6 +13,7 @@ var (
 	ErrAssignmentNotFound = errors.New("teacher assignment not found")
 	ErrAssignmentDuplicate = errors.New("teacher assignment already exists")
 	ErrAssignmentInvalid = errors.New("invalid teacher assignment")
+	ErrAssignmentInUse = errors.New("teacher assignment is already used by academic records")
 )
 
 type TeacherAssignmentService struct { repo repository.TeacherAssignmentRepository; db *gorm.DB }
@@ -60,5 +61,21 @@ func (s *TeacherAssignmentService) ListForTeacher(schoolID, teacherID uuid.UUID)
     return filtered, nil
 }
 func (s *TeacherAssignmentService) Get(schoolID, id uuid.UUID) (models.TeacherAssignment, error) { v,err:=s.repo.Get(schoolID,id); if errors.Is(err,gorm.ErrRecordNotFound){return v,ErrAssignmentNotFound}; return v,err }
-func (s *TeacherAssignmentService) Update(schoolID uuid.UUID, v models.TeacherAssignment) error { if _,err:=s.Get(schoolID,v.ID);err!=nil{return err};v.SchoolID=schoolID;if err:=s.validate(schoolID,v);err!=nil{return err};return s.repo.Update(schoolID,v) }
-func (s *TeacherAssignmentService) Delete(schoolID,id uuid.UUID) error { if _,err:=s.Get(schoolID,id);err!=nil{return err};return s.repo.Delete(schoolID,id) }
+func (s *TeacherAssignmentService) Update(schoolID uuid.UUID, v models.TeacherAssignment) error {
+	if _, err := s.Get(schoolID, v.ID); err != nil { return err }
+	v.SchoolID = schoolID
+	if err := s.validate(schoolID, v); err != nil { return err }
+	var existing models.TeacherAssignment
+	q := s.db.Where("school_id = ? AND teacher_id = ? AND subject_id = ? AND academic_session_id = ? AND term_id = ? AND class_id = ? AND id <> ?", schoolID, v.TeacherID, v.SubjectID, v.AcademicSessionID, v.TermID, v.ClassID, v.ID)
+	if v.SectionID == nil { q = q.Where("section_id IS NULL") } else { q = q.Where("section_id = ?", *v.SectionID) }
+	if err := q.First(&existing).Error; err == nil { return ErrAssignmentDuplicate } else if !errors.Is(err, gorm.ErrRecordNotFound) { return err }
+	return s.repo.Update(schoolID, v)
+}
+func (s *TeacherAssignmentService) Delete(schoolID,id uuid.UUID) error {
+	if _, err := s.Get(schoolID, id); err != nil { return err }
+	var assessmentCount, timetableCount int64
+	if err := s.db.Model(&models.Assessment{}).Where("school_id = ? AND teacher_assignment_id = ?", schoolID, id).Count(&assessmentCount).Error; err != nil { return err }
+	if err := s.db.Model(&models.TimetableEntry{}).Where("school_id = ? AND teacher_assignment_id = ?", schoolID, id).Count(&timetableCount).Error; err != nil { return err }
+	if assessmentCount > 0 || timetableCount > 0 { return ErrAssignmentInUse }
+	return s.repo.Delete(schoolID, id)
+}

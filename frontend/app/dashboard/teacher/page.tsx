@@ -36,7 +36,7 @@ export default function TeacherDashboard(){
   const activeTerm=terms.find(x=>x.status==="active")||terms[0];
   const logout=()=>{localStorage.clear();router.replace("/")};
   return <div className="app-shell"><aside className="sidebar"><div className="logo"><span>S</span><div><strong>Stonez</strong><small>School OS</small></div></div>
-    <nav><Link className="active" href="/dashboard/teacher">My Workspace</Link><Link href="/dashboard/attendance">Attendance</Link><Link href="/dashboard/assessments">Assessments</Link><Link href="/dashboard/results">Results</Link></nav>
+    <nav><Link className="active" href="/dashboard/teacher">My Workspace</Link><Link href="/dashboard/teacher/attendance">Attendance</Link><Link href="/dashboard/teacher/assessments">Assessments</Link><Link href="/dashboard/teacher/results">Results</Link></nav>
     <div className="sidebar-bottom"><div className="mini-user"><div className="avatar">{me?.name?.[0]||"T"}</div><div><strong>{me?.name||"Teacher"}</strong><small>Teacher</small></div></div><button className="ghost" onClick={logout}>Sign out</button></div>
   </aside><main className="content"><header className="topbar"><div><p className="eyebrow">TEACHER WORKSPACE</p><h1>Welcome, {me?.name||"Teacher"}</h1><p className="muted">Your classes, subjects and teaching schedule in one place.</p></div><div className="status"><span/> Teacher access</div></header>
   {error&&<div className="error banner">{error}</div>}

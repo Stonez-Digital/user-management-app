@@ -6,6 +6,7 @@ import {useRouter} from "next/navigation";
 type User={id:string;name:string;email:string;role:string;active:boolean};
 type School={id:string;name:string;code:string;status:string;user_count:number};
 type Student={id:string;admission_number:string;gender:string;enrollment_status:string;user?:{name:string;email:string}};
+type Monitoring={database:{status:string};schools:{total:number;pending:number;active:number;suspended:number};users:number;activity:{action:string;resource:string;created_at:string}[];checked_at:string};
 
 async function api(path:string){
  const t=localStorage.getItem("access_token");
@@ -21,6 +22,7 @@ export default function Dashboard(){
  const[schools,setSchools]=useState<School[]>([]);
  const[me,setMe]=useState<User|null>(null);
  const[school,setSchool]=useState<School|null>(null);
+ const[monitoring,setMonitoring]=useState<Monitoring|null>(null);
  const[error,setError]=useState("");
  const[lastUpdated,setLastUpdated]=useState<Date|null>(null);
 
@@ -30,7 +32,7 @@ export default function Dashboard(){
    setMe(m);
    if(m?.role==="teacher"){router.replace("/dashboard/teacher");return}
    if(m?.role==="super_admin"){
-    const load=async()=>{try{const d=await api("/platform/schools");setSchools(Array.isArray(d?.schools)?d.schools:[]);setLastUpdated(new Date());setError("")}catch(e){setError(e instanceof Error?e.message:"Unable to refresh platform monitoring")}};
+    const load=async()=>{try{const [d,mn]=await Promise.all([api("/platform/schools"),api("/platform/monitoring")]);setSchools(Array.isArray(d?.schools)?d.schools:[]);setMonitoring(mn);setLastUpdated(new Date());setError("")}catch(e){setError(e instanceof Error?e.message:"Unable to refresh platform monitoring")}};
     await load();
     timer=setInterval(load,30000);
     return;
@@ -70,36 +72,42 @@ export default function Dashboard(){
 
    {isPlatform ? <>
     <section className="stats">
-     <Stat label="Total schools" value={schools.length} detail="Registered tenants"/>
-     <Stat label="Pending review" value={schools.filter(s=>s.status==="pending").length} detail="Awaiting approval"/>
-     <Stat label="Active" value={activeSchools} detail="Operational tenants"/>
-     <Stat label="Users" value={platformUsers} detail="Across all schools"/>
+     <Stat label="API database" value={monitoring?.database.status==="healthy"?1:0} detail={monitoring?.database.status==="healthy"?"Healthy":"Unavailable"}/>
+     <Stat label="Total schools" value={monitoring?.schools.total??schools.length} detail="Registered tenants"/>
+     <Stat label="Pending review" value={monitoring?.schools.pending??0} detail="Awaiting approval"/>
+     <Stat label="Users" value={monitoring?.users??platformUsers} detail="Across all schools"/>
     </section>
     <section className="grid-2">
-     <div className="panel"><div className="panel-head"><div><h2>Platform health</h2><p>Tenant-level operational signals from the platform database.</p></div><span className="pill active">Live · 30s</span></div>
+     <div className="panel"><div className="panel-head"><div><h2>Platform operations</h2><p>Application and tenant health from the live platform API.</p></div><span className={"pill "+(monitoring?.database.status==="healthy"?"active":"suspended")}>{monitoring?.database.status==="healthy"?"Operational":"Attention"}</span></div>
       <div className="role-list">
-       <div><span>Active schools</span><strong>{activeSchools}/{schools.length}</strong></div>
-       <div><span>Schools needing attention</span><strong>{schools.filter(s=>s.status!=="active"||s.user_count===0).length}</strong></div>
-       <div><span>Suspended tenants</span><strong>{suspendedSchools}</strong></div>
+       <div><span>Database connectivity</span><strong>{monitoring?.database.status==="healthy"?"Healthy":"Unavailable"}</strong></div>
+       <div><span>Active school tenants</span><strong>{monitoring?.schools.active??activeSchools}</strong></div>
+       <div><span>Suspended tenants</span><strong>{monitoring?.schools.suspended??suspendedSchools}</strong></div>
        <div><span>Platform boundary</span><strong>Enforced</strong></div>
       </div>
      </div>
-     <div className="panel"><div className="panel-head"><div><h2>Attention queue</h2><p>Items that may require platform action.</p></div><Link href="/platform/schools">Open control center →</Link></div>
+     <div className="panel"><div className="panel-head"><div><h2>Attention queue</h2><p>Tenant conditions that may require action.</p></div><Link href="/platform/schools">Open control center →</Link></div>
       <div className="table-wrap"><table><thead><tr><th>School</th><th>Signal</th><th>Status</th></tr></thead><tbody>
        {schools.filter(s=>s.status!=="active"||s.user_count===0).slice(0,6).map(s=><tr key={s.id}><td><strong>{s.name}</strong><small>{s.code}</small></td><td>{s.status==="pending"?"Approval required":s.status==="suspended"?"Suspended tenant":"No users yet"}</td><td><span className={"pill "+s.status}>{s.status}</span></td></tr>)}
       </tbody></table>{!schools.some(s=>s.status!=="active"||s.user_count===0)&&<div className="empty">No tenant issues detected.</div>}</div>
      </div>
     </section>
-    <section className="panel"><div className="panel-head"><div><h2>Tenant monitoring</h2><p>Monitor every school without entering its tenant workspace.</p></div><div><span className="muted">{lastUpdated?`Last checked ${lastUpdated.toLocaleTimeString()}`:"Checking…"}</span> <button className="ghost" onClick={()=>window.location.reload()}>Refresh</button></div></div>
-     <div className="table-wrap"><table><thead><tr><th>School</th><th>Code</th><th>Users</th><th>Tenant status</th><th>Operational signal</th></tr></thead><tbody>
+    <section className="panel"><div className="panel-head"><div><h2>Tenant monitoring</h2><p>Monitor every school without entering its tenant workspace.</p></div><div><span className="muted">{lastUpdated?"Last checked "+lastUpdated.toLocaleTimeString():"Checking…"}</span> <button className="ghost" onClick={()=>window.location.reload()}>Refresh</button></div></div>
+     <div className="table-wrap"><table><thead><tr><th>School</th><th>Code</th><th>Users</th><th>Status</th><th>Signal</th></tr></thead><tbody>
       {schools.map(s=>{const signal=s.status==="pending"?"Awaiting approval":s.status==="suspended"?"Access blocked":s.user_count===0?"No users provisioned":"Operational";return <tr key={s.id}><td><strong>{s.name}</strong></td><td>{s.code}</td><td>{s.user_count}</td><td><span className={"pill "+s.status}>{s.status}</span></td><td>{signal}</td></tr>})}
      </tbody></table>{!schools.length&&<div className="empty">No school tenants onboarded yet.</div>}</div>
     </section>
     <section className="grid-2">
-     <div className="panel"><div className="panel-head"><div><h2>Platform boundary</h2><p>Stonez Digital operates above the school tenant layer.</p></div></div><div className="role-list"><div><span>Platform administrator</span><strong>Super Admin</strong></div><div><span>School administrators</span><strong>Tenant scoped</strong></div><div><span>School data</span><strong>Isolated</strong></div></div></div>
-     <div className="panel"><div className="panel-head"><div><h2>Control center</h2><p>Take action when monitoring identifies a tenant that needs attention.</p></div></div><Link className="module" href="/platform/schools"><div className="module-icon">+</div><div><strong>Platform Schools</strong><p>Approve, activate, suspend and provision tenants</p></div><span>Open</span></Link></div>
+     <div className="panel"><div className="panel-head"><div><h2>Recent platform activity</h2><p>Latest audit events across the system.</p></div></div>
+      <div className="table-wrap"><table><thead><tr><th>Action</th><th>Resource</th><th>Time</th></tr></thead><tbody>
+       {(monitoring?.activity||[]).map((a,i)=><tr key={i}><td><strong>{a.action}</strong></td><td>{a.resource}</td><td>{new Date(a.created_at).toLocaleString()}</td></tr>)}
+      </tbody></table>{!monitoring?.activity?.length&&<div className="empty">No recent audit activity.</div>}</div>
+     </div>
+     <div className="panel"><div className="panel-head"><div><h2>Control center</h2><p>Take action when monitoring identifies a tenant that needs attention.</p></div></div>
+      <div className="role-list"><div><span>Last API check</span><strong>{monitoring?.checked_at?new Date(monitoring.checked_at).toLocaleTimeString():"—"}</strong></div><div><span>Refresh interval</span><strong>30 seconds</strong></div><div><span>Infrastructure metrics</span><strong>Render</strong></div><div><span>Tenant management</span><Link href="/platform/schools">Open →</Link></div></div>
+     </div>
     </section>
-   </> : <>
+   </>: <>
     <section className="stats"><Stat label="Students" value={students.length} detail="Registered profiles"/><Stat label="Users" value={users.length} detail="Accounts"/><Stat label="Active" value={users.filter(u=>u.active).length} detail="Active accounts"/><Stat label="Roles" value={new Set(users.map(u=>u.role)).size} detail="Roles represented"/></section>
     <section className="grid-2"><div className="panel"><div className="panel-head"><div><h2>Recent students</h2><p>Latest student records</p></div><Link href="/dashboard/students">View all →</Link></div><div className="table-wrap"><table><thead><tr><th>Student</th><th>Admission</th><th>Status</th></tr></thead><tbody>{students.slice(0,6).map(s=><tr key={s.id}><td><strong>{s.user?.name||"Student"}</strong><small>{s.user?.email||""}</small></td><td>{s.admission_number}</td><td><span className={"pill "+s.enrollment_status}>{s.enrollment_status}</span></td></tr>)}</tbody></table>{!students.length&&<div className="empty">No students yet.</div>}</div></div><div className="panel"><div className="panel-head"><div><h2>Access snapshot</h2><p>Current role distribution</p></div></div><div className="role-list">{["super_admin","school_admin","teacher","student","parent","accountant","staff"].map(role=><div key={role}><span>{role.replace("_"," ")}</span><strong>{users.filter(u=>u.role===role).length}</strong></div>)}</div></div></section>
     <section className="panel"><div className="panel-head"><div><h2>School modules</h2><p>Foundation ready for the next academic workflows.</p></div></div><div className="module-grid"><Link className="module" href="/dashboard/academic"><div className="module-icon">+</div><div><strong>Academic structure</strong><p>Sessions, terms, classes and subjects</p></div><span>Open</span></Link>{["Enrollment","Attendance","Results & report cards"].map((x,i)=><div className="module" key={x}><div className="module-icon">+</div><div><strong>{x}</strong><p>{["Assign students to class and section","Daily attendance tracking","Grades and report cards"][i]}</p></div><span>Next</span></div>)}</div></section>

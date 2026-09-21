@@ -139,6 +139,15 @@ func TestEnrollmentServiceRejectsCrossSchoolRelationships(t *testing.T) {
         &models.SchoolClass{},
         &models.Section{},
         &models.StudentEnrollment{},
+        &models.AttendanceRecord{},
+        &models.Subject{},
+        &models.TeacherAssignment{},
+        &models.Assessment{},
+        &models.AssessmentResult{},
+        &models.FeeItem{},
+        &models.Invoice{},
+        &models.InvoiceLine{},
+        &models.Payment{},
     )
     schoolA := uuid.New()
     schoolB := uuid.New()

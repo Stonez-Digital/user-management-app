@@ -12,7 +12,31 @@ func(s *EnrollmentService)Create(schoolID uuid.UUID,v models.StudentEnrollment)(
  v.Status=strings.ToLower(strings.TrimSpace(v.Status));if v.Status==""{v.Status=models.EnrollmentStatusActive};if v.Status!=models.EnrollmentStatusActive&&v.Status!=models.EnrollmentStatusCompleted&&v.Status!=models.EnrollmentStatusWithdrawn{return v,ErrEnrollmentInvalidStatus}
  var existing models.StudentEnrollment;err:=s.db.Where("school_id = ? AND student_id = ? AND academic_session_id = ?",schoolID,v.StudentID,v.AcademicSessionID).First(&existing).Error;if err==nil{return v,ErrEnrollmentDuplicate};if !errors.Is(err,gorm.ErrRecordNotFound){return v,err};return s.repo.Create(schoolID,v)
 }
-func(s *EnrollmentService)List(schoolID uuid.UUID)([]models.StudentEnrollment,error){return s.repo.List(schoolID)}
+
+
+type EnrollmentPlacementRequest struct {
+	TargetSessionID uuid.UUID
+	TargetClassID uuid.UUID
+	TargetSectionID uuid.UUID
+	Operation string
+}
+
+func(s *EnrollmentService) Place(schoolID, sourceID uuid.UUID, req EnrollmentPlacementRequest) (models.StudentEnrollment, error) {
+	source, err := s.Get(schoolID, sourceID)
+	if err != nil { return source, err }
+	op := strings.ToLower(strings.TrimSpace(req.Operation))
+	if op != "promote" && op != "reenroll" { return source, ErrEnrollmentPromotionSource }
+	if op == "promote" && source.Status != models.EnrollmentStatusActive { return source, ErrEnrollmentPromotionSource }
+	if op == "reenroll" && source.Status == models.EnrollmentStatusActive { return source, ErrEnrollmentPromotionSource }
+	if req.TargetSessionID == source.AcademicSessionID { return source, ErrEnrollmentDuplicate }
+	created, err := s.Create(schoolID, models.StudentEnrollment{StudentID: source.StudentID, AcademicSessionID: req.TargetSessionID, ClassID: req.TargetClassID, SectionID: req.TargetSectionID, Status: models.EnrollmentStatusActive})
+	if err != nil { return source, err }
+	if op == "promote" {
+		if err := s.repo.Update(schoolID, models.StudentEnrollment{ID: source.ID, StudentID: source.StudentID, AcademicSessionID: source.AcademicSessionID, ClassID: source.ClassID, SectionID: source.SectionID, Status: models.EnrollmentStatusCompleted}); err != nil { return source, err }
+	}
+	return created, nil
+}
+\nfunc(s *EnrollmentService)List(schoolID uuid.UUID)([]models.StudentEnrollment,error){return s.repo.List(schoolID)}
 func(s *EnrollmentService)History(schoolID,studentID uuid.UUID)([]models.StudentEnrollment,error){
  var student models.Student
  if err:=s.db.Where("id = ? AND school_id = ?",studentID,schoolID).First(&student).Error;err!=nil{return nil,ErrEnrollmentStudentMissing}

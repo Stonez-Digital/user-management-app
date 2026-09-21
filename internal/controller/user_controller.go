@@ -74,7 +74,7 @@ func (ctrl *UserController) UpdateMe(c *gin.Context) {
             Role string `json:"role"`
             Active bool `json:"active"`
         }
-        if err:=ctrl.service.DB().Where("id = ?", id).First(&user).Error;err!=nil{httpx.Error(c,404,"user_not_found","user not found");return}
+        if err:=ctrl.service.DB().Table("users").Where("id = ?", id).Take(&user).Error;err!=nil{httpx.Error(c,404,"user_not_found","user not found");return}
         updates:=map[string]interface{}{}
         if req.Name!=""{updates["name"]=req.Name};if req.Email!=""{updates["email"]=req.Email}
         if len(updates)>0{if err:=ctrl.service.DB().Model(&user).Updates(updates).Error;err!=nil{httpx.Error(c,500,"user_update_failed","failed to update user");return};if err:=ctrl.service.DB().Table("users").Where("id = ?", id).Take(&user).Error;err!=nil{httpx.Error(c,500,"user_read_failed","failed to load updated profile");return}}

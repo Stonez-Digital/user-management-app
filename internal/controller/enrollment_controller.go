@@ -38,6 +38,7 @@ func enrollmentError(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrEnrollmentSectionMismatch): httpx.Error(c, 400, "section_class_mismatch", "section does not belong to selected class")
 	case errors.Is(err, service.ErrEnrollmentInvalidStatus): httpx.Error(c, 400, "invalid_enrollment_status", "invalid enrollment status")
 	case errors.Is(err, service.ErrEnrollmentInUse): httpx.Error(c, 409, "enrollment_in_use", "enrollment cannot be deleted because it is referenced by attendance, results or invoices")
+	case errors.Is(err, service.ErrEnrollmentPromotionSource): httpx.Error(c, 400, "enrollment_not_eligible", "enrollment is not eligible for this placement workflow")
 	default: httpx.Error(c, 500, "enrollment_operation_failed", "enrollment operation failed")
 	}
 }
@@ -51,6 +52,23 @@ func (ctrl *EnrollmentController) History(c *gin.Context) {
  studentID,err:=uuid.Parse(c.Param("studentId"));if err!=nil{httpx.Error(c,400,"invalid_student_id","invalid student id");return}
  items,err:=ctrl.service.History(schoolID,studentID);if err!=nil{enrollmentError(c,err);return}
  c.JSON(http.StatusOK,gin.H{"enrollments":items})
+}
+type enrollmentPlacementRequest struct {
+	TargetSessionID uuid.UUID `json:"target_session_id" binding:"required"`
+	TargetClassID uuid.UUID `json:"target_class_id" binding:"required"`
+	TargetSectionID uuid.UUID `json:"target_section_id" binding:"required"`
+	Operation string `json:"operation" binding:"required,oneof=promote reenroll"`
+}
+
+func (ctrl *EnrollmentController) Place(c *gin.Context) {
+	schoolID, ok := requireSchoolID(c); if !ok { return }
+	id, err := uuid.Parse(c.Param("id")); if err != nil { httpx.Error(c,400,"invalid_enrollment_id","invalid enrollment id"); return }
+	var req enrollmentPlacementRequest
+	if err := c.ShouldBindJSON(&req); err != nil { httpx.Validation(c,httpx.ValidationErrors(err)); return }
+	item, err := ctrl.service.Place(schoolID,id,service.EnrollmentPlacementRequest{TargetSessionID:req.TargetSessionID,TargetClassID:req.TargetClassID,TargetSectionID:req.TargetSectionID,Operation:req.Operation})
+	if err != nil { enrollmentError(c,err); return }
+	actor,_:=uuid.Parse(c.GetString("user_id")); _=audit.Record(ctrl.service.DB(),c,&actor,"enrollment.place","student_enrollment",&item.ID,nil)
+	c.JSON(http.StatusCreated,item)
 }
 func (ctrl *EnrollmentController) List(c *gin.Context) { schoolID,ok:=requireSchoolID(c);if !ok{return}
 	items, err := ctrl.service.List(schoolID)

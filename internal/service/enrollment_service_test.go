@@ -52,7 +52,7 @@ func TestCreateEnrollmentValidatesRelationshipsAndDuplicate(t *testing.T) {
 func TestEnrollmentDeleteProtectsAcademicHistory(t *testing.T) {
     db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
     if err != nil { t.Fatal(err) }
-    if err := db.AutoMigrate(&models.User{}, &models.Student{}, &models.AcademicSession{}, &models.Term{}, &models.SchoolClass{}, &models.Section{}, &models.StudentEnrollment{}, &models.AttendanceRecord{}, &models.Assessment{}, &models.AssessmentResult{}, &models.Invoice{}); err != nil { t.Fatal(err) }
+    if err := db.AutoMigrate(&models.School{}, &models.User{}, &models.Student{}, &models.AcademicSession{}, &models.Term{}, &models.SchoolClass{}, &models.Section{}, &models.StudentEnrollment{}, &models.AttendanceRecord{}, &models.Assessment{}, &models.AssessmentResult{}, &models.Invoice{}); err != nil { t.Fatal(err) }
     schoolID:=uuid.New()
     school:=models.School{ID:schoolID,Name:"History School",Code:"EN-H",Status:models.SchoolStatusActive}; if err:=db.Create(&school).Error;err!=nil{t.Fatal(err)}
     user:=models.User{SchoolID:&schoolID,Name:"History Student",Email:"history@example.com",Role:"student",Active:true};if err:=db.Create(&user).Error;err!=nil{t.Fatal(err)}
@@ -62,6 +62,6 @@ func TestEnrollmentDeleteProtectsAcademicHistory(t *testing.T) {
     section:=models.Section{SchoolID:schoolID,ClassID:class.ID,Name:"A"};if err:=db.Create(&section).Error;err!=nil{t.Fatal(err)}
     svc:=NewEnrollmentService(repository.NewEnrollmentRepository(db),db)
     enrollment,err:=svc.Create(schoolID,models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session.ID,ClassID:class.ID,SectionID:section.ID});if err!=nil{t.Fatal(err)}
-    if err:=db.Create(&models.AttendanceRecord{SchoolID:schoolID,EnrollmentID:enrollment.ID,Date:time.Now().UTC(),Status:"present"}).Error;err!=nil{t.Fatal(err)}
+    if err:=db.Create(&models.AttendanceRecord{SchoolID:schoolID,EnrollmentID:enrollment.ID,Date:time.Now().UTC(),TermID:uuid.New(),Status:"present"}).Error;err!=nil{t.Fatal(err)}
     if err:=svc.Delete(schoolID,enrollment.ID);err!=ErrEnrollmentInUse{t.Fatalf("expected in-use error, got %v",err)}
 }

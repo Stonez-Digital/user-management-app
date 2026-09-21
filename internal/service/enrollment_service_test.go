@@ -93,3 +93,40 @@ func TestEnrollmentHistoryIsSchoolScoped(t *testing.T) {
     if len(history)!=1 || history[0].StudentID!=student.ID{t.Fatalf("unexpected history: %#v",history)}
     if _,err:=svc.History(schoolID,otherStudent.ID);err!=ErrEnrollmentStudentMissing{t.Fatalf("expected school-scoped student lookup to fail, got %v",err)}
 }
+
+
+func TestEnrollmentPromotionPreservesHistoryAndCompletesSource(t *testing.T) {
+	db := enrollmentTestDB(t)
+	schoolID := uuid.New()
+	user := models.User{SchoolID:&schoolID,Name:"Promotion Student",Email:"promotion-"+schoolID.String()+"@example.com",Role:"student",Active:true}
+	if err:=db.Create(&user).Error;err!=nil{t.Fatal(err)}
+	student:=models.Student{SchoolID:schoolID,UserID:user.ID,AdmissionNumber:"PROM-001"};if err:=db.Create(&student).Error;err!=nil{t.Fatal(err)}
+	session1:=models.AcademicSession{SchoolID:schoolID,Name:"2030/2031"};session2:=models.AcademicSession{SchoolID:schoolID,Name:"2031/2032"}
+	if err:=db.Create(&session1).Error;err!=nil{t.Fatal(err)};if err:=db.Create(&session2).Error;err!=nil{t.Fatal(err)}
+	class1:=models.SchoolClass{SchoolID:schoolID,Name:"JSS 1",Level:1};class2:=models.SchoolClass{SchoolID:schoolID,Name:"JSS 2",Level:2}
+	if err:=db.Create(&class1).Error;err!=nil{t.Fatal(err)};if err:=db.Create(&class2).Error;err!=nil{t.Fatal(err)}
+	sec1:=models.Section{SchoolID:schoolID,ClassID:class1.ID,Name:"A"};sec2:=models.Section{SchoolID:schoolID,ClassID:class2.ID,Name:"A"}
+	if err:=db.Create(&sec1).Error;err!=nil{t.Fatal(err)};if err:=db.Create(&sec2).Error;err!=nil{t.Fatal(err)}
+	svc:=NewEnrollmentService(repository.NewEnrollmentRepository(db),db)
+	source,err:=svc.Create(schoolID,models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session1.ID,ClassID:class1.ID,SectionID:sec1.ID});if err!=nil{t.Fatal(err)}
+	target,err:=svc.Place(schoolID,source.ID,EnrollmentPlacementRequest{TargetSessionID:session2.ID,TargetClassID:class2.ID,TargetSectionID:sec2.ID,Operation:"promote"});if err!=nil{t.Fatal(err)}
+	if target.ID==source.ID||target.AcademicSessionID!=session2.ID||target.ClassID!=class2.ID{t.Fatalf("unexpected promoted enrollment: %#v",target)}
+	updated,err:=svc.Get(schoolID,source.ID);if err!=nil{t.Fatal(err)}
+	if updated.Status!=models.EnrollmentStatusCompleted{t.Fatalf("expected source enrollment completed, got %s",updated.Status)}
+	history,err:=svc.History(schoolID,student.ID);if err!=nil{t.Fatal(err)}
+	if len(history)!=2{t.Fatalf("expected two historical enrollments, got %d",len(history))}
+}
+
+func TestEnrollmentReenrollmentRequiresNonActiveSource(t *testing.T) {
+	db:=enrollmentTestDB(t);schoolID:=uuid.New()
+	user:=models.User{SchoolID:&schoolID,Name:"Reenroll Student",Email:"reenroll-"+schoolID.String()+"@example.com",Role:"student",Active:true};if err:=db.Create(&user).Error;err!=nil{t.Fatal(err)}
+	student:=models.Student{SchoolID:schoolID,UserID:user.ID,AdmissionNumber:"RE-001"};if err:=db.Create(&student).Error;err!=nil{t.Fatal(err)}
+	session1:=models.AcademicSession{SchoolID:schoolID,Name:"2032/2033"};session2:=models.AcademicSession{SchoolID:schoolID,Name:"2033/2034"};if err:=db.Create(&session1).Error;err!=nil{t.Fatal(err)};if err:=db.Create(&session2).Error;err!=nil{t.Fatal(err)}
+	class:=models.SchoolClass{SchoolID:schoolID,Name:"SS 1",Level:4};if err:=db.Create(&class).Error;err!=nil{t.Fatal(err)};sec:=models.Section{SchoolID:schoolID,ClassID:class.ID,Name:"A"};if err:=db.Create(&sec).Error;err!=nil{t.Fatal(err)}
+	svc:=NewEnrollmentService(repository.NewEnrollmentRepository(db),db)
+	source,err:=svc.Create(schoolID,models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session1.ID,ClassID:class.ID,SectionID:sec.ID});if err!=nil{t.Fatal(err)}
+	if _,err:=svc.Place(schoolID,source.ID,EnrollmentPlacementRequest{TargetSessionID:session2.ID,TargetClassID:class.ID,TargetSectionID:sec.ID,Operation:"reenroll"});err!=ErrEnrollmentPromotionSource{t.Fatalf("expected active source rejection, got %v",err)}
+	if err:=svc.Update(schoolID,models.StudentEnrollment{ID:source.ID,StudentID:source.StudentID,AcademicSessionID:source.AcademicSessionID,ClassID:source.ClassID,SectionID:source.SectionID,Status:models.EnrollmentStatusWithdrawn});err!=nil{t.Fatal(err)}
+	target,err:=svc.Place(schoolID,source.ID,EnrollmentPlacementRequest{TargetSessionID:session2.ID,TargetClassID:class.ID,TargetSectionID:sec.ID,Operation:"reenroll"});if err!=nil{t.Fatal(err)}
+	if target.Status!=models.EnrollmentStatusActive||target.AcademicSessionID!=session2.ID{t.Fatalf("unexpected reenrollment: %#v",target)}
+}

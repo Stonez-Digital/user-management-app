@@ -53,8 +53,18 @@ func (ctrl *UserController) DeleteUser(c *gin.Context) {
 func (ctrl *UserController) GetMe(c *gin.Context) {
     id,err:=uuid.Parse(c.GetString("user_id"));if err!=nil{httpx.Error(c,400,"invalid_user_id","invalid user id");return}
     var user models.User
-    if err:=ctrl.service.DB().First(&user,"id = ?",id).Error;err!=nil{httpx.Error(c,404,"user_not_found","user not found");return}
-    c.JSON(200,user)
+    if err:=ctrl.service.DB().Where("id = ? AND active = true",&id).First(&user).Error;err!=nil{httpx.Error(c,404,"user_not_found","user not found");return}
+    // Keep the authenticated-session contract explicit. Returning models.User directly
+    // leaves ID serialized as "ID" because it has no json tag, while the frontend
+    // and API contract expect "id".
+    c.JSON(http.StatusOK,gin.H{
+        "id": user.ID,
+        "name": user.Name,
+        "email": user.Email,
+        "role": user.Role,
+        "active": user.Active,
+        "school_id": user.SchoolID,
+    })
 }
 func (ctrl *UserController) UpdateMe(c *gin.Context) {
     id,err:=uuid.Parse(c.GetString("user_id"));if err!=nil{httpx.Error(c,400,"invalid_user_id","invalid user id");return}

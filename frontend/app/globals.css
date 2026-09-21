@@ -85,31 +85,81 @@ td strong,td small{display:block}td small{font-size:11px;color:#94a3b8;margin-to
 @media (max-width:380px){.content,.standalone{padding:12px}.sidebar{width:52px;padding-left:5px;padding-right:5px}.content,.standalone{margin-left:52px}.stats{grid-template-columns:1fr}.auth-card,.auth-card-wide{width:calc(100% - 16px);padding:18px}}
 
 /* Platform theme — red, blue, white, grey palette */
-[data-theme="dark"]{color-scheme:dark}
-[data-theme="dark"] body{background:#111827;color:#f8fafc}
-[data-theme="dark"] .auth-shell{background:linear-gradient(135deg,#111827,#1e3a8a)}
-[data-theme="dark"] .auth-card,.stat,.panel,.status{background:#172033;border-color:#475569;color:#f8fafc}
-[data-theme="dark"] .muted,.stat span,.stat small,.panel-head p,.form label,.hint,.logo small,.mini-user small,.tenant-note span,.auth-footer span,.auth-footer strong,.school-code-card small,.school-code-card span,.tenant-cards span,.tenant-cards small{color:#cbd5e1}
-[data-theme="dark"] .form input,.toolbar input,.form-grid input,.form-grid select,.inline-form input,.inline-form select,.search-inline{background:#1f2937;color:#f8fafc;border-color:#64748b}
-[data-theme="dark"] .form input::placeholder,.toolbar input::placeholder,.search-inline::placeholder{color:#9ca3af}
-[data-theme="dark"] .form input:focus,.toolbar input:focus,.form-grid input:focus,.inline-form input:focus,.form-grid select:focus,.inline-form select:focus,.search-inline:focus{border-color:#3b82f6;box-shadow:0 0 0 3px #3b82f633}
-[data-theme="dark"] button{background:#1d4ed8;color:#fff}
-[data-theme="dark"] button:hover{background:#2563eb}
-[data-theme="dark"] .error{background:#3f1d24;color:#fecaca;border-color:#b91c1c}
-[data-theme="dark"] .status{color:#e5e7eb}
-[data-theme="dark"] table th{color:#cbd5e1}th,td{border-bottom-color:#374151}td small{color:#9ca3af}
-[data-theme="dark"] .role-list div{border-bottom-color:#374151}
-[data-theme="dark"] .module,.school-code-card,.tenant-cards>div{border-color:#475569;background:#172033}
-[data-theme="dark"] .module-icon{background:#1e3a8a;color:#dbeafe}
-[data-theme="dark"] .nested-list{background:#1f2937}.nested-item{background:#374151;color:#f3f4f6}
-[data-theme="dark"] .tenant-note{background:#1f2937;border-color:#475569}
-[data-theme="dark"] .tenant-next{background:#1e3a8a}[data-theme="dark"] .tenant-next strong{color:#dbeafe}[data-theme="dark"] .tenant-next span{color:#d1d5db}
-[data-theme="dark"] .auth-footer{border-top-color:#374151}
-[data-theme="dark"] .school-code-card strong,[data-theme="dark"] .tenant-cards strong{color:#fff}
-[data-theme="dark"] .link-button,[data-theme="dark"] .back,[data-theme="dark"] .panel-head>a{color:#60a5fa}
-[data-theme="dark"] .pill{background:#1e3a8a;color:#dbeafe}[data-theme="dark"] .pill.active{background:#14532d;color:#bbf7d0}[data-theme="dark"] .pill.inactive,[data-theme="dark"] .pill.withdrawn{background:#3f1d24;color:#fecaca}[data-theme="dark"] .pill.graduated{background:#172554;color:#bfdbfe}
+:root{color-scheme:light}
+html[data-theme="dark"]{color-scheme:dark}
+html[data-theme="dark"] body{background:#111827;color:#f8fafc}
+html[data-theme="dark"] .app-shell{background:#111827}
+html[data-theme="dark"] .sidebar{background:#172033;border-color:#374151}
+html[data-theme="dark"] .auth-shell{background:linear-gradient(135deg,#111827,#1e3a8a)}
+html[data-theme="dark"] .auth-card,
+html[data-theme="dark"] .stat,
+html[data-theme="dark"] .panel,
+html[data-theme="dark"] .status,
+html[data-theme="dark"] .module{background:#172033;border-color:#475569;color:#f8fafc}
+html[data-theme="dark"] .topbar h1,
+html[data-theme="dark"] .panel h2,
+html[data-theme="dark"] .module strong,
+html[data-theme="dark"] .stat strong{color:#fff}
+html[data-theme="dark"] .muted,
+html[data-theme="dark"] .stat span,
+html[data-theme="dark"] .stat small,
+html[data-theme="dark"] .panel-head p,
+html[data-theme="dark"] .form label,
+html[data-theme="dark"] .hint,
+html[data-theme="dark"] .logo small,
+html[data-theme="dark"] .mini-user small,
+html[data-theme="dark"] .tenant-note span,
+html[data-theme="dark"] .auth-footer span,
+html[data-theme="dark"] .school-code-card small,
+html[data-theme="dark"] .school-code-card span,
+html[data-theme="dark"] .tenant-cards span,
+html[data-theme="dark"] .tenant-cards small{color:#cbd5e1}
+html[data-theme="dark"] .form input,
+html[data-theme="dark"] .toolbar input,
+html[data-theme="dark"] .form-grid input,
+html[data-theme="dark"] .form-grid select,
+html[data-theme="dark"] .inline-form input,
+html[data-theme="dark"] .inline-form select,
+html[data-theme="dark"] .search-inline{background:#1f2937;color:#f8fafc;border-color:#64748b}
+html[data-theme="dark"] .form input::placeholder,
+html[data-theme="dark"] .toolbar input::placeholder,
+html[data-theme="dark"] .search-inline::placeholder{color:#9ca3af}
+html[data-theme="dark"] .form input:focus,
+html[data-theme="dark"] .toolbar input:focus,
+html[data-theme="dark"] .form-grid input:focus,
+html[data-theme="dark"] .inline-form input:focus,
+html[data-theme="dark"] .form-grid select:focus,
+html[data-theme="dark"] .inline-form select:focus,
+html[data-theme="dark"] .search-inline:focus{border-color:#3b82f6;box-shadow:0 0 0 3px #3b82f633}
+html[data-theme="dark"] button:not(.ghost):not(.link-button){background:#1d4ed8;color:#fff}
+html[data-theme="dark"] button:not(.ghost):not(.link-button):hover{background:#2563eb}
+html[data-theme="dark"] .error{background:#3f1d24;color:#fecaca;border-color:#b91c1c}
+html[data-theme="dark"] table th{color:#cbd5e1}
+html[data-theme="dark"] th,
+html[data-theme="dark"] td{border-bottom-color:#374151}
+html[data-theme="dark"] td small{color:#9ca3af}
+html[data-theme="dark"] .role-list div{border-bottom-color:#374151}
+html[data-theme="dark"] .module-icon{background:#1e3a8a;color:#dbeafe}
+html[data-theme="dark"] .nested-list{background:#1f2937}
+html[data-theme="dark"] .nested-item{background:#374151;color:#f3f4f6}
+html[data-theme="dark"] .tenant-note{background:#1f2937;border-color:#475569}
+html[data-theme="dark"] .tenant-next{background:#1e3a8a}
+html[data-theme="dark"] .tenant-next strong{color:#dbeafe}
+html[data-theme="dark"] .tenant-next span{color:#d1d5db}
+html[data-theme="dark"] .auth-footer{border-top-color:#374151}
+html[data-theme="dark"] .school-code-card,
+html[data-theme="dark"] .tenant-cards>div{border-color:#475569;background:#172033}
+html[data-theme="dark"] .school-code-card strong,
+html[data-theme="dark"] .tenant-cards strong{color:#fff}
+html[data-theme="dark"] .link-button,
+html[data-theme="dark"] .back,
+html[data-theme="dark"] .panel-head>a{color:#60a5fa}
+html[data-theme="dark"] .pill{background:#1e3a8a;color:#dbeafe}
+html[data-theme="dark"] .pill.active{background:#14532d;color:#bbf7d0}
+html[data-theme="dark"] .pill.inactive,
+html[data-theme="dark"] .pill.withdrawn{background:#3f1d24;color:#fecaca}
+html[data-theme="dark"] .pill.graduated{background:#172554;color:#bfdbfe}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
-
 .theme-toggle{position:fixed;top:18px;right:18px;z-index:100;display:inline-flex;align-items:center;gap:7px;min-height:40px;padding:9px 13px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#172033;font-size:12px;font-weight:750;box-shadow:0 8px 24px #0f172a18}
 [data-theme="dark"] .theme-toggle{background:#1f2937;color:#f8fafc;border-color:#64748b}
 .theme-toggle:hover{background:#f1f5f9}

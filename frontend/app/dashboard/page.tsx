@@ -22,14 +22,17 @@ export default function Dashboard(){
  const[me,setMe]=useState<User|null>(null);
  const[school,setSchool]=useState<School|null>(null);
  const[error,setError]=useState("");
+ const[lastUpdated,setLastUpdated]=useState<Date|null>(null);
 
  useEffect(()=>{
+  let timer:ReturnType<typeof setInterval>|undefined;
   api("/me").then(async m=>{
    setMe(m);
    if(m?.role==="teacher"){router.replace("/dashboard/teacher");return}
    if(m?.role==="super_admin"){
-    const d=await api("/platform/schools");
-    setSchools(Array.isArray(d?.schools)?d.schools:[]);
+    const load=async()=>{try{const d=await api("/platform/schools");setSchools(Array.isArray(d?.schools)?d.schools:[]);setLastUpdated(new Date());setError("")}catch(e){setError(e instanceof Error?e.message:"Unable to refresh platform monitoring")}};
+    await load();
+    timer=setInterval(load,30000);
     return;
    }
    const s=await api("/admin/school");
@@ -38,6 +41,7 @@ export default function Dashboard(){
    setUsers(Array.isArray(u)?u:u?.users||[]);
    setStudents(Array.isArray(st)?st:st?.students||[]);
   }).catch(e=>{setError(e.message);if(e.message==="Session expired")router.push("/")});
+  return()=>{if(timer)clearInterval(timer)};
  },[router]);
 
  function logout(){localStorage.clear();router.push("/")}
@@ -72,7 +76,7 @@ export default function Dashboard(){
      <Stat label="Users" value={platformUsers} detail="Across all schools"/>
     </section>
     <section className="grid-2">
-     <div className="panel"><div className="panel-head"><div><h2>Platform health</h2><p>Tenant-level operational signals from the platform database.</p></div><span className="pill active">Live</span></div>
+     <div className="panel"><div className="panel-head"><div><h2>Platform health</h2><p>Tenant-level operational signals from the platform database.</p></div><span className="pill active">Live · 30s</span></div>
       <div className="role-list">
        <div><span>Active schools</span><strong>{activeSchools}/{schools.length}</strong></div>
        <div><span>Schools needing attention</span><strong>{schools.filter(s=>s.status!=="active"||s.user_count===0).length}</strong></div>
@@ -86,7 +90,7 @@ export default function Dashboard(){
       </tbody></table>{!schools.some(s=>s.status!=="active"||s.user_count===0)&&<div className="empty">No tenant issues detected.</div>}</div>
      </div>
     </section>
-    <section className="panel"><div className="panel-head"><div><h2>Tenant monitoring</h2><p>Monitor every school without entering its tenant workspace.</p></div><button className="ghost" onClick={()=>window.location.reload()}>Refresh</button></div>
+    <section className="panel"><div className="panel-head"><div><h2>Tenant monitoring</h2><p>Monitor every school without entering its tenant workspace.</p></div><div><span className="muted">{lastUpdated?`Last checked ${lastUpdated.toLocaleTimeString()}`:"Checking…"}</span> <button className="ghost" onClick={()=>window.location.reload()}>Refresh</button></div></div>
      <div className="table-wrap"><table><thead><tr><th>School</th><th>Code</th><th>Users</th><th>Tenant status</th><th>Operational signal</th></tr></thead><tbody>
       {schools.map(s=>{const signal=s.status==="pending"?"Awaiting approval":s.status==="suspended"?"Access blocked":s.user_count===0?"No users provisioned":"Operational";return <tr key={s.id}><td><strong>{s.name}</strong></td><td>{s.code}</td><td>{s.user_count}</td><td><span className={"pill "+s.status}>{s.status}</span></td><td>{signal}</td></tr>})}
      </tbody></table>{!schools.length&&<div className="empty">No school tenants onboarded yet.</div>}</div>

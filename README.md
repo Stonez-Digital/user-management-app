@@ -1,100 +1,301 @@
 # Stonez Digital School Management System
 
-A full-stack school management platform being developed by **Stonez Digital** to help schools centralize administration, student records, academic operations, and communication in one system.
+A full-stack, multi-school school management platform being developed by **Stonez Digital** to help schools manage administration, academics, finance, communication, teachers, students, parents, and operational workflows from one platform.
 
-The project started as a Go-based user management API and has evolved into a **multi-school School Management SaaS platform**. The current release includes administration, academic operations, finance, teacher workflows, parent and student portals, and school communication, with production hardening now underway.
+The project has evolved from a Go-based user-management application into a **multi-tenant School Management SaaS foundation**. The current codebase has passed the foundational CRUD stage and now contains substantial school, academic, finance, portal, communication, tenant-isolation, authentication, and production-deployment work.
 
 ## Current Product Level
 
-**Current stage: Phase 4E — Production QA & Release Hardening**
+**Current stage: Production Hardening / Pilot-Readiness**
 
-The platform has moved beyond basic user CRUD and now includes multi-school tenant isolation, academic operations, finance, teacher workflows, parent/student portals, communication, PostgreSQL integrity controls, and Cloudflare/Go production deployment infrastructure.
+The platform is currently at the level of a **serious school-management product foundation**, rather than a simple demo or user-management CRUD application.
 
-### Current capabilities
+The major product layers are already present:
 
-- Secure user authentication
-- JWT access and refresh token authentication
-- Refresh-token rotation and reuse protection
-- Logout and logout-all session controls
-- Password change and password reset flows
-- Role-based access control (RBAC)
-- Seven school roles:
-  - `super_admin`
-  - `school_admin`
-  - `teacher`
-  - `student`
-  - `parent`
-  - `accountant`
-  - `staff`
-- Administrative user management
-- Role assignment and account activation/deactivation
-- Administrative audit logging
-- Standardized API validation and error responses
-- Versioned database migrations
-- SQLite support for local development
-- PostgreSQL support for production deployments
-- Student profiles and enrollment records
-- Student CRUD operations
-- Next.js administrative dashboard
-- Dashboard overview and school statistics
-- Student search
-- User and role management interface
-- Audit log viewer
-- Session expiry and sign-out handling
-- GitHub Actions CI for backend and frontend checks
-- One-command Windows local development launcher
+- Platform administration
+- Multi-school tenant architecture
+- School onboarding and approval
+- School administration
+- Authentication and session management
+- Role-based access control
+- Student enrollment
+- Academic sessions, terms, classes, sections, subjects and academic workflows
+- Teacher academic and operational workflows
+- Assessments, results and report cards
+- Finance administration foundation
+- Parent portal
+- Student portal
+- Communication center
+- Platform operations monitoring
+- Responsive web interface
+- Cloudflare frontend deployment
+- Public Go/Gin API deployment
+- PostgreSQL production database support
+- Automated CI and production QA
 
-## Product Vision
+The immediate work is no longer about proving that the platform can manage users. The priority is **production verification, workflow completeness, security, usability, data integrity, deployment reliability, and preparation for a controlled school pilot**.
 
-The goal is to build more than a user-management application.
+### What the current product is
 
-Stonez Digital is developing this platform as a **complete digital operating system for schools**, allowing administrators, teachers, students, parents, and other staff to manage their daily activities from one central platform.
+> **A multi-tenant digital operating system for schools that is approaching pilot deployment, with production infrastructure and the major school-management domains already established.**
 
-The long-term platform will cover:
+It is not yet described as a fully mature commercial SaaS product. Real-school pilot usage, operational feedback, deeper reporting, billing/subscription workflows, support processes, and additional hardening are still required before broad commercial rollout.
 
-**Administration → Students → Academics → Attendance → Assessments → Results → Fees → Timetable → Communication → Parent Access**
+## Recent Development
 
-This creates an opportunity to package the system as a scalable school technology product that can be piloted with schools, refined from real-world usage, and eventually offered to multiple institutions.
+The repository has gone through a major expansion in the current development cycle.
 
-## Architecture
+### Academic management
 
-### Backend
+The academic engine has progressed through:
 
-Built with Go using a layered architecture:
+- School and academic readiness
+- Core academic tenant isolation
+- Student enrollment
+- Teacher assignment
+- Assessment operations
+- Results processing
+- Report cards
+- Teacher academic workspace
+- Teacher operational workflows
+- Teacher-facing academic UI
 
-```
-HTTP Request
-     ↓
-Gin Controller
-     ↓
-Middleware / RBAC
-     ↓
-Service Layer
-     ↓
-Repository Layer
-     ↓
-GORM
-     ↓
-Database
-```
+This establishes the academic workflow layer connecting schools, sessions, terms, classes, subjects, teachers, students, assessments, and results.
 
-### Frontend
+### School operations and portals
 
-The administrative dashboard is being built with:
+The product has also expanded into:
 
-- Next.js 16
-- React 19
-- TypeScript
-- Responsive dashboard UI
-- Local API proxy during development
+- Finance administration
+- Parent portal
+- Student portal
+- Communication center
+- Platform operations monitoring
+- School self-onboarding and platform approval
 
-### Database
+These additions move the product toward a complete school operating platform rather than an administration dashboard.
 
-- PostgreSQL for production
-- SQLite for local development
-- Versioned migration system
-- GORM ORM
-- UUID-based identifiers
+### Multi-tenant platform architecture
+
+The system now separates **Stonez Digital platform administration** from individual school tenants.
+
+The architecture supports:
+
+- Platform-level super_admin
+- School-level administration
+- School-scoped users and records
+- School-scoped academic data
+- School-scoped audit records
+- Tenant-aware database relationships
+- Tenant-scoped uniqueness and integrity controls
+- School onboarding and approval workflows
+
+This is an important architectural milestone because the same application can be used by multiple schools without treating all school data as one shared tenant.
+
+### Production authentication hardening
+
+Recent production work stabilized authentication across roles.
+
+The current authentication layer includes:
+
+- JWT access tokens
+- Refresh tokens
+- Refresh-token rotation
+- Refresh-token reuse protection
+- Active-account checks
+- Password change and reset flows
+- Logout and logout-all controls
+- Protected routes
+- RBAC
+- Role-aware landing pages
+- Explicit authenticated-account API responses
+- Production fixes for /me profile loading
+- School-admin and platform-admin separation
+
+The recent authentication work specifically addressed a production issue where login could succeed while the authenticated account failed to load correctly in the frontend.
+
+### Responsive web application
+
+The web interface was refined for:
+
+- Android phones
+- iPhone-sized screens
+- Tablets
+- Desktop screens
+
+The responsive work preserved the existing application structure and business logic while improving:
+
+- Small-screen layouts
+- Touch targets
+- Safe-area handling
+- Forms
+- Cards
+- Wide tables
+- Horizontal overflow behavior
+
+### Branding and theme work
+
+The Stonez Digital application logo was added to the platform.
+
+The later Light/Dark theme experiment was subsequently reverted because the color changes were not producing the intended result and were interfering with the desired visual presentation.
+
+The current product therefore keeps the established platform styling and Stonez Digital branding while preserving the mobile responsiveness work.
+
+## Current Product Capabilities
+
+### Platform administration
+
+- Platform-level administration
+- School onboarding
+- School approval workflow
+- Platform operations monitoring
+- Separation between Stonez Digital administration and school tenants
+
+### School administration
+
+- School dashboard
+- School identity/context
+- User management
+- Role management
+- Account activation/deactivation
+- Administrative controls
+- Audit logs
+- School-scoped data access
+
+### Authentication and security
+
+- JWT authentication
+- Access and refresh tokens
+- Refresh-token rotation
+- Reuse protection
+- Session management
+- Logout
+- Logout-all
+- Password change
+- Password reset
+- Protected routes
+- RBAC
+- Authenticated account/profile loading
+- Active-account enforcement
+- Audit logging
+- Tenant-aware authorization
+
+### Academic management
+
+- Academic sessions
+- Academic terms
+- Classes
+- Sections
+- Subjects
+- Student enrollment
+- Teacher assignment
+- Teacher academic workspace
+- Teacher operational workflows
+- Assessments
+- Results
+- Report cards
+- Academic tenant isolation
+
+### Student management
+
+- Student profiles
+- Enrollment records
+- School-scoped student data
+- Student portal
+- Academic access foundation
+
+### Teacher management
+
+- Teacher academic workspace
+- Teacher operational workflows
+- Assigned academic responsibilities
+- Teacher-facing UI
+
+### Parent management
+
+- Parent portal
+- Parent access to student-related information
+- Parent/student relationship foundation
+
+### Finance
+
+- Finance administration foundation
+- Finance-related school administration workflows
+
+### Communication
+
+- Communication center
+- School communication foundation
+- Notifications and communication workflows
+
+### Platform operations
+
+- Platform monitoring foundation
+- Operational visibility for the platform owner
+- Administrative monitoring workflows
+
+## School Roles
+
+The platform currently recognizes these major roles:
+
+| Role | Scope | Purpose |
+|---|---|---|
+| super_admin | Platform | Stonez Digital platform administration |
+| school_admin | School | School administration and management |
+| teacher | School | Teaching and academic workflows |
+| student | School | Student access and academic participation |
+| parent | School | Parent/student monitoring |
+| accountant | School | Finance administration |
+| staff | School | General school operations |
+
+Role access is enforced by the backend. School-scoped roles are isolated from other school tenants.
+
+## Current Architecture
+
+### Production architecture
+
+    Internet
+       |
+       v
+    Cloudflare Workers
+    Next.js / vinext frontend
+       |
+       | HTTPS
+       v
+    Go / Gin API
+       |
+    GORM + migrations
+       |
+       v
+    PostgreSQL database
+
+### Application layers
+
+    Frontend
+       |
+       v
+    Next.js / React / TypeScript
+       |
+       v
+    HTTP API
+       |
+       v
+    Gin Controllers
+       |
+       v
+    Authentication / RBAC Middleware
+       |
+       v
+    Service Layer
+       |
+       v
+    Repository Layer
+       |
+       v
+    GORM
+       |
+       v
+    PostgreSQL / SQLite
 
 ## Technology Stack
 
@@ -115,157 +316,142 @@ The administrative dashboard is being built with:
 - React 19
 - TypeScript
 - Next.js App Router
+- Responsive web UI
 
-### Engineering & DevOps
+### Infrastructure
 
+- Cloudflare Workers
+- vinext
+- Render
+- PostgreSQL / Supabase PostgreSQL
 - GitHub
 - GitHub Actions
-- Pull-request based development
-- Protected main branch
-- Automated backend testing
-- Frontend production-build checks
 
-## School Roles
+## Deployment
 
-| Role | Purpose |
-|---|---|
-| `super_admin` | Platform-level administration and security control |
-| `school_admin` | School administration and user management |
-| `teacher` | Teaching and future academic workflows |
-| `student` | Student access and academic profile |
-| `parent` | Future parent portal and student monitoring |
-| `accountant` | Future financial and fee-management workflows |
-| `staff` | General school staff operations |
+### Frontend
 
-Administrative permissions are enforced through middleware and the current database role is checked on authenticated requests so role changes take effect immediately.
+The production frontend is prepared for deployment on Cloudflare Workers.
 
-## Authentication & Security
+Current Worker:
 
-The authentication foundation includes:
+    stonez-school-management
 
-- JWT access tokens
-- Refresh tokens
-- Refresh-token rotation
-- Refresh-token reuse protection
-- Active-account checks
-- Password hashing
-- Password change
-- Password reset
-- Logout
-- Logout from all sessions
-- Protected routes
-- Role-based authorization
-- Administrative permission checks
-- Audit logging for sensitive administrative actions
-- Environment-based secrets and database configuration
+Production URL:
 
-## Student Management
+    https://stonez-school-management.onojamondayojonugba.workers.dev/
 
-The current student management foundation supports:
+The frontend uses Cloudflare as the edge/web runtime and communicates with the Go API over HTTPS.
 
-- Student profiles
-- Unique admission numbers
-- Date of birth
-- Gender
-- Guardian information
-- Enrollment status
-- Student-to-user relationship
-- Create, read, update, and delete operations
-- Administrative student management endpoints
+### Backend
 
-Current student management provides the foundation for the next academic modules.
+The Go/Gin API is deployed separately on Render.
 
-## Administrative Dashboard
+Production API:
 
-The web dashboard currently provides the foundation for school administration.
+    https://stonez-digital-school-api.onrender.com
 
-Current areas include:
+The backend is responsible for:
 
-- Dashboard overview
-- Student statistics
-- User statistics
-- Active account statistics
-- Role distribution
-- Recent students
-- Student search
-- User and role management
-- Account activation/deactivation
-- Audit log viewing
-- Session expiry handling
-- Sign-out
+- Authentication
+- Authorization
+- RBAC
+- Business logic
+- Tenant isolation
+- Database access
+- Migrations
+- School and academic workflows
 
-The dashboard is currently being finalized and tested as the first major web administration release.
+### Database
 
-## API Endpoints
+Production database support is PostgreSQL.
 
-### Authentication
+Supabase PostgreSQL can be used as the managed PostgreSQL provider because the Go backend connects through a standard PostgreSQL connection string.
 
-- `POST /auth/register`
-- `POST /auth/login`
-- `POST /auth/refresh`
-- `POST /auth/logout`
-- `POST /auth/logout-all`
-- `POST /auth/change-password`
-- `POST /auth/forgot-password`
-- `POST /auth/reset-password`
+The frontend does **not** connect directly to PostgreSQL.
 
-### Current User
+## Database and Tenant Isolation
 
-- `GET /me`
-- `PUT /me`
-- `GET /sessions`
-- `DELETE /sessions/:id`
+The database layer has been expanded beyond a simple shared user table.
 
-### Administration
+Current production-oriented controls include:
 
-- `GET /admin/roles`
-- `GET /admin/audit-logs`
-- `POST /admin/users`
-- `GET /admin/users`
-- `GET /admin/users/:id`
-- `PUT /admin/users/:id/role`
-- `DELETE /admin/users/:id`
-- `POST /admin/users/:id/activate`
-- `POST /admin/users/:id/deactivate`
+- PostgreSQL migrations
+- UUID identifiers
+- School-scoped records
+- school_id tenant boundaries
+- Composite tenant-aware relationships
+- Tenant-scoped unique indexes
+- Controlled delete/update behavior
+- School-scoped audit records
+- Backend authorization checks
 
-### Students
+The objective is to ensure that a user operating inside one school cannot access another school's protected data through normal application requests.
 
-- `POST /admin/students`
-- `GET /admin/students`
-- `GET /admin/students/:id`
-- `PUT /admin/students/:id`
-- `DELETE /admin/students/:id`
+## Authentication Architecture
 
-## Database & Migrations
+Authentication remains owned by the Go backend.
 
-The application uses versioned database migrations rather than relying only on automatic schema creation.
+The platform does **not** currently depend on Supabase Auth.
 
-Development:
+    User
+      |
+    Next.js frontend
+      |
+    Go authentication API
+      |
+    JWT access/refresh session
+      |
+    RBAC + school tenant authorization
+      |
+    Protected application resources
 
-```env
-DB_DRIVER=sqlite
-DB_PATH=users.db
-```
+This keeps authentication, authorization, and school-tenant rules in one backend security boundary.
 
-Production:
+## Development Workflow
 
-```env
-DB_DRIVER=postgres
-DATABASE_URL=...
-```
+Development follows a pull-request based workflow:
 
-PostgreSQL can also be configured using:
+    Feature Branch
+          |
+    Implementation
+          |
+    Tests / Build
+          |
+    Pull Request
+          |
+    Code Review
+          |
+    CI Checks
+          |
+    Merge to main
+          |
+    Production Deployment
 
-```env
-DB_HOST=
-DB_PORT=5432
-DB_USER=
-DB_PASSWORD=
-DB_NAME=
-DB_SSLMODE=require
-```
+The main branch is intended to be protected. Direct production changes should go through pull requests and automated checks.
 
-Never commit production secrets to the repository.
+Recommended protection rules include:
+
+- Pull request required before merge
+- At least one approval
+- Required CI checks
+- Branch must be up to date before merge
+- Force pushes blocked
+- Branch deletion blocked
+
+## CI and Quality Controls
+
+The repository uses GitHub Actions for automated validation.
+
+Current checks include:
+
+- Go tests
+- Frontend checks
+- Production QA workflows
+- Frontend production builds
+- Cloudflare deployment validation
+
+Production changes should not be treated as complete until the relevant CI and deployment checks pass.
 
 ## Local Development
 
@@ -282,350 +468,181 @@ Install:
 
 From the project root:
 
-```bash
-go mod tidy
-go test ./...
-go run ./cmd/server
-```
+    go mod tidy
+    go test ./...
+    go run ./cmd/server
 
 The API runs on:
 
-```
-http://localhost:8080
-```
+    http://localhost:8080
 
 ### Frontend
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+    cd frontend
+    npm install
+    npm run dev
 
 The dashboard runs on:
 
-```
-http://localhost:3000
-```
+    http://localhost:3000
 
-### Windows One-Command Launcher
+### Windows launcher
 
-From the project root in PowerShell:
+From PowerShell:
 
-```powershell
-.\\start.ps1
-```
+    .\start.ps1
 
-This starts the local Go API and Next.js frontend with development configuration.
+## Current Release Readiness
 
-## Cloudflare Deployment
+The platform should currently be evaluated in four layers:
 
-The frontend is prepared for deployment to **Cloudflare Workers** using **vinext** for the current Next.js 16 stack.
+### 1. Product foundation — established
 
-### Current production architecture
+The major school-management domains and role model are established.
 
-```text
-Browser
-   ↓
-Cloudflare Worker
-   │  Next.js 16 + vinext
-   │
-   └── /backend/*
-          ↓
-      Go/Gin API
-          ↓
-      PostgreSQL
-```
+### 2. Architecture — production-oriented
 
-The Cloudflare Worker is **frontend/edge infrastructure only**. The Go/Gin API is deployed separately as a public HTTPS backend. The current production API origin is `https://stonez-digital-school-api.onrender.com`.
+Multi-tenancy, backend authorization, migrations, PostgreSQL support, Cloudflare frontend infrastructure, and a separate Go API are established.
 
-The frontend rewrite in `frontend/next.config.ts` maps `/backend/*` to `API_SERVER_URL/*`. Local development defaults to `http://localhost:8080`; production uses `API_SERVER_URL`.
+### 3. Production hardening — active
 
-### Cloudflare Worker
+Authentication, tenant isolation, deployment behavior, responsive UI, CI, QA, and operational monitoring are still being verified and refined.
 
-- Worker name: `stonez-school-management`
-- Configuration: `frontend/wrangler.jsonc`
-- Runtime entry: `vinext/server/fetch-handler`
-- Compatibility flag: `nodejs_compat`
-- Compatibility date: `2026-09-20`
-- Observability: enabled
-- Deployment: `npm run deploy`
+### 4. Commercial readiness — not yet complete
 
-From `frontend/`:
+Before broad market launch, the platform still needs controlled real-school pilots, deeper workflow validation, customer onboarding, subscription/billing strategy, support processes, stronger reporting, and continued security/performance testing.
 
-```bash
-npm install
-npm run build
-npm run build:vinext
-npm run cf-typegen
-npm run deploy
-```
+## Immediate Priorities
 
-Preview deployment:
+The next development cycle should focus on **stabilization rather than adding disconnected features**.
 
-```bash
-npm run preview
-```
+Priority order:
 
-### Automated deployment
+1. Protect main with GitHub branch rules.
+2. Complete production authentication QA for all supported roles.
+3. Verify school-admin tenant isolation with multiple schools.
+4. Verify student, teacher, parent and accountant workflows end-to-end.
+5. Verify production Cloudflare to Render API communication.
+6. Validate PostgreSQL migrations and production data integrity.
+7. Complete responsive UI QA across phone, tablet and desktop widths.
+8. Fix production defects discovered during pilot testing.
+9. Improve operational reporting and school administration workflows.
+10. Prepare a controlled pilot with a real school.
+11. Capture pilot feedback before broad commercial deployment.
 
-Production deployment is defined in `.github/workflows/cloudflare-deploy.yml`.
-
-A qualifying push to `main` runs the normal Next.js build, Cloudflare/vinext compatibility build, deployment configuration validation, Worker deployment, and Wrangler deployment verification.
-
-The workflow uses the `production` GitHub environment and a concurrency lock.
-
-Required production environment secrets/variables:
-
-- `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_ACCOUNT_ID`
-- `API_SERVER_URL`
-
-`CLOUDFLARE_WORKER_URL` is not currently required by the workflow; deployment verification is performed through Wrangler against `stonez-school-management`.
-
-### Cloudflare deployment boundary
-
-Cloudflare Workers host the Next.js frontend. They are not the Go/Gin hosting environment for this project. The backend requires a Go-compatible server runtime and PostgreSQL.
-
-The intended production separation is:
-
-```text
-Cloudflare Workers
-    = Next.js frontend / edge
-
-Render or another Go-compatible host
-    = Go/Gin API
-
-PostgreSQL / Supabase Postgres
-    = relational database
-```
-
-## Supabase / PostgreSQL
-
-The application currently uses **PostgreSQL as its production database layer**, with GORM and the project's versioned migration system. The repository does **not currently use the Supabase JavaScript client or Supabase Auth**.
-
-Supabase can be used as the managed PostgreSQL provider because the backend connects through a standard PostgreSQL `DATABASE_URL`.
-
-```text
-Cloudflare Worker
-       ↓
-Go/Gin API
-       ↓
-Supabase PostgreSQL
-```
-
-### Current database model
-
-- Local development: SQLite
-- Production: PostgreSQL
-- ORM: GORM
-- Identifiers: UUID
-- Application migrations: **20**
-- Tenant isolation: school-scoped data using `school_id`
-- PostgreSQL tenant integrity: composite foreign keys, tenant-scoped unique indexes, and controlled delete/update semantics
-- Audit records: school-scoped using `school_id`
-
-### Supabase configuration
-
-If Supabase is selected as the production PostgreSQL provider, configure the backend with the Supabase Postgres connection string:
-
-```env
-DB_DRIVER=postgres
-DATABASE_URL=...
-```
-
-Keep database credentials private. Never put the Supabase database password, service-role key, or other private credentials in frontend code or GitHub source.
-
-The Go API should be the only application layer connecting to PostgreSQL. The Cloudflare frontend communicates with the API and does not connect directly to the database.
-
-### Migrations and Supabase
-
-The Go application's migration system owns the database schema:
-
-```bash
-go test ./...
-go run ./cmd/server
-```
-
-When the API starts against PostgreSQL, pending application migrations are applied. The current schema includes the completed multi-school tenant boundary and audit-log isolation work.
-
-**Important:** Supabase is currently a **PostgreSQL hosting option**, not the application's authentication provider. Authentication remains implemented by the Go backend using JWT access/refresh tokens, RBAC, and session controls.
-
-### Production responsibility split
-
-| Component | Responsibility |
-|---|---|
-| Cloudflare Workers | Next.js frontend, edge delivery and frontend routing |
-| Go/Gin API | Authentication, RBAC, business logic and API |
-| Supabase PostgreSQL | Managed PostgreSQL database, if selected |
-| GitHub Actions | CI and Cloudflare deployment automation |
-
-This keeps database credentials and school-tenant authorization inside the backend while allowing Cloudflare to serve the web application globally.
-
-## Testing
-
-Run backend tests:
-
-```bash
-go test ./...
-```
-
-Run the frontend production build:
-
-```bash
-cd frontend
-npm run build
-```
-
-GitHub Actions runs automated checks for backend and frontend changes.
-
-## Current Development Roadmap
+## Product Roadmap
 
 ### Phase 1 — Platform Foundation
 
 - [x] Authentication
-- [x] JWT and refresh tokens
+- [x] JWT and refresh sessions
 - [x] RBAC
 - [x] Audit logging
-- [x] API validation
 - [x] Database migrations
 - [x] PostgreSQL support
 - [x] Student management foundation
 - [x] Administrative dashboard foundation
-- [ ] Finalize and merge the current dashboard release
-- [ ] Complete frontend automated checks
 
-### Phase 2 — Academic Management
+### Phase 2 — Academic Engine
 
-The next major product phase is the academic engine:
+- [x] Academic sessions and terms
+- [x] Classes and sections
+- [x] Subjects
+- [x] Student enrollment
+- [x] Teacher assignment
+- [x] Assessments
+- [x] Results
+- [x] Report cards
+- [x] Academic tenant isolation
 
-1. Academic sessions and terms
-2. Classes and sections
-3. Subjects
-4. Teacher assignments
-5. Student enrollment
-6. Attendance
-7. Assessments and examinations
-8. Scores and grading
-9. Results processing
-10. Automated report cards
+### Phase 3 — Teacher Operations
 
-### Phase 3 — School Operations
+- [x] Teacher academic workspace
+- [x] Teacher operational workflows
+- [x] Teacher-facing academic UI
 
-- Fees and payment tracking
-- Receipts
-- Timetable management
-- Notifications
-- School announcements
-- Parent portal
-- Teacher workflows
-- Student portal
-- Administrative reporting
+### Phase 4 — School Operations
 
-### Phase 4 — Commercial Product
+- [x] Finance administration foundation
+- [x] Parent portal
+- [x] Student portal
+- [x] Communication center
+- [x] Platform operations monitoring
+- [x] School self-onboarding and platform approval
 
-Once the core platform is stable:
+### Phase 5 — Production Hardening
 
-- Pilot with selected schools
-- Collect operational feedback
-- Improve onboarding
-- Define subscription/pricing plans
-- Build product demonstrations
-- Establish customer support workflows
-- Prepare production deployment
-- Expand to additional schools
+- [x] Production authentication stabilization
+- [x] Authenticated profile response contract
+- [x] Responsive mobile/tablet UI
+- [x] Cloudflare frontend deployment
+- [x] Render Go API deployment
+- [x] PostgreSQL production path
+- [ ] Complete role-by-role production QA
+- [ ] Complete multi-school isolation QA
+- [ ] Complete pilot readiness review
 
-## Business Direction
+### Phase 6 — Commercial Expansion
 
-The platform is being developed with a commercial product mindset.
-
-Instead of selling isolated software development work, Stonez Digital can use this platform as a reusable **School Management SaaS product** that can be configured and deployed for different schools.
-
-The business model can eventually support:
-
-- School subscription plans
-- Institution-based pricing
-- Optional premium modules
-- Implementation/onboarding services
-- Custom integrations
-- Support and maintenance packages
-
-The immediate priority remains product quality: build the core workflows, test them with real school operations, and refine the platform before broad market deployment.
+- [ ] Real-school pilot
+- [ ] Customer onboarding workflow
+- [ ] Subscription/billing
+- [ ] Advanced reporting
+- [ ] Support and maintenance processes
+- [ ] Product analytics
+- [ ] Broader commercial rollout
 
 ## Project Structure
 
-```
-user-management-app/
-├── cmd/
-│   └── server/
-│       └── main.go
-├── internal/
-│   ├── auth/
-│   ├── authz/
-│   ├── controller/
-│   ├── database/
-│   ├── httpx/
-│   ├── middleware/
-│   ├── models/
-│   ├── repository/
-│   └── service/
-├── migrations/
-├── frontend/
-│   └── app/
-├── scripts/
-│   ├── dev.ps1
-│   └── ...
-├── .github/
-│   └── workflows/
-├── start.ps1
-├── go.mod
-├── go.sum
-└── README.md
-```
-
-## Development Workflow
-
-Development follows a pull-request based workflow:
-
-```
-Feature Branch
-      ↓
-Implementation
-      ↓
-Tests / Build
-      ↓
-Pull Request
-      ↓
-Code Review
-      ↓
-CI Checks
-      ↓
-Merge to main
-```
-
-The `main` branch is protected, and feature work should be developed through dedicated branches and pull requests.
+    user-management-app/
+    ├── cmd/
+    │   └── server/
+    ├── internal/
+    │   ├── auth/
+    │   ├── authz/
+    │   ├── controller/
+    │   ├── database/
+    │   ├── httpx/
+    │   ├── middleware/
+    │   ├── models/
+    │   ├── repository/
+    │   └── service/
+    ├── migrations/
+    ├── frontend/
+    ├── scripts/
+    ├── .github/
+    │   └── workflows/
+    ├── start.ps1
+    ├── go.mod
+    ├── go.sum
+    └── README.md
 
 ## Project Status
 
-**Status: Active development**
+**Status: Active development — production hardening and pilot preparation**
 
-The system currently has a strong backend and administration foundation. The first web dashboard release is being finalized, after which development will move into the academic management engine.
+The project has progressed from a user-management backend into a substantial multi-tenant school-management platform.
 
-The immediate objective is to transform the current foundation into a usable school platform that can support a pilot institution and provide a solid base for commercial expansion.
+The major product domains are now represented in the codebase. The current challenge is **not simply adding more modules**; it is making the existing modules reliable enough to operate together in a real school environment.
+
+The immediate product goal is therefore:
+
+> **Stabilize → verify → pilot → learn → harden → commercialize.**
 
 ## Roadmap Summary
 
-```
-Authentication & Security       ██████████  Complete
-RBAC & Administration           ██████████  Complete
-Audit & Validation              ██████████  Complete
-Database & PostgreSQL            ██████████  Complete
-Student Management              █████████░  Foundation complete
-Admin Dashboard                 ████████░░  In progress
-Academic Management             ██░░░░░░░░  Next
-School Operations               ░░░░░░░░░░  Planned
-Commercial SaaS                 ░░░░░░░░░░  Planned
-```
+    Platform Administration       ██████████  Established
+    Multi-Tenant Architecture     ██████████  Established
+    Authentication & Security     ██████████  Established
+    Academic Management            ██████████  Established
+    Teacher Workflows              ██████████  Established
+    Finance Foundation             █████████░  Established
+    Parent & Student Portals       █████████░  Established
+    Communication Center           █████████░  Established
+    Production Infrastructure      █████████░  Established
+    Production QA / Hardening      ██████░░░░  In progress
+    Real-School Pilot              ██░░░░░░░░  Next
+    Commercial SaaS                ░░░░░░░░░░  Future
 
 ## Author
 

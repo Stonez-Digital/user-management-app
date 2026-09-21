@@ -9,6 +9,7 @@ import (
     "github.com/onoja217/users-management-app/internal/authz"
 	"github.com/onoja217/users-management-app/internal/httpx"
 	"github.com/onoja217/users-management-app/internal/middleware"
+    "github.com/onoja217/users-management-app/internal/models"
 	"github.com/onoja217/users-management-app/internal/service"
 	"gorm.io/gorm"
 )

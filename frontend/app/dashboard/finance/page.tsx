@@ -1,1 +1,56 @@
-"use client";import{useEffect,useState}from"react";import Link from"next/link";async function api(path:string,o:RequestInit={}){const t=localStorage.getItem("access_token");const r=await fetch("/backend"+path,{...o,headers:{...o.headers,Authorization:"Bearer "+t,"Content-Type":"application/json"}});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d?.error?.message||"Request failed");return d}const arr=(d:any,k:string)=>Array.isArray(d)?d:d?.[k]||d?.data||[];export default function Finance(){const[f,setF]=useState<any[]>([]),[i,setI]=useState<any[]>([]),[e,setE]=useState("");async function load(){try{const[a,b]=await Promise.all([api("/admin/fees"),api("/admin/invoices")]);setF(arr(a,"fees"));setI(arr(b,"invoices"))}catch(x:any){setE(x.message)}}useEffect(()=>{load()},[]);return <div className="content standalone"><Link className="back"href="/dashboard/operations">← Operations</Link><header className="topbar"><div><p className="eyebrow">FINANCE</p><h1>Fees & payments</h1><p className="muted">Monitor fee items, invoices and balances.</p></div></header>{e&&<div className="error banner">{e}</div>}<section className="panel"><div className="panel-head"><div><h2>Fee items</h2><p>Term-scoped school charges.</p></div></div><Table rows={f}cols={["name","amount","term_id"]}/></section><section className="panel"><div className="panel-head"><div><h2>Invoices</h2><p>Student billing and outstanding balances.</p></div></div><Table rows={i}cols={["invoice_number","total","paid_amount","balance","status"]}/></section></div>}function Table({rows,cols}:{rows:any[];cols:string[]}){return <div className="table-wrap"><table><thead><tr>{cols.map(c=><th key={c}>{c}</th>)}</tr></thead><tbody>{rows.map(x=><tr key={x.id}>{cols.map(c=><td key={c}>{String(x[c]??"—")}</td>)}</tr>)}</tbody></table>{!rows.length&&<div className="empty">No records.</div>}</div>}
+"use client";
+
+import {useEffect,useMemo,useState} from "react";
+import Link from "next/link";
+
+type RecordItem=Record<string,any>;
+async function api(path:string,options:RequestInit={}){const token=localStorage.getItem("access_token");const r=await fetch("/backend"+path,{...options,headers:{...options.headers,Authorization:"Bearer "+token,"Content-Type":"application/json"}});const d=await r.json().catch(()=>({}));if(r.status===401)throw Error("Session expired");if(!r.ok)throw Error(d?.error?.message||"Request failed");return d}
+const arr=(d:any,key:string)=>Array.isArray(d)?d:d?.[key]||d?.data||[];
+
+export default function Finance(){
+ const[fees,setFees]=useState<RecordItem[]>([]),[invoices,setInvoices]=useState<RecordItem[]>([]),[terms,setTerms]=useState<RecordItem[]>([]),[enrollments,setEnrollments]=useState<RecordItem[]>([]),[error,setError]=useState(""),[busy,setBusy]=useState(false);
+ const[fee,setFee]=useState({term_id:"",name:"",description:"",amount:""});
+ const[invoice,setInvoice]=useState({student_enrollment_id:"",term_id:"",due_date:"",description:"",quantity:"1",unit_amount:""});
+ const[payment,setPayment]=useState({invoice_id:"",amount:"",provider:"manual",reference:""});
+ const selectedInvoice=useMemo(()=>invoices.find(x=>x.id===payment.invoice_id),[invoices,payment.invoice_id]);
+
+ async function load(){
+  try{setError("");const[f,i,e,sessions]=await Promise.all([api("/admin/fees"),api("/admin/invoices"),api("/admin/enrollments"),api("/admin/academic-sessions")]);setFees(arr(f,"fees"));setInvoices(arr(i,"invoices"));setEnrollments(arr(e,"enrollments"));const loaded:RecordItem[]=[];for(const s of arr(sessions,"sessions")){const t=await api("/admin/academic-sessions/"+s.id+"/terms");loaded.push(...arr(t,"terms"))}setTerms(loaded);if(!fee.term_id&&loaded[0])setFee(x=>({...x,term_id:loaded[0].id}));if(!invoice.term_id&&loaded[0])setInvoice(x=>({...x,term_id:loaded[0].id}))}catch(x:any){setError(x.message||"Unable to load finance data")}
+ }
+ useEffect(()=>{load()},[]);
+ async function submit(path:string,body:any,reset:()=>void){setBusy(true);setError("");try{await api(path,{method:"POST",body:JSON.stringify(body)});reset();await load()}catch(x:any){setError(x.message||"Finance operation failed")}finally{setBusy(false)}}
+
+ return <div className="content standalone"><Link className="back"href="/dashboard/operations">← Operations</Link>
+ <header className="topbar"><div><p className="eyebrow">FINANCE ADMINISTRATION</p><h1>Fees, invoices & payments</h1><p className="muted">Manage school-scoped charges, student billing and payment records.</p></div></header>
+ {error&&<div className="error banner">{error}</div>}
+ <section className="stats"><Stat label="Fee items" value={fees.length} detail="Configured charges"/><Stat label="Invoices" value={invoices.length} detail="Student billing"/><Stat label="Outstanding" value={invoices.reduce((n,x)=>n+Number(x.balance||0),0).toFixed(2)} detail="Current balance"/><Stat label="Paid invoices" value={invoices.filter(x=>x.status==="paid").length} detail="Fully settled"/></section>
+ <section className="grid-2">
+  <Panel title="Create fee item" text="Charges are isolated to the selected academic term and school."><div className="form-grid">
+   <label>Term<select value={fee.term_id}onChange={e=>setFee({...fee,term_id:e.target.value})}><option value="">Select term</option>{terms.map(t=><option key={t.id}value={t.id}>{t.name}</option>)}</select></label>
+   <label>Name<input value={fee.name}onChange={e=>setFee({...fee,name:e.target.value})}placeholder="Tuition"/></label>
+   <label>Amount<input type="number"min="0"step="0.01"value={fee.amount}onChange={e=>setFee({...fee,amount:e.target.value})}placeholder="50000"/></label>
+   <label>Description<input value={fee.description}onChange={e=>setFee({...fee,description:e.target.value})}placeholder="Term tuition"/></label>
+   <div className="form-action"><button disabled={busy||!fee.term_id||!fee.name||!fee.amount}onClick={()=>submit("/admin/terms/"+fee.term_id+"/fees",{name:fee.name,description:fee.description,amount:Number(fee.amount),active:true},()=>setFee({...fee,name:"",description:"",amount:""}))}>{busy?"Saving...":"Create fee"}</button></div>
+  </div></Panel>
+  <Panel title="Create invoice" text="Invoice an active student enrollment using a selected term."><div className="form-grid">
+   <label>Student enrollment<select value={invoice.student_enrollment_id}onChange={e=>setInvoice({...invoice,student_enrollment_id:e.target.value})}><option value="">Select enrollment</option>{enrollments.map(x=><option key={x.id}value={x.id}>{x.student?.first_name||x.student?.user?.first_name||x.student_id||x.id}</option>)}</select></label>
+   <label>Term<select value={invoice.term_id}onChange={e=>setInvoice({...invoice,term_id:e.target.value})}><option value="">Select term</option>{terms.map(t=><option key={t.id}value={t.id}>{t.name}</option>)}</select></label>
+   <label>Due date<input type="date"value={invoice.due_date}onChange={e=>setInvoice({...invoice,due_date:e.target.value})}/></label>
+   <label>Description<input value={invoice.description}onChange={e=>setInvoice({...invoice,description:e.target.value})}placeholder="Tuition"/></label>
+   <label>Quantity<input type="number"min="0.01"step="0.01"value={invoice.quantity}onChange={e=>setInvoice({...invoice,quantity:e.target.value})}/></label>
+   <label>Unit amount<input type="number"min="0.01"step="0.01"value={invoice.unit_amount}onChange={e=>setInvoice({...invoice,unit_amount:e.target.value})}/></label>
+   <div className="form-action"><button disabled={busy||!invoice.student_enrollment_id||!invoice.term_id||!invoice.due_date||!invoice.description||!invoice.unit_amount}onClick={()=>submit("/admin/invoices",{student_enrollment_id:invoice.student_enrollment_id,term_id:invoice.term_id,due_date:invoice.due_date,lines:[{description:invoice.description,quantity:Number(invoice.quantity),unit_amount:Number(invoice.unit_amount)}]},()=>setInvoice({...invoice,student_enrollment_id:"",due_date:"",description:"",quantity:"1",unit_amount:""}))}>{busy?"Saving...":"Create invoice"}</button></div>
+  </div></Panel>
+ </section>
+ <section className="panel"><div className="panel-head"><div><h2>Record payment</h2><p>Payments are validated against the invoice balance and remain school-scoped.</p></div></div><div className="form-grid">
+  <label>Invoice<select value={payment.invoice_id}onChange={e=>{const id=e.target.value;const inv=invoices.find(x=>x.id===id);setPayment({...payment,invoice_id:id,amount:inv?.balance?String(inv.balance):""})}}><option value="">Select invoice</option>{invoices.filter(x=>Number(x.balance||0)>0).map(x=><option key={x.id}value={x.id}>{x.invoice_number||x.id} — balance {x.balance}</option>)}</select></label>
+  <label>Amount<input type="number"min="0.01"step="0.01"value={payment.amount}onChange={e=>setPayment({...payment,amount:e.target.value})}/></label><label>Provider<input value={payment.provider}onChange={e=>setPayment({...payment,provider:e.target.value})}/></label><label>Reference<input value={payment.reference}onChange={e=>setPayment({...payment,reference:e.target.value})}placeholder="Receipt/reference"/></label>
+  <div className="form-action"><button disabled={busy||!payment.invoice_id||!payment.amount||!payment.reference}onClick={()=>submit("/admin/invoices/"+payment.invoice_id+"/payments",{amount:Number(payment.amount),provider:payment.provider,reference:payment.reference,status:"succeeded"},()=>setPayment({invoice_id:"",amount:"",provider:"manual",reference:""}))}>{busy?"Saving...":"Record payment"}</button></div>
+ </div>{selectedInvoice&&<div className="empty">Selected invoice balance: {selectedInvoice.balance}</div>}</section>
+ <section className="panel"><div className="panel-head"><div><h2>Fee items</h2><p>Term-scoped school charges.</p></div></div><Table rows={fees}cols={["name","amount","term_id","active"]}/></section>
+ <section className="panel"><div className="panel-head"><div><h2>Invoices</h2><p>Student billing and outstanding balances.</p></div></div><Table rows={invoices}cols={["invoice_number","total_amount","paid_amount","balance","status"]}/></section>
+ </div>
+}
+function Stat({label,value,detail}:{label:string;value:string|number;detail:string}){return <div className="stat"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>}
+function Panel(p:{title:string;text:string;children:React.ReactNode}){return <section className="panel"><div className="panel-head"><div><h2>{p.title}</h2><p>{p.text}</p></div></div>{p.children}</section>}
+function Table({rows,cols}:{rows:RecordItem[];cols:string[]}){return <div className="table-wrap"><table><thead><tr>{cols.map(c=><th key={c}>{c}</th>)}</tr></thead><tbody>{rows.map(x=><tr key={x.id}>{cols.map(c=><td key={c}>{String(x[c]??"—")}</td>)}</tr>)}</tbody></table>{!rows.length&&<div className="empty">No records.</div>}</div>}

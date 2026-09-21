@@ -2,13 +2,13 @@
 
 A full-stack school management platform being developed by **Stonez Digital** to help schools centralize administration, student records, academic operations, and communication in one system.
 
-The project started as a Go-based user management API and has evolved into the foundation of a **market-ready School Management SaaS platform**. The current release combines a secure backend with an administrative web dashboard, while the next development phase focuses on the academic and operational workflows schools use every day.
+The project started as a Go-based user management API and has evolved into a **multi-school School Management SaaS platform**. The current release includes administration, academic operations, finance, teacher workflows, parent and student portals, and school communication, with production hardening now underway.
 
 ## Current Product Level
 
-**Current stage: School Management MVP — Foundation & Administration**
+**Current stage: Phase 4E — Production QA & Release Hardening**
 
-The platform has moved beyond basic user CRUD and now includes the core security, administration, student management, database, and dashboard foundations required for a real school management product.
+The platform has moved beyond basic user CRUD and now includes multi-school tenant isolation, academic operations, finance, teacher workflows, parent/student portals, communication, PostgreSQL integrity controls, and Cloudflare/Go production deployment infrastructure.
 
 ### Current capabilities
 

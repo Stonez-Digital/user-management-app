@@ -441,16 +441,4 @@ func Migrate(db *gorm.DB) error {
             return nil
         }},
 
-        {Version:23,Name:"bulk_school_import_jobs",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.BulkImportJob{})}},
-    }
-    for _,migration:=range migrations{
-        var applied Migration
-        result:=db.Where("version = ?",migration.Version).First(&applied)
-        if result.Error==nil{continue}
-        if result.Error!=gorm.ErrRecordNotFound{return fmt.Errorf("check migration %d: %w",migration.Version,result.Error)}
-        if err:=db.Transaction(func(tx *gorm.DB) error{if err:=migration.Up(tx);err!=nil{return err};return tx.Create(&Migration{Version:migration.Version,Name:migration.Name}).Error});err!=nil{return fmt.Errorf("apply migration %d (%s): %w",migration.Version,migration.Name,err)}
-    }
-    return nil
-}
-type Migration struct{Version int `gorm:"primaryKey"`;Name string `gorm:"not null;uniqueIndex"`}
-type MigrationStep struct{Version int;Name string;Up func(*gorm.DB) error}
+        {Version:23,Name:"bulk_school_import_jobs",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.BulkImportJob{},&models.TeacherProfile{},&models.ParentProfile{})}},

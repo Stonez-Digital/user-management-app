@@ -27,7 +27,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run production acceptance
-        run: node scripts/production-acceptance.mjs | tee production-acceptance-result.json
+        shell: bash
+        run: |
+          set -o pipefail
+          node scripts/production-acceptance.mjs | tee production-acceptance-result.json
 
       - name: Upload private acceptance result
         if: always()

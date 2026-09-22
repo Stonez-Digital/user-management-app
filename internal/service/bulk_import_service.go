@@ -86,6 +86,8 @@ func(s *BulkImportService)Create(schoolID,actor uuid.UUID,kind,filename string,r
  rb,_:=json.Marshal(rows);eb,_:=json.Marshal(errs);j:=models.BulkImportJob{SchoolID:schoolID,InitiatedBy:actor,Kind:kind,FileName:filename,Status:models.BulkImportPending,Total:len(rows),Valid:valid,RowsJSON:string(rb),ErrorsJSON:string(eb)};if e:=s.db.Create(&j).Error;e!=nil{return BulkImportPreview{},e}
  preview:=rows;if len(preview)>10{preview=preview[:10]};return BulkImportPreview{Job:j,Preview:preview,Errors:errs},nil
 }
+func(s *BulkImportService)ResumePending(){var jobs []models.BulkImportJob;if s.db.Where("status IN ?",[]string{models.BulkImportQueued,models.BulkImportRunning}).Find(&jobs).Error!=nil{return};for _,j:=range jobs{j.Status=models.BulkImportQueued;s.db.Model(&j).Update("status",j.Status);go s.run(j)}}
+
 func(s *BulkImportService)Start(schoolID,actor,jobID uuid.UUID)error{var j models.BulkImportJob;if e:=s.db.Where("id=? AND school_id=? AND initiated_by=?",jobID,schoolID,actor).First(&j).Error;e!=nil{return e};if j.Status!=models.BulkImportPending{return errors.New("import job is not pending")};j.Status=models.BulkImportQueued;if e:=s.db.Save(&j).Error;e!=nil{return e};go s.run(j);return nil}
 func(s *BulkImportService)run(j models.BulkImportJob){s.mu.Lock();defer s.mu.Unlock();var rows []BulkRow;if json.Unmarshal([]byte(j.RowsJSON),&rows)!=nil{s.fail(j.ID,"invalid stored import payload");return};j.Status=models.BulkImportRunning;s.db.Model(&j).Updates(map[string]any{"status":j.Status})
  var errs []BulkError;_ = json.Unmarshal([]byte(j.ErrorsJSON),&errs)

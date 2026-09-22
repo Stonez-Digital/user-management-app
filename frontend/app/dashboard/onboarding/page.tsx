@@ -57,29 +57,35 @@ export default function OnboardingPage() {
       setError("Admission number is required before creating a student account.");
       return;
     }
+    if (role === "parent" && studentId && !relationship.trim()) {
+      setError("Relationship is required when linking a parent to a student.");
+      return;
+    }
     setBusy(true); setError(""); setMessage("");
     try {
-      const user = await api("/admin/users", {
+      const result = await api("/admin/onboarding/people", {
         method: "POST",
-        body: JSON.stringify({ name: name.trim(), email: email.trim(), password, role }),
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim(),
+          password,
+          role,
+          admission_number: admission.trim() || undefined,
+          enrollment_status: role === "student" ? "active" : undefined,
+          student_id: role === "parent" && studentId ? studentId : undefined,
+          relationship: role === "parent" && studentId ? relationship.trim() : undefined,
+          primary: role === "parent" && Boolean(studentId),
+        }),
       });
-      const created = user?.id ? user : user?.user;
       if (role === "student") {
-        if (!admission.trim()) throw new Error("Student account created, but admission number is required to create the student profile.");
-        const student = await api("/admin/students", {
-          method: "POST",
-          body: JSON.stringify({ user_id: created.id, admission_number: admission.trim(), enrollment_status: "active" }),
-        });
-        setMessage("Student account and profile created. Continue to Enrollment to place the student in a class/section.");
+        setMessage("Student account and profile created atomically. Continue to Enrollment to place the student in a class/section.");
         await loadStudents();
       } else if (role === "parent" && studentId) {
-        await api("/admin/guardian-links", {
-          method: "POST",
-          body: JSON.stringify({ guardian_user_id: created.id, student_id: studentId, relationship, primary: true }),
-        });
-        setMessage("Parent account and student link created.");
+        setMessage("Parent account and student link created atomically.");
       } else {
-        setMessage(role === "teacher" ? "Teacher account created. Continue to Teacher Assignments to allocate teaching responsibilities." : "Account created successfully.");
+        setMessage(role === "teacher"
+          ? "Teacher account created. Continue to Teacher Assignments to allocate teaching responsibilities."
+          : "Account created successfully.");
       }
       reset();
     } catch (e) {

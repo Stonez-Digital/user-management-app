@@ -130,3 +130,92 @@ func TestEnrollmentReenrollmentRequiresNonActiveSource(t *testing.T) {
 	target,err:=svc.Place(schoolID,source.ID,EnrollmentPlacementRequest{TargetSessionID:session2.ID,TargetClassID:class.ID,TargetSectionID:sec.ID,Operation:"reenroll"});if err!=nil{t.Fatal(err)}
 	if target.Status!=models.EnrollmentStatusActive||target.AcademicSessionID!=session2.ID{t.Fatalf("unexpected reenrollment: %#v",target)}
 }
+
+
+func TestEnrollmentPromotionRollsBackTargetWhenSourceCompletionFails(t *testing.T) {
+	db := enrollmentTestDB(t)
+	schoolID := uuid.New()
+	user := models.User{SchoolID: &schoolID, Name: "Rollback Student", Email: "rollback-"+schoolID.String()+"@example.com", Role: "student", Active: true}
+	if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
+	student := models.Student{SchoolID: schoolID, UserID: user.ID, AdmissionNumber: "RB-001"}
+	if err := db.Create(&student).Error; err != nil { t.Fatal(err) }
+	session1 := models.AcademicSession{SchoolID: schoolID, Name: "2034/2035"}
+	session2 := models.AcademicSession{SchoolID: schoolID, Name: "2035/2036"}
+	if err := db.Create(&session1).Error; err != nil { t.Fatal(err) }
+	if err := db.Create(&session2).Error; err != nil { t.Fatal(err) }
+	class1 := models.SchoolClass{SchoolID: schoolID, Name: "JSS 1", Level: 1}
+	class2 := models.SchoolClass{SchoolID: schoolID, Name: "JSS 2", Level: 2}
+	if err := db.Create(&class1).Error; err != nil { t.Fatal(err) }
+	if err := db.Create(&class2).Error; err != nil { t.Fatal(err) }
+	sec1 := models.Section{SchoolID: schoolID, ClassID: class1.ID, Name: "A"}
+	sec2 := models.Section{SchoolID: schoolID, ClassID: class2.ID, Name: "A"}
+	if err := db.Create(&sec1).Error; err != nil { t.Fatal(err) }
+	if err := db.Create(&sec2).Error; err != nil { t.Fatal(err) }
+
+	if err := db.Exec(`CREATE TRIGGER fail_student_completion BEFORE UPDATE OF status ON student_enrollments
+		WHEN NEW.status = 'completed'
+		BEGIN SELECT RAISE(ABORT, 'forced completion failure'); END;`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewEnrollmentService(repository.NewEnrollmentRepository(db), db)
+	source, err := svc.Create(schoolID, models.StudentEnrollment{StudentID: student.ID, AcademicSessionID: session1.ID, ClassID: class1.ID, SectionID: sec1.ID})
+	if err != nil { t.Fatal(err) }
+
+	if _, err := svc.Place(schoolID, source.ID, EnrollmentPlacementRequest{
+		TargetSessionID: session2.ID, TargetClassID: class2.ID, TargetSectionID: sec2.ID, Operation: "promote",
+	}); err == nil {
+		t.Fatal("expected promotion failure")
+	}
+
+	updated, err := svc.Get(schoolID, source.ID)
+	if err != nil { t.Fatal(err) }
+	if updated.Status != models.EnrollmentStatusActive {
+		t.Fatalf("expected source enrollment to remain active after rollback, got %s", updated.Status)
+	}
+
+	var targetCount int64
+	if err := db.Model(&models.StudentEnrollment{}).
+		Where("school_id = ? AND student_id = ? AND academic_session_id = ?", schoolID, student.ID, session2.ID).
+		Count(&targetCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if targetCount != 0 {
+		t.Fatalf("expected target enrollment to be rolled back, found %d", targetCount)
+	}
+}
+
+func TestEnrollmentPromotionRejectsCrossSchoolTarget(t *testing.T) {
+	db := enrollmentTestDB(t)
+	schoolID := uuid.New()
+	otherSchoolID := uuid.New()
+	user := models.User{SchoolID: &schoolID, Name: "Cross School Student", Email: "cross-"+schoolID.String()+"@example.com", Role: "student", Active: true}
+	if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
+	student := models.Student{SchoolID: schoolID, UserID: user.ID, AdmissionNumber: "CROSS-001"}
+	if err := db.Create(&student).Error; err != nil { t.Fatal(err) }
+
+	session1 := models.AcademicSession{SchoolID: schoolID, Name: "2036/2037"}
+	if err := db.Create(&session1).Error; err != nil { t.Fatal(err) }
+	class1 := models.SchoolClass{SchoolID: schoolID, Name: "JSS 1", Level: 1}
+	if err := db.Create(&class1).Error; err != nil { t.Fatal(err) }
+	sec1 := models.Section{SchoolID: schoolID, ClassID: class1.ID, Name: "A"}
+	if err := db.Create(&sec1).Error; err != nil { t.Fatal(err) }
+
+	otherSession := models.AcademicSession{SchoolID: otherSchoolID, Name: "2037/2038"}
+	if err := db.Create(&otherSession).Error; err != nil { t.Fatal(err) }
+	otherClass := models.SchoolClass{SchoolID: otherSchoolID, Name: "JSS 2", Level: 2}
+	if err := db.Create(&otherClass).Error; err != nil { t.Fatal(err) }
+	otherSection := models.Section{SchoolID: otherSchoolID, ClassID: otherClass.ID, Name: "A"}
+	if err := db.Create(&otherSection).Error; err != nil { t.Fatal(err) }
+
+	svc := NewEnrollmentService(repository.NewEnrollmentRepository(db), db)
+	source, err := svc.Create(schoolID, models.StudentEnrollment{StudentID: student.ID, AcademicSessionID: session1.ID, ClassID: class1.ID, SectionID: sec1.ID})
+	if err != nil { t.Fatal(err) }
+
+	_, err = svc.Place(schoolID, source.ID, EnrollmentPlacementRequest{
+		TargetSessionID: otherSession.ID, TargetClassID: otherClass.ID, TargetSectionID: otherSection.ID, Operation: "promote",
+	})
+	if err != ErrEnrollmentSessionMissing {
+		t.Fatalf("expected cross-school session rejection, got %v", err)
+	}
+}

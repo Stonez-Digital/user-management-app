@@ -151,3 +151,41 @@ func TestFinanceFeeMutationCannotCrossSchool(t *testing.T) {
     if err := svc.DeleteFee(schoolB, fee.ID); err != ErrFeeNotFound { t.Fatalf("expected cross-school delete to be blocked, got %v", err) }
     if _, err := svc.GetFee(schoolA, fee.ID); err != nil { t.Fatal(err) }
 }
+
+
+func TestOverlappingSessionsRejected(t *testing.T) {
+    s := academicTestService(t)
+    schoolID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+    start := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+    end := time.Date(2027, 7, 31, 0, 0, 0, 0, time.UTC)
+    if _, err := s.CreateSession(schoolID, models.AcademicSession{Name: "2026/2027", StartDate: start, EndDate: end}); err != nil { t.Fatal(err) }
+    _, err := s.CreateSession(schoolID, models.AcademicSession{Name: "2026/2027-alt", StartDate: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), EndDate: time.Date(2027, 8, 31, 0, 0, 0, 0, time.UTC)})
+    if err != ErrAcademicOverlap { t.Fatalf("expected overlapping session rejection, got %v", err) }
+}
+
+func TestActiveTermRequiresActiveSession(t *testing.T) {
+    s := academicTestService(t)
+    schoolID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+    start := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+    end := time.Date(2027, 7, 31, 0, 0, 0, 0, time.UTC)
+    session, err := s.CreateSession(schoolID, models.AcademicSession{Name: "2026/2027", StartDate: start, EndDate: end})
+    if err != nil { t.Fatal(err) }
+    _, err = s.CreateTerm(schoolID, models.Term{AcademicSessionID: session.ID, Name: models.TermFirst, StartDate: start, EndDate: time.Date(2026, 12, 20, 0, 0, 0, 0, time.UTC), Status: models.AcademicStatusActive})
+    if err != ErrAcademicSessionInactive { t.Fatalf("expected inactive-session rejection, got %v", err) }
+}
+
+func TestClosingSessionClosesItsActiveTerm(t *testing.T) {
+    s := academicTestService(t)
+    schoolID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+    start := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+    end := time.Date(2027, 7, 31, 0, 0, 0, 0, time.UTC)
+    session, err := s.CreateSession(schoolID, models.AcademicSession{Name: "2026/2027", StartDate: start, EndDate: end, Status: models.AcademicStatusActive})
+    if err != nil { t.Fatal(err) }
+    term, err := s.CreateTerm(schoolID, models.Term{AcademicSessionID: session.ID, Name: models.TermFirst, StartDate: start, EndDate: time.Date(2026, 12, 20, 0, 0, 0, 0, time.UTC), Status: models.AcademicStatusActive})
+    if err != nil { t.Fatal(err) }
+    session.Status = models.AcademicStatusClosed
+    if err := s.UpdateSession(schoolID, session); err != nil { t.Fatal(err) }
+    updated, err := s.GetTerm(schoolID, term.ID)
+    if err != nil { t.Fatal(err) }
+    if updated.Status == models.AcademicStatusActive { t.Fatal("expected active term to close with its session") }
+}

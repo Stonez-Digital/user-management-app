@@ -6,7 +6,10 @@ import { normalizeAuthUser } from "../../lib/auth-session";
 
 type User={id:string;name:string;email:string;role:string;active:boolean};
 type School={id:string;name:string;code:string;status:string;user_count:number};
-type Student={id:string;admission_number:string;gender:string;enrollment_status:string;user?:{name:string;email:string}};\ntype AcademicSession={id:string;name:string;status:string};\ntype ClassRecord={id:string;name:string;level:number};\ntype Subject={id:string;code:string;name:string;active:boolean};
+type Student={id:string;admission_number:string;gender:string;enrollment_status:string;user?:{name:string;email:string}};
+type AcademicSession={id:string;name:string;status:string};
+type ClassRecord={id:string;name:string;level:number};
+type Subject={id:string;code:string;name:string;active:boolean};
 type Monitoring={database:{status:string};schools:{total:number;pending:number;active:number;suspended:number};users:number;activity:{action:string;resource:string;created_at:string}[];checked_at:string};
 
 async function api(path:string){
@@ -23,7 +26,10 @@ export default function Dashboard(){
  const[schools,setSchools]=useState<School[]>([]);
  const[me,setMe]=useState<User|null>(null);
  const[school,setSchool]=useState<School|null>(null);
- const[monitoring,setMonitoring]=useState<Monitoring|null>(null);\n const[sessions,setSessions]=useState<AcademicSession[]>([]);\n const[classes,setClasses]=useState<ClassRecord[]>([]);\n const[subjects,setSubjects]=useState<Subject[]>([]);
+ const[monitoring,setMonitoring]=useState<Monitoring|null>(null);
+ const[sessions,setSessions]=useState<AcademicSession[]>([]);
+ const[classes,setClasses]=useState<ClassRecord[]>([]);
+ const[subjects,setSubjects]=useState<Subject[]>([]);
  const[error,setError]=useState("");
  const[loading,setLoading]=useState(true);
  const[lastUpdated,setLastUpdated]=useState<Date|null>(null);
@@ -46,7 +52,10 @@ export default function Dashboard(){
    setSchool(s);
    const [u,st,ac,cl,su]=await Promise.all([api("/admin/users"),api("/admin/students"),api("/admin/academic-sessions"),api("/admin/classes"),api("/admin/subjects")]);
    setUsers(Array.isArray(u)?u:u?.users||[]);
-   setStudents(Array.isArray(st)?st:st?.students||[]);\n   setSessions(Array.isArray(ac)?ac:ac?.sessions||[]);\n   setClasses(Array.isArray(cl)?cl:cl?.classes||[]);\n   setSubjects(Array.isArray(su)?su:su?.subjects||[]);
+   setStudents(Array.isArray(st)?st:st?.students||[]);
+   setSessions(Array.isArray(ac)?ac:ac?.sessions||[]);
+   setClasses(Array.isArray(cl)?cl:cl?.classes||[]);
+   setSubjects(Array.isArray(su)?su:su?.subjects||[]);
   }).catch(e=>{localStorage.removeItem("access_token");localStorage.removeItem("refresh_token");setError(e instanceof Error?e.message:"Unable to load your account");router.push("/")}).finally(()=>setLoading(false));
   return()=>{if(timer)clearInterval(timer)};
  },[router]);

@@ -59,7 +59,7 @@ func parseXLSX(r io.Reader)([]BulkRow,error){
  b,e:=io.ReadAll(io.LimitReader(r,maxBulkImportBytes+1));if e!=nil{return nil,e};if int64(len(b))>maxBulkImportBytes{return nil,errors.New("file exceeds 15 MB limit")}
  z,e:=zip.NewReader(bytes.NewReader(b),int64(len(b)));if e!=nil{return nil,errors.New("invalid XLSX file")}
  var shared []string;var sheet []byte
- for _,f:=range z.File{if f.Name=="xl/sharedStrings.xml"{q,_:=f.Open();var ss struct{Items []struct{T string `xml:",chardata"`} `xml:"si"`};if xml.NewDecoder(q).Decode(&ss)==nil{for _,v:=range ss.Items{shared=append(shared,v.T)}};q.Close()};if f.Name=="xl/worksheets/sheet1.xml"{q,_:=f.Open();sheet,_=io.ReadAll(q);q.Close()}}
+ for _,f:=range z.File{if f.Name=="xl/sharedStrings.xml"{q,_:=f.Open();var ss struct{Items []struct{Text []string `xml:"t"`} `xml:"si"`};if xml.NewDecoder(q).Decode(&ss)==nil{for _,v:=range ss.Items{shared=append(shared,strings.Join(v.Text,""))}};q.Close()};if f.Name=="xl/worksheets/sheet1.xml"{q,_:=f.Open();sheet,_=io.ReadAll(q);q.Close()}}
  if len(sheet)==0{return nil,errors.New("XLSX sheet1.xml not found")}
  var xs xSheet;if e=xml.Unmarshal(sheet,&xs);e!=nil{return nil,errors.New("invalid XLSX worksheet")}
  var rows [][]string

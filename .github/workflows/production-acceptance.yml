@@ -28,8 +28,9 @@ jobs:
 
       - name: Run production acceptance
         shell: bash
-        run: set -o pipefail
-          node scripts/production-acceptance.mjs | tee production-acceptance-result.json node scripts/production-acceptance.mjs | tee production-acceptance-result.json
+        run: |
+          set -o pipefail
+          node scripts/production-acceptance.mjs | tee production-acceptance-result.json
 
       - name: Upload private acceptance result
         if: always()

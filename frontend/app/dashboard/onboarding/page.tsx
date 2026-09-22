@@ -45,7 +45,7 @@ export default function OnboardingPage() {
   useEffect(() => { loadStudents(); }, []);
 
   function reset() {
-    setName(""); setEmail(""); setPassword(""); setAdmission(""); setMessage(""); setError("");
+    setName(""); setEmail(""); setPassword(""); setAdmission(""); setError("");
   }
 
   async function create() {

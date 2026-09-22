@@ -7,6 +7,9 @@ import { normalizeAuthUser } from "../../lib/auth-session";
 type User={id:string;name:string;email:string;role:string;active:boolean};
 type School={id:string;name:string;code:string;status:string;user_count:number};
 type Student={id:string;admission_number:string;gender:string;enrollment_status:string;user?:{name:string;email:string}};
+type AcademicSession={id:string;name:string;status:string};
+type ClassRecord={id:string;name:string;level:number};
+type Subject={id:string;code:string;name:string;active:boolean};
 type Monitoring={database:{status:string};schools:{total:number;pending:number;active:number;suspended:number};users:number;activity:{action:string;resource:string;created_at:string}[];checked_at:string};
 
 async function api(path:string){
@@ -24,6 +27,9 @@ export default function Dashboard(){
  const[me,setMe]=useState<User|null>(null);
  const[school,setSchool]=useState<School|null>(null);
  const[monitoring,setMonitoring]=useState<Monitoring|null>(null);
+ const[sessions,setSessions]=useState<AcademicSession[]>([]);
+ const[classes,setClasses]=useState<ClassRecord[]>([]);
+ const[subjects,setSubjects]=useState<Subject[]>([]);
  const[error,setError]=useState("");
  const[loading,setLoading]=useState(true);
  const[lastUpdated,setLastUpdated]=useState<Date|null>(null);
@@ -44,9 +50,12 @@ export default function Dashboard(){
    }
    const s=await api("/admin/school");
    setSchool(s);
-   const [u,st]=await Promise.all([api("/admin/users"),api("/admin/students")]);
+   const [u,st,ac,cl,su]=await Promise.all([api("/admin/users"),api("/admin/students"),api("/admin/academic-sessions"),api("/admin/classes"),api("/admin/subjects")]);
    setUsers(Array.isArray(u)?u:u?.users||[]);
    setStudents(Array.isArray(st)?st:st?.students||[]);
+   setSessions(Array.isArray(ac)?ac:ac?.sessions||[]);
+   setClasses(Array.isArray(cl)?cl:cl?.classes||[]);
+   setSubjects(Array.isArray(su)?su:su?.subjects||[]);
   }).catch(e=>{localStorage.removeItem("access_token");localStorage.removeItem("refresh_token");setError(e instanceof Error?e.message:"Unable to load your account");router.push("/")}).finally(()=>setLoading(false));
   return()=>{if(timer)clearInterval(timer)};
  },[router]);
@@ -114,9 +123,27 @@ export default function Dashboard(){
      </div>
     </section>
    </>: <>
-    <section className="stats"><Stat label="Students" value={students.length} detail="Registered profiles"/><Stat label="Users" value={users.length} detail="Accounts"/><Stat label="Active" value={users.filter(u=>u.active).length} detail="Active accounts"/><Stat label="Roles" value={new Set(users.map(u=>u.role)).size} detail="Roles represented"/></section>
-    <section className="grid-2"><div className="panel"><div className="panel-head"><div><h2>Recent students</h2><p>Latest student records</p></div><Link href="/dashboard/students">View all →</Link></div><div className="table-wrap"><table><thead><tr><th>Student</th><th>Admission</th><th>Status</th></tr></thead><tbody>{students.slice(0,6).map(s=><tr key={s.id}><td><strong>{s.user?.name||"Student"}</strong><small>{s.user?.email||""}</small></td><td>{s.admission_number}</td><td><span className={"pill "+s.enrollment_status}>{s.enrollment_status}</span></td></tr>)}</tbody></table>{!students.length&&<div className="empty">No students yet.</div>}</div></div><div className="panel"><div className="panel-head"><div><h2>Access snapshot</h2><p>Current role distribution</p></div></div><div className="role-list">{["super_admin","school_admin","teacher","student","parent","accountant","staff"].map(role=><div key={role}><span>{role.replace("_"," ")}</span><strong>{users.filter(u=>u.role===role).length}</strong></div>)}</div></div></section>
-    <section className="panel"><div className="panel-head"><div><h2>School modules</h2><p>Foundation ready for the next academic workflows.</p></div></div><div className="module-grid"><Link className="module" href="/dashboard/academic"><div className="module-icon">+</div><div><strong>Academic structure</strong><p>Sessions, terms, classes and subjects</p></div><span>Open</span></Link>{["Enrollment","Attendance","Results & report cards"].map((x,i)=><div className="module" key={x}><div className="module-icon">+</div><div><strong>{x}</strong><p>{["Assign students to class and section","Daily attendance tracking","Grades and report cards"][i]}</p></div><span>Next</span></div>)}</div></section>
+    <section className="stats"><Stat label="Students" value={students.length} detail="Registered profiles"/><Stat label="Teachers" value={users.filter(u=>u.role==="teacher").length} detail="Teacher accounts"/><Stat label="Parents" value={users.filter(u=>u.role==="parent").length} detail="Parent accounts"/><Stat label="Classes" value={classes.length} detail="Configured classes"/></section>
+    <section className="grid-2">
+      <div className="panel"><div className="panel-head"><div><h2>School readiness</h2><p>Complete these foundations before daily operations.</p></div><Link href="/dashboard/academic">Manage academic setup →</Link></div>
+        <div className="role-list">
+          <div><span>School profile</span><strong>{school?.status==="active"?"Ready":"Attention"}</strong></div>
+          <div><span>Active academic session</span><strong>{sessions.some(s=>s.status==="active")?"Ready":"Needs setup"}</strong></div>
+          <div><span>Classes configured</span><strong>{classes.length?"Ready":"Needs setup"}</strong></div>
+          <div><span>Subjects configured</span><strong>{subjects.length?"Ready":"Needs setup"}</strong></div>
+          <div><span>Teacher coverage</span><strong><Link href="/dashboard/teacher-assignments">Review →</Link></strong></div>
+        </div>
+      </div>
+      <div className="panel"><div className="panel-head"><div><h2>Quick actions</h2><p>Common school-administration tasks.</p></div></div>
+        <div className="module-grid">
+          <Link className="module" href="/dashboard/onboarding"><div className="module-icon">+</div><div><strong>Onboard people</strong><p>Add teachers, students and parents</p></div><span>Open</span></Link>
+          <Link className="module" href="/dashboard/enrollments"><div className="module-icon">E</div><div><strong>Enroll students</strong><p>Assign students to sessions and classes</p></div><span>Open</span></Link>
+          <Link className="module" href="/dashboard/attendance"><div className="module-icon">A</div><div><strong>Attendance</strong><p>Start daily attendance workflows</p></div><span>Open</span></Link>
+          <Link className="module" href="/dashboard/results"><div className="module-icon">R</div><div><strong>Results</strong><p>Review academic results and reports</p></div><span>Open</span></Link>
+        </div>
+      </div>
+    </section>
+    <section className="grid-2"><div className="panel"><div className="panel-head"><div><h2>Recent students</h2><p>Latest student records</p></div><Link href="/dashboard/students">View all →</Link></div><div className="table-wrap"><table><thead><tr><th>Student</th><th>Admission</th><th>Status</th></tr></thead><tbody>{students.slice(0,6).map(s=><tr key={s.id}><td><strong>{s.user?.name||"Student"}</strong><small>{s.user?.email||""}</small></td><td>{s.admission_number}</td><td><span className={"pill "+s.enrollment_status}>{s.enrollment_status}</span></td></tr>)}</tbody></table>{!students.length&&<div className="empty">No students yet.</div>}</div></div><div className="panel"><div className="panel-head"><div><h2>Access snapshot</h2><p>Current role distribution</p></div></div><div className="role-list">{["teacher","student","parent","accountant","staff"].map(role=><div key={role}><span>{role.replace("_"," ")}</span><strong>{users.filter(u=>u.role===role).length}</strong></div>)}</div></div></section>
    </>}
   </main>
  </div>

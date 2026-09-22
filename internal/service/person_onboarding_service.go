@@ -2,7 +2,7 @@ package service
 import("errors";"strings";"github.com/google/uuid";"github.com/onoja217/users-management-app/internal/auth";"github.com/onoja217/users-management-app/internal/authz";"github.com/onoja217/users-management-app/internal/models";"gorm.io/gorm")
 var(ErrOnboardingInvalidRole=errors.New("invalid school onboarding role");ErrOnboardingDuplicateEmail=errors.New("user email already exists");ErrOnboardingDuplicateAdmission=errors.New("admission number already exists");ErrOnboardingStudentExists=errors.New("student profile already exists");ErrOnboardingGuardianInvalid=errors.New("guardian relationship is invalid");ErrOnboardingGuardianLinkExists=errors.New("guardian is already linked to student");ErrOnboardingStudentNotFound=errors.New("student not found"))
 type PersonOnboardingRequest struct{Name string;Email string;Password string;Role string;AdmissionNumber string;EnrollmentStatus string;StudentID uuid.UUID;Relationship string;Primary bool}
-type PersonOnboardingResult struct{User models.User \`json:"user"\`;Student *models.Student \`json:"student,omitempty"\`;GuardianLink *models.GuardianRelationship \`json:"guardian_link,omitempty"\`}
+type PersonOnboardingResult struct{User models.User `json:"user"`;Student *models.Student `json:"student,omitempty"`;GuardianLink *models.GuardianRelationship `json:"guardian_link,omitempty"`}
 type PersonOnboardingService struct{db *gorm.DB}
 func NewPersonOnboardingService(db *gorm.DB)*PersonOnboardingService{return &PersonOnboardingService{db:db}}
 func(s *PersonOnboardingService)DB()*gorm.DB{return s.db}

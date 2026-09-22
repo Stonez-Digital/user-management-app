@@ -10,7 +10,7 @@ type Student={id:string;admission_number:string;gender:string;enrollment_status:
 type AcademicSession={id:string;name:string;status:string};
 type ClassRecord={id:string;name:string;level:number};
 type Subject={id:string;code:string;name:string;active:boolean};
-type Monitoring={database:{status:string};schools:{total:number;pending:number;active:number;suspended:number};users:number;activity:{action:string;resource:string;created_at:string}[];checked_at:string};
+type Monitoring={database:{status:string};schools:{total:number;pending:number;active:number;suspended:number};users:number;activity:{action:string;resource:string;created_at:string}[];checked_at:string};\ntype AcademicReadiness={school_name:string;school_status:string;active_session?:{name:string;status:string};active_term?:{name:string;status:string};classes:number;sections:number;subjects:number;teacher_assignments:number;checks:Record<string,boolean>;ready:boolean};
 
 async function api(path:string){
  const t=localStorage.getItem("access_token");
@@ -29,7 +29,7 @@ export default function Dashboard(){
  const[monitoring,setMonitoring]=useState<Monitoring|null>(null);
  const[sessions,setSessions]=useState<AcademicSession[]>([]);
  const[classes,setClasses]=useState<ClassRecord[]>([]);
- const[subjects,setSubjects]=useState<Subject[]>([]);
+ const[subjects,setSubjects]=useState<Subject[]>([]);\n const[readiness,setReadiness]=useState<AcademicReadiness|null>(null);
  const[error,setError]=useState("");
  const[loading,setLoading]=useState(true);
  const[lastUpdated,setLastUpdated]=useState<Date|null>(null);
@@ -50,12 +50,12 @@ export default function Dashboard(){
    }
    const s=await api("/admin/school");
    setSchool(s);
-   const [u,st,ac,cl,su]=await Promise.all([api("/admin/users"),api("/admin/students"),api("/admin/academic-sessions"),api("/admin/classes"),api("/admin/subjects")]);
+   const [u,st,ac,cl,su,rd]=await Promise.all([api("/admin/users"),api("/admin/students"),api("/admin/academic-sessions"),api("/admin/classes"),api("/admin/subjects"),api("/admin/school/readiness")]);
    setUsers(Array.isArray(u)?u:u?.users||[]);
    setStudents(Array.isArray(st)?st:st?.students||[]);
    setSessions(Array.isArray(ac)?ac:ac?.sessions||[]);
    setClasses(Array.isArray(cl)?cl:cl?.classes||[]);
-   setSubjects(Array.isArray(su)?su:su?.subjects||[]);
+   setSubjects(Array.isArray(su)?su:su?.subjects||[]);\n   setReadiness(rd);
   }).catch(e=>{localStorage.removeItem("access_token");localStorage.removeItem("refresh_token");setError(e instanceof Error?e.message:"Unable to load your account");router.push("/")}).finally(()=>setLoading(false));
   return()=>{if(timer)clearInterval(timer)};
  },[router]);
@@ -127,12 +127,14 @@ export default function Dashboard(){
     <section className="grid-2">
       <div className="panel"><div className="panel-head"><div><h2>School readiness</h2><p>Complete these foundations before daily operations.</p></div><Link href="/dashboard/academic">Manage academic setup →</Link></div>
         <div className="role-list">
-          <div><span>School profile</span><strong>{school?.status==="active"?"Ready":"Attention"}</strong></div>
-          <div><span>Active academic session</span><strong>{sessions.some(s=>s.status==="active")?"Ready":"Needs setup"}</strong></div>
-          <div><span>Classes configured</span><strong>{classes.length?"Ready":"Needs setup"}</strong></div>
-          <div><span>Subjects configured</span><strong>{subjects.length?"Ready":"Needs setup"}</strong></div>
-          <div><span>Teacher coverage</span><strong><Link href="/dashboard/teacher-assignments">Review →</Link></strong></div>
+          <div><span>School profile</span><strong>{readiness?.checks.school_profile?"Ready":"Attention"}</strong></div>
+          <div><span>Active academic session</span><strong>{readiness?.checks.active_session?"Ready":"Needs setup"}</strong></div>
+          <div><span>Active term</span><strong>{readiness?.checks.active_term?"Ready":"Needs setup"}</strong></div>
+          <div><span>Classes & sections</span><strong>{readiness?.checks.classes?"Ready":"Needs setup"} · {readiness?.classes??0} / {readiness?.sections??0}</strong></div>
+          <div><span>Subjects configured</span><strong>{readiness?.checks.subjects?"Ready":"Needs setup"} · {readiness?.subjects??0}</strong></div>
+          <div><span>Teacher coverage</span><strong>{readiness?.checks.teacher_coverage?"Ready":"Needs setup"} · <Link href="/dashboard/teacher-assignments">Review →</Link></strong></div>
         </div>
+        <div className="panel-head"><div><p className="muted">{readiness?.active_session?.name||"No active session"}{readiness?.active_term ? " · "+readiness.active_term.name : ""}</p></div><span className={"pill "+(readiness?.ready?"active":"pending")}>{readiness?.ready?"Ready for operations":"Setup required"}</span></div>
       </div>
       <div className="panel"><div className="panel-head"><div><h2>Quick actions</h2><p>Common school-administration tasks.</p></div></div>
         <div className="module-grid">

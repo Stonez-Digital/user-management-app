@@ -441,6 +441,7 @@ func Migrate(db *gorm.DB) error {
             return nil
         }},
 
+        {Version:23,Name:"bulk_school_import_jobs",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.BulkImportJob{})}},
     }
     for _,migration:=range migrations{
         var applied Migration

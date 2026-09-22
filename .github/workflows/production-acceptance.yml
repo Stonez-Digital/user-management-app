@@ -1,0 +1,38 @@
+name: Production Acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Optional QA run identifier"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    name: Two-school production acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PRODUCTION_API_URL: https://stonez-digital-school-api.onrender.com
+      PRODUCTION_QA_SUPER_ADMIN_EMAIL: ${{ secrets.PRODUCTION_QA_SUPER_ADMIN_EMAIL }}
+      PRODUCTION_QA_SUPER_ADMIN_PASSWORD: ${{ secrets.PRODUCTION_QA_SUPER_ADMIN_PASSWORD }}
+      PRODUCTION_QA_SCHOOLS_JSON: ${{ secrets.PRODUCTION_QA_SCHOOLS_JSON }}
+      QA_RUN_ID: ${{ inputs.run_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run production acceptance
+        run: node scripts/production-acceptance.mjs | tee production-acceptance-result.json
+
+      - name: Upload private acceptance result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-acceptance-result
+          path: production-acceptance-result.json
+          retention-days: 7

@@ -192,3 +192,46 @@ A pilot is ready for the next controlled stage only after all critical authentic
 - Prefer non-destructive test records.
 - Remove or deactivate temporary QA accounts after the pilot test window.
 - Do not treat a successful UI response as proof of tenant isolation; verify both positive access and denied cross-tenant access.
+
+
+## Automated two-school acceptance
+
+The repository includes a manual GitHub Actions workflow at `.github/workflows/production-acceptance.yml`.
+
+It runs `scripts/production-acceptance.mjs` against the live Render API and:
+
+- verifies the Super Admin session;
+- verifies both configured school-admin accounts and their `/me.school_name`;
+- creates uniquely named temporary teacher/student/parent QA accounts inside each school;
+- creates missing QA academic session/class/section records when required;
+- enrolls the temporary student and executes promotion;
+- verifies active target enrollment and preserved history;
+- signs in as teacher, student and parent;
+- checks student portal, teacher assignments and parent-child access;
+- checks unauthenticated access;
+- checks role restrictions;
+- checks cross-school user, student and academic-session isolation;
+- checks refresh/logout/re-login.
+
+### GitHub Actions secrets
+
+Configure these repository secrets before running the workflow manually:
+
+- `PRODUCTION_QA_SUPER_ADMIN_EMAIL`
+- `PRODUCTION_QA_SUPER_ADMIN_PASSWORD`
+- `PRODUCTION_QA_SCHOOLS_JSON`
+
+`PRODUCTION_QA_SCHOOLS_JSON` must contain exactly two objects with this shape:
+
+```json
+[
+  {"school_code":"001","admin_email":"...","admin_password":"..."},
+  {"school_code":"EVERGREEN","admin_email":"...","admin_password":"..."}
+]
+```
+
+Passwords are consumed only as GitHub Actions secrets. The script generates temporary QA account passwords at runtime and never prints them.
+
+The workflow is deliberately `workflow_dispatch` only because it creates temporary production QA records. Its result is uploaded as a private GitHub Actions artifact for seven days.
+
+The responsive desktop/tablet/mobile portion remains a browser smoke test; the automated workflow focuses on API, authentication, authorization, tenant isolation and lifecycle behavior.

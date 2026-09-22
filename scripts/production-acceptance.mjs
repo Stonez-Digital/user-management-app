@@ -61,7 +61,10 @@ async function bootstrapSchool(s){
   const studentAuth=await login({email:studentEmail,password,school_code:school});
   const teacherAuth=await login({email:teacherEmail,password,school_code:school});
   const parentAuth=await login({email:parentEmail,password,school_code:school});
-  const studentMe=await me(studentAuth.access_token), teacherMe=await me(teacherAuth.access_token), parentMe=await me(parentAuth.access_token);\n  await request("/auth/refresh",{method:"POST",body:{refresh_token:studentAuth.refresh_token},expected:[200]});\n  await request("/auth/logout",{method:"POST",body:{refresh_token:studentAuth.refresh_token},expected:[200]});\n  await login({email:studentEmail,password,school_code:school});\n  record("logout/session",school,"student","PASS","Refresh and logout cycle completed");
+  const studentMe=await me(studentAuth.access_token), teacherMe=await me(teacherAuth.access_token), parentMe=await me(parentAuth.access_token); 
+  await request("/auth/refresh",{method:"POST",body:{refresh_token:studentAuth.refresh_token},expected:[200]});
+  await request("/auth/logout",{method:"POST",body:{refresh_token:studentAuth.refresh_token},expected:[200]});
+  await login({email:studentEmail,password,school_code:school});\n  record("logout/session",school,"student","PASS","Refresh and logout cycle completed");
   for(const [role,x] of [["student",studentMe],["teacher",teacherMe],["parent",parentMe]]) {
     if(x.role!==role||!x.school_name) fail(`${school}: ${role} /me missing role or school_name`);
     record("authentication",school,role,"PASS",x.school_name);

@@ -10,7 +10,8 @@ type Student={id:string;admission_number:string;gender:string;enrollment_status:
 type AcademicSession={id:string;name:string;status:string};
 type ClassRecord={id:string;name:string;level:number};
 type Subject={id:string;code:string;name:string;active:boolean};
-type Monitoring={database:{status:string};schools:{total:number;pending:number;active:number;suspended:number};users:number;activity:{action:string;resource:string;created_at:string}[];checked_at:string};\ntype AcademicReadiness={school_name:string;school_status:string;active_session?:{name:string;status:string};active_term?:{name:string;status:string};classes:number;sections:number;subjects:number;teacher_assignments:number;checks:Record<string,boolean>;ready:boolean};
+type Monitoring={database:{status:string};schools:{total:number;pending:number;active:number;suspended:number};users:number;activity:{action:string;resource:string;created_at:string}[];checked_at:string};
+type AcademicReadiness={school_name:string;school_status:string;active_session?:{name:string;status:string};active_term?:{name:string;status:string};classes:number;sections:number;subjects:number;teacher_assignments:number;checks:Record<string,boolean>;ready:boolean};
 
 async function api(path:string){
  const t=localStorage.getItem("access_token");
@@ -29,7 +30,8 @@ export default function Dashboard(){
  const[monitoring,setMonitoring]=useState<Monitoring|null>(null);
  const[sessions,setSessions]=useState<AcademicSession[]>([]);
  const[classes,setClasses]=useState<ClassRecord[]>([]);
- const[subjects,setSubjects]=useState<Subject[]>([]);\n const[readiness,setReadiness]=useState<AcademicReadiness|null>(null);
+ const[subjects,setSubjects]=useState<Subject[]>([]);
+ const[readiness,setReadiness]=useState<AcademicReadiness|null>(null);
  const[error,setError]=useState("");
  const[loading,setLoading]=useState(true);
  const[lastUpdated,setLastUpdated]=useState<Date|null>(null);
@@ -55,7 +57,8 @@ export default function Dashboard(){
    setStudents(Array.isArray(st)?st:st?.students||[]);
    setSessions(Array.isArray(ac)?ac:ac?.sessions||[]);
    setClasses(Array.isArray(cl)?cl:cl?.classes||[]);
-   setSubjects(Array.isArray(su)?su:su?.subjects||[]);\n   setReadiness(rd);
+   setSubjects(Array.isArray(su)?su:su?.subjects||[]);
+   setReadiness(rd);
   }).catch(e=>{localStorage.removeItem("access_token");localStorage.removeItem("refresh_token");setError(e instanceof Error?e.message:"Unable to load your account");router.push("/")}).finally(()=>setLoading(false));
   return()=>{if(timer)clearInterval(timer)};
  },[router]);

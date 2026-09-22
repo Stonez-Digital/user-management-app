@@ -4,7 +4,7 @@ import Link from "next/link";
 import {useRouter} from "next/navigation";
 import { normalizeAuthUser } from "../../lib/auth-session";
 
-type User={id:string;name:string;email:string;role:string;active:boolean};
+type User={id:string;name:string;email:string;role:string;active:boolean;school_name?:string|null};
 type School={id:string;name:string;code:string;status:string;user_count:number};
 type Student={id:string;admission_number:string;gender:string;enrollment_status:string;user?:{name:string;email:string}};
 type AcademicSession={id:string;name:string;status:string};
@@ -39,7 +39,7 @@ export default function Dashboard(){
   api("/me").then(async payload=>{
    const m=normalizeAuthUser(payload);
    if(!m) throw Error("Unable to load your account profile");
-   const sessionUser:User={id:m.id,name:m.name??"",email:m.email??"",role:m.role,active:m.active??true};
+   const sessionUser:User={id:m.id,name:m.name??"",email:m.email??"",role:m.role,active:m.active??true,school_name:m.school_name??null};
    setMe(sessionUser);
    if(m.role==="teacher"){router.replace("/dashboard/teacher");return}
    if(m.role==="super_admin"){
@@ -80,8 +80,8 @@ export default function Dashboard(){
   <main className="content">
    {loading&&<div className="panel"><strong>Loading your workspace…</strong><p className="muted">Verifying your Stonez Digital account and school access.</p></div>}
    {!loading&&<header className="topbar">
-    <div><p className="eyebrow">{isPlatform?"STONEZ DIGITAL":"SCHOOL ADMINISTRATION"}</p><h1>{isPlatform?"Stonez Digital Platform":"School overview"}</h1><p className="muted">{isPlatform?"Monitor and manage onboarded school tenants.":<>Manage <strong>{school?.name||"your school"}</strong>.</>}</p></div>
-    <div className="status"><span/> {isPlatform?"Platform operations":school?.name||"School workspace"}</div>
+    <div><p className="eyebrow">{isPlatform?"STONEZ DIGITAL":"SCHOOL ADMINISTRATION"}</p><h1>{isPlatform?"Stonez Digital Platform":"School overview"}</h1><p className="muted">{isPlatform?"Monitor and manage onboarded school tenants.":<>Manage <strong>{me?.school_name||school?.name||"your school"}</strong>.</>}</p></div>
+    <div className="status"><span/> {isPlatform?"Platform operations":me?.school_name||school?.name||"School workspace"}</div>
    </header>}
    {error&&<div className="error banner">{error}</div>}
 

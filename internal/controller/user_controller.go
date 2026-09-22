@@ -57,6 +57,13 @@ func (ctrl *UserController) GetMe(c *gin.Context) {
     // Keep the authenticated-session contract explicit. Returning models.User directly
     // leaves ID serialized as "ID" because it has no json tag, while the frontend
     // and API contract expect "id".
+    schoolName := ""
+    if user.SchoolID != nil {
+        var school models.School
+        if err := ctrl.service.DB().Select("name").First(&school, "id = ?", *user.SchoolID).Error; err == nil {
+            schoolName = school.Name
+        }
+    }
     c.JSON(http.StatusOK,gin.H{
         "id": user.ID,
         "name": user.Name,
@@ -64,6 +71,7 @@ func (ctrl *UserController) GetMe(c *gin.Context) {
         "role": user.Role,
         "active": user.Active,
         "school_id": user.SchoolID,
+        "school_name": schoolName,
     })
 }
 func (ctrl *UserController) UpdateMe(c *gin.Context) {

@@ -5,6 +5,7 @@ export type AuthUser = {
   role: string;
   active?: boolean;
   school_id?: string | null;
+  school_name?: string | null;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -44,6 +45,7 @@ export function normalizeAuthUser(payload: unknown): AuthUser | null {
     const name = readString(value, "name", "Name");
     const email = readString(value, "email", "Email");
     const schoolId = readString(value, "school_id", "SchoolID", "schoolId");
+    const schoolName = readString(value, "school_name", "SchoolName", "schoolName");
 
     return {
       id,
@@ -56,6 +58,7 @@ export function normalizeAuthUser(payload: unknown): AuthUser | null {
           ? value.Active
           : undefined,
       school_id: schoolId ?? null,
+      school_name: schoolName ?? null,
     };
   }
 

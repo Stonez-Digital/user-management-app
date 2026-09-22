@@ -54,14 +54,14 @@ async function bootstrapSchool(s){
   record("onboarding",school,"school_admin","PASS","Created temporary teacher/student/parent");
   const enrollment=(await request("/admin/enrollments",{token:admin.access_token,method:"POST",body:{student_id:studentId,academic_session_id:academic.active.id,class_id:academic.cls.id,section_id:academic.sec.id,status:"active"},expected:[201]})).data;
   const promoted=(await request(`/admin/enrollments/${enrollment.id}/place`,{token:admin.access_token,method:"POST",body:{target_session_id:academic.target.id,target_class_id:academic.cls.id,target_section_id:academic.sec.id,operation:"promote"},expected:[201]})).data;
-  const history=list((await request(`/admin/students/${studentId}/enrollments`,{token:admin.access_token})).data,"enrollments");
+  const history=list((await request(`/admin/enrollments/student/${studentId}`,{token:admin.access_token})).data,"enrollments");
   if(promoted.status!=="active") fail(`${school}: promoted enrollment is not active`);
   if(history.length<2) fail(`${school}: promotion history missing source/target`);
   record("student lifecycle",school,"school_admin","PASS","Promotion created active target and preserved history");
   const studentAuth=await login({email:studentEmail,password,school_code:school});
   const teacherAuth=await login({email:teacherEmail,password,school_code:school});
   const parentAuth=await login({email:parentEmail,password,school_code:school});
-  const studentMe=await me(studentAuth.access_token), teacherMe=await me(teacherAuth.access_token), parentMe=await me(parentAuth.access_token);
+  const studentMe=await me(studentAuth.access_token), teacherMe=await me(teacherAuth.access_token), parentMe=await me(parentAuth.access_token);\n  await request("/auth/refresh",{method:"POST",body:{refresh_token:studentAuth.refresh_token},expected:[200]});\n  await request("/auth/logout",{method:"POST",body:{refresh_token:studentAuth.refresh_token},expected:[200]});\n  await login({email:studentEmail,password,school_code:school});\n  record("logout/session",school,"student","PASS","Refresh and logout cycle completed");
   for(const [role,x] of [["student",studentMe],["teacher",teacherMe],["parent",parentMe]]) {
     if(x.role!==role||!x.school_name) fail(`${school}: ${role} /me missing role or school_name`);
     record("authentication",school,role,"PASS",x.school_name);

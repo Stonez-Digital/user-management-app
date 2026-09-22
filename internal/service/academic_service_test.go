@@ -51,7 +51,7 @@ func TestOnlyOneActiveSession(t *testing.T) {
     b := time.Date(2027,7,31,0,0,0,0,time.UTC)
     one, err := s.CreateSession(uuid.MustParse("00000000-0000-0000-0000-000000000001"),models.AcademicSession{SchoolID:uuid.MustParse("00000000-0000-0000-0000-000000000001"),Name:"A",StartDate:a,EndDate:b,Status:models.AcademicStatusActive})
     if err != nil { t.Fatal(err) }
-    _, err = s.CreateSession(uuid.MustParse("00000000-0000-0000-0000-000000000001"),models.AcademicSession{SchoolID:uuid.MustParse("00000000-0000-0000-0000-000000000001"),Name:"B",StartDate:a,EndDate:b,Status:models.AcademicStatusActive})
+    _, err = s.CreateSession(uuid.MustParse("00000000-0000-0000-0000-000000000001"),models.AcademicSession{SchoolID:uuid.MustParse("00000000-0000-0000-0000-000000000001"),Name:"B",StartDate:time.Date(2027,8,1,0,0,0,0,time.UTC),EndDate:time.Date(2028,7,31,0,0,0,0,time.UTC),Status:models.AcademicStatusActive})
     if err != nil { t.Fatal(err) }
     old, err := s.GetSession(uuid.MustParse("00000000-0000-0000-0000-000000000001"),one.ID)
     if err != nil { t.Fatal(err) }

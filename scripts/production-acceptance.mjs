@@ -64,7 +64,8 @@ async function bootstrapSchool(s){
   const studentMe=await me(studentAuth.access_token), teacherMe=await me(teacherAuth.access_token), parentMe=await me(parentAuth.access_token); 
   await request("/auth/refresh",{method:"POST",body:{refresh_token:studentAuth.refresh_token},expected:[200]});
   await request("/auth/logout",{method:"POST",body:{refresh_token:studentAuth.refresh_token},expected:[200]});
-  await login({email:studentEmail,password,school_code:school});\n  record("logout/session",school,"student","PASS","Refresh and logout cycle completed");
+  await login({email:studentEmail,password,school_code:school});
+  record("logout/session",school,"student","PASS","Refresh and logout cycle completed");
   for(const [role,x] of [["student",studentMe],["teacher",teacherMe],["parent",parentMe]]) {
     if(x.role!==role||!x.school_name) fail(`${school}: ${role} /me missing role or school_name`);
     record("authentication",school,role,"PASS",x.school_name);

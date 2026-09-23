@@ -45,7 +45,7 @@ export default function Results(){
   }
   async function loadReport(){
     if(!eid||!termId){setError("Select an enrollment and term.");return}
-    try{setReport(await api("/admin/report-cards/"+eid+"?term_id="+encodeURIComponent(termId)));setError("")}
+    try{setReport(await api("/admin/report-cards/"+eid+"?academic_session_id="+encodeURIComponent(selectedSessionId)+"&term_id="+encodeURIComponent(termId)));setError("")}
     catch(x:any){setError(x.message)}
   }
 

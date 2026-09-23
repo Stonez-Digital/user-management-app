@@ -59,17 +59,18 @@ func (s *AssessmentResultService) ReportCard(enrollmentID, termID uuid.UUID) (Re
 		if errors.Is(e, gorm.ErrRecordNotFound) { return ReportCard{}, ErrResultEnrollmentMissing }
 		return ReportCard{}, e
 	}
-	return s.ReportCardForSchool(enrollment.SchoolID, enrollmentID, termID)
+	return s.ReportCardForSchool(enrollment.SchoolID, enrollmentID, enrollment.AcademicSessionID, termID)
 }
 
-func (s *AssessmentResultService) ReportCardForSchool(schoolID, enrollmentID, termID uuid.UUID) (ReportCard, error) {
+func (s *AssessmentResultService) ReportCardForSchool(schoolID, enrollmentID, sessionID, termID uuid.UUID) (ReportCard, error) {
 	var enrollment models.StudentEnrollment
 	if e := s.db.Where("id = ? AND school_id = ?", enrollmentID, schoolID).First(&enrollment).Error; e != nil {
 		if errors.Is(e, gorm.ErrRecordNotFound) { return ReportCard{}, ErrResultEnrollmentMissing }
 		return ReportCard{}, e
 	}
+	if enrollment.AcademicSessionID!=sessionID{return ReportCard{},ErrResultInvalid}
 	var term models.Term
-	if e := s.db.Where("id = ? AND school_id = ? AND academic_session_id = ?", termID, schoolID, enrollment.AcademicSessionID).First(&term).Error; e != nil {
+	if e := s.db.Where("id = ? AND school_id = ? AND academic_session_id = ?", termID, schoolID, sessionID).First(&term).Error; e != nil {
 		if errors.Is(e, gorm.ErrRecordNotFound) { return ReportCard{}, ErrResultInvalid }
 		return ReportCard{}, e
 	}

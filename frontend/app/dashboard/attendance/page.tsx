@@ -2,6 +2,7 @@
 
 import {useEffect,useMemo,useState} from "react";
 import Link from "next/link";
+import { useAcademicContext } from "../../../lib/academic-context";
 
 type Enrollment={id:string;status:string;student?:{admission_number:string;user?:{name:string}};academic_session?:{id:string;name:string};class?:{name:string};section?:{name:string}};
 type Term={id:string;name:string;status:string;start_date:string;end_date:string};
@@ -17,6 +18,7 @@ async function api(path:string,options:RequestInit={}) {
 }
 
 export default function AttendancePage(){
+  const { sessionId: selectedSessionId, termId: selectedTermId, terms: selectedTerms } = useAcademicContext();
   const [enrollments,setEnrollments]=useState<Enrollment[]>([]);
   const [terms,setTerms]=useState<Term[]>([]);
   const [items,setItems]=useState<Attendance[]>([]);
@@ -32,7 +34,7 @@ export default function AttendancePage(){
   async function load(){
     try{
       const [e,a]=await Promise.all([api("/admin/enrollments"),api("/admin/attendance")]);
-      setEnrollments(Array.isArray(e)?e:e?.enrollments||[]);
+      setEnrollments((Array.isArray(e)?e:e?.enrollments||[]).filter((x:Enrollment)=>!selectedSessionId||x.academic_session?.id===selectedSessionId));
       setItems(Array.isArray(a)?a:a?.attendance||[]);
     }catch(err){setError(err instanceof Error?err.message:"Unable to load attendance data")}
   }
@@ -40,11 +42,11 @@ export default function AttendancePage(){
 
   const selectedEnrollment=useMemo(()=>enrollments.find(e=>e.id===enrollmentId),[enrollments,enrollmentId]);
   useEffect(()=>{
-    if(!selectedEnrollment?.academic_session?.id){setTerms([]);setTermId("");return}
-    api("/admin/academic-sessions/"+selectedEnrollment.academic_session.id+"/terms")
-      .then(d=>{const next=Array.isArray(d)?d:d?.terms||[];setTerms(next);setTermId(next[0]?.id||"")})
-      .catch(err=>setError(err instanceof Error?err.message:"Unable to load terms"));
-  },[selectedEnrollment]);
+    const session = selectedEnrollment?.academic_session?.id;
+    if(!session || (selectedSessionId && session !== selectedSessionId)){setTerms([]);setTermId("");return}
+    setTerms(selectedTerms as Term[]);
+    setTermId(selectedTermId && selectedTerms.some(t=>t.id===selectedTermId) ? selectedTermId : "");
+  },[selectedEnrollment,selectedSessionId,selectedTermId,selectedTerms]);
 
   async function create(){
     if(!enrollmentId||!termId||!date){setError("Select an enrollment, term and date.");return}

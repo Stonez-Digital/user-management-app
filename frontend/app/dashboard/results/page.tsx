@@ -1,6 +1,7 @@
 "use client";
 import {useEffect,useMemo,useState} from "react";
 import Link from "next/link";
+import { useAcademicContext } from "../../../lib/academic-context";
 
 async function api(path:string,o:RequestInit={}) {
   const t=localStorage.getItem("access_token");
@@ -13,6 +14,7 @@ async function api(path:string,o:RequestInit={}) {
 const arr=(d:any,k:string)=>Array.isArray(d)?d:d?.[k]||d?.data||[];
 
 export default function Results(){
+  const { sessionId: selectedSessionId, termId: selectedTermId, terms: selectedTerms } = useAcademicContext();
   const [results,setResults]=useState<any[]>([]),[enrollments,setEnrollments]=useState<any[]>([]),[assessments,setAssessments]=useState<any[]>([]);
   const [eid,setEid]=useState(""),[aid,setAid]=useState(""),[score,setScore]=useState(""),[termId,setTermId]=useState("");
   const [terms,setTerms]=useState<any[]>([]),[report,setReport]=useState<any|null>(null),[error,setError]=useState(""),[busy,setBusy]=useState(false);
@@ -20,20 +22,19 @@ export default function Results(){
   async function load(){
     try{
       const [r,e,a]=await Promise.all([api("/admin/assessment-results"),api("/admin/enrollments"),api("/admin/assessments")]);
-      setResults(arr(r,"results"));setEnrollments(arr(e,"enrollments"));setAssessments(arr(a,"assessments"));setError("");
+      setResults(arr(r,"results"));setEnrollments(arr(e,"enrollments").filter((x:any)=>!selectedSessionId||x.academic_session_id===selectedSessionId||x.academic_session?.id===selectedSessionId));setAssessments(arr(a,"assessments"));setError("");
     }catch(x:any){setError(x.message)}
   }
-  useEffect(()=>{load()},[]);
+  useEffect(()=>{load()},[selectedSessionId]);
 
   const selectedEnrollment=useMemo(()=>enrollments.find(x=>x.id===eid),[enrollments,eid]);
   useEffect(()=>{
     setReport(null);
     const sessionId=selectedEnrollment?.academic_session_id||selectedEnrollment?.academic_session?.id;
-    if(!sessionId){setTerms([]);setTermId("");return}
-    api("/admin/academic-sessions/"+sessionId+"/terms").then(d=>{
-      const next=arr(d,"terms");setTerms(next);setTermId(next.find((x:any)=>x.status==="active")?.id||next[0]?.id||"");
-    }).catch((x:any)=>setError(x.message));
-  },[selectedEnrollment]);
+    if(!sessionId || (selectedSessionId && sessionId!==selectedSessionId)){setTerms([]);setTermId("");return}
+    setTerms(selectedTerms);
+    setTermId(selectedTermId && selectedTerms.some((x:any)=>x.id===selectedTermId) ? selectedTermId : "");
+  },[selectedEnrollment,selectedSessionId,selectedTermId,selectedTerms]);
 
   async function create(){
     setBusy(true);setError("");

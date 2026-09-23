@@ -3,6 +3,7 @@
 import {useEffect,useMemo,useState} from "react";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
+import { useAcademicContext } from "../../../lib/academic-context";
 
 type User={id:string;name:string;email:string;role:string;active:boolean;school_name?:string|null};
 type Assignment={id:string;teacher_id:string;subject_id:string;academic_session_id:string;term_id:string;class_id:string;section_id?:string|null;active:boolean;subject?:{name:string;code?:string}};
@@ -21,15 +22,16 @@ async function api(path:string){
 const list=(d:any,k:string)=>Array.isArray(d)?d:d?.[k]||[];
 const day=(n:number)=>["","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][n]||"";
 export default function TeacherDashboard(){
+  const { sessionId: selectedSessionId, termId: selectedTermId } = useAcademicContext();
   const router=useRouter(); const [me,setMe]=useState<User|null>(null); const [assignments,setAssignments]=useState<Assignment[]>([]);
   const [timetable,setTimetable]=useState<Timetable[]>([]); const [sessions,setSessions]=useState<Session[]>([]); const [terms,setTerms]=useState<Term[]>([]); const [notifications,setNotifications]=useState<any[]>([]);
   const [error,setError]=useState("");
   useEffect(()=>{(async()=>{try{
     const m=await api("/me"); if(m?.role!=="teacher"){router.replace("/dashboard");return} setMe(m);
     const [a,t,s,n]=await Promise.all([api("/teacher/assignments"),api("/teacher/timetable"),api("/admin/academic-sessions"),api("/notifications")]);
-    setAssignments(list(a,"assignments")); setTimetable(list(t,"timetable")); setNotifications(list(n,"notifications")); const ss=list(s,"sessions"); setSessions(ss);
-    const active=ss.find((x:Session)=>x.status==="active")||ss[0]; if(active){const td=await api("/admin/academic-sessions/"+active.id+"/terms");setTerms(list(td,"terms"))}
-  }catch(e){const msg=e instanceof Error?e.message:"Unable to load teacher workspace";setError(msg);if(msg==="Session expired")router.replace("/")}})()},[router]);
+    setAssignments(list(a,"assignments").filter((x:any)=>!selectedSessionId||x.academic_session_id===selectedSessionId).filter((x:any)=>!selectedTermId||x.term_id===selectedTermId)); setTimetable(list(t,"timetable").filter((x:any)=>!selectedSessionId||x.academic_session_id===selectedSessionId).filter((x:any)=>!selectedTermId||x.term_id===selectedTermId)); setNotifications(list(n,"notifications")); const ss=list(s,"sessions"); setSessions(ss);
+    const active=ss.find((x:Session)=>x.id===selectedSessionId)||ss.find((x:Session)=>x.status==="active")||ss[0]; if(active){const td=await api("/admin/academic-sessions/"+active.id+"/terms");setTerms(list(td,"terms"))}
+  }catch(e){const msg=e instanceof Error?e.message:"Unable to load teacher workspace";setError(msg);if(msg==="Session expired")router.replace("/")}})()},[router,selectedSessionId,selectedTermId]);
   const today=new Date().getDay()||7;
   const todaySlots=useMemo(()=>timetable.filter(x=>x.active&&x.day_of_week===today).sort((a,b)=>a.start_time.localeCompare(b.start_time)),[timetable,today]);
   const activeSession=sessions.find(x=>x.status==="active")||sessions[0];

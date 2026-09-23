@@ -20,9 +20,9 @@ func(s *AssessmentResultService)validate(schoolID uuid.UUID,v models.AssessmentR
  if v.Score<0||v.Score>assessment.MaxScore{return ErrResultInvalid};return nil
 }
 func(s *AssessmentResultService)Create(schoolID uuid.UUID,v models.AssessmentResult)(models.AssessmentResult,error){v.SchoolID=schoolID;if e:=s.validate(schoolID,v);e!=nil{return v,e};var x models.AssessmentResult;e:=s.db.Where("school_id = ? AND assessment_id = ? AND student_enrollment_id = ?",schoolID,v.AssessmentID,v.StudentEnrollmentID).First(&x).Error;if e==nil{return v,ErrResultDuplicate};if !errors.Is(e,gorm.ErrRecordNotFound){return v,e};return s.repo.Create(schoolID,v)}
-func(s *AssessmentResultService) ListForTeacher(schoolID,teacherID uuid.UUID)([]models.AssessmentResult,error){
+func(s *AssessmentResultService) ListForTeacher(schoolID,teacherID,sessionID,termID uuid.UUID)([]models.AssessmentResult,error){
  var rows []models.AssessmentResult
- return rows,s.db.Where("assessment_results.school_id = ? AND teacher_assignments.teacher_id = ?",schoolID,teacherID).Joins("JOIN assessments ON assessments.id = assessment_results.assessment_id AND assessments.school_id = assessment_results.school_id").Joins("JOIN teacher_assignments ON teacher_assignments.id = assessments.teacher_assignment_id AND teacher_assignments.school_id = assessments.school_id").Preload("Assessment").Preload("StudentEnrollment").Find(&rows).Error
+ return rows,s.db.Where("assessment_results.school_id = ? AND teacher_assignments.teacher_id = ? AND teacher_assignments.academic_session_id = ? AND teacher_assignments.term_id = ?",schoolID,teacherID,sessionID,termID).Joins("JOIN assessments ON assessments.id = assessment_results.assessment_id AND assessments.school_id = assessment_results.school_id").Joins("JOIN teacher_assignments ON teacher_assignments.id = assessments.teacher_assignment_id AND teacher_assignments.school_id = assessments.school_id").Preload("Assessment").Preload("StudentEnrollment").Find(&rows).Error
 }
 func(s *AssessmentResultService) TeacherCreate(schoolID,teacherID uuid.UUID,v models.AssessmentResult)(models.AssessmentResult,error){
  var a models.Assessment

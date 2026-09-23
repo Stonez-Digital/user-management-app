@@ -77,7 +77,7 @@ func(s *FinanceService)CreateInvoice(schoolID uuid.UUID,v models.Invoice,lines [
     })
     if err!=nil{return v,err};return s.invoices.Get(schoolID,v.ID)
 }
-func(s *FinanceService)ListInvoices(schoolID uuid.UUID)([]models.Invoice,error){return s.invoices.List(schoolID)}
+func(s *FinanceService)ListInvoices(schoolID,sessionID,termID uuid.UUID)([]models.Invoice,error){rows,e:=s.invoices.List(schoolID);if e!=nil{return nil,e};out:=make([]models.Invoice,0,len(rows));for _,r:=range rows{if r.TermID==termID&&r.Term.AcademicSessionID==sessionID{out=append(out,r)}};return out,nil}
 func(s *FinanceService)GetInvoice(schoolID,id uuid.UUID)(models.Invoice,error){v,e:=s.invoices.Get(schoolID,id);if errors.Is(e,gorm.ErrRecordNotFound){return v,ErrInvoiceNotFound};return v,e}
 
 func(s *FinanceService)CreatePayment(schoolID uuid.UUID,v models.Payment)(models.Payment,error){

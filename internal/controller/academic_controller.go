@@ -16,3 +16,12 @@ func(ctrl *AcademicController)GetTerm(c *gin.Context){schoolID,ok:=requireSchool
 func(ctrl *AcademicController)CreateTerm(c *gin.Context){schoolID,ok:=requireSchoolID(c);if !ok{return};sid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_academic_session_id","invalid academic session id");return};var r termRequest;if e=c.ShouldBindJSON(&r);e!=nil{httpx.Validation(c,httpx.ValidationErrors(e));return};v,e:=ctrl.service.CreateTerm(schoolID,models.Term{AcademicSessionID:sid,Name:r.Name,StartDate:r.StartDate,EndDate:r.EndDate,Status:r.Status});if e!=nil{academicError(c,e,"academic term");return};actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(ctrl.service.DB(),c,&actor,"term.create","term",&v.ID,nil);c.JSON(201,v)}
 func(ctrl *AcademicController)UpdateTerm(c *gin.Context){schoolID,ok:=requireSchoolID(c);if !ok{return};id,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_term_id","invalid term id");return};var r termRequest;if e=c.ShouldBindJSON(&r);e!=nil{httpx.Validation(c,httpx.ValidationErrors(e));return};v,e:=ctrl.service.GetTerm(schoolID,id);if e!=nil{academicError(c,e,"term");return};v.Name=r.Name;v.StartDate=r.StartDate;v.EndDate=r.EndDate;if r.Status!=""{v.Status=r.Status};if e=ctrl.service.UpdateTerm(schoolID,v);e!=nil{academicError(c,e,"term");return};actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(ctrl.service.DB(),c,&actor,"term.update","term",&v.ID,nil);c.JSON(200,v)}
 func(ctrl *AcademicController)DeleteTerm(c *gin.Context){schoolID,ok:=requireSchoolID(c);if !ok{return};id,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_term_id","invalid term id");return};if e=ctrl.service.DeleteTerm(schoolID,id);e!=nil{academicError(c,e,"term");return};actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(ctrl.service.DB(),c,&actor,"term.delete","term",&id,nil);c.JSON(200,gin.H{"message":"term deleted"})}
+
+
+// GetContext exposes the configured academic sessions and their terms to every
+// authenticated school role. Consumers select by UUID rather than hardcoded names.
+func(ctrl *AcademicController)GetContext(c *gin.Context){
+	schoolID,ok:=requireSchoolID(c);if !ok{return}
+	v,e:=ctrl.service.AcademicContext(schoolID);if e!=nil{academicError(c,e,"academic context");return}
+	c.JSON(200,gin.H{"sessions":v})
+}

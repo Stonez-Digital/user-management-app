@@ -48,7 +48,7 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --package-lock=false
 
       - name: Audit production and development dependencies
         run: npm audit --audit-level=high

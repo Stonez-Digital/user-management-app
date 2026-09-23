@@ -15,3 +15,11 @@ func(s *AcademicService)GetTerms(schoolID,id uuid.UUID)([]models.Term,error){if 
 func(s *AcademicService)GetTerm(schoolID,id uuid.UUID)(models.Term,error){v,e:=s.terms.GetByID(schoolID,id);if errors.Is(e,gorm.ErrRecordNotFound){return v,ErrTermNotFound};return v,e}
 func(s *AcademicService)UpdateTerm(schoolID uuid.UUID,v models.Term)error{old,e:=s.GetTerm(schoolID,v.ID);if e!=nil{return e};if !validRange(v.StartDate,v.EndDate)||v.AcademicSessionID!=old.AcademicSessionID{return ErrAcademicDateRange};session,e:=s.GetSession(schoolID,v.AcademicSessionID);if e!=nil{return ErrAcademicParentNotFound};if v.StartDate.Before(session.StartDate)||v.EndDate.After(session.EndDate){return ErrAcademicDateRange};if v.Status==models.AcademicStatusActive&&session.Status!=models.AcademicStatusActive{return ErrAcademicSessionInactive};if v.Name!=models.TermFirst&&v.Name!=models.TermSecond&&v.Name!=models.TermThird{return ErrAcademicDuplicate};var x models.Term;if e=s.db.Where("school_id = ? AND academic_session_id = ? AND id <> ? AND start_date <= ? AND end_date >= ?",schoolID,v.AcademicSessionID,v.ID,v.EndDate,v.StartDate).First(&x).Error;e==nil{return ErrAcademicOverlap}else if !errors.Is(e,gorm.ErrRecordNotFound){return e};if v.Status==models.AcademicStatusActive{if e=s.db.Model(&models.Term{}).Where("school_id = ? AND academic_session_id = ? AND id <> ? AND status = ?",schoolID,v.AcademicSessionID,v.ID,models.AcademicStatusActive).Update("status",models.AcademicStatusClosed).Error;e!=nil{return e}};return s.terms.Update(schoolID,v)}
 func(s *AcademicService)DeleteTerm(schoolID,id uuid.UUID)error{if _,e:=s.GetTerm(schoolID,id);e!=nil{return e};return s.terms.Delete(schoolID,id)}
+
+
+// AcademicContext returns the complete school academic context for authenticated users.
+// It intentionally returns IDs and configured records so clients never need hardcoded
+// session or term values. Active records are metadata, not implicit query filters.
+func(s *AcademicService)AcademicContext(schoolID uuid.UUID)([]models.AcademicSession,error){
+	return s.sessions.GetAll(schoolID)
+}

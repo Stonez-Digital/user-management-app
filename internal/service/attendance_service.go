@@ -11,7 +11,7 @@ func(s *AttendanceService) ListForTeacher(schoolID, teacherID, sessionID, termID
  var rows []models.AttendanceRecord
  err:=s.db.Where("attendance_records.school_id = ? AND attendance_records.term_id = ? AND student_enrollments.academic_session_id = ?",schoolID,termID,sessionID).
   Joins("JOIN student_enrollments ON student_enrollments.id = attendance_records.enrollment_id").
-  Joins("JOIN teacher_assignments ON teacher_assignments.school_id = attendance_records.school_id AND teacher_assignments.class_id = student_enrollments.class_id AND teacher_assignments.academic_session_id = student_enrollments.academic_session_id AND teacher_assignments.term_id = attendance_records.term_id AND teacher_assignments.teacher_id = ?",teacherID).
+  Joins("JOIN teacher_assignments ON teacher_assignments.school_id = attendance_records.school_id AND teacher_assignments.class_id = student_enrollments.class_id AND teacher_assignments.academic_session_id = student_enrollments.academic_session_id AND teacher_assignments.term_id = attendance_records.term_id AND teacher_assignments.teacher_id = ? AND (teacher_assignments.section_id IS NULL OR teacher_assignments.section_id = student_enrollments.section_id)",teacherID).
   Preload("Enrollment").Preload("Term").Find(&rows).Error
  return rows,err
 }

@@ -97,7 +97,8 @@ func Migrate(db *gorm.DB) error {
             return nil
         }},
         {Version:15,Name:"hash_password_reset_tokens",Up:func(tx *gorm.DB) error {
-            if err:=tx.AutoMigrate(&models.PasswordResetToken{});err!=nil{return err}            var tokens []struct{ID uuid.UUID; Token string}
+            if err:=tx.AutoMigrate(&models.PasswordResetToken{});err!=nil{return err}
+            var tokens []struct{ID uuid.UUID; Token string}
             if tx.Migrator().HasColumn(&models.PasswordResetToken{},"token") {
                 if err:=tx.Raw("SELECT id, token FROM password_reset_tokens WHERE token IS NOT NULL AND token <> ''").Scan(&tokens).Error;err!=nil{return err}
                 for _,token:=range tokens {
@@ -196,7 +197,8 @@ func Migrate(db *gorm.DB) error {
                 {"students","school_id"},{"academic_sessions","school_id"},{"terms","school_id"},
                 {"school_classes","school_id"},{"sections","school_id"},{"subjects","school_id"},
                 {"student_enrollments","school_id"},{"attendance_records","school_id"},
-                {"teacher_assignments","school_id"},{"assessments","school_id"},{"assessment_results","school_id"},                {"fee_items","school_id"},{"invoices","school_id"},{"invoice_lines","school_id"},
+                {"teacher_assignments","school_id"},{"assessments","school_id"},{"assessment_results","school_id"},
+                {"fee_items","school_id"},{"invoices","school_id"},{"invoice_lines","school_id"},
                 {"payments","school_id"},{"timetable_entries","school_id"},{"guardian_relationships","school_id"},
                 {"announcements","school_id"},{"notifications","school_id"},
             }
@@ -315,7 +317,8 @@ func Migrate(db *gorm.DB) error {
                 {"timetable.sections","SELECT COUNT(*) FROM timetable_entries t JOIN sections s ON s.id=t.section_id WHERE t.section_id IS NOT NULL AND t.school_id<>s.school_id"},
                 {"guardians.users","SELECT COUNT(*) FROM guardian_relationships g JOIN users u ON u.id=g.guardian_user_id WHERE g.school_id<>u.school_id"},
                 {"guardians.students","SELECT COUNT(*) FROM guardian_relationships g JOIN students s ON s.id=g.student_id WHERE g.school_id<>s.school_id"},
-                {"announcements.users","SELECT COUNT(*) FROM announcements a JOIN users u ON u.id=a.created_by WHERE a.school_id<>u.school_id"},                {"announcements.classes","SELECT COUNT(*) FROM announcements a JOIN school_classes c ON c.id=a.class_id WHERE a.class_id IS NOT NULL AND a.school_id<>c.school_id"},
+                {"announcements.users","SELECT COUNT(*) FROM announcements a JOIN users u ON u.id=a.created_by WHERE a.school_id<>u.school_id"},
+                {"announcements.classes","SELECT COUNT(*) FROM announcements a JOIN school_classes c ON c.id=a.class_id WHERE a.class_id IS NOT NULL AND a.school_id<>c.school_id"},
                 {"notifications.users","SELECT COUNT(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.school_id<>u.school_id"},
                 {"notifications.announcements","SELECT COUNT(*) FROM notifications n JOIN announcements a ON a.id=n.announcement_id WHERE n.announcement_id IS NOT NULL AND n.school_id<>a.school_id"},
             }
@@ -424,6 +427,7 @@ func Migrate(db *gorm.DB) error {
                 if err:=tx.Raw(check.query).Scan(&marker).Error;err!=nil{return fmt.Errorf("check %s duplicates: %w",check.name,err)}
                 if marker!=0{return fmt.Errorf("cannot apply uniqueness hardening: duplicate %s exist; resolve duplicates before deployment",check.name)}
             }
+
             indexes:=[]string{
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_student_session ON student_enrollments(school_id,student_id,academic_session_id)",
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_teacher_assignment_unsectioned ON teacher_assignments(school_id,teacher_id,subject_id,academic_session_id,term_id,class_id,allocation_type) WHERE section_id IS NULL",
@@ -448,7 +452,6 @@ func Migrate(db *gorm.DB) error {
             }
             return nil
         }},
-
 
     }
     for _,migration:=range migrations{

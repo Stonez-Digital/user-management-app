@@ -17,6 +17,7 @@ func(s *AssessmentResultService)validate(schoolID uuid.UUID,v models.AssessmentR
  var enrollment models.StudentEnrollment;if e:=s.db.Where("id = ? AND school_id = ?",v.StudentEnrollmentID,schoolID).First(&enrollment).Error;e!=nil{if errors.Is(e,gorm.ErrRecordNotFound){return ErrResultEnrollmentMissing};return e}
  if !assessment.TeacherAssignment.Active||enrollment.Status==models.EnrollmentStatusWithdrawn||enrollment.Status==models.EnrollmentStatusCompleted{return ErrResultInvalid}
  if assessment.TeacherAssignment.AcademicSessionID!=enrollment.AcademicSessionID||assessment.TeacherAssignment.ClassID!=enrollment.ClassID{return ErrResultInvalid}
+ if assessment.TeacherAssignment.SectionID!=nil && (enrollment.SectionID==uuid.Nil || *assessment.TeacherAssignment.SectionID!=enrollment.SectionID){return ErrResultInvalid}
  if v.Score<0||v.Score>assessment.MaxScore{return ErrResultInvalid};return nil
 }
 func(s *AssessmentResultService)Create(schoolID uuid.UUID,v models.AssessmentResult)(models.AssessmentResult,error){v.SchoolID=schoolID;if e:=s.validate(schoolID,v);e!=nil{return v,e};var x models.AssessmentResult;e:=s.db.Where("school_id = ? AND assessment_id = ? AND student_enrollment_id = ?",schoolID,v.AssessmentID,v.StudentEnrollmentID).First(&x).Error;if e==nil{return v,ErrResultDuplicate};if !errors.Is(e,gorm.ErrRecordNotFound){return v,e};return s.repo.Create(schoolID,v)}

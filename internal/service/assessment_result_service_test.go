@@ -107,6 +107,6 @@ func TestAssessmentResultSchoolIsolation(t *testing.T) {
 	v := result; v.Score = 10
 	if err := svc.Update(schoolB.ID, v); err != ErrResultNotFound { t.Fatalf("expected school B UPDATE to be isolated, got %v", err) }
 	if err := svc.Delete(schoolB.ID, result.ID); err != ErrResultNotFound { t.Fatalf("expected school B DELETE to be isolated, got %v", err) }
-	report, err := svc.ReportCardForSchool(schoolB.ID, enrollment.ID, term.ID)
+	report, err := svc.ReportCardForSchool(schoolB.ID, enrollment.ID, session.ID, term.ID)
 	if err != ErrResultEnrollmentMissing { t.Fatalf("expected cross-school report card rejection, got report=%+v err=%v", report, err) }
 }

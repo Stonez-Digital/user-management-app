@@ -5,7 +5,7 @@ const runId = process.env.QA_RUN_ID || new Date().toISOString().replace(/[^0-9]/
 const schools = JSON.parse(process.env.PRODUCTION_QA_SCHOOLS_JSON || "[]");
 const superAdmin = {email:process.env.PRODUCTION_QA_SUPER_ADMIN_EMAIL,password:process.env.PRODUCTION_QA_SUPER_ADMIN_PASSWORD,school_code:""};
 const results = [];
-const createdUserIds = [];
+const createdUsers = [];
 function fail(message){throw new Error(message)}
 async function request(path,{token,method="GET",body,expected=[200]}={}) {
   const r=await fetch(BASE_URL+path,{method,headers:{"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})},body:body===undefined?undefined:JSON.stringify(body)});
@@ -64,11 +64,11 @@ async function bootstrapSchool(s){
   const teacherEmail=`teacher.${stamp}@example.com`;
   const parentEmail=`parent.${stamp}@example.com`;
   const student=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Student ${runId}`,email:studentEmail,password,role:"student",admission_number:`QA-${runId}-${school}`,enrollment_status:"active"},expected:[201]})).data;
-  const studentId=idOf(student); if(!studentId) fail(`${school}: onboarding did not return student id`); createdUserIds.push(student.user?.id||student.user_id||studentId);
+  const studentId=idOf(student); if(!studentId) fail(`${school}: onboarding did not return student id`); createdUsers.push({id:student.user?.id||student.user_id||studentId,token:admin.access_token});
   const teacher=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Teacher ${runId}`,email:teacherEmail,password,role:"teacher"},expected:[201]})).data;
-  const teacherId=idOf(teacher); if(!teacherId) fail(`${school}: onboarding did not return teacher id`); createdUserIds.push(teacher.user?.id||teacher.user_id||teacherId);
+  const teacherId=idOf(teacher); if(!teacherId) fail(`${school}: onboarding did not return teacher id`); createdUsers.push({id:teacher.user?.id||teacher.user_id||teacherId,token:admin.access_token});
   const parent=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Parent ${runId}`,email:parentEmail,password,role:"parent",student_id:studentId,relationship:"parent",primary:true},expected:[201]})).data;
-  const parentId=idOf(parent); if(!parentId) fail(`${school}: onboarding did not return parent id`); createdUserIds.push(parent.user?.id||parent.user_id||parentId);
+  const parentId=idOf(parent); if(!parentId) fail(`${school}: onboarding did not return parent id`); createdUsers.push({id:parent.user?.id||parent.user_id||parentId,token:admin.access_token});
   record("onboarding",school,"school_admin","PASS","Created temporary teacher/student/parent");
   const enrollment=(await request("/admin/enrollments",{token:admin.access_token,method:"POST",body:{student_id:studentId,academic_session_id:academic.active.id,class_id:academic.cls.id,section_id:academic.sec.id,status:"active"},expected:[201]})).data;
   const promoted=(await request(`/admin/enrollments/${enrollment.id}/place`,{token:admin.access_token,method:"POST",body:{target_session_id:academic.target.id,target_class_id:academic.cls.id,target_section_id:academic.sec.id,operation:"promote"},expected:[201]})).data;
@@ -124,11 +124,11 @@ async function cleanup(){
     try { await request(`/admin/users/${id}/deactivate`,{token:cleanupToken,method:"POST",expected:[200,404]}); } catch {}
   }
 }
-let cleanupToken=null;
+
 try {
   if(!superAdmin.email||!superAdmin.password) fail("Missing super-admin QA credentials");
   if(schools.length!==2) fail("PRODUCTION_QA_SCHOOLS_JSON must contain exactly two active school-admin credential objects");
-  const superAuth=await login(superAdmin); cleanupToken=superAuth.access_token;
+  const superAuth=await login(superAdmin);
   const superMe=await me(superAuth.access_token);
   if(superMe.role!=="super_admin") fail("Super Admin QA account is not super_admin");
   record("authentication","platform","super_admin","PASS","Platform profile loaded");
@@ -141,7 +141,7 @@ try {
   const bSessions=list((await request("/admin/academic-sessions",{token:b.admin.access_token})).data,"sessions");
   if(bSessions[0]) await request(`/admin/academic-sessions/${bSessions[0].id}`,{token:a.admin.access_token,expected:[404]});
   record("tenant isolation",a.school,"school_admin","PASS","Cross-school user/student/session IDs rejected");
-  console.log(JSON.stringify({run_id:runId,base_url:BASE_URL,results,temporary_accounts:{count:createdUserIds.length,cleanup:"deactivate after run"}},null,2));
+  console.log(JSON.stringify({run_id:runId,base_url:BASE_URL,results,temporary_accounts:{count:createdUsers.length,cleanup:"deactivate after run"}},null,2));
 } finally {
   if(cleanupToken) await cleanup();
 }

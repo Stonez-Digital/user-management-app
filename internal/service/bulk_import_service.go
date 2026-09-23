@@ -107,7 +107,10 @@ func(s *BulkImportService)processRow(j models.BulkImportJob,row BulkRow)(bool,st
 func(s *BulkImportService)createUser(tx *gorm.DB,schoolID uuid.UUID,name,email,role string)(models.User,string,bool,error){
  if email==""{return models.User{},"",false,errors.New("email is required for credential delivery")}
  var u models.User
- if e:=tx.Where("LOWER(email)=?",email).First(&u).Error;e==nil{return u,"",false,nil}else if !errors.Is(e,gorm.ErrRecordNotFound){return u,"",false,e}
+ if e:=tx.Where("LOWER(email)=?",email).First(&u).Error;e==nil {
+  if u.SchoolID==nil || *u.SchoolID!=schoolID{return u,"",false,fmt.Errorf("email %q already belongs to another tenant",email)}
+  return u,"",false,nil
+ } else if !errors.Is(e,gorm.ErrRecordNotFound){return u,"",false,e}
  password,e:=GenerateTemporaryPassword();if e!=nil{return u,"",false,e}
  hash,e:=auth.HashPassword(password);if e!=nil{return u,"",false,e}
  u=models.User{Name:name,Email:email,PasswordHash:hash,Role:role,Active:true,SchoolID:&schoolID}

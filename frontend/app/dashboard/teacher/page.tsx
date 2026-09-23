@@ -22,6 +22,7 @@ async function api(path:string){
 const list=(d:any,k:string)=>Array.isArray(d)?d:d?.[k]||[];
 const day=(n:number)=>["","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][n]||"";
 export default function TeacherDashboard(){
+  const { sessionId: selectedSessionId, termId: selectedTermId } = useAcademicContext();
   const router=useRouter(); const [me,setMe]=useState<User|null>(null); const [assignments,setAssignments]=useState<Assignment[]>([]);
   const [timetable,setTimetable]=useState<Timetable[]>([]); const [sessions,setSessions]=useState<Session[]>([]); const [terms,setTerms]=useState<Term[]>([]); const [notifications,setNotifications]=useState<any[]>([]);
   const [error,setError]=useState("");

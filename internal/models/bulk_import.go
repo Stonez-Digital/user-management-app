@@ -25,6 +25,9 @@ type BulkImportJob struct {
  Updated int `gorm:"not null;default:0" json:"updated"`
  Skipped int `gorm:"not null;default:0" json:"skipped"`
  Failed int `gorm:"not null;default:0" json:"failed"`
+ SendCredentials bool `gorm:"not null;default:false" json:"send_credentials"`
+ CredentialsSent int `gorm:"not null;default:0" json:"credentials_sent"`
+ CredentialEmailsFailed int `gorm:"not null;default:0" json:"credential_emails_failed"`
  RowsJSON string `gorm:"type:text" json:"-"`
  ErrorsJSON string `gorm:"type:text" json:"-"`
  CreatedAt time.Time `json:"created_at"`

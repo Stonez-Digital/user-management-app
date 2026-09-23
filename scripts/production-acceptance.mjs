@@ -119,9 +119,9 @@ async function bootstrapSchool(s){
 }
 async function cleanup(){
   const seen=new Set();
-  for(const id of createdUserIds){
-    if(!id||seen.has(id)) continue; seen.add(id);
-    try { await request(`/admin/users/${id}/deactivate`,{token:cleanupToken,method:"POST",expected:[200,404]}); } catch {}
+  for(const item of createdUsers){
+    if(!item?.id||seen.has(item.id)) continue; seen.add(item.id);
+    try { await request(`/admin/users/${item.id}/deactivate`,{token:item.token,method:"POST",expected:[200,404]}); } catch {}
   }
 }
 

@@ -36,6 +36,7 @@ type AcademicContextValue = AcademicSelection & {
 };
 
 const STORAGE_KEY = "stonez.academic.selection";
+function scopedStorageKey(){if(typeof window==="undefined")return STORAGE_KEY;try{const token=localStorage.getItem("access_token")||"";const payload=token.split(".")[1];if(!payload)return STORAGE_KEY;const claims=JSON.parse(atob(payload.replace(/-/g,"+").replace(/_/g,"/")));return STORAGE_KEY+":"+String(claims.sub||claims.user_id||"current")+":"+String(claims.school_id||"school")}catch{return STORAGE_KEY}}
 const AcademicContext = createContext<AcademicContextValue | null>(null);
 
 function list<T>(value: any, key: string): T[] {
@@ -67,7 +68,7 @@ export function AcademicContextProvider({ children }: { children: ReactNode }) {
       const nextSessions = list<AcademicSession>(data, "sessions");
       setSessions(nextSessions);
 
-      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null") as AcademicSelection | null;
+      const saved = JSON.parse(localStorage.getItem(scopedStorageKey()) || "null") as AcademicSelection | null;
       const savedSession = saved && nextSessions.some(s => s.id === saved.sessionId) ? saved.sessionId : "";
       const nextSession = savedSession || nextSessions.find(s => s.status === "active")?.id || nextSessions[0]?.id || "";
       setSessionId(nextSession);
@@ -98,7 +99,7 @@ export function AcademicContextProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!sessionId) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ sessionId, termId }));
+    localStorage.setItem(scopedStorageKey(), JSON.stringify({ sessionId, termId }));
     window.dispatchEvent(new CustomEvent("stonez:academic-context-changed", { detail: { sessionId, termId } }));
   }, [sessionId, termId]);
 
@@ -121,7 +122,7 @@ export function useAcademicContext() {
 export function getAcademicSelection(): AcademicSelection | null {
   if (typeof window === "undefined") return null;
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    return JSON.parse(localStorage.getItem(scopedStorageKey()) || "null");
   } catch {
     return null;
   }

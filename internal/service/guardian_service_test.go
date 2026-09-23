@@ -11,7 +11,7 @@ func TestGuardianRelationshipAccessAndSchoolIsolation(t *testing.T){
  rel:=repository.NewGuardianRepository(db);if _,err=rel.Create(a.ID,models.GuardianRelationship{GuardianUserID:parentA.ID,StudentID:student.ID,Relationship:"mother",Active:true});err!=nil{t.Fatal(err)}
  svc:=NewGuardianService(rel,db)
  children,err:=svc.Children(a.ID,parentA.ID);if err!=nil||len(children)!=1{t.Fatalf("expected one child, err=%v len=%d",err,len(children))}
- if _,err=svc.Attendance(b.ID,parentB.ID,student.ID);err!=ErrGuardianForbidden{t.Fatalf("expected cross-school access to be forbidden, got %v",err)}
+ if _,err=svc.Attendance(b.ID,parentB.ID,student.ID,uuid.Nil,uuid.Nil);err!=ErrGuardianForbidden{t.Fatalf("expected cross-school access to be forbidden, got %v",err)}
  if _,err=svc.CreateLink(b.ID,parentB.ID,student.ID,"father",false);err!=ErrGuardianInvalid{t.Fatalf("expected cross-school link rejection, got %v",err)}
  if _,err=svc.CreateLink(a.ID,parentA.ID,student.ID,"father",false);err!=ErrGuardianInvalid{t.Fatalf("expected duplicate link rejection, got %v",err)}
  if _,err=rel.Find(b.ID,parentA.ID,student.ID);!errors.Is(err,gorm.ErrRecordNotFound){t.Fatalf("expected school-scoped repository lookup to miss, got %v",err)}

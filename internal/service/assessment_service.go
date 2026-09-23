@@ -21,9 +21,9 @@ func(s *AssessmentService)validate(schoolID uuid.UUID,v models.Assessment)error{
  if d.Before(start)||d.After(end){return ErrAssessmentInvalid};return nil
 }
 func(s *AssessmentService)Create(schoolID uuid.UUID,v models.Assessment)(models.Assessment,error){v.SchoolID=schoolID;if e:=s.validate(schoolID,v);e!=nil{return v,e};v.Title=strings.TrimSpace(v.Title);v.Type=strings.ToLower(strings.TrimSpace(v.Type));v.Date=time.Date(v.Date.Year(),v.Date.Month(),v.Date.Day(),0,0,0,0,time.UTC);var x models.Assessment;e:=s.db.Where("school_id = ? AND teacher_assignment_id = ? AND lower(title) = lower(?)",schoolID,v.TeacherAssignmentID,v.Title).First(&x).Error;if e==nil{return v,ErrAssessmentDuplicate};if !errors.Is(e,gorm.ErrRecordNotFound){return v,e};return s.repo.Create(schoolID,v)}
-func(s *AssessmentService) ListForTeacher(schoolID,teacherID uuid.UUID)([]models.Assessment,error){
+func(s *AssessmentService) ListForTeacher(schoolID,teacherID,sessionID,termID uuid.UUID)([]models.Assessment,error){
  var rows []models.Assessment
- return rows,s.db.Where("assessments.school_id = ? AND teacher_assignments.teacher_id = ?",schoolID,teacherID).Joins("JOIN teacher_assignments ON teacher_assignments.id = assessments.teacher_assignment_id").Preload("TeacherAssignment").Find(&rows).Error
+ return rows,s.db.Where("assessments.school_id = ? AND teacher_assignments.teacher_id = ? AND teacher_assignments.academic_session_id = ? AND teacher_assignments.term_id = ?",schoolID,teacherID,sessionID,termID).Joins("JOIN teacher_assignments ON teacher_assignments.id = assessments.teacher_assignment_id").Preload("TeacherAssignment").Find(&rows).Error
 }
 func(s *AssessmentService) TeacherCreate(schoolID,teacherID uuid.UUID,v models.Assessment)(models.Assessment,error){
  var a models.TeacherAssignment

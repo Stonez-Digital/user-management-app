@@ -460,6 +460,7 @@ func Migrate(db *gorm.DB) error {
             }
             return nil
         }},
+        {Version:25,Name:"bulk_onboarding_credential_delivery",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.BulkImportJob{})}},
 
     }
     for _,migration:=range migrations{

@@ -2,12 +2,14 @@
 
 import {useEffect,useMemo,useState} from "react";
 import Link from "next/link";
+import { useAcademicContext } from "../../../lib/academic-context";
 
 type RecordItem=Record<string,any>;
 async function api(path:string,options:RequestInit={}){const token=localStorage.getItem("access_token");const r=await fetch("/backend"+path,{...options,headers:{...options.headers,Authorization:"Bearer "+token,"Content-Type":"application/json"}});const d=await r.json().catch(()=>({}));if(r.status===401)throw Error("Session expired");if(!r.ok)throw Error(d?.error?.message||"Request failed");return d}
 const arr=(d:any,key:string)=>Array.isArray(d)?d:d?.[key]||d?.data||[];
 
 export default function Finance(){
+ const { sessionId: selectedSessionId, termId: selectedTermId, terms: selectedTerms } = useAcademicContext();
  const[fees,setFees]=useState<RecordItem[]>([]),[invoices,setInvoices]=useState<RecordItem[]>([]),[terms,setTerms]=useState<RecordItem[]>([]),[enrollments,setEnrollments]=useState<RecordItem[]>([]),[error,setError]=useState(""),[busy,setBusy]=useState(false);
  const[fee,setFee]=useState({term_id:"",name:"",description:"",amount:""});
  const[invoice,setInvoice]=useState({student_enrollment_id:"",term_id:"",due_date:"",description:"",quantity:"1",unit_amount:""});
@@ -15,9 +17,17 @@ export default function Finance(){
  const selectedInvoice=useMemo(()=>invoices.find(x=>x.id===payment.invoice_id),[invoices,payment.invoice_id]);
 
  async function load(){
-  try{setError("");const[f,i,e,sessions]=await Promise.all([api("/admin/fees"),api("/admin/invoices"),api("/admin/enrollments"),api("/admin/academic-sessions")]);setFees(arr(f,"fees"));setInvoices(arr(i,"invoices"));setEnrollments(arr(e,"enrollments"));const loaded:RecordItem[]=[];for(const s of arr(sessions,"sessions")){const t=await api("/admin/academic-sessions/"+s.id+"/terms");loaded.push(...arr(t,"terms"))}setTerms(loaded);if(!fee.term_id&&loaded[0])setFee(x=>({...x,term_id:loaded[0].id}));if(!invoice.term_id&&loaded[0])setInvoice(x=>({...x,term_id:loaded[0].id}))}catch(x:any){setError(x.message||"Unable to load finance data")}
+  try{
+   setError("");
+   const[f,i,e]=await Promise.all([api("/admin/fees"),api("/admin/invoices"),api("/admin/enrollments")]);
+   const scopedFees=arr(f,"fees").filter((x:RecordItem)=>!selectedTermId||x.term_id===selectedTermId);
+   const scopedInvoices=arr(i,"invoices").filter((x:RecordItem)=>!selectedTermId||x.term_id===selectedTermId);
+   const scopedEnrollments=arr(e,"enrollments").filter((x:RecordItem)=>!selectedSessionId||x.academic_session_id===selectedSessionId||x.academic_session?.id===selectedSessionId);
+   setFees(scopedFees);setInvoices(scopedInvoices);setEnrollments(scopedEnrollments);setTerms(selectedTerms);
+   if(selectedTermId){setFee(x=>({...x,term_id:selectedTermId}));setInvoice(x=>({...x,term_id:selectedTermId}))}
+  }catch(x:any){setError(x.message||"Unable to load finance data")}
  }
- useEffect(()=>{load()},[]);
+ useEffect(()=>{load()},[selectedSessionId,selectedTermId,selectedTerms]);
  async function submit(path:string,body:any,reset:()=>void){setBusy(true);setError("");try{await api(path,{method:"POST",body:JSON.stringify(body)});reset();await load()}catch(x:any){setError(x.message||"Finance operation failed")}finally{setBusy(false)}}
 
  return <div className="content standalone"><Link className="back"href="/dashboard/operations">← Operations</Link>

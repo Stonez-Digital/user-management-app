@@ -24,7 +24,7 @@ func TestStudentPortalIsSchoolScoped(t *testing.T){
  svc:=NewStudentPortalService(db)
  p,err:=svc.Profile(a.ID,u1.ID);if err!=nil{t.Fatal(err)};if p.ID!=s1.ID||p.Name!="Student One"{t.Fatalf("wrong profile returned: %+v",p)}
  if _,err:=svc.Profile(b.ID,u1.ID);err!=ErrStudentPortalForbidden{t.Fatalf("expected cross-school profile rejection, got %v",err)}
- en,err:=svc.Enrollment(a.ID,u1.ID);if err!=nil{t.Fatal(err)};if en.ID!=e1.ID{t.Fatalf("wrong enrollment returned: %+v",en)}
- if _,err:=svc.Enrollment(b.ID,u1.ID);err!=ErrStudentPortalForbidden{t.Fatalf("expected cross-school enrollment rejection, got %v",err)}
+ en,err:=svc.Enrollment(a.ID,u1.ID,sessionA.ID);if err!=nil{t.Fatal(err)};if en.ID!=e1.ID{t.Fatalf("wrong enrollment returned: %+v",en)}
+ if _,err:=svc.Enrollment(b.ID,u1.ID,sessionA.ID);err!=ErrStudentPortalForbidden{t.Fatalf("expected cross-school enrollment rejection, got %v",err)}
  if _,err:=svc.Profile(a.ID,uuid.New());err!=ErrStudentPortalForbidden{t.Fatalf("expected forbidden for unknown user, got %v",err)}
 }

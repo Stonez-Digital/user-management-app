@@ -446,9 +446,17 @@ func Migrate(db *gorm.DB) error {
         {Version:24,Name:"harden_supabase_public_data_api",Up:func(tx *gorm.DB) error {
             if tx.Dialector.Name()!="postgres" { return nil }
             tables:=[]string{"schools","bulk_import_jobs","teacher_profiles","parent_profiles"}
+            roles:=[]string{"anon","authenticated"}
             for _,table:=range tables {
                 if err:=tx.Exec("ALTER TABLE "+table+" ENABLE ROW LEVEL SECURITY").Error;err!=nil{return err}
-                if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM anon, authenticated, public").Error;err!=nil{return err}
+                if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM public").Error;err!=nil{return err}
+                for _,role:=range roles {
+                    var exists bool
+                    if err:=tx.Raw("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)",role).Scan(&exists).Error;err!=nil{return err}
+                    if exists {
+                        if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM "+role).Error;err!=nil{return err}
+                    }
+                }
             }
             return nil
         }},

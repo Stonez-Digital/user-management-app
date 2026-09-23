@@ -33,12 +33,12 @@ export default function AttendancePage(){
 
   async function load(){
     try{
-      const [e,a]=await Promise.all([api("/admin/enrollments"),api("/admin/attendance")]);
-      setEnrollments((Array.isArray(e)?e:e?.enrollments||[]).filter((x:Enrollment)=>!selectedSessionId||x.academic_session?.id===selectedSessionId));
+      const [e,a]=await Promise.all([api("/admin/enrollments?academic_session_id="+selectedSessionId),api("/admin/attendance?academic_session_id="+selectedSessionId+"&term_id="+selectedTermId)]);
+      setEnrollments((Array.isArray(e)?e:e?.enrollments||[]));
       setItems(Array.isArray(a)?a:a?.attendance||[]);
     }catch(err){setError(err instanceof Error?err.message:"Unable to load attendance data")}
   }
-  useEffect(()=>{load()},[]);
+  useEffect(()=>{if(selectedSessionId&&selectedTermId)load()},[selectedSessionId,selectedTermId]);
 
   const selectedEnrollment=useMemo(()=>enrollments.find(e=>e.id===enrollmentId),[enrollments,enrollmentId]);
   useEffect(()=>{

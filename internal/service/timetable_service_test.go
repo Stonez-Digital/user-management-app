@@ -16,5 +16,5 @@ func TestTimetableConflictValidationAndSchoolIsolation(t *testing.T){
  if _,e=svc.Get(b.ID,first.ID);!errors.Is(e,ErrTimetableNotFound){t.Fatalf("expected cross-school get to fail, got %v",e)}
  if e=svc.Delete(b.ID,first.ID);!errors.Is(e,ErrTimetableNotFound){t.Fatalf("expected cross-school delete to fail, got %v",e)}
  if e=svc.Update(b.ID,models.TimetableEntry{ID:first.ID,AcademicSessionID:sess.ID,TermID:term.ID,TeacherAssignmentID:assignment.ID,ClassID:class.ID,SectionID:&section.ID,DayOfWeek:models.TimetableMonday,StartTime:"10:00",EndTime:"11:00",Active:true});!errors.Is(e,ErrTimetableNotFound){t.Fatalf("expected cross-school update to fail, got %v",e)}
- list,e:=svc.List(b.ID);if e!=nil||len(list)!=0{t.Fatalf("expected empty school B list, len=%d err=%v",len(list),e)}
+ list,e:=svc.List(b.ID, sess.ID, term.ID);if e!=nil||len(list)!=0{t.Fatalf("expected empty school B list, len=%d err=%v",len(list),e)}
 }

@@ -41,7 +41,7 @@ func(s *FinanceService)CreateFee(schoolID uuid.UUID,v models.FeeItem)(models.Fee
     if e==nil{return v,ErrFeeDuplicate};if !errors.Is(e,gorm.ErrRecordNotFound){return v,e}
     return s.fees.Create(schoolID,v)
 }
-func(s *FinanceService)ListFees(schoolID uuid.UUID,termID *uuid.UUID)([]models.FeeItem,error){return s.fees.List(schoolID,termID)}
+func(s *FinanceService)ListFees(schoolID,sessionID,termID uuid.UUID)([]models.FeeItem,error){var term models.Term;if e:=s.db.Where("id=? AND school_id=? AND academic_session_id=?",termID,schoolID,sessionID).First(&term).Error;e!=nil{return nil,ErrInvoiceTermMissing};return s.fees.List(schoolID,&termID)}
 func(s *FinanceService)GetFee(schoolID,id uuid.UUID)(models.FeeItem,error){v,e:=s.fees.Get(schoolID,id);if errors.Is(e,gorm.ErrRecordNotFound){return v,ErrFeeNotFound};return v,e}
 func(s *FinanceService)UpdateFee(schoolID uuid.UUID,v models.FeeItem)error{
     current,e:=s.GetFee(schoolID,v.ID);if e!=nil{return e};if v.TermID==uuid.Nil||strings.TrimSpace(v.Name)==""||v.Amount<=0{return ErrFeeInvalid}
@@ -77,7 +77,7 @@ func(s *FinanceService)CreateInvoice(schoolID uuid.UUID,v models.Invoice,lines [
     })
     if err!=nil{return v,err};return s.invoices.Get(schoolID,v.ID)
 }
-func(s *FinanceService)ListInvoices(schoolID uuid.UUID)([]models.Invoice,error){return s.invoices.List(schoolID)}
+func(s *FinanceService)ListInvoices(schoolID,sessionID,termID uuid.UUID)([]models.Invoice,error){rows,e:=s.invoices.List(schoolID);if e!=nil{return nil,e};out:=make([]models.Invoice,0,len(rows));for _,r:=range rows{if r.TermID==termID&&r.Term.AcademicSessionID==sessionID{out=append(out,r)}};return out,nil}
 func(s *FinanceService)GetInvoice(schoolID,id uuid.UUID)(models.Invoice,error){v,e:=s.invoices.Get(schoolID,id);if errors.Is(e,gorm.ErrRecordNotFound){return v,ErrInvoiceNotFound};return v,e}
 
 func(s *FinanceService)CreatePayment(schoolID uuid.UUID,v models.Payment)(models.Payment,error){

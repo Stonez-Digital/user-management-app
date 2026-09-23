@@ -73,12 +73,12 @@ func (s *TeacherAssignmentService) Create(schoolID uuid.UUID, v models.TeacherAs
 }
 
 func (s *TeacherAssignmentService) List(schoolID uuid.UUID) ([]models.TeacherAssignment, error) { return s.repo.List(schoolID) }
-func (s *TeacherAssignmentService) ListForTeacher(schoolID, teacherID uuid.UUID) ([]models.TeacherAssignment, error) {
+func (s *TeacherAssignmentService) ListForTeacher(schoolID, teacherID, sessionID, termID uuid.UUID) ([]models.TeacherAssignment, error) {
     items, err := s.repo.List(schoolID)
     if err != nil { return nil, err }
     filtered := make([]models.TeacherAssignment, 0)
     for _, item := range items {
-        if item.TeacherID == teacherID { filtered = append(filtered, item) }
+        if item.TeacherID == teacherID && item.AcademicSessionID == sessionID && item.TermID == termID { filtered = append(filtered, item) }
     }
     return filtered, nil
 }

@@ -17,9 +17,10 @@ export default function Finance(){
  const selectedInvoice=useMemo(()=>invoices.find(x=>x.id===payment.invoice_id),[invoices,payment.invoice_id]);
 
  async function load(){
+  if(!selectedSessionId||!selectedTermId)return;
   try{
    setError("");
-   const[f,i,e]=await Promise.all([api("/admin/fees"),api("/admin/invoices"),api("/admin/enrollments")]);
+   const[f,i,e]=await Promise.all([api("/admin/fees?academic_session_id="+selectedSessionId+"&term_id="+selectedTermId),api("/admin/invoices?academic_session_id="+selectedSessionId+"&term_id="+selectedTermId),api("/admin/enrollments?academic_session_id="+selectedSessionId)]);
    const scopedFees=arr(f,"fees").filter((x:RecordItem)=>!selectedTermId||x.term_id===selectedTermId);
    const scopedInvoices=arr(i,"invoices").filter((x:RecordItem)=>!selectedTermId||x.term_id===selectedTermId);
    const scopedEnrollments=arr(e,"enrollments").filter((x:RecordItem)=>!selectedSessionId||x.academic_session_id===selectedSessionId||x.academic_session?.id===selectedSessionId);

@@ -28,8 +28,8 @@ export default function TeacherDashboard(){
   const [error,setError]=useState("");
   useEffect(()=>{(async()=>{try{
     const m=await api("/me"); if(m?.role!=="teacher"){router.replace("/dashboard");return} setMe(m);
-    const [a,t,s,n]=await Promise.all([api("/teacher/assignments"),api("/teacher/timetable"),api("/admin/academic-sessions"),api("/notifications")]);
-    setAssignments(list(a,"assignments").filter((x:any)=>!selectedSessionId||x.academic_session_id===selectedSessionId).filter((x:any)=>!selectedTermId||x.term_id===selectedTermId)); setTimetable(list(t,"timetable").filter((x:any)=>!selectedSessionId||x.academic_session_id===selectedSessionId).filter((x:any)=>!selectedTermId||x.term_id===selectedTermId)); setNotifications(list(n,"notifications")); const ss=list(s,"sessions"); setSessions(ss);
+    const [a,t,s,n]=await Promise.all([api("/teacher/assignments?academic_session_id="+selectedSessionId+"&term_id="+selectedTermId),api("/teacher/timetable?academic_session_id="+selectedSessionId+"&term_id="+selectedTermId),api("/admin/academic-sessions"),api("/notifications")]);
+    setAssignments(list(a,"assignments")); setTimetable(list(t,"timetable")); setNotifications(list(n,"notifications")); const ss=list(s,"sessions"); setSessions(ss);
     const active=ss.find((x:Session)=>x.id===selectedSessionId)||ss.find((x:Session)=>x.status==="active")||ss[0]; if(active){const td=await api("/admin/academic-sessions/"+active.id+"/terms");setTerms(list(td,"terms"))}
   }catch(e){const msg=e instanceof Error?e.message:"Unable to load teacher workspace";setError(msg);if(msg==="Session expired")router.replace("/")}})()},[router,selectedSessionId,selectedTermId]);
   const today=new Date().getDay()||7;

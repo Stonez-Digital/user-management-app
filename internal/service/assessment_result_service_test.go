@@ -2,6 +2,7 @@ package service
 
 import (
 	"testing"
+	"github.com/google/uuid"
 	"time"
 
 	"github.com/onoja217/users-management-app/internal/models"
@@ -55,17 +56,18 @@ func TestAssessmentResultValidationAndReportCard(t *testing.T) {
 	if _, err = svc.Create(school.ID, models.AssessmentResult{AssessmentID: assessment1.ID, StudentEnrollmentID: enrollment.ID, Score: 20}); err != ErrResultDuplicate { t.Fatalf("expected duplicate, got %v", err) }
 	if _, err = svc.Create(school.ID, models.AssessmentResult{AssessmentID: assessment2.ID, StudentEnrollmentID: enrollment.ID, Score: 61}); err != ErrResultInvalid { t.Fatalf("expected max-score validation, got %v", err) }
 	if _, err = svc.Create(school.ID, models.AssessmentResult{AssessmentID: assessment2.ID, StudentEnrollmentID: enrollment.ID, Score: 45}); err != nil { t.Fatal(err) }
-	report, err := svc.ReportCardForSchool(school.ID, enrollment.ID, term.ID)
+	report, err := svc.ReportCardForSchool(school.ID, enrollment.ID, session.ID, term.ID)
 	if err != nil { t.Fatal(err) }
 	if len(report.Subjects) != 1 { t.Fatalf("expected one subject, got %d", len(report.Subjects)) }
 	if report.Subjects[0].Percentage != 75 { t.Fatalf("expected 75%% subject percentage, got %v", report.Subjects[0].Percentage) }
 	if report.OverallPercentage != 75 { t.Fatalf("expected 75%% overall percentage, got %v", report.OverallPercentage) }
 	if report.TotalWeightedContribution != 75 { t.Fatalf("expected 75 weighted contribution, got %v", report.TotalWeightedContribution) }
+	if _, err = svc.ReportCardForSchool(school.ID, enrollment.ID, uuid.New(), term.ID); err != ErrResultInvalid { t.Fatalf("expected session mismatch to be rejected, got %v", err) }
 
 	assessment3 := models.Assessment{TeacherAssignmentID: assignment.ID, Title: "Project", Type: "project", MaxScore: 100, Weight: 20, Date: time.Date(2026,11,15,0,0,0,0,time.UTC), SchoolID: school.ID}
 	if err := db.Create(&assessment3).Error; err != nil { t.Fatal(err) }
 	if _, err = svc.Create(school.ID, models.AssessmentResult{AssessmentID: assessment3.ID, StudentEnrollmentID: enrollment.ID, Score: 100}); err != nil { t.Fatal(err) }
-	report, err = svc.ReportCardForSchool(school.ID, enrollment.ID, term.ID)
+	report, err = svc.ReportCardForSchool(school.ID, enrollment.ID, session.ID, term.ID)
 	if err != nil { t.Fatal(err) }
 	if report.OverallPercentage < 79.1666 || report.OverallPercentage > 79.1667 { t.Fatalf("expected weighted overall percentage 79.1667, got %v", report.OverallPercentage) }
 }
@@ -105,6 +107,6 @@ func TestAssessmentResultSchoolIsolation(t *testing.T) {
 	v := result; v.Score = 10
 	if err := svc.Update(schoolB.ID, v); err != ErrResultNotFound { t.Fatalf("expected school B UPDATE to be isolated, got %v", err) }
 	if err := svc.Delete(schoolB.ID, result.ID); err != ErrResultNotFound { t.Fatalf("expected school B DELETE to be isolated, got %v", err) }
-	report, err := svc.ReportCardForSchool(schoolB.ID, enrollment.ID, term.ID)
+	report, err := svc.ReportCardForSchool(schoolB.ID, enrollment.ID, session.ID, term.ID)
 	if err != ErrResultEnrollmentMissing { t.Fatalf("expected cross-school report card rejection, got report=%+v err=%v", report, err) }
 }

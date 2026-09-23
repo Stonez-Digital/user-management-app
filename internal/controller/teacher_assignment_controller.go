@@ -38,7 +38,7 @@ func assignmentError(c *gin.Context, e error) {
 func (ctrl *TeacherAssignmentController) TeacherList(c *gin.Context) {
     schoolID,ok:=requireSchoolID(c);if !ok{return}
     teacherID,e:=uuid.Parse(c.GetString("user_id"));if e!=nil{httpx.Error(c,401,"invalid_user","invalid authenticated user");return}
-    v,e:=ctrl.service.ListForTeacher(schoolID,teacherID);if e!=nil{assignmentError(c,e);return}
+    sessionID,termID,ok:=parseAcademicQuery(c);if !ok{return};v,e:=ctrl.service.ListForTeacher(schoolID,teacherID,sessionID,termID);if e!=nil{assignmentError(c,e);return}
     c.JSON(http.StatusOK,v)
 }
 func (ctrl *TeacherAssignmentController) List(c *gin.Context) { schoolID,ok:=requireSchoolID(c);if !ok{return};v,e:=ctrl.service.List(schoolID);if e!=nil{assignmentError(c,e);return};c.JSON(http.StatusOK,v) }

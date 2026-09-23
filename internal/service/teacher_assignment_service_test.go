@@ -66,7 +66,7 @@ func TestTeacherAssignmentListForTeacherIsScoped(t *testing.T) {
     svc:=NewTeacherAssignmentService(repository.NewTeacherAssignmentRepository(db),db)
     a,err:=svc.Create(schoolID,models.TeacherAssignment{TeacherID:teacherA.ID,SubjectID:subject.ID,AcademicSessionID:session.ID,TermID:term.ID,ClassID:class.ID,Active:true});if err!=nil{t.Fatal(err)}
     if _,err=svc.Create(schoolID,models.TeacherAssignment{TeacherID:teacherB.ID,SubjectID:subject.ID,AcademicSessionID:session.ID,TermID:term.ID,ClassID:class.ID,Active:true});err!=nil{t.Fatal(err)}
-    got,err:=svc.ListForTeacher(schoolID,teacherA.ID);if err!=nil{t.Fatal(err)}
+    got,err:=svc.ListForTeacher(schoolID,teacherA.ID,session.ID,term.ID);if err!=nil{t.Fatal(err)}
     if len(got)!=1||got[0].ID!=a.ID||got[0].TeacherID!=teacherA.ID{t.Fatalf("teacher A received wrong assignments: %#v",got)}
 }
 

@@ -17,12 +17,13 @@ func(s *AssessmentResultService)validate(schoolID uuid.UUID,v models.AssessmentR
  var enrollment models.StudentEnrollment;if e:=s.db.Where("id = ? AND school_id = ?",v.StudentEnrollmentID,schoolID).First(&enrollment).Error;e!=nil{if errors.Is(e,gorm.ErrRecordNotFound){return ErrResultEnrollmentMissing};return e}
  if !assessment.TeacherAssignment.Active||enrollment.Status==models.EnrollmentStatusWithdrawn||enrollment.Status==models.EnrollmentStatusCompleted{return ErrResultInvalid}
  if assessment.TeacherAssignment.AcademicSessionID!=enrollment.AcademicSessionID||assessment.TeacherAssignment.ClassID!=enrollment.ClassID{return ErrResultInvalid}
+ if assessment.TeacherAssignment.SectionID!=nil && (enrollment.SectionID==uuid.Nil || *assessment.TeacherAssignment.SectionID!=enrollment.SectionID){return ErrResultInvalid}
  if v.Score<0||v.Score>assessment.MaxScore{return ErrResultInvalid};return nil
 }
 func(s *AssessmentResultService)Create(schoolID uuid.UUID,v models.AssessmentResult)(models.AssessmentResult,error){v.SchoolID=schoolID;if e:=s.validate(schoolID,v);e!=nil{return v,e};var x models.AssessmentResult;e:=s.db.Where("school_id = ? AND assessment_id = ? AND student_enrollment_id = ?",schoolID,v.AssessmentID,v.StudentEnrollmentID).First(&x).Error;if e==nil{return v,ErrResultDuplicate};if !errors.Is(e,gorm.ErrRecordNotFound){return v,e};return s.repo.Create(schoolID,v)}
-func(s *AssessmentResultService) ListForTeacher(schoolID,teacherID uuid.UUID)([]models.AssessmentResult,error){
+func(s *AssessmentResultService) ListForTeacher(schoolID,teacherID,sessionID,termID uuid.UUID)([]models.AssessmentResult,error){
  var rows []models.AssessmentResult
- return rows,s.db.Where("assessment_results.school_id = ? AND teacher_assignments.teacher_id = ?",schoolID,teacherID).Joins("JOIN assessments ON assessments.id = assessment_results.assessment_id AND assessments.school_id = assessment_results.school_id").Joins("JOIN teacher_assignments ON teacher_assignments.id = assessments.teacher_assignment_id AND teacher_assignments.school_id = assessments.school_id").Preload("Assessment").Preload("StudentEnrollment").Find(&rows).Error
+ return rows,s.db.Where("assessment_results.school_id = ? AND teacher_assignments.teacher_id = ? AND teacher_assignments.academic_session_id = ? AND teacher_assignments.term_id = ?",schoolID,teacherID,sessionID,termID).Joins("JOIN assessments ON assessments.id = assessment_results.assessment_id AND assessments.school_id = assessment_results.school_id").Joins("JOIN teacher_assignments ON teacher_assignments.id = assessments.teacher_assignment_id AND teacher_assignments.school_id = assessments.school_id").Preload("Assessment").Preload("StudentEnrollment").Find(&rows).Error
 }
 func(s *AssessmentResultService) TeacherCreate(schoolID,teacherID uuid.UUID,v models.AssessmentResult)(models.AssessmentResult,error){
  var a models.Assessment
@@ -30,7 +31,7 @@ func(s *AssessmentResultService) TeacherCreate(schoolID,teacherID uuid.UUID,v mo
  if a.TeacherAssignment.TeacherID!=teacherID||!a.TeacherAssignment.Active{return v,ErrResultAssessmentMissing}
  return s.Create(schoolID,v)
 }
-func(s *AssessmentResultService)List(schoolID uuid.UUID)([]models.AssessmentResult,error){return s.repo.List(schoolID)}
+func(s *AssessmentResultService)List(schoolID,sessionID,termID uuid.UUID)([]models.AssessmentResult,error){rows,e:=s.repo.List(schoolID);if e!=nil{return nil,e};out:=make([]models.AssessmentResult,0,len(rows));for _,r:=range rows{if r.Assessment.TeacherAssignment.AcademicSessionID==sessionID&&r.Assessment.TeacherAssignment.TermID==termID{out=append(out,r)}};return out,nil}
 func(s *AssessmentResultService)Get(schoolID,id uuid.UUID)(models.AssessmentResult,error){v,e:=s.repo.Get(schoolID,id);if errors.Is(e,gorm.ErrRecordNotFound){return v,ErrResultNotFound};return v,e}
 func(s *AssessmentResultService)Update(schoolID uuid.UUID,v models.AssessmentResult)error{if _,e:=s.Get(schoolID,v.ID);e!=nil{return e};v.SchoolID=schoolID;if e:=s.validate(schoolID,v);e!=nil{return e};var x models.AssessmentResult;e:=s.db.Where("school_id = ? AND assessment_id = ? AND student_enrollment_id = ? AND id <> ?",schoolID,v.AssessmentID,v.StudentEnrollmentID,v.ID).First(&x).Error;if e==nil{return ErrResultDuplicate};if !errors.Is(e,gorm.ErrRecordNotFound){return e};return s.repo.Update(schoolID,v)}
 func(s *AssessmentResultService)Delete(schoolID,id uuid.UUID)error{if _,e:=s.Get(schoolID,id);e!=nil{return e};return s.repo.Delete(schoolID,id)}
@@ -59,17 +60,18 @@ func (s *AssessmentResultService) ReportCard(enrollmentID, termID uuid.UUID) (Re
 		if errors.Is(e, gorm.ErrRecordNotFound) { return ReportCard{}, ErrResultEnrollmentMissing }
 		return ReportCard{}, e
 	}
-	return s.ReportCardForSchool(enrollment.SchoolID, enrollmentID, termID)
+	return s.ReportCardForSchool(enrollment.SchoolID, enrollmentID, enrollment.AcademicSessionID, termID)
 }
 
-func (s *AssessmentResultService) ReportCardForSchool(schoolID, enrollmentID, termID uuid.UUID) (ReportCard, error) {
+func (s *AssessmentResultService) ReportCardForSchool(schoolID, enrollmentID, sessionID, termID uuid.UUID) (ReportCard, error) {
 	var enrollment models.StudentEnrollment
 	if e := s.db.Where("id = ? AND school_id = ?", enrollmentID, schoolID).First(&enrollment).Error; e != nil {
 		if errors.Is(e, gorm.ErrRecordNotFound) { return ReportCard{}, ErrResultEnrollmentMissing }
 		return ReportCard{}, e
 	}
+	if enrollment.AcademicSessionID!=sessionID{return ReportCard{},ErrResultInvalid}
 	var term models.Term
-	if e := s.db.Where("id = ? AND school_id = ? AND academic_session_id = ?", termID, schoolID, enrollment.AcademicSessionID).First(&term).Error; e != nil {
+	if e := s.db.Where("id = ? AND school_id = ? AND academic_session_id = ?", termID, schoolID, sessionID).First(&term).Error; e != nil {
 		if errors.Is(e, gorm.ErrRecordNotFound) { return ReportCard{}, ErrResultInvalid }
 		return ReportCard{}, e
 	}

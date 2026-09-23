@@ -18,6 +18,7 @@ jobs:
     timeout-minutes: 15
     env:
       PRODUCTION_API_URL: https://stonez-digital-school-api.onrender.com
+      PRODUCTION_FRONTEND_URL: https://stonez-school-management.onojamondayojonugba.workers.dev
       PRODUCTION_QA_SUPER_ADMIN_EMAIL: ${{ secrets.PRODUCTION_QA_SUPER_ADMIN_EMAIL }}
       PRODUCTION_QA_SUPER_ADMIN_PASSWORD: ${{ secrets.PRODUCTION_QA_SUPER_ADMIN_PASSWORD }}
       PRODUCTION_QA_SCHOOLS_JSON: ${{ secrets.PRODUCTION_QA_SCHOOLS_JSON }}
@@ -25,6 +26,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Cloudflare frontend smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent --location --max-time 30 "${PRODUCTION_FRONTEND_URL}/" -o /dev/null
+          curl --fail --show-error --silent --location --max-time 30 "${PRODUCTION_FRONTEND_URL}/backend/healthz" -o /dev/null
 
       - name: Run production acceptance
         shell: bash

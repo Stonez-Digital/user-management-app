@@ -21,7 +21,7 @@ export default function Results(){
 
   async function load(){
     try{
-      const [r,e,a]=await Promise.all([api("/admin/assessment-results"),api("/admin/enrollments"),api("/admin/assessments")]);
+      const [r,e,a]=await Promise.all([api("/admin/assessment-results?academic_session_id="+selectedSessionId+"&term_id="+selectedTermId),api("/admin/enrollments?academic_session_id="+selectedSessionId),api("/admin/assessments?academic_session_id="+selectedSessionId+"&term_id="+selectedTermId)]);
       setResults(arr(r,"results"));setEnrollments(arr(e,"enrollments").filter((x:any)=>!selectedSessionId||x.academic_session_id===selectedSessionId||x.academic_session?.id===selectedSessionId));setAssessments(arr(a,"assessments"));setError("");
     }catch(x:any){setError(x.message)}
   }

@@ -115,10 +115,10 @@ func TestFinanceFeeItemsAreIsolatedBySchool(t *testing.T) {
     feeB, err := svc.CreateFee(schoolB, models.FeeItem{TermID: termB.ID, Name: "Tuition", Amount: 60000, Active: true})
     if err != nil { t.Fatal(err) }
 
-    feesA, err := svc.ListFees(schoolA, nil)
+    feesA, err := svc.ListFees(schoolA, termA.AcademicSessionID, termA.ID)
     if err != nil { t.Fatal(err) }
     if len(feesA) != 1 || feesA[0].ID != feeA.ID || feesA[0].Amount != 50000 { t.Fatalf("unexpected School A fees: %+v", feesA) }
-    feesB, err := svc.ListFees(schoolB, nil)
+    feesB, err := svc.ListFees(schoolB, termB.AcademicSessionID, termB.ID)
     if err != nil { t.Fatal(err) }
     if len(feesB) != 1 || feesB[0].ID != feeB.ID || feesB[0].Amount != 60000 { t.Fatalf("unexpected School B fees: %+v", feesB) }
 

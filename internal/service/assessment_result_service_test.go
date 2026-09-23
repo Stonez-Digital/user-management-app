@@ -55,7 +55,7 @@ func TestAssessmentResultValidationAndReportCard(t *testing.T) {
 	if _, err = svc.Create(school.ID, models.AssessmentResult{AssessmentID: assessment1.ID, StudentEnrollmentID: enrollment.ID, Score: 20}); err != ErrResultDuplicate { t.Fatalf("expected duplicate, got %v", err) }
 	if _, err = svc.Create(school.ID, models.AssessmentResult{AssessmentID: assessment2.ID, StudentEnrollmentID: enrollment.ID, Score: 61}); err != ErrResultInvalid { t.Fatalf("expected max-score validation, got %v", err) }
 	if _, err = svc.Create(school.ID, models.AssessmentResult{AssessmentID: assessment2.ID, StudentEnrollmentID: enrollment.ID, Score: 45}); err != nil { t.Fatal(err) }
-	report, err := svc.ReportCardForSchool(school.ID, enrollment.ID, term.ID)
+	report, err := svc.ReportCardForSchool(school.ID, enrollment.ID, session.ID, term.ID)
 	if err != nil { t.Fatal(err) }
 	if len(report.Subjects) != 1 { t.Fatalf("expected one subject, got %d", len(report.Subjects)) }
 	if report.Subjects[0].Percentage != 75 { t.Fatalf("expected 75%% subject percentage, got %v", report.Subjects[0].Percentage) }

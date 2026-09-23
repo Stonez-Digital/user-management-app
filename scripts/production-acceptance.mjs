@@ -143,5 +143,5 @@ try {
   record("tenant isolation",a.school,"school_admin","PASS","Cross-school user/student/session IDs rejected");
   console.log(JSON.stringify({run_id:runId,base_url:BASE_URL,results,temporary_accounts:{count:createdUsers.length,cleanup:"deactivate after run"}},null,2));
 } finally {
-  if(cleanupToken) await cleanup();
+  if(createdUsers.length) await cleanup();
 }

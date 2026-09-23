@@ -30,7 +30,7 @@ func(s *AssessmentService) TeacherCreate(schoolID,teacherID uuid.UUID,v models.A
  if e:=s.db.Where("id = ? AND school_id = ? AND teacher_id = ? AND active = ?",v.TeacherAssignmentID,schoolID,teacherID,true).First(&a).Error;e!=nil{return v,ErrAssessmentAssignmentMissing}
  return s.Create(schoolID,v)
 }
-func(s *AssessmentService)List(schoolID uuid.UUID)([]models.Assessment,error){return s.repo.List(schoolID)}
+func(s *AssessmentService)List(schoolID,sessionID,termID uuid.UUID)([]models.Assessment,error){rows,e:=s.repo.List(schoolID);if e!=nil{return nil,e};out:=make([]models.Assessment,0,len(rows));for _,r:=range rows{if r.TeacherAssignment.AcademicSessionID==sessionID&&r.TeacherAssignment.TermID==termID{out=append(out,r)}};return out,nil}
 func(s *AssessmentService)Get(schoolID,id uuid.UUID)(models.Assessment,error){v,e:=s.repo.Get(schoolID,id);if errors.Is(e,gorm.ErrRecordNotFound){return v,ErrAssessmentNotFound};return v,e}
 func(s *AssessmentService)Update(schoolID uuid.UUID,v models.Assessment)error{if _,e:=s.Get(schoolID,v.ID);e!=nil{return e};v.SchoolID=schoolID;if e:=s.validate(schoolID,v);e!=nil{return e};v.Title=strings.TrimSpace(v.Title);v.Type=strings.ToLower(strings.TrimSpace(v.Type));v.Date=time.Date(v.Date.Year(),v.Date.Month(),v.Date.Day(),0,0,0,0,time.UTC);var x models.Assessment;e:=s.db.Where("school_id = ? AND teacher_assignment_id = ? AND lower(title) = lower(?) AND id <> ?",schoolID,v.TeacherAssignmentID,v.Title,v.ID).First(&x).Error;if e==nil{return ErrAssessmentDuplicate};if !errors.Is(e,gorm.ErrRecordNotFound){return e};return s.repo.Update(schoolID,v)}
 func(s *AssessmentService)Delete(schoolID,id uuid.UUID)error{if _,e:=s.Get(schoolID,id);e!=nil{return e};return s.repo.Delete(schoolID,id)}

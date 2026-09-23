@@ -51,7 +51,7 @@ jobs:
         run: npm install --package-lock=false
 
       - name: Audit production and development dependencies
-        run: npm audit --audit-level=high
+        run: npm install --package-lock-only --ignore-scripts && npm audit --audit-level=high
 
       - name: Build
         run: npm run build

@@ -27,11 +27,15 @@ export default function TeacherDashboard(){
   const [timetable,setTimetable]=useState<Timetable[]>([]); const [sessions,setSessions]=useState<Session[]>([]); const [terms,setTerms]=useState<Term[]>([]); const [notifications,setNotifications]=useState<any[]>([]);
   const [error,setError]=useState("");
   useEffect(()=>{(async()=>{try{
-    const context=await api("/academic-context"); const ss=list(context,"sessions"); const active=ss.find((x:Session)=>x.status==="active")||ss[0]; const selected=active?.id||""; const activeTerm=active?.terms?.find((x:Term)=>x.status==="active")||active?.terms?.[0]; setSelectedSessionId(selected); setSelectedTermId(activeTerm?.id||""); if(!selected||!activeTerm)return;
+    const context=await api("/academic-context"); const ss=list(context,"sessions"); const active=ss.find((x:Session)=>x.status==="active")||ss[0]; const selected=active?.id||""; const activeTerm=active?.terms?.find((x:Term)=>x.status==="active")||active?.terms?.[0]; setSelectedSessionId(selected); setSelectedTermId(activeTerm?.id||"");
     const m=await api("/me"); if(m?.role!=="teacher"){router.replace("/dashboard");return} setMe(m);
-    const [a,t,s,n]=await Promise.all([api("/teacher/assignments?academic_session_id="+selected+"&term_id="+activeTerm.id),api("/teacher/timetable?academic_session_id="+selected+"&term_id="+activeTerm.id),api("/admin/academic-sessions"),api("/notifications")]);
-    setAssignments(list(a,"assignments")); setTimetable(list(t,"timetable")); setNotifications(list(n,"notifications")); const sessionList=list(s,"sessions"); setSessions(sessionList);
-    const current=ss.find((x:Session)=>x.id===selected); if(current){setTerms(current.terms||[])}
+    const [s,n]=await Promise.all([api("/admin/academic-sessions"),api("/notifications")]);
+    setNotifications(list(n,"notifications")); const sessionList=list(s,"sessions"); setSessions(sessionList);
+    const current=sessionList.find((x:Session)=>x.id===selected); if(current){setTerms(current.terms||[])}
+    if(selected&&activeTerm?.id){
+      const [a,t]=await Promise.all([api("/teacher/assignments?academic_session_id="+selected+"&term_id="+activeTerm.id),api("/teacher/timetable?academic_session_id="+selected+"&term_id="+activeTerm.id)]);
+      setAssignments(list(a,"assignments")); setTimetable(list(t,"timetable"));
+    }
   }catch(e){const msg=e instanceof Error?e.message:"Unable to load teacher workspace";setError(msg);if(msg==="Session expired")router.replace("/")}})()},[router]);
   const today=new Date().getDay()||7;
   const todaySlots=useMemo(()=>timetable.filter(x=>x.active&&x.day_of_week===today).sort((a,b)=>a.start_time.localeCompare(b.start_time)),[timetable,today]);

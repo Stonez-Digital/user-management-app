@@ -43,6 +43,54 @@ It is not yet described as a fully mature commercial SaaS product. Real-school p
 
 ## Recent Development
 
+### School identity, dedicated login and branding
+
+The latest development cycle introduced a school-first identity experience for multi-tenant deployments. Each registered school is treated as its own tenant and can be presented with its own identity throughout the school experience.
+
+Recent changes include:
+
+- Separate public Stonez Digital platform login and school login flows
+- Dedicated school login routing after school registration
+- Pending/approval state on dedicated school login
+- School-specific name and identity in authenticated experiences
+- Authenticated profile responses exposing school branding data
+- Reusable school branding header across tenant dashboards
+- School branding applied across tenant dashboard routes
+- School-branded student and parent report cards
+- School-branded report headers
+- Stonez Digital fallback branding when a school logo is unavailable
+- Bedrock International Academy branding support during pilot development
+
+The intended tenant experience is:
+
+    Stonez Digital Platform
+            |
+            +---- School A -> School A identity/login/dashboard
+            |
+            +---- School B -> School B identity/login/dashboard
+            |
+            +---- School C -> School C identity/login/dashboard
+
+Stonez Digital remains the platform owner/administrator, while each school sees its own school context inside the tenant application.
+
+### School logo storage
+
+School logo uploads are implemented as a backend-managed Supabase Storage integration using the school-logos bucket.
+
+Current storage configuration:
+
+- Bucket: school-logos
+- Public bucket: enabled
+- Maximum file size: 2 MB
+- Supported formats: PNG, JPEG, WebP
+- School-specific object paths are used for tenant separation
+- Backend upload authorization uses the server-side SUPABASE_SECRET_KEY
+
+The production bucket has been created and configured. The remaining production verification item is confirming that the Render API service has the required server-side SUPABASE_SECRET_KEY environment variable before completing an end-to-end logo upload test.
+
+Secrets must remain in Render environment configuration and must never be committed to GitHub.
+
+
 The repository has gone through a major expansion in the current development cycle.
 
 ### Academic management
@@ -135,11 +183,11 @@ The responsive work preserved the existing application structure and business lo
 
 ### Branding and theme work
 
-The Stonez Digital application logo was added to the platform.
+The Stonez Digital application branding remains the platform-level identity, while school tenants can now carry their own school name and logo across the school-facing experience.
 
 The later Light/Dark theme experiment was subsequently reverted because the color changes were not producing the intended result and were interfering with the desired visual presentation.
 
-The current product therefore keeps the established platform styling and Stonez Digital branding while preserving the mobile responsiveness work.
+The current product therefore keeps the established platform styling and Stonez Digital branding while preserving the mobile responsiveness work and school-specific tenant branding.
 
 ## Current Product Capabilities
 
@@ -578,6 +626,13 @@ Priority order:
 - [x] Cloudflare frontend deployment
 - [x] Render Go API deployment
 - [x] PostgreSQL production path
+- [x] Separate platform and school login routing
+- [x] School-wide tenant branding
+- [x] School-branded report cards and report headers
+- [x] School logo upload route and Cloudflare multipart proxy support
+- [x] Production school-logos storage bucket configuration
+- [ ] Complete Render server-side storage secret verification
+- [ ] Complete end-to-end school logo upload QA
 - [ ] Complete role-by-role production QA
 - [ ] Complete multi-school isolation QA
 - [ ] Complete pilot readiness review
@@ -619,7 +674,7 @@ Priority order:
 
 ## Project Status
 
-**Status: Active development — production hardening and pilot preparation**
+**Status: Active development — production hardening, tenant branding and pilot preparation**
 
 The project has progressed from a user-management backend into a substantial multi-tenant school-management platform.
 
@@ -628,6 +683,17 @@ The major product domains are now represented in the codebase. The current chall
 The immediate product goal is therefore:
 
 > **Stabilize → verify → pilot → learn → harden → commercialize.**
+
+### Latest verified development checkpoint — 24 September 2026
+
+- PR #165: school logo upload through Cloudflare was merged.
+- PR #166: dedicated school login and school registration routing was merged.
+- PR #167: school-wide tenant branding and branded reports was merged.
+- Production authentication fixes remain part of the current stable platform foundation.
+- Supabase school-logos storage is configured for public school-logo delivery with a 2 MB image limit.
+- Render production configuration has been updated with the Supabase project URL.
+- End-to-end logo upload verification remains pending final server-side secret verification and deployment validation.
+
 
 ## Roadmap Summary
 

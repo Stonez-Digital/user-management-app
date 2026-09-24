@@ -31,6 +31,6 @@ for (const file of [
 }
 
 const platformDashboard = await read("app/dashboard/page.tsx");
-assert.match(platformDashboard, /m\.role===\\"super_admin\\"/);
+assert.match(platformDashboard, /\.role===["\']super_admin["\']/);
 
 console.log("Dashboard academic-context scoping checks passed.");

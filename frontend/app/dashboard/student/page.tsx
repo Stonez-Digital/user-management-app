@@ -6,9 +6,9 @@ type Item=Record<string,any>;
 async function api(path:string){const t=localStorage.getItem("access_token");const r=await fetch("/backend"+path,{headers:{Authorization:"Bearer "+t}});const d=await r.json().catch(()=>({}));if(r.status===401)throw Error("Session expired");if(!r.ok)throw Error(d?.error?.message||"Request failed");return d}
 const list=(d:any,k:string)=>Array.isArray(d)?d:d?.[k]||d?.data||[];
 export default function StudentPortal(){
- const sessionId=""; const termId="";
+ const [sessionId,setSessionId]=useState(""); const [termId,setTermId]=useState("");
  const[profile,setProfile]=useState<Item|null>(null),[enrollment,setEnrollment]=useState<Item|null>(null),[terms,setTerms]=useState<Item[]>([]),[data,setData]=useState<Record<string,Item[]>>({}),[schoolName,setSchoolName]=useState(""),[error,setError]=useState(""),[portalStatus,setPortalStatus]=useState("");
- useEffect(()=>{if(!sessionId||!termId)return;
+ useEffect(()=>{(async()=>{try{const context=await api("/academic-context");const sessions=list(context,"sessions");const session=sessions.find((x:any)=>x.status==="active")||sessions[0];const term=session?.terms?.find((x:any)=>x.status==="active")||session?.terms?.[0];setSessionId(session?.id||"");setTermId(term?.id||"");if(!session||!term)return;
   (async()=>{
    try{
     const me=await api("/me"); setSchoolName(me?.school_name||"");
@@ -30,8 +30,8 @@ export default function StudentPortal(){
       setData({attendance:value(0,"attendance"),timetable:value(1,"timetable"),invoices:value(2,"invoices"),payments:value(3,"payments")});
     }
    }catch(e:any){setError(e.message||"Unable to load student portal")}
-  })()
- },[sessionId,termId]);
+  })().catch((e:any)=>setError(e.message||"Unable to load student portal"))
+ },[]);
  return <div className="content standalone"><Link className="back" href="/dashboard">← Dashboard</Link><header className="topbar"><div><p className="eyebrow">STUDENT PORTAL</p><h1>My academic dashboard</h1><p className="muted">{schoolName||"Your school"} · Your school records, attendance, timetable and report cards.</p></div></header>
  {error&&<div className="error banner">{error}</div>}
  {portalStatus&&<div className="panel"><strong>Enrollment status</strong><p className="muted">{portalStatus} Ask your school administrator to enroll you in the current academic session.</p></div>}

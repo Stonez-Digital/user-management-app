@@ -18,7 +18,7 @@ type School struct {
     ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
     Name string `gorm:"size:160;not null" json:"name"`
     Code string `gorm:"size:50;not null;uniqueIndex" json:"code"`
-    Slug string `gorm:"size:180;uniqueIndex" json:"slug"`
+    Slug string `gorm:"size:180;index" json:"slug"`
     LogoURL string `gorm:"size:1000" json:"logo_url,omitempty"`
     Status string `gorm:"size:20;not null;default:active;index" json:"status"`
     CreatedAt time.Time `json:"created_at"`

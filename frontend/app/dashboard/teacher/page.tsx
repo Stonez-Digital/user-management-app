@@ -26,7 +26,7 @@ export default function TeacherDashboard(){
   const router=useRouter(); const [me,setMe]=useState<User|null>(null); const [assignments,setAssignments]=useState<Assignment[]>([]);
   const [timetable,setTimetable]=useState<Timetable[]>([]); const [sessions,setSessions]=useState<Session[]>([]); const [terms,setTerms]=useState<Term[]>([]); const [notifications,setNotifications]=useState<any[]>([]);
   const [error,setError]=useState("");
-  useEffect(()=>{(async()=>{try{
+  useEffect(()=>{if(!selectedSessionId||!selectedTermId)return;(async()=>{try{
     const m=await api("/me"); if(m?.role!=="teacher"){router.replace("/dashboard");return} setMe(m);
     const [a,t,s,n]=await Promise.all([api("/teacher/assignments?academic_session_id="+selectedSessionId+"&term_id="+selectedTermId),api("/teacher/timetable?academic_session_id="+selectedSessionId+"&term_id="+selectedTermId),api("/admin/academic-sessions"),api("/notifications")]);
     setAssignments(list(a,"assignments")); setTimetable(list(t,"timetable")); setNotifications(list(n,"notifications")); const ss=list(s,"sessions"); setSessions(ss);

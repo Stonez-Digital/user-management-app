@@ -74,7 +74,7 @@ func(s *EnrollmentService)ListForTeacher(schoolID,teacherID uuid.UUID)([]models.
  err:=s.db.Where("student_enrollments.school_id = ? AND student_enrollments.status = ?",schoolID,models.EnrollmentStatusActive).
   Joins("JOIN teacher_assignments ta ON ta.school_id = student_enrollments.school_id AND ta.class_id = student_enrollments.class_id AND ta.academic_session_id = student_enrollments.academic_session_id AND ta.teacher_id = ? AND ta.active = ?",teacherID,true).
   Where("ta.section_id IS NULL OR ta.section_id = student_enrollments.section_id").
-  Preload("Student").Preload("Student.User").Preload("Class").Preload("Section").Preload("AcademicSession").
+  Preload("Student").Preload("Student.User").Preload("SchoolClass").Preload("Section").Preload("AcademicSession").
   Find(&items).Error
  return items,err
 }

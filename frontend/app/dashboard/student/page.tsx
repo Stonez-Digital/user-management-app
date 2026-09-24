@@ -1,12 +1,12 @@
 "use client";
 import {useEffect,useState} from "react";
 import Link from "next/link";
-import { useAcademicContext } from "../../../lib/academic-context";
+
 type Item=Record<string,any>;
 async function api(path:string){const t=localStorage.getItem("access_token");const r=await fetch("/backend"+path,{headers:{Authorization:"Bearer "+t}});const d=await r.json().catch(()=>({}));if(r.status===401)throw Error("Session expired");if(!r.ok)throw Error(d?.error?.message||"Request failed");return d}
 const list=(d:any,k:string)=>Array.isArray(d)?d:d?.[k]||d?.data||[];
 export default function StudentPortal(){
- const {sessionId,termId}=useAcademicContext();
+ const sessionId=""; const termId="";
  const[profile,setProfile]=useState<Item|null>(null),[enrollment,setEnrollment]=useState<Item|null>(null),[terms,setTerms]=useState<Item[]>([]),[data,setData]=useState<Record<string,Item[]>>({}),[schoolName,setSchoolName]=useState(""),[error,setError]=useState(""),[portalStatus,setPortalStatus]=useState("");
  useEffect(()=>{if(!sessionId||!termId)return;
   (async()=>{

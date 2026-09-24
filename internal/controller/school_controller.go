@@ -2,7 +2,9 @@ package controller
 
 import (
     "errors"
+    "fmt"
     "net/http"
+    "strings"
 
     "github.com/gin-gonic/gin"
     "github.com/google/uuid"
@@ -14,9 +16,14 @@ import (
     "gorm.io/gorm"
 )
 
-type SchoolController struct{ service *service.SchoolService }
+type SchoolController struct {
+    service *service.SchoolService
+    logoStorage *service.SchoolLogoStorage
+}
 
-func NewSchoolController(s *service.SchoolService) *SchoolController { return &SchoolController{service: s} }
+func NewSchoolController(s *service.SchoolService, logoStorage *service.SchoolLogoStorage) *SchoolController {
+    return &SchoolController{service: s, logoStorage: logoStorage}
+}
 
 type UpdateSchoolRequest struct {
     Name string `json:"name" binding:"required,min=2,max=160"`
@@ -58,5 +65,54 @@ func (ctrl *SchoolController) Update(c *gin.Context) {
 
     school, err := ctrl.service.GetSchool(schoolID)
     if err != nil { httpx.Error(c, http.StatusInternalServerError, "school_read_failed", "failed to load school"); return }
+    c.JSON(http.StatusOK, school)
+}
+
+func (ctrl *SchoolController) UploadLogo(c *gin.Context) {
+    schoolID, ok := middleware.SchoolIDFromContext(c)
+    if !ok {
+        httpx.Error(c, http.StatusForbidden, "school_context_required", "school context required")
+        return
+    }
+    if ctrl.logoStorage == nil {
+        httpx.Error(c, http.StatusServiceUnavailable, "school_logo_storage_unavailable", "school logo storage is not configured")
+        return
+    }
+
+    file, header, err := c.Request.FormFile("logo")
+    if err != nil {
+        httpx.Error(c, http.StatusBadRequest, "school_logo_required", "school logo file is required")
+        return
+    }
+    defer file.Close()
+
+    contentType := header.Header.Get("Content-Type")
+    if contentType == "" {
+        contentType = "application/octet-stream"
+    }
+
+    logoURL, err := ctrl.logoStorage.Upload(schoolID, header.Filename, contentType, file, header.Size)
+    if err != nil {
+        if strings.Contains(err.Error(), "not configured") {
+            httpx.Error(c, http.StatusServiceUnavailable, "school_logo_storage_unavailable", "school logo storage is not configured")
+            return
+        }
+        httpx.Error(c, http.StatusBadRequest, "school_logo_upload_failed", fmt.Sprintf("%v", err))
+        return
+    }
+
+    if err := ctrl.service.UpdateSchool(schoolID, models.School{LogoURL: logoURL}); err != nil {
+        httpx.Error(c, http.StatusInternalServerError, "school_logo_save_failed", "school logo uploaded but could not be saved")
+        return
+    }
+
+    actor, _ := uuid.Parse(c.GetString("user_id"))
+    _ = audit.Record(ctrl.service.DB(), c, &actor, "school.logo_upload", "school", &schoolID, nil)
+
+    school, err := ctrl.service.GetSchool(schoolID)
+    if err != nil {
+        httpx.Error(c, http.StatusInternalServerError, "school_read_failed", "failed to load school")
+        return
+    }
     c.JSON(http.StatusOK, school)
 }

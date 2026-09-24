@@ -481,7 +481,7 @@ func Migrate(db *gorm.DB) error {
                 if err:=tx.Model(&models.School{}).Where("id = ?",school.ID).Update("slug",candidate).Error;err!=nil{return err}
             }
             if tx.Dialector.Name()=="postgres" {
-                if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_schools_slug ON schools(slug)").Error;err!=nil{return err}
+                if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_schools_slug ON schools(slug) WHERE slug IS NOT NULL AND slug <> ''").Error;err!=nil{return err}
             }
             return nil
         }},

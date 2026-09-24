@@ -14,8 +14,7 @@ for (const file of [
   "app/dashboard/parent/layout.tsx",
 ]) {
   const content = await read(file);
-  assert.match(content, /AcademicContextProvider/);
-  assert.match(content, /AcademicSelector/);
+  assert.doesNotMatch(content, /AcademicContextProvider|AcademicSelector/);
 }
 
 for (const file of [
@@ -30,6 +29,14 @@ for (const file of [
   assert.match(content, /AcademicSelector/);
 }
 
+for (const file of [
+  "app/dashboard/teacher/page.tsx",
+  "app/dashboard/student/page.tsx",
+  "app/dashboard/parent/page.tsx",
+]) {
+  const content = await read(file);
+  assert.doesNotMatch(content, /useAcademicContext|AcademicContextProvider|AcademicSelector/);
+}
 const platformDashboard = await read("app/dashboard/page.tsx");
 assert.match(platformDashboard, /\.role===["\']super_admin["\']/);
 

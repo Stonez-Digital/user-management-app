@@ -68,9 +68,9 @@ export function normalizeAuthUser(payload: unknown): AuthUser | null {
 export function landingPathForRole(role: string): string {
   switch (role) {
     case "parent":
-      return "/parent";
+      return "/dashboard/parent";
     case "student":
-      return "/student";
+      return "/dashboard/student";
     case "teacher":
       return "/dashboard/teacher";
     case "super_admin":

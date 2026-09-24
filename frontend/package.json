@@ -14,7 +14,8 @@
     "start:vinext": "vinext start",
     "deploy": "vinext-cloudflare deploy",
     "preview": "vinext-cloudflare deploy --preview",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "test:dashboard-context": "node ../scripts/dashboard-academic-context-regression.mjs"
   },
   "dependencies": {
     "next": "16.3.4",

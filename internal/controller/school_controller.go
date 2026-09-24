@@ -20,6 +20,7 @@ func NewSchoolController(s *service.SchoolService) *SchoolController { return &S
 
 type UpdateSchoolRequest struct {
     Name string `json:"name" binding:"required,min=2,max=160"`
+    LogoURL string `json:"logo_url" binding:"omitempty,max=1000"`
 }
 
 func (ctrl *SchoolController) Get(c *gin.Context) {
@@ -40,7 +41,7 @@ func (ctrl *SchoolController) Update(c *gin.Context) {
     var req UpdateSchoolRequest
     if err := c.ShouldBindJSON(&req); err != nil { httpx.Validation(c, httpx.ValidationErrors(err)); return }
 
-    if err := ctrl.service.UpdateSchool(schoolID, models.School{Name: req.Name}); err != nil {
+    if err := ctrl.service.UpdateSchool(schoolID, models.School{Name: req.Name, LogoURL: req.LogoURL}); err != nil {
         switch {
         case errors.Is(err, service.ErrSchoolNotFound), errors.Is(err, gorm.ErrRecordNotFound):
             httpx.Error(c, http.StatusNotFound, "school_not_found", "school not found")

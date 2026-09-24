@@ -154,7 +154,21 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
  c.JSON(http.StatusCreated,gin.H{"message":"school onboarding submitted","status":school.Status,"school":gin.H{"id":school.ID,"name":school.Name,"code":school.Code},"administrator":gin.H{"name":admin.Name,"email":admin.Email}})
 }
 
-func (ac *AuthController) PublicSchool(c *gin.Context) {\n\tslug := strings.TrimSpace(c.Param("slug"))\n\tvar school models.School\n\tif slug == "" || ac.DB.Where("lower(slug) = ?", strings.ToLower(slug)).First(&school).Error != nil {\n\t\tc.JSON(http.StatusNotFound, gin.H{"error": "school not found"}); return\n\t}\n\tif school.Status != models.SchoolStatusActive {\n\t\tc.JSON(http.StatusGone, gin.H{"error": "school account is currently inactive"}); return\n\t}\n\tlogo := strings.TrimSpace(school.LogoURL)\n\tif logo == "" { logo = "/stonez-digital-logo.svg" }\n\tc.JSON(http.StatusOK, gin.H{"id": school.ID, "name": school.Name, "code": school.Code, "slug": school.Slug, "logo_url": logo})\n}\n\nfunc (ac *AuthController) Login(c *gin.Context) {
+func (ac *AuthController) PublicSchool(c *gin.Context) {
+	slug := strings.TrimSpace(c.Param("slug"))
+	var school models.School
+	if slug == "" || ac.DB.Where("lower(slug) = ?", strings.ToLower(slug)).First(&school).Error != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "school not found"}); return
+	}
+	if school.Status != models.SchoolStatusActive {
+		c.JSON(http.StatusGone, gin.H{"error": "school account is currently inactive"}); return
+	}
+	logo := strings.TrimSpace(school.LogoURL)
+	if logo == "" { logo = "/stonez-digital-logo.svg" }
+	c.JSON(http.StatusOK, gin.H{"id": school.ID, "name": school.Name, "code": school.Code, "slug": school.Slug, "logo_url": logo})
+}
+
+func (ac *AuthController) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Validation(c, httpx.ValidationErrors(err)); return

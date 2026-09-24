@@ -3,6 +3,7 @@ package database
 import (
     "fmt"
     "os"
+    "strings"
 
     "github.com/onoja217/users-management-app/internal/models"
     "github.com/onoja217/users-management-app/internal/auth"
@@ -461,6 +462,29 @@ func Migrate(db *gorm.DB) error {
             return nil
         }},
         {Version:25,Name:"bulk_onboarding_credential_delivery",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.BulkImportJob{})}},
+        {Version:26,Name:"school_branded_login",Up:func(tx *gorm.DB) error {
+            if err:=tx.AutoMigrate(&models.School{});err!=nil{return err}
+            var schools []models.School
+            if err:=tx.Find(&schools).Error;err!=nil{return err}
+            for _,school:=range schools {
+                if strings.TrimSpace(school.Slug)!="" {continue}
+                slug:=models.SchoolSlug(school.Name,school.Code)
+                candidate:=slug
+                suffix:=1
+                for {
+                    var count int64
+                    if err:=tx.Model(&models.School{}).Where("slug = ? AND id <> ?",candidate,school.ID).Count(&count).Error;err!=nil{return err}
+                    if count==0 {break}
+                    suffix++
+                    candidate=slug+"-"+fmt.Sprint(suffix)
+                }
+                if err:=tx.Model(&models.School{}).Where("id = ?",school.ID).Update("slug",candidate).Error;err!=nil{return err}
+            }
+            if tx.Dialector.Name()=="postgres" {
+                if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_schools_slug ON schools(slug) WHERE slug IS NOT NULL AND slug <> ''").Error;err!=nil{return err}
+            }
+            return nil
+        }},
 
     }
     for _,migration:=range migrations{

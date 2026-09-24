@@ -34,6 +34,8 @@ func (s *SchoolService) UpdateSchool(id uuid.UUID, school models.School) error {
     name := strings.TrimSpace(school.Name)
     if name == "" || len(name) > 160 { return ErrInvalidSchoolName }
     school.Name = name
+    school.LogoURL = strings.TrimSpace(school.LogoURL)
+    if len(school.LogoURL) > 1000 { return ErrInvalidSchoolName }
     if _, err := s.GetSchool(id); err != nil { return err }
     return s.repo.Update(id, school)
 }

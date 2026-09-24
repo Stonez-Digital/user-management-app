@@ -32,7 +32,7 @@ type RefreshRequest struct { RefreshToken string `json:"refresh_token" binding:"
 type LogoutRequest struct { RefreshToken string `json:"refresh_token" binding:"required"` }
 type RegisterRequest struct { Name string `json:"name" binding:"required,min=2,max=100"`; Email string `json:"email" binding:"required,email,max=255"`; Password string `json:"password" binding:"required,min=8,max=128"` }
 type SchoolSignupRequest struct { SchoolName string `json:"school_name" binding:"required,min=2,max=160"`; SchoolCode string `json:"school_code" binding:"required,min=2,max=50"`; AdminName string `json:"admin_name" binding:"required,min=2,max=100"`; AdminEmail string `json:"admin_email" binding:"required,email,max=255"`; AdminPassword string `json:"admin_password" binding:"required,min=8,max=128"` }
-type LoginRequest struct { Email string `json:"email" binding:"required,email,max=255"`; Password string `json:"password" binding:"required"`; SchoolCode string `json:"school_code" binding:"omitempty,max=50"` }
+type LoginRequest struct { Email string `json:"email" binding:"required,email,max=255"`; Password string `json:"password" binding:"required"`; SchoolCode string `json:"school_code" binding:"omitempty,max=50"`; SchoolSlug string `json:"school_slug" binding:"omitempty,max=180"` }
 type AssignRoleRequest struct { Role string `json:"role" binding:"required"` }
 
 
@@ -138,7 +138,7 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
  if err:=c.ShouldBindJSON(&req);err!=nil{httpx.Validation(c,httpx.ValidationErrors(err));return}
  name:=strings.TrimSpace(req.SchoolName);code:=strings.ToUpper(strings.TrimSpace(req.SchoolCode));email:=strings.ToLower(strings.TrimSpace(req.AdminEmail))
  hash,err:=auth.HashPassword(req.AdminPassword);if err!=nil{httpx.Error(c,500,"password_hash_failed","failed to secure administrator password");return}
- school:=models.School{ID:uuid.New(),Name:name,Code:code,Status:models.SchoolStatusPending}
+ school:=models.School{ID:uuid.New(),Name:name,Code:code,Slug:models.SchoolSlug(name,code),Status:models.SchoolStatusPending}
  admin:=models.User{ID:uuid.New(),Name:strings.TrimSpace(req.AdminName),Email:email,PasswordHash:hash,Role:authz.RoleSchoolAdmin,Active:true}
  err=ac.DB.Transaction(func(tx *gorm.DB)error{
   var existing models.School
@@ -152,6 +152,20 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
  if err!=nil{if errors.Is(err,gorm.ErrDuplicatedKey){httpx.Error(c,409,"school_or_email_exists","school code or administrator email already exists")}else{httpx.Error(c,500,"school_signup_failed","failed to submit school onboarding")};return}
  _=audit.Record(ac.DB,c,nil,"school.signup","school",&school.ID,map[string]interface{}{"code":school.Code,"admin_user_id":admin.ID})
  c.JSON(http.StatusCreated,gin.H{"message":"school onboarding submitted","status":school.Status,"school":gin.H{"id":school.ID,"name":school.Name,"code":school.Code},"administrator":gin.H{"name":admin.Name,"email":admin.Email}})
+}
+
+func (ac *AuthController) PublicSchool(c *gin.Context) {
+	slug := strings.TrimSpace(c.Param("slug"))
+	var school models.School
+	if slug == "" || ac.DB.Where("lower(slug) = ?", strings.ToLower(slug)).First(&school).Error != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "school not found"}); return
+	}
+	if school.Status != models.SchoolStatusActive {
+		c.JSON(http.StatusGone, gin.H{"error": "school account is currently inactive"}); return
+	}
+	logo := strings.TrimSpace(school.LogoURL)
+	if logo == "" { logo = "/stonez-digital-logo.svg" }
+	c.JSON(http.StatusOK, gin.H{"id": school.ID, "name": school.Name, "code": school.Code, "slug": school.Slug, "logo_url": logo})
 }
 
 func (ac *AuthController) Login(c *gin.Context) {
@@ -175,7 +189,14 @@ func (ac *AuthController) Login(c *gin.Context) {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "school code does not match your account"})
 				return
 			}
+			if slug := strings.TrimSpace(req.SchoolSlug); slug != "" && !strings.EqualFold(slug, school.Slug) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "school login does not match your account"})
+				return
+			}
 		}
+	} else if user.Role == authz.RoleSuperAdmin && strings.TrimSpace(req.SchoolSlug) != "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "platform administrators must use the platform login"})
+		return
 	}
 	accessToken, err := auth.GenerateToken(user.ID.String(), user.Role)
 	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate access token"}); return }

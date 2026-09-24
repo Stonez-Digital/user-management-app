@@ -20,7 +20,8 @@ func brandedLoginDB(t *testing.T) *gorm.DB {
  t.Helper()
  db,err:=gorm.Open(sqlite.Open("file:"+uuid.NewString()+"?mode=memory&cache=shared"),&gorm.Config{})
  if err!=nil{t.Fatal(err)}
- if err=db.AutoMigrate(&models.School{},&models.User{},&models.RefreshToken{},&models.Session{});err!=nil{t.Fatal(err)}
+ if err=db.AutoMigrate(&models.User{},&models.RefreshToken{},&models.Session{});err!=nil{t.Fatal(err)}
+ if err=db.Exec("CREATE TABLE schools (id text primary key, name text not null, code text not null, slug text, logo_url text, status text not null, created_at datetime, updated_at datetime)").Error;err!=nil{t.Fatal(err)}
  return db
 }
 

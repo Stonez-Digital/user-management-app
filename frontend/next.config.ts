@@ -7,7 +7,9 @@ const apiTarget =
 
 const nextConfig: NextConfig = {
  async rewrites() {
-  return [{ source: "/backend/:path*", destination: apiTarget + "/:path*" }];
+  return {
+   afterFiles: [{ source: "/backend/:path*", destination: apiTarget + "/:path*" }]
+  };
  }
 };
 

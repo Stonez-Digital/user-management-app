@@ -30,7 +30,7 @@ export default function TeacherDashboard(){
     const context=await api("/academic-context"); const ss=list(context,"sessions"); const active=ss.find((x:Session)=>x.status==="active")||ss[0]; const selected=active?.id||""; const activeTerm=active?.terms?.find((x:Term)=>x.status==="active")||active?.terms?.[0]; setSelectedSessionId(selected); setSelectedTermId(activeTerm?.id||""); if(!selected||!activeTerm)return;
     const m=await api("/me"); if(m?.role!=="teacher"){router.replace("/dashboard");return} setMe(m);
     const [a,t,s,n]=await Promise.all([api("/teacher/assignments?academic_session_id="+selected+"&term_id="+activeTerm.id),api("/teacher/timetable?academic_session_id="+selected+"&term_id="+activeTerm.id),api("/admin/academic-sessions"),api("/notifications")]);
-    setAssignments(list(a,"assignments")); setTimetable(list(t,"timetable")); setNotifications(list(n,"notifications")); const ss=list(s,"sessions"); setSessions(ss);
+    setAssignments(list(a,"assignments")); setTimetable(list(t,"timetable")); setNotifications(list(n,"notifications")); const sessionList=list(s,"sessions"); setSessions(sessionList);
     const current=ss.find((x:Session)=>x.id===selected); if(current){setTerms(current.terms||[])}
   }catch(e){const msg=e instanceof Error?e.message:"Unable to load teacher workspace";setError(msg);if(msg==="Session expired")router.replace("/")}})()},[router]);
   const today=new Date().getDay()||7;

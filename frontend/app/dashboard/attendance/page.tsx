@@ -2,7 +2,8 @@
 
 import {useEffect,useMemo,useState} from "react";
 import Link from "next/link";
-import { useAcademicContext } from "../../../lib/academic-context";
+import { AcademicContextProvider, useAcademicContext } from "../../../lib/academic-context";
+import AcademicSelector from "../../../components/academic-selector";
 
 type Enrollment={id:string;status:string;student?:{admission_number:string;user?:{name:string}};academic_session?:{id:string;name:string};class?:{name:string};section?:{name:string}};
 type Term={id:string;name:string;status:string;start_date:string;end_date:string};
@@ -17,7 +18,7 @@ async function api(path:string,options:RequestInit={}) {
   return d;
 }
 
-export default function AttendancePage(){
+function AttendancePageContent(){
   const { sessionId: selectedSessionId, termId: selectedTermId, terms: selectedTerms } = useAcademicContext();
   const [enrollments,setEnrollments]=useState<Enrollment[]>([]);
   const [terms,setTerms]=useState<Term[]>([]);
@@ -86,3 +87,6 @@ export default function AttendancePage(){
     </section>
   </div>
 }
+
+
+export default function AttendancePage(){return <AcademicContextProvider><AcademicSelector/><AttendancePageContent/></AcademicContextProvider>;}

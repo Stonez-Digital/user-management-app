@@ -1,7 +1,7 @@
 "use client";
 import {Suspense,useEffect,useState} from "react";
 import Link from "next/link";
-import SchoolReportHeader from "../../../../../components/school-report-header";
+import SchoolReportHeader from "../../../../components/school-report-header";
 import {useSearchParams} from "next/navigation";
 type Item=Record<string,any>;
 async function api(path:string){const t=localStorage.getItem("access_token");const r=await fetch("/backend"+path,{headers:{Authorization:"Bearer "+t}});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d?.error?.message||"Request failed");return d}

@@ -3,7 +3,7 @@
 import {useEffect,useMemo,useState} from "react";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
-import { useAcademicContext } from "../../../lib/academic-context";
+
 
 type User={id:string;name:string;email:string;role:string;active:boolean;school_name?:string|null};
 type Assignment={id:string;teacher_id:string;subject_id:string;academic_session_id:string;term_id:string;class_id:string;section_id?:string|null;active:boolean;subject?:{name:string;code?:string}};
@@ -22,7 +22,7 @@ async function api(path:string){
 const list=(d:any,k:string)=>Array.isArray(d)?d:d?.[k]||[];
 const day=(n:number)=>["","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][n]||"";
 export default function TeacherDashboard(){
-  const { sessionId: selectedSessionId, termId: selectedTermId } = useAcademicContext();
+  const selectedSessionId=""; const selectedTermId="";
   const router=useRouter(); const [me,setMe]=useState<User|null>(null); const [assignments,setAssignments]=useState<Assignment[]>([]);
   const [timetable,setTimetable]=useState<Timetable[]>([]); const [sessions,setSessions]=useState<Session[]>([]); const [terms,setTerms]=useState<Term[]>([]); const [notifications,setNotifications]=useState<any[]>([]);
   const [error,setError]=useState("");

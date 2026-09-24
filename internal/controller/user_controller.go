@@ -1,17 +1,17 @@
 package controller
 
 import (
-	"errors"
-	"net/http"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	"github.com/onoja217/users-management-app/internal/audit"
+    "errors"
+    "net/http"
+    "github.com/gin-gonic/gin"
+    "github.com/google/uuid"
+    "github.com/onoja217/users-management-app/internal/audit"
     "github.com/onoja217/users-management-app/internal/authz"
-	"github.com/onoja217/users-management-app/internal/httpx"
-	"github.com/onoja217/users-management-app/internal/middleware"
+    "github.com/onoja217/users-management-app/internal/httpx"
+    "github.com/onoja217/users-management-app/internal/middleware"
     "github.com/onoja217/users-management-app/internal/models"
-	"github.com/onoja217/users-management-app/internal/service"
-	"gorm.io/gorm"
+    "github.com/onoja217/users-management-app/internal/service"
+    "gorm.io/gorm"
 )
 
 type UserController struct { service *service.UserService }
@@ -21,47 +21,46 @@ type CreateUserRequest struct { Name string `json:"name" binding:"required,min=2
 func NewUserController(s *service.UserService) *UserController { return &UserController{service:s} }
 
 func schoolID(c *gin.Context) (uuid.UUID,bool) {
-	id,ok:=middleware.SchoolIDFromContext(c)
-	if !ok { httpx.Error(c,http.StatusForbidden,"school_context_required","school context required"); return uuid.Nil,false }
-	return id,true
+    id,ok:=middleware.SchoolIDFromContext(c)
+    if !ok { httpx.Error(c,http.StatusForbidden,"school_context_required","school context required"); return uuid.Nil,false }
+    return id,true
 }
 
 func (ctrl *UserController) CreateUser(c *gin.Context) {
-	school,ok:=schoolID(c); if !ok{return}
-	var req CreateUserRequest
-	if err:=c.ShouldBindJSON(&req);err!=nil{httpx.Validation(c,httpx.ValidationErrors(err));return}
-	user,err:=ctrl.service.CreateUser(school,req.Name,req.Email,req.Password,req.Role)
-	if err!=nil{if errors.Is(err,service.ErrInvalidSchoolUserRole){httpx.Error(c,403,"invalid_school_user_role","school administrators cannot create platform or school administrator accounts");return};if errors.Is(err,gorm.ErrDuplicatedKey){httpx.Error(c,409,"user_email_exists","email already exists");return};httpx.Error(c,500,"user_create_failed","failed to create user");return}
-	actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(ctrl.service.DB(),c,&actor,"user.create","user",&user.ID,nil)
-	c.JSON(http.StatusCreated,user)
+    school,ok:=schoolID(c); if !ok{return}
+    var req CreateUserRequest
+    if err:=c.ShouldBindJSON(&req);err!=nil{httpx.Validation(c,httpx.ValidationErrors(err));return}
+    user,err:=ctrl.service.CreateUser(school,req.Name,req.Email,req.Password,req.Role)
+    if err!=nil{if errors.Is(err,service.ErrInvalidSchoolUserRole){httpx.Error(c,403,"invalid_school_user_role","school administrators cannot create platform or school administrator accounts");return};if errors.Is(err,gorm.ErrDuplicatedKey){httpx.Error(c,409,"user_email_exists","email already exists");return};httpx.Error(c,500,"user_create_failed","failed to create user");return}
+    actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(ctrl.service.DB(),c,&actor,"user.create","user",&user.ID,nil)
+    c.JSON(http.StatusCreated,user)
 }
 func (ctrl *UserController) GetUsers(c *gin.Context) {
-	school,ok:=schoolID(c);if !ok{return};users,err:=ctrl.service.GetUsers(school)
-	if err!=nil{httpx.Error(c,500,"user_list_failed","failed to load users");return};c.JSON(200,users)
+    school,ok:=schoolID(c);if !ok{return};users,err:=ctrl.service.GetUsers(school)
+    if err!=nil{httpx.Error(c,500,"user_list_failed","failed to load users");return};c.JSON(200,users)
 }
 func (ctrl *UserController) GetUser(c *gin.Context) {
-	school,ok:=schoolID(c);if !ok{return};id,err:=uuid.Parse(c.Param("id"))
-	if err!=nil{httpx.Error(c,400,"invalid_user_id","invalid user id");return}
-	user,err:=ctrl.service.GetUser(school,id);if err!=nil{httpx.Error(c,404,"user_not_found","user not found");return}
-	actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(ctrl.service.DB(),c,&actor,"user.read","user",&user.ID,nil);c.JSON(200,user)
+    school,ok:=schoolID(c);if !ok{return};id,err:=uuid.Parse(c.Param("id"))
+    if err!=nil{httpx.Error(c,400,"invalid_user_id","invalid user id");return}
+    user,err:=ctrl.service.GetUser(school,id);if err!=nil{httpx.Error(c,404,"user_not_found","user not found");return}
+    actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(ctrl.service.DB(),c,&actor,"user.read","user",&user.ID,nil);c.JSON(200,user)
 }
 func (ctrl *UserController) DeleteUser(c *gin.Context) {
-	school,ok:=schoolID(c);if !ok{return};id,err:=uuid.Parse(c.Param("id"));if err!=nil{httpx.Error(c,400,"invalid_user_id","invalid user id");return}
-	if err:=ctrl.service.DeleteUser(school,id);err!=nil{if errors.Is(err,gorm.ErrRecordNotFound){httpx.Error(c,404,"user_not_found","user not found")}else{httpx.Error(c,500,"user_delete_failed","failed to delete user")};return}
-	actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(ctrl.service.DB(),c,&actor,"user.delete","user",&id,nil);c.JSON(200,gin.H{"message":"deleted"})
+    school,ok:=schoolID(c);if !ok{return};id,err:=uuid.Parse(c.Param("id"));if err!=nil{httpx.Error(c,400,"invalid_user_id","invalid user id");return}
+    if err:=ctrl.service.DeleteUser(school,id);err!=nil{if errors.Is(err,gorm.ErrRecordNotFound){httpx.Error(c,404,"user_not_found","user not found")}else{httpx.Error(c,500,"user_delete_failed","failed to delete user")};return}
+    actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(ctrl.service.DB(),c,&actor,"user.delete","user",&id,nil);c.JSON(200,gin.H{"message":"deleted"})
 }
 func (ctrl *UserController) GetMe(c *gin.Context) {
     id,err:=uuid.Parse(c.GetString("user_id"));if err!=nil{httpx.Error(c,400,"invalid_user_id","invalid user id");return}
     var user models.User
     if err:=ctrl.service.DB().Where("id = ? AND active = true",id).First(&user).Error;err!=nil{httpx.Error(c,404,"user_not_found","user not found");return}
-    // Keep the authenticated-session contract explicit. Returning models.User directly
-    // leaves ID serialized as "ID" because it has no json tag, while the frontend
-    // and API contract expect "id".
     schoolName := ""
+    schoolLogoURL := ""
     if user.SchoolID != nil {
         var school models.School
-        if err := ctrl.service.DB().Select("name").First(&school, "id = ?", *user.SchoolID).Error; err == nil {
+        if err := ctrl.service.DB().Select("name, logo_url").First(&school, "id = ?", *user.SchoolID).Error; err == nil {
             schoolName = school.Name
+            schoolLogoURL = school.LogoURL
         }
     }
     c.JSON(http.StatusOK,gin.H{
@@ -72,6 +71,7 @@ func (ctrl *UserController) GetMe(c *gin.Context) {
         "active": user.Active,
         "school_id": user.SchoolID,
         "school_name": schoolName,
+        "school_logo_url": schoolLogoURL,
     })
 }
 func (ctrl *UserController) UpdateMe(c *gin.Context) {

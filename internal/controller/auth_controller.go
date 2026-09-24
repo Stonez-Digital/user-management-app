@@ -138,7 +138,7 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
  if err:=c.ShouldBindJSON(&req);err!=nil{httpx.Validation(c,httpx.ValidationErrors(err));return}
  name:=strings.TrimSpace(req.SchoolName);code:=strings.ToUpper(strings.TrimSpace(req.SchoolCode));email:=strings.ToLower(strings.TrimSpace(req.AdminEmail))
  hash,err:=auth.HashPassword(req.AdminPassword);if err!=nil{httpx.Error(c,500,"password_hash_failed","failed to secure administrator password");return}
- school:=models.School{ID:uuid.New(),Name:name,Code:code,Status:models.SchoolStatusPending}
+ school:=models.School{ID:uuid.New(),Name:name,Code:code,Slug:models.SchoolSlug(name,code),Status:models.SchoolStatusPending}
  admin:=models.User{ID:uuid.New(),Name:strings.TrimSpace(req.AdminName),Email:email,PasswordHash:hash,Role:authz.RoleSchoolAdmin,Active:true}
  err=ac.DB.Transaction(func(tx *gorm.DB)error{
   var existing models.School

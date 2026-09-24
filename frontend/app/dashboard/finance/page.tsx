@@ -2,13 +2,14 @@
 
 import {useEffect,useMemo,useState} from "react";
 import Link from "next/link";
-import { useAcademicContext } from "../../../lib/academic-context";
+import { AcademicContextProvider, useAcademicContext } from "../../../lib/academic-context";
+import AcademicSelector from "../../../components/academic-selector";
 
 type RecordItem=Record<string,any>;
 async function api(path:string,options:RequestInit={}){const token=localStorage.getItem("access_token");const r=await fetch("/backend"+path,{...options,headers:{...options.headers,Authorization:"Bearer "+token,"Content-Type":"application/json"}});const d=await r.json().catch(()=>({}));if(r.status===401)throw Error("Session expired");if(!r.ok)throw Error(d?.error?.message||"Request failed");return d}
 const arr=(d:any,key:string)=>Array.isArray(d)?d:d?.[key]||d?.data||[];
 
-export default function Finance(){
+function FinanceContent(){
  const { sessionId: selectedSessionId, termId: selectedTermId, terms: selectedTerms } = useAcademicContext();
  const[fees,setFees]=useState<RecordItem[]>([]),[invoices,setInvoices]=useState<RecordItem[]>([]),[terms,setTerms]=useState<RecordItem[]>([]),[enrollments,setEnrollments]=useState<RecordItem[]>([]),[error,setError]=useState(""),[busy,setBusy]=useState(false);
  const[fee,setFee]=useState({term_id:"",name:"",description:"",amount:""});
@@ -65,3 +66,6 @@ export default function Finance(){
 function Stat({label,value,detail}:{label:string;value:string|number;detail:string}){return <div className="stat"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>}
 function Panel(p:{title:string;text:string;children:React.ReactNode}){return <section className="panel"><div className="panel-head"><div><h2>{p.title}</h2><p>{p.text}</p></div></div>{p.children}</section>}
 function Table({rows,cols}:{rows:RecordItem[];cols:string[]}){return <div className="table-wrap"><table><thead><tr>{cols.map(c=><th key={c}>{c}</th>)}</tr></thead><tbody>{rows.map(x=><tr key={x.id}>{cols.map(c=><td key={c}>{String(x[c]??"—")}</td>)}</tr>)}</tbody></table>{!rows.length&&<div className="empty">No records.</div>}</div>}
+
+
+export default function Finance(){return <AcademicContextProvider><AcademicSelector/><FinanceContent/></AcademicContextProvider>;}

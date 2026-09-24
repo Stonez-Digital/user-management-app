@@ -1,7 +1,8 @@
 "use client";
 import {useEffect,useMemo,useState} from "react";
 import Link from "next/link";
-import { useAcademicContext } from "../../../lib/academic-context";
+import { AcademicContextProvider, useAcademicContext } from "../../../lib/academic-context";
+import AcademicSelector from "../../../components/academic-selector";
 
 async function api(path:string,o:RequestInit={}) {
   const t=localStorage.getItem("access_token");
@@ -13,7 +14,7 @@ async function api(path:string,o:RequestInit={}) {
 }
 const arr=(d:any,k:string)=>Array.isArray(d)?d:d?.[k]||d?.data||[];
 
-export default function Results(){
+function ResultsContent(){
   const { sessionId: selectedSessionId, termId: selectedTermId, terms: selectedTerms } = useAcademicContext();
   const [results,setResults]=useState<any[]>([]),[enrollments,setEnrollments]=useState<any[]>([]),[assessments,setAssessments]=useState<any[]>([]);
   const [eid,setEid]=useState(""),[aid,setAid]=useState(""),[score,setScore]=useState(""),[termId,setTermId]=useState("");
@@ -78,3 +79,6 @@ export default function Results(){
     <section className="panel"><div className="panel-head"><div><h2>Result ledger</h2><p>{results.length} recorded result{results.length===1?"":"s"}</p></div></div><div className="table-wrap"><table><thead><tr><th>Score</th><th>Assessment</th><th>Enrollment</th></tr></thead><tbody>{results.map(x=><tr key={x.id}><td><strong>{x.score}</strong></td><td>{x.assessment?.title||x.assessment_id}</td><td>{x.student_enrollment?.student?.user?.name||x.student_enrollment_id}</td></tr>)}</tbody></table>{!results.length&&<div className="empty">No results recorded.</div>}</div></section>
   </div>;
 }
+
+
+export default function Results(){return <AcademicContextProvider><AcademicSelector/><ResultsContent/></AcademicContextProvider>;}

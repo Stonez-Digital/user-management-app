@@ -1,37 +1,36 @@
 "use client";
 import {useEffect,useState} from "react";
 import Link from "next/link";
-import { useAcademicContext } from "../../../lib/academic-context";
+
 type Item=Record<string,any>;
 async function api(path:string){const t=localStorage.getItem("access_token");const r=await fetch("/backend"+path,{headers:{Authorization:"Bearer "+t}});const d=await r.json().catch(()=>({}));if(r.status===401)throw Error("Session expired");if(!r.ok)throw Error(d?.error?.message||"Request failed");return d}
 const list=(d:any,k:string)=>Array.isArray(d)?d:d?.[k]||d?.data||[];
 export default function StudentPortal(){
- const {sessionId,termId}=useAcademicContext();
+ const [sessionId,setSessionId]=useState(""); const [termId,setTermId]=useState("");
  const[profile,setProfile]=useState<Item|null>(null),[enrollment,setEnrollment]=useState<Item|null>(null),[terms,setTerms]=useState<Item[]>([]),[data,setData]=useState<Record<string,Item[]>>({}),[schoolName,setSchoolName]=useState(""),[error,setError]=useState(""),[portalStatus,setPortalStatus]=useState("");
- useEffect(()=>{if(!sessionId||!termId)return;
-  (async()=>{
-   try{
-    const me=await api("/me"); setSchoolName(me?.school_name||"");
-    try{setProfile(await api("/student/profile"))}catch(e:any){setError(e.message||"Unable to load student profile");return}
-    let activeEnrollment:any=null;
-    try{activeEnrollment=await api("/student/enrollment?academic_session_id="+sessionId);setEnrollment(activeEnrollment)}catch(e:any){
-      if((e.message||"").toLowerCase().includes("student portal record not found"))setPortalStatus("No active enrollment exists for this academic session.");
-      else setError(e.message||"Unable to load enrollment");
-    }
-    try{setTerms(list(await api("/student/terms?academic_session_id="+sessionId),"terms"))}catch(e:any){}
-    if(activeEnrollment){
-      const results=await Promise.allSettled([
-       api("/student/attendance?academic_session_id="+sessionId+"&term_id="+termId),
-       api("/student/timetable?academic_session_id="+sessionId+"&term_id="+termId),
-       api("/student/invoices?academic_session_id="+sessionId+"&term_id="+termId),
-       api("/student/payments?academic_session_id="+sessionId+"&term_id="+termId)
-      ]);
-      const value=(i:number,k:string)=>results[i].status==="fulfilled"?list((results[i] as PromiseFulfilledResult<any>).value,k):[];
-      setData({attendance:value(0,"attendance"),timetable:value(1,"timetable"),invoices:value(2,"invoices"),payments:value(3,"payments")});
-    }
-   }catch(e:any){setError(e.message||"Unable to load student portal")}
-  })()
- },[sessionId,termId]);
+ useEffect(()=>{(async()=>{try{
+  const context=await api("/academic-context");const sessions=list(context,"sessions");const session=sessions.find((x:any)=>x.status==="active")||sessions[0];const term=session?.terms?.find((x:any)=>x.status==="active")||session?.terms?.[0];
+  if(!session||!term){setError("No active academic session is available.");return}
+  setSessionId(session.id);setTermId(term.id);
+  const me=await api("/me"); setSchoolName(me?.school_name||"");
+  try{setProfile(await api("/student/profile"))}catch(e:any){setError(e.message||"Unable to load student profile");return}
+  let activeEnrollment:any=null;
+  try{activeEnrollment=await api("/student/enrollment?academic_session_id="+session.id);setEnrollment(activeEnrollment)}catch(e:any){
+    if((e.message||"").toLowerCase().includes("student portal record not found"))setPortalStatus("No active enrollment exists for this academic session.");
+    else setError(e.message||"Unable to load enrollment");
+  }
+  try{setTerms(list(await api("/student/terms?academic_session_id="+session.id),"terms"))}catch(e:any){}
+  if(activeEnrollment){
+    const results=await Promise.allSettled([
+      api("/student/attendance?academic_session_id="+session.id+"&term_id="+term.id),
+      api("/student/timetable?academic_session_id="+session.id+"&term_id="+term.id),
+      api("/student/invoices?academic_session_id="+session.id+"&term_id="+term.id),
+      api("/student/payments?academic_session_id="+session.id+"&term_id="+term.id)
+    ]);
+    const value=(i:number,k:string)=>results[i].status==="fulfilled"?list((results[i] as PromiseFulfilledResult<any>).value,k):[];
+    setData({attendance:value(0,"attendance"),timetable:value(1,"timetable"),invoices:value(2,"invoices"),payments:value(3,"payments")});
+  }
+ }catch(e:any){setError(e.message||"Unable to load student portal")}})()},[]);
  return <div className="content standalone"><Link className="back" href="/dashboard">← Dashboard</Link><header className="topbar"><div><p className="eyebrow">STUDENT PORTAL</p><h1>My academic dashboard</h1><p className="muted">{schoolName||"Your school"} · Your school records, attendance, timetable and report cards.</p></div></header>
  {error&&<div className="error banner">{error}</div>}
  {portalStatus&&<div className="panel"><strong>Enrollment status</strong><p className="muted">{portalStatus} Ask your school administrator to enroll you in the current academic session.</p></div>}

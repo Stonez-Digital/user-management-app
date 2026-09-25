@@ -39,15 +39,10 @@ func(s *EnrollmentService) Place(schoolID, sourceID uuid.UUID, req EnrollmentPla
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		txService := NewEnrollmentService(repository.NewEnrollmentRepository(tx), tx)
 		var txErr error
-		created, txErr = txService.Create(schoolID, models.StudentEnrollment{
-			StudentID: source.StudentID,
-			AcademicSessionID: req.TargetSessionID,
-			ClassID: req.TargetClassID,
-			SectionID: req.TargetSectionID,
-			Status: models.EnrollmentStatusActive,
-		})
-		if txErr != nil { return txErr }
 		if op == "promote" {
+			// Complete the source first so the one-active-enrollment invariant
+			// remains true throughout the transaction. If target creation fails,
+			// the transaction rolls the source completion back as well.
 			if txErr = txService.repo.Update(schoolID, models.StudentEnrollment{
 				ID: source.ID,
 				StudentID: source.StudentID,
@@ -57,6 +52,14 @@ func(s *EnrollmentService) Place(schoolID, sourceID uuid.UUID, req EnrollmentPla
 				Status: models.EnrollmentStatusCompleted,
 			}); txErr != nil { return txErr }
 		}
+		created, txErr = txService.Create(schoolID, models.StudentEnrollment{
+			StudentID: source.StudentID,
+			AcademicSessionID: req.TargetSessionID,
+			ClassID: req.TargetClassID,
+			SectionID: req.TargetSectionID,
+			Status: models.EnrollmentStatusActive,
+		})
+		if txErr != nil { return txErr }
 		return nil
 	})
 	if err != nil { return source, err }

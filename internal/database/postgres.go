@@ -509,7 +509,7 @@ func Migrate(db *gorm.DB) error {
             if err:=tx.Exec("DROP INDEX IF EXISTS uq_school_class_name").Error;err!=nil{return err}
             if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_school_class_name ON school_classes(school_id,lower(name))").Error;err!=nil{return err}
             return nil
-        }}; 
+        }},
         {Version:29,Name:"one_active_enrollment_per_student",Up:func(tx *gorm.DB) error {
             if tx.Dialector.Name()!="postgres" { return nil }
             var duplicate int
@@ -517,7 +517,7 @@ func Migrate(db *gorm.DB) error {
             if duplicate!=0{return fmt.Errorf("cannot apply active enrollment uniqueness: students have multiple active enrollments; resolve duplicates before deployment")}
             if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_active_student_enrollment ON student_enrollments(school_id,student_id) WHERE status = 'active'").Error;err!=nil{return err}
             return nil
-        }},,
+        }},
 
 
 

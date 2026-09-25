@@ -20,6 +20,7 @@ type School struct {
     Code string `gorm:"size:50;not null;uniqueIndex" json:"code"`
     // Slug uniqueness is enforced by the explicit PostgreSQL migration so SQLite
     // test databases can create multiple schools with an empty, unset slug.
+    // The partial production index excludes empty/unset slugs.
     Slug string `gorm:"size:180;index" json:"slug"`
     LogoURL string `gorm:"size:1000" json:"logo_url,omitempty"`
     Status string `gorm:"size:20;not null;default:active;index" json:"status"`

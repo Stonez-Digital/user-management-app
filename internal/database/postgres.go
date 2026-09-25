@@ -493,6 +493,24 @@ func Migrate(db *gorm.DB) error {
             if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_school_class_name ON school_classes(school_id,name)").Error;err!=nil{return err}
             return nil
         }},
+        {Version:28,Name:"case_insensitive_school_slug_and_class_name_uniqueness",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+
+            var duplicateSlug int
+            if err:=tx.Raw("SELECT 1 FROM schools WHERE slug IS NOT NULL AND slug <> '' GROUP BY lower(slug) HAVING COUNT(*)>1 LIMIT 1").Scan(&duplicateSlug).Error;err!=nil{return err}
+            if duplicateSlug!=0{return fmt.Errorf("cannot apply case-insensitive school slug uniqueness: duplicate slugs exist")}
+
+            var duplicateClass int
+            if err:=tx.Raw("SELECT 1 FROM school_classes GROUP BY school_id,lower(name) HAVING COUNT(*)>1 LIMIT 1").Scan(&duplicateClass).Error;err!=nil{return err}
+            if duplicateClass!=0{return fmt.Errorf("cannot apply case-insensitive school class-name uniqueness: duplicate class names exist within a school")}
+
+            if err:=tx.Exec("DROP INDEX IF EXISTS uq_schools_slug").Error;err!=nil{return err}
+            if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_schools_slug ON schools(lower(slug)) WHERE slug IS NOT NULL AND slug <> ''").Error;err!=nil{return err}
+            if err:=tx.Exec("DROP INDEX IF EXISTS uq_school_class_name").Error;err!=nil{return err}
+            if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_school_class_name ON school_classes(school_id,lower(name))").Error;err!=nil{return err}
+            return nil
+        }},
+
 
 
 

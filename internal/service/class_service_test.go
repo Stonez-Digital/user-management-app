@@ -32,4 +32,6 @@ func TestDuplicateSectionRejected(t *testing.T){
 func TestDuplicateClassRejected(t *testing.T){
  s:=classTestService(t);_,e:=s.CreateClass(uuid.MustParse("00000000-0000-0000-0000-000000000001"),models.SchoolClass{Name:"SS 1",Level:3});if e!=nil{t.Fatal(e)}
  if _,e=s.CreateClass(uuid.MustParse("00000000-0000-0000-0000-000000000001"),models.SchoolClass{Name:"SS 1",Level:3});e!=ErrClassDuplicate{t.Fatalf("expected duplicate error, got %v",e)}
+ if _,e=s.CreateClass(uuid.MustParse("00000000-0000-0000-0000-000000000001"),models.SchoolClass{Name:" ss 1 ",Level:3});e!=ErrClassDuplicate{t.Fatalf("expected case-insensitive duplicate error, got %v",e)}
+ if _,e=s.CreateClass(uuid.MustParse("00000000-0000-0000-0000-000000000002"),models.SchoolClass{Name:"SS 1",Level:3});e!=nil{t.Fatalf("same class name should be allowed in another school: %v",e)}
 }

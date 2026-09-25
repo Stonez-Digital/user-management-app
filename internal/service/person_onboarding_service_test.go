@@ -11,7 +11,7 @@ import(
 func onboardingTestDB(t *testing.T)*gorm.DB{
  t.Helper()
  db,e:=gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"),&gorm.Config{});if e!=nil{t.Fatal(e)}
- if e=db.AutoMigrate(&models.School{},&models.User{},&models.Student{},&models.GuardianRelationship{});e!=nil{t.Fatal(e)}
+ if e=db.AutoMigrate(&models.School{},&models.User{},&models.Student{},&models.TeacherProfile{},&models.ParentProfile{},&models.GuardianRelationship{});e!=nil{t.Fatal(e)}
  return db
 }
 
@@ -44,8 +44,24 @@ func TestPersonOnboardingCreatesTeacherAndParentLinkAtomically(t *testing.T){
  studentUser:=models.User{Name:"Existing Student",Email:"existing-student@example.com",Role:"student",Active:true,SchoolID:&school.ID};if e:=db.Create(&studentUser).Error;e!=nil{t.Fatal(e)}
  student:=models.Student{SchoolID:school.ID,UserID:studentUser.ID,AdmissionNumber:"E-001"};if e:=db.Create(&student).Error;e!=nil{t.Fatal(e)}
  svc:=NewPersonOnboardingService(db)
- teacher,e:=svc.Onboard(school.ID,PersonOnboardingRequest{Name:"Teacher One",Email:"teacher-one@example.com",Password:"password123",Role:"teacher"});if e!=nil||teacher.User.Role!="teacher"{t.Fatalf("teacher onboarding: %v",e)}
- parent,e:=svc.Onboard(school.ID,PersonOnboardingRequest{Name:"Parent One",Email:"parent-one@example.com",Password:"password123",Role:"parent",StudentID:student.ID,Relationship:"mother",Primary:true});if e!=nil{t.Fatal(e)}
- if parent.GuardianLink==nil||parent.GuardianLink.StudentID!=student.ID||parent.GuardianLink.GuardianUserID!=parent.User.ID{t.Fatal("expected parent and guardian link to be created together")}
+ teacher,e:=svc.Onboard(school.ID,PersonOnboardingRequest{Name:"Teacher One",Email:"teacher-one@example.com",Password:"password123",Role:"teacher",StaffID:"T-001",Phone:"08000000000",Gender:"female",Department:"Science",Designation:"Teacher",Subjects:"Mathematics",Classes:"JSS1"});if e!=nil||teacher.User.Role!="teacher"{t.Fatalf("teacher onboarding: %v",e)};var tp models.TeacherProfile;if e=db.Where("user_id = ?",teacher.User.ID).First(&tp).Error;e!=nil{t.Fatalf("teacher profile missing: %v",e)};if tp.StaffID!="T-001"||tp.SchoolID!=school.ID{t.Fatal("teacher profile is not school-scoped")}
+ parent,e:=svc.Onboard(school.ID,PersonOnboardingRequest{Name:"Parent One",Email:"parent-one@example.com",Password:"password123",Role:"parent",ParentIdentifier:"PARENT-001",Phone:"08000000001",Address:"Otukpo",Occupation:"Trader",StudentID:student.ID,Relationship:"mother",Primary:true});if e!=nil{t.Fatal(e)}
+ if parent.GuardianLink==nil||parent.GuardianLink.StudentID!=student.ID||parent.GuardianLink.GuardianUserID!=parent.User.ID{t.Fatal("expected parent and guardian link to be created together")};var pp models.ParentProfile;if e=db.Where("user_id = ?",parent.User.ID).First(&pp).Error;e!=nil{t.Fatalf("parent profile missing: %v",e)};if pp.ParentIdentifier!="parent-001"||pp.SchoolID!=school.ID{t.Fatal("parent profile is not school-scoped")}
  var links int64;db.Model(&models.GuardianRelationship{}).Where("school_id = ?",school.ID).Count(&links);if links!=1{t.Fatalf("expected one guardian link, got %d",links)}
+}
+
+
+func TestPersonOnboardingRejectsTeacherWithoutStaffID(t *testing.T) {
+ db:=onboardingTestDB(t);school:=models.School{Name:"School A",Code:"ONB-F",Status:models.SchoolStatusActive};if e:=db.Create(&school).Error;e!=nil{t.Fatal(e)}
+ svc:=NewPersonOnboardingService(db)
+ _,e:=svc.Onboard(school.ID,PersonOnboardingRequest{Name:"Teacher",Email:"teacher-f@example.com",Password:"password123",Role:"teacher"})
+ if e!=ErrOnboardingTeacherStaffIDRequired{t.Fatalf("expected staff ID error, got %v",e)}
+ var n int64;db.Model(&models.User{}).Where("school_id = ?",school.ID).Count(&n);if n!=0{t.Fatalf("expected rollback, got %d users",n)}
+}
+
+func TestPersonOnboardingRejectsDuplicateTeacherStaffID(t *testing.T) {
+ db:=onboardingTestDB(t);school:=models.School{Name:"School A",Code:"ONB-G",Status:models.SchoolStatusActive};if e:=db.Create(&school).Error;e!=nil{t.Fatal(e)}
+ svc:=NewPersonOnboardingService(db)
+ _,e:=svc.Onboard(school.ID,PersonOnboardingRequest{Name:"Teacher One",Email:"teacher-g1@example.com",Password:"password123",Role:"teacher",StaffID:"T-007"});if e!=nil{t.Fatal(e)}
+ _,e=svc.Onboard(school.ID,PersonOnboardingRequest{Name:"Teacher Two",Email:"teacher-g2@example.com",Password:"password123",Role:"teacher",StaffID:"T-007"});if e!=ErrOnboardingTeacherProfileExists{t.Fatalf("expected duplicate staff error, got %v",e)}
 }

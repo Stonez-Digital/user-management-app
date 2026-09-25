@@ -80,6 +80,16 @@ export default function OnboardingPage() {
     admission_number: "",
     enrollment_status: "active",
     student_id: "",
+    staff_id: "",
+    phone: "",
+    gender: "",
+    department: "",
+    designation: "",
+    subjects: "",
+    classes: "",
+    parent_identifier: "",
+    address: "",
+    occupation: "",
     relationship: "parent",
     primary: true,
   });
@@ -116,6 +126,21 @@ export default function OnboardingPage() {
         password: person.password,
         role: person.role,
       };
+      if (person.role === "teacher") {
+        payload.staff_id = person.staff_id;
+        payload.phone = person.phone;
+        payload.gender = person.gender;
+        payload.department = person.department;
+        payload.designation = person.designation;
+        payload.subjects = person.subjects;
+        payload.classes = person.classes;
+      }
+      if (person.role === "parent") {
+        payload.parent_identifier = person.parent_identifier;
+        payload.phone = person.phone;
+        payload.address = person.address;
+        payload.occupation = person.occupation;
+      }
       if (person.role === "student") {
         payload.admission_number = person.admission_number;
         payload.enrollment_status = person.enrollment_status;
@@ -139,6 +164,16 @@ export default function OnboardingPage() {
         password: "",
         role: person.role,
         admission_number: "",
+        staff_id: "",
+        phone: "",
+        gender: "",
+        department: "",
+        designation: "",
+        subjects: "",
+        classes: "",
+        parent_identifier: "",
+        address: "",
+        occupation: "",
         enrollment_status: "active",
         student_id: "",
         relationship: "parent",
@@ -249,6 +284,16 @@ export default function OnboardingPage() {
                 <input required minLength={8} maxLength={128} type="password" value={person.password} onChange={(e) => setPerson({ ...person, password: e.target.value })} placeholder="Minimum 8 characters" />
               </label>
 
+              {person.role === "teacher" && <>
+                <label>Staff ID<input required minLength={2} maxLength={80} value={person.staff_id} onChange={(e) => setPerson({ ...person, staff_id: e.target.value })} placeholder="e.g. T-001" /></label>
+                <label>Phone<input maxLength={30} value={person.phone} onChange={(e) => setPerson({ ...person, phone: e.target.value })} placeholder="080..." /></label>
+                <label>Gender<input maxLength={30} value={person.gender} onChange={(e) => setPerson({ ...person, gender: e.target.value })} placeholder="e.g. female" /></label>
+                <label>Department<input maxLength={100} value={person.department} onChange={(e) => setPerson({ ...person, department: e.target.value })} placeholder="e.g. Science" /></label>
+                <label>Designation<input maxLength={100} value={person.designation} onChange={(e) => setPerson({ ...person, designation: e.target.value })} placeholder="e.g. Teacher" /></label>
+                <label>Subjects<input maxLength={500} value={person.subjects} onChange={(e) => setPerson({ ...person, subjects: e.target.value })} placeholder="e.g. Mathematics" /></label>
+                <label>Classes<input maxLength={500} value={person.classes} onChange={(e) => setPerson({ ...person, classes: e.target.value })} placeholder="e.g. JSS1" /></label>
+              </>}
+
               {person.role === "student" && <>
                 <label>
                   Admission number
@@ -266,6 +311,10 @@ export default function OnboardingPage() {
               </>}
 
               {person.role === "parent" && <>
+                <label>Parent identifier<input maxLength={100} value={person.parent_identifier} onChange={(e) => setPerson({ ...person, parent_identifier: e.target.value })} placeholder="e.g. PARENT-001" /></label>
+                <label>Phone<input maxLength={30} value={person.phone} onChange={(e) => setPerson({ ...person, phone: e.target.value })} placeholder="080..." /></label>
+                <label>Address<input maxLength={255} value={person.address} onChange={(e) => setPerson({ ...person, address: e.target.value })} placeholder="Home address" /></label>
+                <label>Occupation<input maxLength={100} value={person.occupation} onChange={(e) => setPerson({ ...person, occupation: e.target.value })} placeholder="Occupation" /></label>
                 <label>
                   Link to student
                   <select value={person.student_id} onChange={(e) => setPerson({ ...person, student_id: e.target.value })}>

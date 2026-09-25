@@ -2,7 +2,6 @@ package service
 
 import(
  "testing"
- "time"
  "github.com/google/uuid"
  "github.com/onoja217/users-management-app/internal/models"
  "gorm.io/driver/sqlite"

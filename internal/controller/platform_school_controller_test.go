@@ -9,6 +9,7 @@ import(
  "github.com/onoja217/users-management-app/internal/auth"
  "github.com/onoja217/users-management-app/internal/authz"
  "github.com/onoja217/users-management-app/internal/models"
+ "github.com/google/uuid"
  "gorm.io/driver/sqlite"
  "gorm.io/gorm"
 )

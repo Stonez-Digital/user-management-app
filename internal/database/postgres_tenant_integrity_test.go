@@ -44,8 +44,8 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     if err := db.Model(&Migration{}).Count(&migrationCount).Error; err != nil {
         t.Fatal(err)
     }
-    if migrationCount != 28 {
-        t.Fatalf("expected 28 migrations, got %d", migrationCount)
+    if migrationCount != 29 {
+        t.Fatalf("expected 29 migrations, got %d", migrationCount)
     }
     var slugIndexDef string
     if err := db.Raw("SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uq_schools_slug'").Scan(&slugIndexDef).Error; err != nil { t.Fatal(err) }
@@ -55,6 +55,11 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     if err := db.Raw("SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uq_school_class_name'").Scan(&classIndexDef).Error; err != nil { t.Fatal(err) }
     if !strings.Contains(strings.ToLower(classIndexDef), "lower(") && strings.Contains(strings.ToLower(classIndexDef), "name") || !strings.Contains(strings.ToLower(classIndexDef), "school_id") { t.Fatalf("expected school-scoped case-insensitive class-name index, got %q", classIndexDef) }
 
+
+    var activeEnrollmentIndex string
+    if err := db.Raw("SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uq_active_student_enrollment'").Scan(&activeEnrollmentIndex).Error; err != nil { t.Fatal(err) }
+    lowerIndex := strings.ToLower(activeEnrollmentIndex)
+    if !strings.Contains(lowerIndex, "where") || !strings.Contains(lowerIndex, "active") || !strings.Contains(lowerIndex, "school_id") || !strings.Contains(lowerIndex, "student_id") { t.Fatalf("expected one-active-enrollment index, got %q", activeEnrollmentIndex) }
 
     var nullable int64
     if err := db.Raw(`

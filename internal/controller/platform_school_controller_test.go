@@ -25,3 +25,16 @@ func TestPlatformSchoolCreateProvisionsTenantAndAdmin(t *testing.T){
  var admin models.User;if err=db.Where("email = ?",strings.ToLower(email)).First(&admin).Error;err!=nil{t.Fatal(err)}
  if admin.SchoolID==nil||*admin.SchoolID!=school.ID||admin.Role!=authz.RoleSchoolAdmin||!auth.CheckPassword(admin.PasswordHash,"StrongPass123!"){t.Fatal("provisioned administrator is invalid")}
 }
+
+func TestPlatformSchoolUpdateRegeneratesSlug(t *testing.T){
+ db,err:=gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"),&gorm.Config{});if err!=nil{t.Fatal(err)}
+ if err=db.AutoMigrate(&models.School{},&models.User{});err!=nil{t.Fatal(err)}
+ school:=models.School{Name:"School A",Code:"SCA-001",Slug:models.SchoolSlug("School A","SCA-001"),Status:models.SchoolStatusActive}
+ if err=db.Create(&school).Error;err!=nil{t.Fatal(err)}
+ gin.SetMode(gin.TestMode);r:=gin.New();r.Use(func(c *gin.Context){c.Set("user_id",uuid.New().String());c.Next()});r.PUT("/schools/:id",NewPlatformSchoolController(db).Update)
+ body:=strings.NewReader("{\"name\":\"School B\"}")
+ req:=httptest.NewRequest(http.MethodPut,"/schools/"+school.ID.String(),body);req.Header.Set("Content-Type","application/json");w:=httptest.NewRecorder();r.ServeHTTP(w,req)
+ if w.Code!=http.StatusOK{t.Fatalf("expected 200, got %d: %s",w.Code,w.Body.String())}
+ var got models.School;if err=db.First(&got,"id = ?",school.ID).Error;err!=nil{t.Fatal(err)}
+ if got.Slug!="school-b-sca-001"{t.Fatalf("expected regenerated slug, got %q",got.Slug)}
+}

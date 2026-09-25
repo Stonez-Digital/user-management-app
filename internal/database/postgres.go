@@ -488,6 +488,7 @@ func Migrate(db *gorm.DB) error {
             if tx.Dialector.Name()!="postgres" { return nil }
             if err:=tx.Exec("DROP INDEX IF EXISTS idx_schools_slug").Error;err!=nil{return err}
             if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_schools_slug ON schools(slug) WHERE slug IS NOT NULL AND slug <> ''").Error;err!=nil{return err}
+            if err:=tx.Exec("ALTER TABLE school_classes DROP CONSTRAINT IF EXISTS school_classes_name_key").Error;err!=nil{return err}
             if err:=tx.Exec("DROP INDEX IF EXISTS school_classes_name_key").Error;err!=nil{return err}
             if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_school_class_name ON school_classes(school_id,name)").Error;err!=nil{return err}
             return nil

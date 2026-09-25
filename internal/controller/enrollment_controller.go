@@ -39,6 +39,8 @@ func enrollmentError(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrEnrollmentInvalidStatus): httpx.Error(c, 400, "invalid_enrollment_status", "invalid enrollment status")
 	case errors.Is(err, service.ErrEnrollmentInUse): httpx.Error(c, 409, "enrollment_in_use", "enrollment cannot be deleted because it is referenced by attendance, results or invoices")
 	case errors.Is(err, service.ErrEnrollmentPromotionSource): httpx.Error(c, 400, "enrollment_not_eligible", "enrollment is not eligible for this placement workflow")
+	case errors.Is(err, service.ErrEnrollmentSessionUnavailable): httpx.Error(c, 409, "academic_session_unavailable", "academic session is closed or archived")
+	case errors.Is(err, service.ErrEnrollmentActiveDuplicate): httpx.Error(c, 409, "active_enrollment_exists", "student already has an active enrollment in another academic session")
 	default: httpx.Error(c, 500, "enrollment_operation_failed", "enrollment operation failed")
 	}
 }

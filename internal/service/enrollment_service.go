@@ -1,15 +1,15 @@
 package service
 import("errors";"strings";"github.com/google/uuid";"github.com/onoja217/users-management-app/internal/models";"github.com/onoja217/users-management-app/internal/repository";"gorm.io/gorm";"github.com/jackc/pgx/v5/pgconn")
-var(ErrEnrollmentNotFound=errors.New("enrollment not found");ErrEnrollmentDuplicate=errors.New("student already enrolled in academic session");ErrEnrollmentStudentMissing=errors.New("student not found");ErrEnrollmentSessionMissing=errors.New("academic session not found");ErrEnrollmentClassMissing=errors.New("class not found");ErrEnrollmentSectionMissing=errors.New("section not found");ErrEnrollmentSectionMismatch=errors.New("section does not belong to class");ErrEnrollmentInvalidStatus=errors.New("invalid enrollment status");ErrEnrollmentSchoolMismatch=errors.New("related record belongs to another school");ErrEnrollmentInUse=errors.New("enrollment is already used by academic or financial records");ErrEnrollmentPromotionSource=errors.New("enrollment is not eligible for the requested placement workflow"))
+var(ErrEnrollmentNotFound=errors.New("enrollment not found");ErrEnrollmentDuplicate=errors.New("student already enrolled in academic session");ErrEnrollmentStudentMissing=errors.New("student not found");ErrEnrollmentSessionMissing=errors.New("academic session not found");ErrEnrollmentClassMissing=errors.New("class not found");ErrEnrollmentSectionMissing=errors.New("section not found");ErrEnrollmentSectionMismatch=errors.New("section does not belong to class");ErrEnrollmentInvalidStatus=errors.New("invalid enrollment status");ErrEnrollmentSchoolMismatch=errors.New("related record belongs to another school");ErrEnrollmentInUse=errors.New("enrollment is already used by academic or financial records");ErrEnrollmentPromotionSource=errors.New("enrollment is not eligible for the requested placement workflow");ErrEnrollmentSessionUnavailable=errors.New("academic session is closed or archived");ErrEnrollmentActiveDuplicate=errors.New("student already has an active enrollment"))
 type EnrollmentService struct{repo repository.EnrollmentRepository;db *gorm.DB}
 func NewEnrollmentService(repo repository.EnrollmentRepository,db *gorm.DB)*EnrollmentService{return &EnrollmentService{repo,db}}
 func(s *EnrollmentService)DB()*gorm.DB{return s.db}
 func(s *EnrollmentService)Create(schoolID uuid.UUID,v models.StudentEnrollment)(models.StudentEnrollment,error){
  var student models.Student;if err:=s.db.Where("id = ? AND school_id = ?",v.StudentID,schoolID).First(&student).Error;errors.Is(err,gorm.ErrRecordNotFound){return v,ErrEnrollmentStudentMissing}else if err!=nil{return v,err}
- var session models.AcademicSession;if err:=s.db.Where("id = ? AND school_id = ?",v.AcademicSessionID,schoolID).First(&session).Error;errors.Is(err,gorm.ErrRecordNotFound){return v,ErrEnrollmentSessionMissing}else if err!=nil{return v,err}
+ var session models.AcademicSession;if err:=s.db.Where("id = ? AND school_id = ?",v.AcademicSessionID,schoolID).First(&session).Error;errors.Is(err,gorm.ErrRecordNotFound){return v,ErrEnrollmentSessionMissing}else if err!=nil{return v,err};if session.Status==models.AcademicStatusClosed||session.Status==models.AcademicStatusArchived{return v,ErrEnrollmentSessionUnavailable}
  var class models.SchoolClass;if err:=s.db.Where("id = ? AND school_id = ?",v.ClassID,schoolID).First(&class).Error;errors.Is(err,gorm.ErrRecordNotFound){return v,ErrEnrollmentClassMissing}else if err!=nil{return v,err}
  var section models.Section;if err:=s.db.Where("id = ? AND school_id = ?",v.SectionID,schoolID).First(&section).Error;errors.Is(err,gorm.ErrRecordNotFound){return v,ErrEnrollmentSectionMissing}else if err!=nil{return v,err};if section.ClassID!=v.ClassID{return v,ErrEnrollmentSectionMismatch}
- v.Status=strings.ToLower(strings.TrimSpace(v.Status));if v.Status==""{v.Status=models.EnrollmentStatusActive};if v.Status!=models.EnrollmentStatusActive&&v.Status!=models.EnrollmentStatusCompleted&&v.Status!=models.EnrollmentStatusWithdrawn{return v,ErrEnrollmentInvalidStatus}
+ v.Status=strings.ToLower(strings.TrimSpace(v.Status));if v.Status==""{v.Status=models.EnrollmentStatusActive};if v.Status!=models.EnrollmentStatusActive&&v.Status!=models.EnrollmentStatusCompleted&&v.Status!=models.EnrollmentStatusWithdrawn{return v,ErrEnrollmentInvalidStatus};if v.Status==models.EnrollmentStatusActive{var active models.StudentEnrollment;if err:=s.db.Where("school_id = ? AND student_id = ? AND status = ? AND academic_session_id <> ?",schoolID,v.StudentID,models.EnrollmentStatusActive,v.AcademicSessionID).First(&active).Error;err==nil{return v,ErrEnrollmentActiveDuplicate}else if !errors.Is(err,gorm.ErrRecordNotFound){return v,err}}
  var existing models.StudentEnrollment;err:=s.db.Where("school_id = ? AND student_id = ? AND academic_session_id = ?",schoolID,v.StudentID,v.AcademicSessionID).First(&existing).Error;if err==nil{return v,ErrEnrollmentDuplicate};if !errors.Is(err,gorm.ErrRecordNotFound){return v,err};created, err := s.repo.Create(schoolID,v)
 	if err != nil {
 		if isPostgresUniqueViolation(err, "uq_school_student_session") { return v, ErrEnrollmentDuplicate }
@@ -39,15 +39,10 @@ func(s *EnrollmentService) Place(schoolID, sourceID uuid.UUID, req EnrollmentPla
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		txService := NewEnrollmentService(repository.NewEnrollmentRepository(tx), tx)
 		var txErr error
-		created, txErr = txService.Create(schoolID, models.StudentEnrollment{
-			StudentID: source.StudentID,
-			AcademicSessionID: req.TargetSessionID,
-			ClassID: req.TargetClassID,
-			SectionID: req.TargetSectionID,
-			Status: models.EnrollmentStatusActive,
-		})
-		if txErr != nil { return txErr }
 		if op == "promote" {
+			// Complete the source first so the one-active-enrollment invariant
+			// remains true throughout the transaction. If target creation fails,
+			// the transaction rolls the source completion back as well.
 			if txErr = txService.repo.Update(schoolID, models.StudentEnrollment{
 				ID: source.ID,
 				StudentID: source.StudentID,
@@ -57,6 +52,14 @@ func(s *EnrollmentService) Place(schoolID, sourceID uuid.UUID, req EnrollmentPla
 				Status: models.EnrollmentStatusCompleted,
 			}); txErr != nil { return txErr }
 		}
+		created, txErr = txService.Create(schoolID, models.StudentEnrollment{
+			StudentID: source.StudentID,
+			AcademicSessionID: req.TargetSessionID,
+			ClassID: req.TargetClassID,
+			SectionID: req.TargetSectionID,
+			Status: models.EnrollmentStatusActive,
+		})
+		if txErr != nil { return txErr }
 		return nil
 	})
 	if err != nil { return source, err }

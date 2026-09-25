@@ -219,3 +219,30 @@ func TestEnrollmentPromotionRejectsCrossSchoolTarget(t *testing.T) {
 		t.Fatalf("expected cross-school session rejection, got %v", err)
 	}
 }
+
+
+func TestCreateEnrollmentRejectsClosedSession(t *testing.T) {
+	db := enrollmentTestDB(t)
+	schoolID := uuid.New()
+	user := models.User{SchoolID:&schoolID,Name:"Closed Session Student",Email:"closed-"+schoolID.String()+"@example.com",Role:"student",Active:true}
+	if err:=db.Create(&user).Error;err!=nil{t.Fatal(err)}
+	student:=models.Student{SchoolID:schoolID,UserID:user.ID,AdmissionNumber:"CLOSED-001"};if err:=db.Create(&student).Error;err!=nil{t.Fatal(err)}
+	session:=models.AcademicSession{SchoolID:schoolID,Name:"2040/2041",Status:models.AcademicStatusClosed};if err:=db.Create(&session).Error;err!=nil{t.Fatal(err)}
+	class:=models.SchoolClass{SchoolID:schoolID,Name:"JSS 1",Level:1};if err:=db.Create(&class).Error;err!=nil{t.Fatal(err)}
+	section:=models.Section{SchoolID:schoolID,ClassID:class.ID,Name:"A"};if err:=db.Create(&section).Error;err!=nil{t.Fatal(err)}
+	svc:=NewEnrollmentService(repository.NewEnrollmentRepository(db),db)
+	if _,err:=svc.Create(schoolID,models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session.ID,ClassID:class.ID,SectionID:section.ID});err!=ErrEnrollmentSessionUnavailable{t.Fatalf("expected unavailable session error, got %v",err)}
+}
+
+func TestCreateEnrollmentAllowsOnlyOneActiveEnrollmentAcrossSessions(t *testing.T) {
+	db := enrollmentTestDB(t)
+	schoolID := uuid.New()
+	user := models.User{SchoolID:&schoolID,Name:"Active Enrollment Student",Email:"active-"+schoolID.String()+"@example.com",Role:"student",Active:true};if err:=db.Create(&user).Error;err!=nil{t.Fatal(err)}
+	student:=models.Student{SchoolID:schoolID,UserID:user.ID,AdmissionNumber:"ACTIVE-001"};if err:=db.Create(&student).Error;err!=nil{t.Fatal(err)}
+	session1:=models.AcademicSession{SchoolID:schoolID,Name:"2041/2042"};session2:=models.AcademicSession{SchoolID:schoolID,Name:"2042/2043"};if err:=db.Create(&session1).Error;err!=nil{t.Fatal(err)};if err:=db.Create(&session2).Error;err!=nil{t.Fatal(err)}
+	class:=models.SchoolClass{SchoolID:schoolID,Name:"JSS 1",Level:1};if err:=db.Create(&class).Error;err!=nil{t.Fatal(err)}
+	section:=models.Section{SchoolID:schoolID,ClassID:class.ID,Name:"A"};if err:=db.Create(&section).Error;err!=nil{t.Fatal(err)}
+	svc:=NewEnrollmentService(repository.NewEnrollmentRepository(db),db)
+	if _,err:=svc.Create(schoolID,models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session1.ID,ClassID:class.ID,SectionID:section.ID});err!=nil{t.Fatal(err)}
+	if _,err:=svc.Create(schoolID,models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session2.ID,ClassID:class.ID,SectionID:section.ID});err!=ErrEnrollmentActiveDuplicate{t.Fatalf("expected active enrollment conflict, got %v",err)}
+}

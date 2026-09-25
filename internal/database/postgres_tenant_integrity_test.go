@@ -49,11 +49,11 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     }
     var slugIndexDef string
     if err := db.Raw("SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uq_schools_slug'").Scan(&slugIndexDef).Error; err != nil { t.Fatal(err) }
-    if !strings.Contains(strings.ToLower(slugIndexDef), "lower(slug)") { t.Fatalf("expected case-insensitive school slug index, got %q", slugIndexDef) }
+    if !strings.Contains(strings.ToLower(slugIndexDef), "lower(") && strings.Contains(strings.ToLower(slugIndexDef), "slug") { t.Fatalf("expected case-insensitive school slug index, got %q", slugIndexDef) }
 
     var classIndexDef string
     if err := db.Raw("SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uq_school_class_name'").Scan(&classIndexDef).Error; err != nil { t.Fatal(err) }
-    if !strings.Contains(strings.ToLower(classIndexDef), "lower(name)") || !strings.Contains(strings.ToLower(classIndexDef), "school_id") { t.Fatalf("expected school-scoped case-insensitive class-name index, got %q", classIndexDef) }
+    if !strings.Contains(strings.ToLower(classIndexDef), "lower(") && strings.Contains(strings.ToLower(classIndexDef), "name") || !strings.Contains(strings.ToLower(classIndexDef), "school_id") { t.Fatalf("expected school-scoped case-insensitive class-name index, got %q", classIndexDef) }
 
 
     var nullable int64

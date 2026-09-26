@@ -519,7 +519,7 @@ func Migrate(db *gorm.DB) error {
             return nil
         }},
         {Version:30,Name:"school_public_content",Up:func(tx *gorm.DB) error {
-            if err:=tx.AutoMigrate(&models.BlogPost{},&models.BlogCategory{},&models.GalleryAlbum{},&models.GalleryImage{});err!=nil{return err}
+            if err:=tx.AutoMigrate(&models.School{},&models.BlogPost{},&models.BlogCategory{},&models.GalleryAlbum{},&models.GalleryImage{});err!=nil{return err}
             if tx.Dialector.Name()=="postgres" {
                 indexes:=[]string{
                     "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_blog_slug ON blog_posts(school_id,lower(slug))",

@@ -55,7 +55,7 @@ type GalleryImage struct {
  SchoolID uuid.UUID `gorm:"type:uuid;not null;index" json:"school_id"`
  AlbumID uuid.UUID `gorm:"type:uuid;not null;index" json:"album_id"`
  UploadedBy uuid.UUID `gorm:"type:uuid;not null" json:"uploaded_by"`
- ImageURL string `gorm:"size:1200;not null" json:"image_url"`
+ ImageURL string `gorm:"size:1200" json:"image_url,omitempty"`
  Caption string `gorm:"size:300" json:"caption"`
  AltText string `gorm:"size:300" json:"alt_text"`
  DisplayOrder int `gorm:"not null;default:0;index" json:"display_order"`

@@ -100,7 +100,7 @@ async function bootstrapSchool(s){
   await bulkImport(admin.access_token,"parents","parents.csv","name,email,parent_identifier\nQA Bulk Parent "+runId+","+bulkParentEmail+",BULK-P-"+runId+"-"+school+"\n",{created:1,skipped:0,failed:0});
   record("bulk onboarding",school,"school_admin","PASS","Student, teacher and parent imports created one account each with zero failures");
   await bulkImport(admin.access_token,"students","students-duplicate.csv","name,email,admission_number\nExisting Student,"+studentEmail+",QA-"+runId+"-"+school+"\n",{created:0,skipped:1,failed:0});
-  await bulkImport(admin.access_token,"teachers","teachers-duplicate.csv","name,email,staff_id\nExisting Teacher,"+teacherEmail+",QA-STAFF-"+runId+"-"+school+"\n",{created:0,skipped:1,failed:0});
+  await bulkImport(admin.access_token,"teachers","teachers-duplicate.csv","name,email,staff_id\nExisting Teacher,"+bulkTeacherEmail+",BULK-T-"+runId+"-"+school+"\n",{created:0,skipped:1,failed:0});
   await bulkImport(admin.access_token,"parents","parents-duplicate.csv","name,email,parent_identifier\nExisting Parent,"+parentEmail+","+parentEmail+"\n",{created:0,skipped:1,failed:0});
   record("bulk onboarding",school,"school_admin","PASS","Duplicate student/teacher/parent imports persisted skipped=1 and created=0");
   const enrollment=(await request("/admin/enrollments",{token:admin.access_token,method:"POST",body:{student_id:studentId,academic_session_id:academic.active.id,class_id:academic.cls.id,section_id:academic.sec.id,status:"active"},expected:[201]})).data;

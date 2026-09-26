@@ -2,8 +2,6 @@ package service
 
 import (
  "errors"
- "fmt"
- "regexp"
  "strings"
  "time"
  "unicode"
@@ -52,5 +50,3 @@ func(s *SchoolContentService) PublicAlbum(schoolID uuid.UUID,slug string)(models
 func(s *SchoolContentService) AddImage(schoolID,userID,albumID uuid.UUID,img *models.GalleryImage)(models.GalleryImage,error){var a models.GalleryAlbum;if err:=s.db.Where("school_id=? AND id=?",schoolID,albumID).First(&a).Error;err!=nil{return *img,ErrContentNotFound};img.ID=uuid.New();img.SchoolID=schoolID;img.AlbumID=albumID;img.UploadedBy=userID;if err:=s.db.Create(img).Error;err!=nil{return *img,err};return *img,nil}
 func(s *SchoolContentService) DeleteImage(schoolID,id uuid.UUID)error{return s.db.Where("school_id=? AND id=?",schoolID,id).Delete(&models.GalleryImage{}).Error}
 func(s *SchoolContentService) PublicHome(schoolID uuid.UUID)([]models.BlogPost,[]models.GalleryAlbum,error){blogs,err:=s.PublicBlogs(schoolID);if err!=nil{return nil,nil,err};albums,err:=s.PublicAlbums(schoolID);if err!=nil{return nil,nil,err};if len(blogs)>3{blogs=blogs[:3]};if len(albums)>4{albums=albums[:4]};return blogs,albums,nil}
-var _=fmt.Sprintf
-var _=regexp.MustCompile

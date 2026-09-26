@@ -518,6 +518,28 @@ func Migrate(db *gorm.DB) error {
             if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_active_student_enrollment ON student_enrollments(school_id,student_id) WHERE status = 'active'").Error;err!=nil{return err}
             return nil
         }},
+        {Version:30,Name:"school_public_content",Up:func(tx *gorm.DB) error {
+            if err:=tx.AutoMigrate(&models.BlogPost{},&models.BlogCategory{},&models.GalleryAlbum{},&models.GalleryImage{});err!=nil{return err}
+            if tx.Dialector.Name()=="postgres" {
+                indexes:=[]string{
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_blog_slug ON blog_posts(school_id,lower(slug))",
+                    "CREATE INDEX IF NOT EXISTS idx_school_blog_status_published ON blog_posts(school_id,status,published_at)",
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_blog_category_slug ON blog_categories(school_id,lower(slug))",
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_gallery_album_slug ON gallery_albums(school_id,lower(slug))",
+                    "CREATE INDEX IF NOT EXISTS idx_school_gallery_album_status ON gallery_albums(school_id,status)",
+                    "CREATE INDEX IF NOT EXISTS idx_school_gallery_images_album_order ON gallery_images(school_id,album_id,display_order)",
+                }
+                for _,q:=range indexes {if err:=tx.Exec(q).Error;err!=nil{return err}}
+                fks:=[]struct{name,table,cols,parent string}{
+                    {"blog_post_school_fk","blog_posts","school_id","schools(id)"},{"blog_post_author_school_fk","blog_posts","school_id,author_id","users(school_id,id)"},
+                    {"blog_category_school_fk","blog_categories","school_id","schools(id)"},{"gallery_album_school_fk","gallery_albums","school_id","schools(id)"},
+                    {"gallery_image_school_fk","gallery_images","school_id","schools(id)"},{"gallery_image_album_school_fk","gallery_images","school_id,album_id","gallery_albums(school_id,id)"},
+                    {"gallery_image_uploader_school_fk","gallery_images","school_id,uploaded_by","users(school_id,id)"},
+                }
+                for _,fk:=range fks {if err:=tx.Exec("ALTER TABLE "+fk.table+" ADD CONSTRAINT "+fk.name+" FOREIGN KEY ("+fk.cols+") REFERENCES "+fk.parent+" ON DELETE RESTRICT ON UPDATE CASCADE").Error;err!=nil{return err}}
+            }
+            return nil
+        }},
 
 
 

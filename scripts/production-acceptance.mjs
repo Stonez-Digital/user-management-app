@@ -47,6 +47,27 @@ async function ensureAcademic(token){
   if(!subject) subject=(await request("/admin/subjects",{token,method:"POST",body:{code:`QA-${runId.slice(-6)}`,name:`QA Mathematics ${runId}`,description:"Production acceptance subject"},expected:[201]})).data;
   return {active,target,activeTerm,targetTerm,cls,sec,subject};
 }
+async function bulkImport(token,kind,filename,csv,expected){
+  const form=new FormData();
+  form.append("kind",kind); form.append("send_credentials","false");
+  form.append("file",new Blob([csv],{type:"text/csv"}),filename);
+  const r=await fetch(BASE_URL+"/admin/onboarding/bulk/preview",{method:"POST",headers:{Authorization:"Bearer "+token},body:form});
+  const txt=await r.text(); let data={}; try{data=txt?JSON.parse(txt):{}}catch{data={raw:txt}}
+  if(r.status!==201) fail("bulk "+kind+" preview expected 201 got "+r.status+": "+JSON.stringify(data));
+  const job=data.job||data;
+  if(job.kind!==kind||Number(job.total)!==1||Number(job.valid)!==1) fail("bulk "+kind+" preview validation mismatch: "+JSON.stringify(job));
+  await request("/admin/onboarding/bulk/"+job.id+"/start",{token,method:"POST",expected:[202]});
+  let completed;
+  for(let i=0;i<20;i++){
+    const current=(await request("/admin/onboarding/bulk/"+job.id,{token,expected:[200]})).data;
+    if(current.status==="completed"||current.status==="completed_with_errors"||current.status==="failed"){completed=current;break}
+    await new Promise(r=>setTimeout(r,500));
+  }
+  if(!completed) fail("bulk "+kind+" job did not finish within polling window");
+  if(Number(completed.created)!==expected.created||Number(completed.skipped)!==expected.skipped||Number(completed.failed)!==expected.failed) fail("bulk "+kind+" counters mismatch: "+JSON.stringify({created:completed.created,skipped:completed.skipped,failed:completed.failed,expected}));
+  return completed;
+}
+
 async function createAssignment(token,teacherId,academic){
   const v=(await request("/admin/teacher-assignments",{token,method:"POST",body:{teacher_id:teacherId,subject_id:academic.subject.id,academic_session_id:academic.active.id,term_id:academic.activeTerm.id,class_id:academic.cls.id,section_id:academic.sec.id,allocation_type:"subject",active:true},expected:[201]})).data;
   return v;
@@ -70,6 +91,18 @@ async function bootstrapSchool(s){
   const parent=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Parent ${runId}`,email:parentEmail,password,role:"parent",student_id:studentId,relationship:"parent",primary:true},expected:[201]})).data;
   const parentId=idOf(parent); if(!parentId) fail(`${school}: onboarding did not return parent id`); createdUsers.push({id:parent.user?.id||parent.user_id||parentId,token:admin.access_token});
   record("onboarding",school,"school_admin","PASS","Created temporary teacher/student/parent");
+  const bulkStamp=runId+".bulk."+school.toLowerCase();
+  const bulkStudentEmail="bulk.student."+bulkStamp+"@example.com";
+  const bulkTeacherEmail="bulk.teacher."+bulkStamp+"@example.com";
+  const bulkParentEmail="bulk.parent."+bulkStamp+"@example.com";
+  await bulkImport(admin.access_token,"students","students.csv","name,email,admission_number\nQA Bulk Student "+runId+","+bulkStudentEmail+",BULK-"+runId+"-"+school+"\n",{created:1,skipped:0,failed:0});
+  await bulkImport(admin.access_token,"teachers","teachers.csv","name,email,staff_id\nQA Bulk Teacher "+runId+","+bulkTeacherEmail+",BULK-T-"+runId+"-"+school+"\n",{created:1,skipped:0,failed:0});
+  await bulkImport(admin.access_token,"parents","parents.csv","name,email,parent_identifier\nQA Bulk Parent "+runId+","+bulkParentEmail+",BULK-P-"+runId+"-"+school+"\n",{created:1,skipped:0,failed:0});
+  record("bulk onboarding",school,"school_admin","PASS","Student, teacher and parent imports created one account each with zero failures");
+  await bulkImport(admin.access_token,"students","students-duplicate.csv","name,email,admission_number\nExisting Student,"+studentEmail+",QA-"+runId+"-"+school+"\n",{created:0,skipped:1,failed:0});
+  await bulkImport(admin.access_token,"teachers","teachers-duplicate.csv","name,email,staff_id\nExisting Teacher,"+teacherEmail+",QA-STAFF-"+runId+"-"+school+"\n",{created:0,skipped:1,failed:0});
+  await bulkImport(admin.access_token,"parents","parents-duplicate.csv","name,email,parent_identifier\nExisting Parent,"+parentEmail+","+parentEmail+"\n",{created:0,skipped:1,failed:0});
+  record("bulk onboarding",school,"school_admin","PASS","Duplicate student/teacher/parent imports persisted skipped=1 and created=0");
   const enrollment=(await request("/admin/enrollments",{token:admin.access_token,method:"POST",body:{student_id:studentId,academic_session_id:academic.active.id,class_id:academic.cls.id,section_id:academic.sec.id,status:"active"},expected:[201]})).data;
   const promoted=(await request(`/admin/enrollments/${enrollment.id}/place`,{token:admin.access_token,method:"POST",body:{target_session_id:academic.target.id,target_class_id:academic.cls.id,target_section_id:academic.sec.id,operation:"promote"},expected:[201]})).data;
   const history=list((await request(`/admin/enrollments/student/${studentId}`,{token:admin.access_token})).data,"enrollments");

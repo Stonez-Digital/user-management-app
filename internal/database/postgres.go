@@ -545,6 +545,16 @@ func Migrate(db *gorm.DB) error {
 
 
 
+        {Version:31,Name:"school_advertisements",Up:func(tx *gorm.DB) error {
+            if err:=tx.AutoMigrate(&models.SchoolAdvertisement{});err!=nil{return err}
+            if tx.Dialector.Name()=="postgres" {
+                if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_school_advertisements_active ON school_advertisements(school_id,status,featured,starts_at,ends_at)").Error;err!=nil{return err}
+                if err:=tx.Exec("ALTER TABLE school_advertisements ADD CONSTRAINT advertisement_school_fk FOREIGN KEY (school_id) REFERENCES schools(id) ON UPDATE CASCADE ON DELETE RESTRICT").Error;err!=nil{return err}
+                if err:=tx.Exec("ALTER TABLE school_advertisements ADD CONSTRAINT advertisement_creator_school_fk FOREIGN KEY (school_id,created_by) REFERENCES users(school_id,id) ON UPDATE CASCADE ON DELETE RESTRICT").Error;err!=nil{return err}
+            }
+            return nil
+        }},
+
     }
     for _,migration:=range migrations{
         var applied Migration

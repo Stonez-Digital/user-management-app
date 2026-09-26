@@ -526,6 +526,7 @@ func Migrate(db *gorm.DB) error {
                     "CREATE INDEX IF NOT EXISTS idx_school_blog_status_published ON blog_posts(school_id,status,published_at)",
                     "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_blog_category_slug ON blog_categories(school_id,lower(slug))",
                     "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_gallery_album_slug ON gallery_albums(school_id,lower(slug))",
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_gallery_album_school_id ON gallery_albums(school_id,id)",
                     "CREATE INDEX IF NOT EXISTS idx_school_gallery_album_status ON gallery_albums(school_id,status)",
                     "CREATE INDEX IF NOT EXISTS idx_school_gallery_images_album_order ON gallery_images(school_id,album_id,display_order)",
                 }

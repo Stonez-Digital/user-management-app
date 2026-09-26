@@ -28,9 +28,11 @@ func(s *SchoolContentService) CreateBlog(schoolID,authorID uuid.UUID,p *models.B
 }
 func(s *SchoolContentService) UpdateBlog(schoolID,id uuid.UUID,updates map[string]interface{})(models.BlogPost,error){
  var p models.BlogPost;if err:=s.db.Where("school_id=? AND id=?",schoolID,id).First(&p).Error;err!=nil{return p,ErrContentNotFound}
- if v,ok:=updates["slug"].(string);ok{updates["slug"]=slugify(v)}
- if v,ok:=updates["status"].(string);ok{if !validStatus(v){return p,ErrContentInvalidStatus};if v==models.ContentPublished&&p.PublishedAt==nil{updates["published_at"]=time.Now().UTC()};if v!=models.ContentPublished{updates["published_at"]=nil}}
- if err:=s.db.Model(&p).Updates(updates).Error;err!=nil{return p,err};return p,s.db.Where("school_id=? AND id=?",schoolID,id).First(&p).Error
+ allowed:=map[string]bool{"title":true,"slug":true,"excerpt":true,"content":true,"featured_image_url":true,"status":true,"featured":true}
+ safe:=map[string]interface{}{};for k,v:=range updates{if allowed[k]{safe[k]=v}}
+ if v,ok:=safe["slug"].(string);ok{safe["slug"]=slugify(v);if safe["slug"]==""{safe["slug"]=p.Slug};var n int64;s.db.Model(&models.BlogPost{}).Where("school_id=? AND lower(slug)=lower(?) AND id<>?",schoolID,safe["slug"],id).Count(&n);if n>0{return p,ErrContentSlugExists}}
+ if v,ok:=safe["status"].(string);ok{if !validStatus(v){return p,ErrContentInvalidStatus};if v==models.ContentPublished&&p.PublishedAt==nil{safe["published_at"]=time.Now().UTC()};if v!=models.ContentPublished{safe["published_at"]=nil}}
+ if err:=s.db.Model(&p).Updates(safe).Error;err!=nil{return p,err};return p,s.db.Where("school_id=? AND id=?",schoolID,id).First(&p).Error
 }
 func(s *SchoolContentService) DeleteBlog(schoolID,id uuid.UUID)error{return s.db.Where("school_id=? AND id=?",schoolID,id).Delete(&models.BlogPost{}).Error}
 func(s *SchoolContentService) ListBlogs(schoolID uuid.UUID)([]models.BlogPost,error){var p []models.BlogPost;return p,s.db.Where("school_id=?",schoolID).Order("created_at DESC").Find(&p).Error}
@@ -42,7 +44,7 @@ func(s *SchoolContentService) CreateAlbum(schoolID uuid.UUID,a *models.GalleryAl
  var n int64;s.db.Model(&models.GalleryAlbum{}).Where("school_id=? AND lower(slug)=lower(?)",schoolID,a.Slug).Count(&n);if n>0{return *a,ErrContentSlugExists}
  if err:=s.db.Create(a).Error;err!=nil{return *a,err};return *a,nil
 }
-func(s *SchoolContentService) UpdateAlbum(schoolID,id uuid.UUID,updates map[string]interface{})(models.GalleryAlbum,error){var a models.GalleryAlbum;if err:=s.db.Where("school_id=? AND id=?",schoolID,id).First(&a).Error;err!=nil{return a,ErrContentNotFound};if v,ok:=updates["slug"].(string);ok{updates["slug"]=slugify(v)};if v,ok:=updates["status"].(string);ok&&!validStatus(v){return a,ErrContentInvalidStatus};if err:=s.db.Model(&a).Updates(updates).Error;err!=nil{return a,err};return a,s.db.Where("school_id=? AND id=?",schoolID,id).First(&a).Error}
+func(s *SchoolContentService) UpdateAlbum(schoolID,id uuid.UUID,updates map[string]interface{})(models.GalleryAlbum,error){var a models.GalleryAlbum;if err:=s.db.Where("school_id=? AND id=?",schoolID,id).First(&a).Error;err!=nil{return a,ErrContentNotFound};allowed:=map[string]bool{"title":true,"slug":true,"description":true,"cover_image_url":true,"status":true,"featured":true};safe:=map[string]interface{}{};for k,v:=range updates{if allowed[k]{safe[k]=v}};if v,ok:=safe["slug"].(string);ok{safe["slug"]=slugify(v);if safe["slug"]==""{safe["slug"]=a.Slug};var n int64;s.db.Model(&models.GalleryAlbum{}).Where("school_id=? AND lower(slug)=lower(?) AND id<>?",schoolID,safe["slug"],id).Count(&n);if n>0{return a,ErrContentSlugExists}};if v,ok:=safe["status"].(string);ok&&!validStatus(v){return a,ErrContentInvalidStatus};if err:=s.db.Model(&a).Updates(safe).Error;err!=nil{return a,err};return a,s.db.Where("school_id=? AND id=?",schoolID,id).First(&a).Error}
 func(s *SchoolContentService) DeleteAlbum(schoolID,id uuid.UUID)error{return s.db.Transaction(func(tx *gorm.DB)error{if err:=tx.Where("school_id=? AND album_id=?",schoolID,id).Delete(&models.GalleryImage{}).Error;err!=nil{return err};return tx.Where("school_id=? AND id=?",schoolID,id).Delete(&models.GalleryAlbum{}).Error})}
 func(s *SchoolContentService) ListAlbums(schoolID uuid.UUID)([]models.GalleryAlbum,error){var a []models.GalleryAlbum;return a,s.db.Where("school_id=?",schoolID).Order("created_at DESC").Find(&a).Error}
 func(s *SchoolContentService) PublicAlbums(schoolID uuid.UUID)([]models.GalleryAlbum,error){var a []models.GalleryAlbum;return a,s.db.Where("school_id=? AND status=?",schoolID,models.ContentPublished).Order("created_at DESC").Find(&a).Error}

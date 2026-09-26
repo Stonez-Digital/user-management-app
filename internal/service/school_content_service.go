@@ -20,16 +20,16 @@ func slugify(v string)string{v=strings.ToLower(strings.TrimSpace(v));var b strin
 func validStatus(v string)bool{return v==models.ContentDraft||v==models.ContentPublished||v==models.ContentArchived}
 
 func(s *SchoolContentService) CreateBlog(schoolID,authorID uuid.UUID,p *models.BlogPost)(models.BlogPost,error){
- p.ID=uuid.New();p.SchoolID=schoolID;p.AuthorID=authorID;p.Title=strings.TrimSpace(p.Title);p.Slug=slugify(p.Slug);if p.Slug==""{p.Slug=slugify(p.Title)};if p.Status==""{p.Status=models.ContentDraft};if !validStatus(p.Status){return p,ErrContentInvalidStatus}
- var n int64;s.db.Model(&models.BlogPost{}).Where("school_id=? AND lower(slug)=lower(?)",schoolID,p.Slug).Count(&n);if n>0{return p,ErrContentSlugExists}
- if p.Status==models.ContentPublished{now:=time.Now().UTC();p.PublishedAt=&now};if err:=s.db.Create(p).Error;err!=nil{return p,err};return *p,nil
+ p.ID=uuid.New();p.SchoolID=schoolID;p.AuthorID=authorID;p.Title=strings.TrimSpace(p.Title);p.Slug=slugify(p.Slug);if p.Slug==""{p.Slug=slugify(p.Title)};if p.Status==""{p.Status=models.ContentDraft};if !validStatus(p.Status){return *p,ErrContentInvalidStatus}
+ var n int64;s.db.Model(&models.BlogPost{}).Where("school_id=? AND lower(slug)=lower(?)",schoolID,p.Slug).Count(&n);if n>0{return *p,ErrContentSlugExists}
+ if p.Status==models.ContentPublished{now:=time.Now().UTC();p.PublishedAt=&now};if err:=s.db.Create(p).Error;err!=nil{return *p,err};return *p,nil
 }
 func(s *SchoolContentService) UpdateBlog(schoolID,id uuid.UUID,updates map[string]interface{})(models.BlogPost,error){
  var p models.BlogPost;if err:=s.db.Where("school_id=? AND id=?",schoolID,id).First(&p).Error;err!=nil{return p,ErrContentNotFound}
  allowed:=map[string]bool{"title":true,"slug":true,"excerpt":true,"content":true,"featured_image_url":true,"status":true,"featured":true}
  safe:=map[string]interface{}{};for k,v:=range updates{if allowed[k]{safe[k]=v}}
- if v,ok:=safe["slug"].(string);ok{safe["slug"]=slugify(v);if safe["slug"]==""{safe["slug"]=p.Slug};var n int64;s.db.Model(&models.BlogPost{}).Where("school_id=? AND lower(slug)=lower(?) AND id<>?",schoolID,safe["slug"],id).Count(&n);if n>0{return p,ErrContentSlugExists}}
- if v,ok:=safe["status"].(string);ok{if !validStatus(v){return p,ErrContentInvalidStatus};if v==models.ContentPublished&&p.PublishedAt==nil{safe["published_at"]=time.Now().UTC()};if v!=models.ContentPublished{safe["published_at"]=nil}}
+ if v,ok:=safe["slug"].(string);ok{safe["slug"]=slugify(v);if safe["slug"]==""{safe["slug"]=p.Slug};var n int64;s.db.Model(&models.BlogPost{}).Where("school_id=? AND lower(slug)=lower(?) AND id<>?",schoolID,safe["slug"],id).Count(&n);if n>0{return *p,ErrContentSlugExists}}
+ if v,ok:=safe["status"].(string);ok{if !validStatus(v){return *p,ErrContentInvalidStatus};if v==models.ContentPublished&&p.PublishedAt==nil{safe["published_at"]=time.Now().UTC()};if v!=models.ContentPublished{safe["published_at"]=nil}}
  if err:=s.db.Model(&p).Updates(safe).Error;err!=nil{return p,err};if err:=s.db.Where("school_id=? AND id=?",schoolID,id).First(&p).Error;err!=nil{return p,err};return p,nil
 }
 func(s *SchoolContentService) DeleteBlog(schoolID,id uuid.UUID)error{return s.db.Where("school_id=? AND id=?",schoolID,id).Delete(&models.BlogPost{}).Error}

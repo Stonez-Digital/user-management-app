@@ -33,3 +33,36 @@ func TestRunPersistsSkippedCountForExistingStudent(t *testing.T) {
  if e:=db.First(&got,job.ID).Error;e!=nil{t.Fatal(e)}
  if got.Skipped!=1||got.Created!=0||got.Failed!=0{t.Fatalf("expected skipped=1 created=0 failed=0, got skipped=%d created=%d failed=%d",got.Skipped,got.Created,got.Failed)}
 }
+
+
+func TestRunPersistsSkippedCountForExistingTeacher(t *testing.T) {
+ db:=bulkTestDB(t)
+ schoolID:=uuid.New()
+ actor:=uuid.New()
+ user:=models.User{ID:uuid.New(),Name:"Existing Teacher",Email:"teacher@example.com",Role:"teacher",Active:true,SchoolID:&schoolID}
+ if e:=db.Create(&user).Error;e!=nil{t.Fatal(e)}
+ if e:=db.Create(&models.TeacherProfile{ID:uuid.New(),SchoolID:schoolID,UserID:user.ID,StaffID:"T-001"}).Error;e!=nil{t.Fatal(e)}
+ rb,_:=json.Marshal([]BulkRow{{"name":"Existing Teacher","email":"teacher@example.com","staff_id":"T-001"}})
+ job:=models.BulkImportJob{ID:uuid.New(),SchoolID:schoolID,InitiatedBy:actor,Kind:"teachers",Status:models.BulkImportPending,Total:1,RowsJSON:string(rb)}
+ if e:=db.Create(&job).Error;e!=nil{t.Fatal(e)}
+ NewBulkImportService(db,nil).run(job)
+ var got models.BulkImportJob
+ if e:=db.First(&got,job.ID).Error;e!=nil{t.Fatal(e)}
+ if got.Skipped!=1||got.Created!=0||got.Failed!=0{t.Fatalf("expected skipped=1 created=0 failed=0, got skipped=%d created=%d failed=%d",got.Skipped,got.Created,got.Failed)}
+}
+
+func TestRunPersistsSkippedCountForExistingParent(t *testing.T) {
+ db:=bulkTestDB(t)
+ schoolID:=uuid.New()
+ actor:=uuid.New()
+ user:=models.User{ID:uuid.New(),Name:"Existing Parent",Email:"parent@example.com",Role:"parent",Active:true,SchoolID:&schoolID}
+ if e:=db.Create(&user).Error;e!=nil{t.Fatal(e)}
+ if e:=db.Create(&models.ParentProfile{ID:uuid.New(),SchoolID:schoolID,UserID:user.ID,ParentIdentifier:"P-001"}).Error;e!=nil{t.Fatal(e)}
+ rb,_:=json.Marshal([]BulkRow{{"name":"Existing Parent","email":"parent@example.com","parent_identifier":"P-001"}})
+ job:=models.BulkImportJob{ID:uuid.New(),SchoolID:schoolID,InitiatedBy:actor,Kind:"parents",Status:models.BulkImportPending,Total:1,RowsJSON:string(rb)}
+ if e:=db.Create(&job).Error;e!=nil{t.Fatal(e)}
+ NewBulkImportService(db,nil).run(job)
+ var got models.BulkImportJob
+ if e:=db.First(&got,job.ID).Error;e!=nil{t.Fatal(e)}
+ if got.Skipped!=1||got.Created!=0||got.Failed!=0{t.Fatalf("expected skipped=1 created=0 failed=0, got skipped=%d created=%d failed=%d",got.Skipped,got.Created,got.Failed)}
+}

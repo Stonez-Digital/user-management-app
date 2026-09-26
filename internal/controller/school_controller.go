@@ -28,6 +28,11 @@ func NewSchoolController(s *service.SchoolService, logoStorage *service.SchoolLo
 type UpdateSchoolRequest struct {
     Name string `json:"name" binding:"required,min=2,max=160"`
     LogoURL string `json:"logo_url" binding:"omitempty,max=1000"`
+    Description string `json:"description" binding:"max=1000"`
+    Address string `json:"address" binding:"max=300"`
+    ContactEmail string `json:"contact_email" binding:"omitempty,email,max=255"`
+    ContactPhone string `json:"contact_phone" binding:"max=80"`
+    WebsiteURL string `json:"website_url" binding:"omitempty,max=500"`
 }
 
 func (ctrl *SchoolController) Get(c *gin.Context) {
@@ -48,7 +53,7 @@ func (ctrl *SchoolController) Update(c *gin.Context) {
     var req UpdateSchoolRequest
     if err := c.ShouldBindJSON(&req); err != nil { httpx.Validation(c, httpx.ValidationErrors(err)); return }
 
-    if err := ctrl.service.UpdateSchool(schoolID, models.School{Name: req.Name, LogoURL: req.LogoURL}); err != nil {
+    if err := ctrl.service.UpdateSchool(schoolID, models.School{Name: req.Name, LogoURL: req.LogoURL, Description: req.Description, Address: req.Address, ContactEmail: req.ContactEmail, ContactPhone: req.ContactPhone, WebsiteURL: req.WebsiteURL}); err != nil {
         switch {
         case errors.Is(err, service.ErrSchoolNotFound), errors.Is(err, gorm.ErrRecordNotFound):
             httpx.Error(c, http.StatusNotFound, "school_not_found", "school not found")

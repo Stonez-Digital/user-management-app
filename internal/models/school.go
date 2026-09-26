@@ -22,6 +22,11 @@ type School struct {
     // PostgreSQL uses a case-insensitive partial unique index.
     Slug string `gorm:"size:180" json:"slug"`
     LogoURL string `gorm:"size:1000" json:"logo_url,omitempty"`
+    Description string `gorm:"size:1000" json:"description,omitempty"`
+    Address string `gorm:"size:300" json:"address,omitempty"`
+    ContactEmail string `gorm:"size:255" json:"contact_email,omitempty"`
+    ContactPhone string `gorm:"size:80" json:"contact_phone,omitempty"`
+    WebsiteURL string `gorm:"size:500" json:"website_url,omitempty"`
     Status string `gorm:"size:20;not null;default:active;index" json:"status"`
     CreatedAt time.Time `json:"created_at"`
     UpdatedAt time.Time `json:"updated_at"`

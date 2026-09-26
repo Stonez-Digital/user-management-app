@@ -22,7 +22,7 @@ func (r *schoolRepo) GetByID(id uuid.UUID) (models.School, error) {
 }
 
 func (r *schoolRepo) Update(id uuid.UUID, school models.School) error {
-    result := r.db.Model(&models.School{}).Where("id = ?", id).Updates(map[string]interface{}{"name": school.Name, "logo_url": school.LogoURL})
+    result := r.db.Model(&models.School{}).Where("id = ?", id).Updates(map[string]interface{}{"name": school.Name, "logo_url": school.LogoURL, "description": school.Description, "address": school.Address, "contact_email": school.ContactEmail, "contact_phone": school.ContactPhone, "website_url": school.WebsiteURL})
     if result.Error != nil { return result.Error }
     if result.RowsAffected == 0 { return gorm.ErrRecordNotFound }
     return nil

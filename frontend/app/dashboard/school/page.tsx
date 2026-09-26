@@ -20,6 +20,7 @@ export default function SchoolSettings(){
  const router=useRouter();
  const[school,setSchool]=useState<School|null>(null);
  const[name,setName]=useState("");
+ const[description,setDescription]=useState("");const[address,setAddress]=useState("");const[contactEmail,setContactEmail]=useState("");const[contactPhone,setContactPhone]=useState("");const[websiteURL,setWebsiteURL]=useState("");
  const[selectedLogo,setSelectedLogo]=useState<File|null>(null);
  const[previewURL,setPreviewURL]=useState("");
  const[status,setStatus]=useState("");
@@ -27,7 +28,7 @@ export default function SchoolSettings(){
  const[saving,setSaving]=useState(false);
  const[uploading,setUploading]=useState(false);
 
- useEffect(()=>{api("/me").then(me=>{if(me?.role!=="school_admin"){router.replace(me?.role==="super_admin"?"/platform/schools":"/dashboard");return} return api("/admin/school")}).then(s=>{if(s){setSchool(s);setName(s.name);setPreviewURL(s.logo_url||"");setStatus(s.status)}}).catch(e=>{setError(e.message);if(e.message==="Session expired")router.replace("/")})},[router]);
+ useEffect(()=>{api("/me").then(me=>{if(me?.role!=="school_admin"){router.replace(me?.role==="super_admin"?"/platform/schools":"/dashboard");return} return api("/admin/school")}).then(s=>{if(s){setSchool(s);setName(s.name);setDescription(s.description||"");setAddress(s.address||"");setContactEmail(s.contact_email||"");setContactPhone(s.contact_phone||"");setWebsiteURL(s.website_url||"");setPreviewURL(s.logo_url||"");setStatus(s.status)}}).catch(e=>{setError(e.message);if(e.message==="Session expired")router.replace("/")})},[router]);
 
  useEffect(()=>()=>{if(previewURL.startsWith("blob:"))URL.revokeObjectURL(previewURL)},[previewURL]);
 
@@ -42,7 +43,7 @@ export default function SchoolSettings(){
  async function save(e:React.FormEvent){
   e.preventDefault();setSaving(true);setError("");
   try{
-   const s=await api("/admin/school",{method:"PUT",body:JSON.stringify({name,logo_url:school?.logo_url||""})});
+   const s=await api("/admin/school",{method:"PUT",body:JSON.stringify({name,logo_url:school?.logo_url||"",description,address,contact_email:contactEmail,contact_phone:contactPhone,website_url:websiteURL})});
    setSchool(s);setName(s.name);setPreviewURL(s.logo_url||"");setStatus(s.status);
   }catch(e){setError(e instanceof Error?e.message:"Unable to save school")}finally{setSaving(false)}
  }
@@ -57,7 +58,7 @@ export default function SchoolSettings(){
   }catch(e){setError(e instanceof Error?e.message:"Unable to upload school logo")}finally{setUploading(false)}
  }
 
- return <div className="app-shell"><aside className="sidebar"><div className="logo"><span>S</span><div><strong>Stonez</strong><small>School OS</small></div></div><nav><Link href="/dashboard">Overview</Link><Link className="active" href="/dashboard/school">School setup</Link><Link href="/dashboard/academic">Academic</Link><Link href="/dashboard/users">Users & Roles</Link><Link href="/dashboard/audit">Audit Logs</Link></nav></aside>
+ return <div className="app-shell"><aside className="sidebar"><div className="logo"><span>S</span><div><strong>Stonez</strong><small>School OS</small></div></div><nav><Link href="/dashboard">Overview</Link><Link className="active" href="/dashboard/school">School setup</Link><Link href="/dashboard/content">Blog & Gallery</Link><Link href="/dashboard/academic">Academic</Link><Link href="/dashboard/users">Users & Roles</Link><Link href="/dashboard/audit">Audit Logs</Link></nav></aside>
  <main className="content"><Link className="back" href="/dashboard">← Back to overview</Link><header className="topbar"><div><p className="eyebrow">TENANT CONFIGURATION</p><h1>School setup</h1><p className="muted">Configure the identity of the school currently signed in.</p></div>{school&&<div className="status"><span/>{status}</div>}</header>
  {error&&<div className="error banner">{error}</div>}
  <section className="panel"><div className="panel-head"><div><h2>School workspace</h2><p>Each school is an isolated tenant with its own users, academic records and operations.</p></div></div>

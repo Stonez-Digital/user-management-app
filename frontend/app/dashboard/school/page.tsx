@@ -57,7 +57,7 @@ export default function SchoolSettings(){
   }catch(e){setError(e instanceof Error?e.message:"Unable to upload school logo")}finally{setUploading(false)}
  }
 
- return <div className="app-shell"><aside className="sidebar"><div className="logo"><span>S</span><div><strong>Stonez</strong><small>School OS</small></div></div><nav><Link href="/dashboard">Overview</Link><Link className="active" href="/dashboard/school">School setup</Link><Link href="/dashboard/academic">Academic</Link><Link href="/dashboard/users">Users & Roles</Link><Link href="/dashboard/audit">Audit Logs</Link></nav></aside>
+ return <div className="app-shell"><aside className="sidebar"><div className="logo"><span>S</span><div><strong>Stonez</strong><small>School OS</small></div></div><nav><Link href="/dashboard">Overview</Link><Link className="active" href="/dashboard/school">School setup</Link><Link href="/dashboard/content">Blog & Gallery</Link><Link href="/dashboard/academic">Academic</Link><Link href="/dashboard/users">Users & Roles</Link><Link href="/dashboard/audit">Audit Logs</Link></nav></aside>
  <main className="content"><Link className="back" href="/dashboard">← Back to overview</Link><header className="topbar"><div><p className="eyebrow">TENANT CONFIGURATION</p><h1>School setup</h1><p className="muted">Configure the identity of the school currently signed in.</p></div>{school&&<div className="status"><span/>{status}</div>}</header>
  {error&&<div className="error banner">{error}</div>}
  <section className="panel"><div className="panel-head"><div><h2>School workspace</h2><p>Each school is an isolated tenant with its own users, academic records and operations.</p></div></div>

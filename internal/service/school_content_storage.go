@@ -24,7 +24,7 @@ func NewSchoolMediaStorageFromEnv()*SchoolMediaStorage{
 func(s *SchoolMediaStorage) Upload(schoolID uuid.UUID, area, filename, contentType string, body io.Reader, size int64)(string,error){
  if s.baseURL==""||s.secretKey=="" {return "",fmt.Errorf("school media storage is not configured")}
  if size<=0||size>10*1024*1024{return "",fmt.Errorf("image must be between 1 byte and 10 MB")}
- ext:=strings.ToLower(path.Ext(filename)); if ext=="" {ext=extensionForMime(contentType)}
+ ext:=strings.ToLower(path.Ext(filename)); if ext=="" {ext=extensionForContentMime(contentType)}
  allowed:=map[string]string{".png":"image/png",".jpg":"image/jpeg",".jpeg":"image/jpeg",".webp":"image/webp"}
  expected,ok:=allowed[ext];if !ok||expected!=contentType{return "",fmt.Errorf("image must be PNG, JPEG, or WebP")}
  data,err:=io.ReadAll(io.LimitReader(body,10*1024*1024+1));if err!=nil{return "",fmt.Errorf("failed to read image: %w",err)}
@@ -46,4 +46,4 @@ func(s *SchoolMediaStorage) ensureBucket()error{
  if resp.StatusCode==http.StatusConflict{return nil};if resp.StatusCode<200||resp.StatusCode>=300{detail,_:=io.ReadAll(io.LimitReader(resp.Body,4096));return fmt.Errorf("school media storage setup failed: %s",strings.TrimSpace(string(detail)))}
  return nil
 }
-func extensionForMime(contentType string)string{exts,_:=mime.ExtensionsByType(contentType);if len(exts)>0{return exts[0]};return ""}
+func extensionForContentMime(contentType string)string{exts,_:=mime.ExtensionsByType(contentType);if len(exts)>0{return exts[0]};return ""}

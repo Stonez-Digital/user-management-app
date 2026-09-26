@@ -142,7 +142,7 @@ export default function Students() {
             Manage student profiles and academic enrollment. New student accounts are created through the school onboarding workflow.
           </p>
         </div>
-        <Link href="/dashboard/onboarding" className="button">+ Onboard student</Link>
+        <Link href="/dashboard/onboarding" className="ghost">+ Onboard student</Link>
       </header>
 
       {error && <div className="error banner">{error}</div>}

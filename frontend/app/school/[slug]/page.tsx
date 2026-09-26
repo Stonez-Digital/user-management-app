@@ -34,7 +34,7 @@ export default function SchoolHome(){
   {ads.length>0&&<section style={{maxWidth:1180,margin:"28px auto 0",padding:"0 24px"}}>
    <div style={{background:"#fff",borderRadius:20,overflow:"hidden",border:"1px solid #e5e7eb",boxShadow:"0 12px 30px rgba(15,23,42,.08)"}}>
     <div style={{padding:"12px 20px",fontSize:12,fontWeight:800,letterSpacing:1.5,color:"#0d2175",textTransform:"uppercase"}}>Advertisement</div>
-    {ads.map((a:any)=><div key={a.id} style={{display:"grid",gridTemplateColumns:"minmax(0,1.35fr) minmax(280px,1fr)",alignItems:"stretch"}}>
+    {ads.map((a:any)=><div key={a.id} style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",alignItems:"stretch"}}>
       <img src={a.image_url} alt={a.title} style={{width:"100%",height:300,objectFit:"cover"}}/>
       <div style={{padding:"34px 30px",display:"flex",flexDirection:"column",justifyContent:"center"}}>
        <h2 style={{fontSize:"clamp(1.7rem,3vw,2.5rem)",margin:"0 0 12px"}}>{a.title}</h2>

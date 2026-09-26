@@ -55,10 +55,28 @@ type GalleryImage struct {
  SchoolID uuid.UUID `gorm:"type:uuid;not null;index" json:"school_id"`
  AlbumID uuid.UUID `gorm:"type:uuid;not null;index" json:"album_id"`
  UploadedBy uuid.UUID `gorm:"type:uuid;not null" json:"uploaded_by"`
- ImageURL string `gorm:"size:1200;not null" json:"image_url"`
+ ImageURL string `gorm:"size:1200" json:"image_url,omitempty"`
  Caption string `gorm:"size:300" json:"caption"`
  AltText string `gorm:"size:300" json:"alt_text"`
  DisplayOrder int `gorm:"not null;default:0;index" json:"display_order"`
+ CreatedAt time.Time `json:"created_at"`
+ UpdatedAt time.Time `json:"updated_at"`
+}
+
+
+type SchoolAdvertisement struct {
+ ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+ SchoolID uuid.UUID `gorm:"type:uuid;not null;index" json:"school_id"`
+ Title string `gorm:"size:240;not null" json:"title"`
+ Description string `gorm:"size:1000" json:"description"`
+ ImageURL string `gorm:"size:1200;not null" json:"image_url"`
+ ButtonText string `gorm:"size:80" json:"button_text,omitempty"`
+ TargetURL string `gorm:"size:1200" json:"target_url,omitempty"`
+ Status string `gorm:"size:20;not null;index" json:"status"`
+ Featured bool `gorm:"not null;default:true;index" json:"featured"`
+ StartsAt *time.Time `json:"starts_at,omitempty"`
+ EndsAt *time.Time `json:"ends_at,omitempty"`
+ CreatedBy uuid.UUID `gorm:"type:uuid;not null" json:"created_by"`
  CreatedAt time.Time `json:"created_at"`
  UpdatedAt time.Time `json:"updated_at"`
 }

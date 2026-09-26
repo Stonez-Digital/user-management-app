@@ -246,3 +246,135 @@ func TestCreateEnrollmentAllowsOnlyOneActiveEnrollmentAcrossSessions(t *testing.
 	if _,err:=svc.Create(schoolID,models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session1.ID,ClassID:class.ID,SectionID:section.ID});err!=nil{t.Fatal(err)}
 	if _,err:=svc.Create(schoolID,models.StudentEnrollment{StudentID:student.ID,AcademicSessionID:session2.ID,ClassID:class.ID,SectionID:section.ID});err!=ErrEnrollmentActiveDuplicate{t.Fatalf("expected active enrollment conflict, got %v",err)}
 }
+
+
+func TestStudentLifecyclePromotionPreservesAcademicHistoryAndStartsNewEnrollment(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	if err != nil { t.Fatal(err) }
+	if err := db.AutoMigrate(
+		&models.School{}, &models.User{}, &models.Student{}, &models.AcademicSession{}, &models.Term{},
+		&models.SchoolClass{}, &models.Section{}, &models.StudentEnrollment{},
+		&models.AttendanceRecord{}, &models.Subject{}, &models.TeacherAssignment{},
+		&models.Assessment{}, &models.AssessmentResult{},
+	); err != nil { t.Fatal(err) }
+
+	schoolID := uuid.New()
+	school := models.School{ID: schoolID, Name: "Lifecycle School", Code: "LIFE-141", Status: models.SchoolStatusActive}
+	if err := db.Create(&school).Error; err != nil { t.Fatal(err) }
+
+	user := models.User{SchoolID: &schoolID, Name: "Lifecycle Student", Email: "lifecycle-"+schoolID.String()+"@example.com", Role: "student", Active: true}
+	if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
+	student := models.Student{SchoolID: schoolID, UserID: user.ID, AdmissionNumber: "LIFE-001"}
+	if err := db.Create(&student).Error; err != nil { t.Fatal(err) }
+
+	session1 := models.AcademicSession{SchoolID: schoolID, Name: "2045/2046", Status: models.AcademicStatusActive}
+	session2 := models.AcademicSession{SchoolID: schoolID, Name: "2046/2047", Status: models.AcademicStatusActive}
+	if err := db.Create(&session1).Error; err != nil { t.Fatal(err) }
+	if err := db.Create(&session2).Error; err != nil { t.Fatal(err) }
+
+	term1 := models.Term{SchoolID: schoolID, AcademicSessionID: session1.ID, Name: models.TermFirst, StartDate: time.Date(2045, 9, 1, 0, 0, 0, 0, time.UTC), EndDate: time.Date(2045, 12, 20, 0, 0, 0, 0, time.UTC)}
+	if err := db.Create(&term1).Error; err != nil { t.Fatal(err) }
+
+	class1 := models.SchoolClass{SchoolID: schoolID, Name: "JSS 1", Level: 1}
+	class2 := models.SchoolClass{SchoolID: schoolID, Name: "JSS 2", Level: 2}
+	if err := db.Create(&class1).Error; err != nil { t.Fatal(err) }
+	if err := db.Create(&class2).Error; err != nil { t.Fatal(err) }
+	section1 := models.Section{SchoolID: schoolID, ClassID: class1.ID, Name: "A"}
+	section2 := models.Section{SchoolID: schoolID, ClassID: class2.ID, Name: "A"}
+	if err := db.Create(&section1).Error; err != nil { t.Fatal(err) }
+	if err := db.Create(&section2).Error; err != nil { t.Fatal(err) }
+
+	svc := NewEnrollmentService(repository.NewEnrollmentRepository(db), db)
+	source, err := svc.Create(schoolID, models.StudentEnrollment{
+		StudentID: student.ID, AcademicSessionID: session1.ID, ClassID: class1.ID, SectionID: section1.ID,
+	})
+	if err != nil { t.Fatal(err) }
+
+	attendance := models.AttendanceRecord{
+		SchoolID: schoolID, EnrollmentID: source.ID, TermID: term1.ID,
+		Date: time.Date(2045, 10, 7, 0, 0, 0, 0, time.UTC), Status: models.AttendancePresent,
+	}
+	if err := db.Create(&attendance).Error; err != nil { t.Fatal(err) }
+
+	subject := models.Subject{SchoolID: schoolID, Code: "ENG", Name: "English", Active: true}
+	if err := db.Create(&subject).Error; err != nil { t.Fatal(err) }
+
+	teacher := models.User{SchoolID: &schoolID, Name: "Lifecycle Teacher", Email: "teacher-"+schoolID.String()+"@example.com", Role: "teacher", Active: true}
+	if err := db.Create(&teacher).Error; err != nil { t.Fatal(err) }
+
+	assignment := models.TeacherAssignment{
+		SchoolID: schoolID, TeacherID: teacher.ID, SubjectID: subject.ID,
+		AcademicSessionID: session1.ID, TermID: term1.ID, ClassID: class1.ID,
+		SectionID: &section1.ID, AllocationType: models.TeacherAllocationSubject, Active: true,
+	}
+	if err := db.Create(&assignment).Error; err != nil { t.Fatal(err) }
+
+	assessment := models.Assessment{
+		SchoolID: schoolID, TeacherAssignmentID: assignment.ID, Title: "First Test",
+		Type: "test", MaxScore: 100, Weight: 30, Date: time.Date(2045, 10, 10, 0, 0, 0, 0, time.UTC),
+	}
+	if err := db.Create(&assessment).Error; err != nil { t.Fatal(err) }
+
+	result := models.AssessmentResult{
+		SchoolID: schoolID, AssessmentID: assessment.ID, StudentEnrollmentID: source.ID, Score: 82,
+	}
+	if err := db.Create(&result).Error; err != nil { t.Fatal(err) }
+
+	target, err := svc.Place(schoolID, source.ID, EnrollmentPlacementRequest{
+		TargetSessionID: session2.ID, TargetClassID: class2.ID, TargetSectionID: section2.ID, Operation: "promote",
+	})
+	if err != nil { t.Fatal(err) }
+	if target.Status != models.EnrollmentStatusActive { t.Fatalf("expected promoted enrollment to be active, got %s", target.Status) }
+	if target.AcademicSessionID != session2.ID || target.ClassID != class2.ID || target.SectionID != section2.ID {
+		t.Fatalf("unexpected target enrollment: %#v", target)
+	}
+
+	updated, err := svc.Get(schoolID, source.ID)
+	if err != nil { t.Fatal(err) }
+	if updated.Status != models.EnrollmentStatusCompleted {
+		t.Fatalf("expected source enrollment to be completed, got %s", updated.Status)
+	}
+
+	var historicalAttendance int64
+	if err := db.Model(&models.AttendanceRecord{}).
+		Where("school_id = ? AND enrollment_id = ?", schoolID, source.ID).Count(&historicalAttendance).Error; err != nil {
+		t.Fatal(err)
+	}
+	if historicalAttendance != 1 {
+		t.Fatalf("expected historical attendance to remain attached to source enrollment, got %d", historicalAttendance)
+	}
+
+	var historicalResults int64
+	if err := db.Model(&models.AssessmentResult{}).
+		Where("school_id = ? AND student_enrollment_id = ?", schoolID, source.ID).Count(&historicalResults).Error; err != nil {
+		t.Fatal(err)
+	}
+	if historicalResults != 1 {
+		t.Fatalf("expected historical assessment result to remain attached to source enrollment, got %d", historicalResults)
+	}
+
+	var activeCount int64
+	if err := db.Model(&models.StudentEnrollment{}).
+		Where("school_id = ? AND student_id = ? AND status = ?", schoolID, student.ID, models.EnrollmentStatusActive).
+		Count(&activeCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if activeCount != 1 {
+		t.Fatalf("expected exactly one active enrollment after promotion, got %d", activeCount)
+	}
+
+	var historyCount int64
+	if err := db.Model(&models.StudentEnrollment{}).
+		Where("school_id = ? AND student_id = ?", schoolID, student.ID).Count(&historyCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if historyCount != 2 {
+		t.Fatalf("expected two enrollment records after promotion, got %d", historyCount)
+	}
+
+	if _, err := svc.Place(schoolID, source.ID, EnrollmentPlacementRequest{
+		TargetSessionID: session2.ID, TargetClassID: class2.ID, TargetSectionID: section2.ID, Operation: "promote",
+	}); err != ErrEnrollmentPromotionSource {
+		t.Fatalf("expected completed source to reject a second promotion, got %v", err)
+	}
+}

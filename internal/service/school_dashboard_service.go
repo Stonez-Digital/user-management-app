@@ -228,6 +228,12 @@ func (s *SchoolDashboardService) Get(schoolID, adminID, sessionID, termID uuid.U
     s.db.Model(&models.User{}).Where("school_id = ? AND role = ? AND active = ? AND (name = '' OR email = '')", schoolID, "teacher", true).Count(&count)
     if count > 0 { alerts = append(alerts, SchoolDashboardAlert{"teacher_profile_gaps","warning",count,"teachers are missing required profile information.","/dashboard/onboarding"}) }
 
+    s.db.Model(&models.User{}).Where("school_id = ? AND role = ? AND active = ? AND (name = '' OR email = '')", schoolID, "parent", true).Count(&count)
+    if count > 0 { alerts = append(alerts, SchoolDashboardAlert{"parent_profile_gaps","warning",count,"parents are missing required profile information.","/dashboard/onboarding"}) }
+
+    s.db.Model(&models.Student{}).Where("students.school_id = ? AND NOT EXISTS (SELECT 1 FROM guardian_relationships WHERE guardian_relationships.school_id = students.school_id AND guardian_relationships.student_id = students.id AND guardian_relationships.active = ?)", schoolID, true).Count(&count)
+    if count > 0 { alerts = append(alerts, SchoolDashboardAlert{"students_without_guardian","info",count,"students have no active guardian link.","/dashboard/onboarding"}) }
+
     if sessionFound && termFound {
         s.db.Model(&models.User{}).Where("users.school_id = ? AND users.role = ? AND users.active = ? AND NOT EXISTS (SELECT 1 FROM teacher_assignments WHERE teacher_assignments.school_id = users.school_id AND teacher_assignments.teacher_id = users.id AND teacher_assignments.academic_session_id = ? AND teacher_assignments.term_id = ? AND teacher_assignments.active = ?)", schoolID, "teacher", true, session.ID, term.ID, true).Count(&count)
         if count > 0 { alerts = append(alerts, SchoolDashboardAlert{"teachers_without_assignments","warning",count,"teachers have no assignment in the selected academic context.","/dashboard/teacher-assignments"}) }

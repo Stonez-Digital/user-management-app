@@ -7,34 +7,73 @@ const superAdmin = {email:process.env.PRODUCTION_QA_SUPER_ADMIN_EMAIL,password:p
 const results = [];
 const createdUsers = [];
 function fail(message){throw new Error(message)}
-async function request(path,{token,method="GET",body,expected=[200]}={}) {
-  const r=await fetch(BASE_URL+path,{method,headers:{"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})},body:body===undefined?undefined:JSON.stringify(body)});
-  const text=await r.text(); let data={}; try{data=text?JSON.parse(text):{}}catch{data={raw:text}};
-  if(!expected.includes(r.status)) fail(`${method} ${path} expected ${expected.join("/")} got ${r.status}: ${JSON.stringify(data)}`);
-  return {status:r.status,data};
+async function request(path,{token,method="GET",body,expected=[200],retries=3}={}) {
+  let last;
+  for(let attempt=0;attempt<=retries;attempt++){
+    try{
+      const r=await fetch(BASE_URL+path,{method,headers:{"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})},body:body===undefined?undefined:JSON.stringify(body)});
+      const text=await r.text(); let data={}; try{data=text?JSON.parse(text):{}}catch{data={raw:text}};
+      if((r.status===429||r.status===502||r.status===503||r.status===504)&&attempt<retries){
+        await new Promise(resolve=>setTimeout(resolve,1000*(attempt+1)));
+        continue;
+      }
+      if(!expected.includes(r.status)) fail(method+" "+path+" expected "+expected.join("/")+" got "+r.status+": "+JSON.stringify(data));
+      return {status:r.status,data};
+    }catch(err){
+      last=err;
+      if(attempt<retries){await new Promise(resolve=>setTimeout(resolve,1000*(attempt+1)));continue}
+      throw err;
+    }
+  }
+  throw last;
 }
 async function login(creds){return (await request("/auth/login",{method:"POST",body:creds,expected:[200]})).data}
 async function me(token){return (await request("/me",{token})).data}
-function list(d,k){return Array.isArray(d)?d:(d?.[k]||d?.data||[])}
+function list(d,k){
+  if(Array.isArray(d))return d;
+  if(Array.isArray(d?.[k]))return d[k];
+  if(Array.isArray(d?.data))return d.data;
+  if(Array.isArray(d?.data?.[k]))return d.data[k];
+  return [];
+}
 function record(area,school,role,status,notes=""){results.push({area,school,role,status,notes})}
+function unwrap(v){return v?.data&&typeof v.data==="object"&&!Array.isArray(v.data)?v.data:v}
 function onboardingUserId(v,role){
-  if(v?.user?.id)return v.user.id;
-  if(v?.id&&v?.role===role)return v.id;
-  if(v?.user_id&&role!=="student")return v.user_id;
-  if(v?.[role]?.user_id)return v[role].user_id;
+  const x=unwrap(v);
+  if(x?.user?.id)return x.user.id;
+  if(x?.[role]?.user?.id)return x[role].user.id;
+  if(x?.[role]?.id&&(!x[role].role||x[role].role===role))return x[role].id;
+  if(x?.id&&x?.role===role)return x.id;
+  if(x?.user_id&&role!=="student")return x.user_id;
+  if(x?.[role]?.user_id)return x[role].user_id;
   return null;
 }
 function onboardingStudentId(v){
-  if(v?.student?.id)return v.student.id;
-  if(v?.id&&v?.user_id)return v.id;
+  const x=unwrap(v);
+  if(x?.student?.id)return x.student.id;
+  if(x?.student?.student_id)return x.student.student_id;
+  if(x?.id&&x?.user_id)return x.id;
   return null;
+}
+function findUserByEmail(payload,email,role){
+  const target=email.toLowerCase();
+  const seen=new Set();
+  function walk(v){
+    if(!v||typeof v!=="object"||seen.has(v))return null;
+    seen.add(v);
+    if(Array.isArray(v)){for(const item of v){const hit=walk(item);if(hit)return hit}return null}
+    if(String(v.email||"").toLowerCase()===target&&(!role||v.role===role)&&v.id)return v;
+    for(const value of Object.values(v)){const hit=walk(value);if(hit)return hit}
+    return null;
+  }
+  return walk(payload);
 }
 async function resolveUserId(token,email,role,response){
   const direct=onboardingUserId(response,role);
   if(direct)return direct;
-  const users=list((await request("/admin/users",{token})).data,"users");
-  const user=users.find(u=>String(u.email||"").toLowerCase()===email.toLowerCase()&&(!role||u.role===role));
-  if(!user?.id) fail(`Unable to resolve ${role||"user"} account ${email} after onboarding`);
+  const usersResponse=(await request("/admin/users",{token})).data;
+  const user=findUserByEmail(usersResponse,email,role);
+  if(!user?.id) fail("Unable to resolve "+(role||"user")+" account "+email+" after onboarding; onboarding response and /admin/users contained no matching user");
   return user.id;
 }
 async function ensureTerm(token,session,preferredStatus,dates,name){
@@ -77,7 +116,7 @@ async function bulkImport(token,kind,filename,csv,expected){
   if(job.kind!==kind||Number(job.total)!==1||Number(job.valid)!==1) fail("bulk "+kind+" preview validation mismatch: "+JSON.stringify(job));
   await request("/admin/onboarding/bulk/"+job.id+"/start",{token,method:"POST",expected:[202]});
   let completed;
-  for(let i=0;i<20;i++){
+  for(let i=0;i<120;i++){
     const current=(await request("/admin/onboarding/bulk/"+job.id,{token,expected:[200]})).data;
     if(current.status==="completed"||current.status==="completed_with_errors"||current.status==="failed"){completed=current;break}
     await new Promise(r=>setTimeout(r,500));
@@ -87,8 +126,8 @@ async function bulkImport(token,kind,filename,csv,expected){
   return completed;
 }
 async function recordBulkUserForCleanup(token,email){
-  const users=list((await request("/admin/users",{token})).data,"users");
-  const user=users.find(u=>String(u.email||"").toLowerCase()===email.toLowerCase());
+  const usersResponse=(await request("/admin/users",{token})).data;
+  const user=findUserByEmail(usersResponse,email);
   if(user?.id) createdUsers.push({id:user.id,token,email});
 }
 

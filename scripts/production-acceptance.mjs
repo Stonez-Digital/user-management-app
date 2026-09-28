@@ -204,6 +204,21 @@ async function bootstrapSchool(s){
     record("authentication",school,role,"PASS",x.school_name);
   }
 
+  // Harden role acceptance: verify tenant academic context and negative authorization paths.
+  for(const [role,token] of [["student",studentAuth.access_token],["teacher",teacherAuth.access_token],["parent",parentAuth.access_token]]) {
+    const context=unwrap((await request("/academic-context",{token})).data);
+    const sessions=list(context,"sessions");
+    if(!sessions.some(x=>x.id===academic.active.id)||!sessions.some(x=>x.id===academic.target.id)) fail(school+": "+role+" academic context is incomplete");
+  }
+  await request("/admin/users",{token:studentAuth.access_token,expected:[403]});
+  await request("/admin/users",{token:teacherAuth.access_token,expected:[403]});
+  await request("/admin/users",{token:parentAuth.access_token,expected:[403]});
+  await request("/student/profile",{token:teacherAuth.access_token,expected:[403]});
+  await request("/student/profile",{token:parentAuth.access_token,expected:[403]});
+  await request("/parent/children",{token:studentAuth.access_token,expected:[403]});
+  record("role isolation",school,"teacher","PASS","Teacher denied school-admin and student-portal endpoints");
+  record("role isolation",school,"student","PASS","Student denied school-admin and parent endpoints");
+  record("role isolation",school,"parent","PASS","Parent denied school-admin and student-portal endpoints");
   // Promotion intentionally completes the source enrollment and creates the target enrollment.
   // The student portal exposes only the currently active enrollment, so after promotion
   // the target session is the valid student-portal context.

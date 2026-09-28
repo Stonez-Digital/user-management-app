@@ -86,7 +86,7 @@ async function bootstrapSchool(s){
   const parentEmail=`parent.${stamp}@example.com`;
   const student=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Student ${runId}`,email:studentEmail,password,role:"student",admission_number:`QA-${runId}-${school}`,enrollment_status:"active"},expected:[201]})).data;
   const studentId=idOf(student); if(!studentId) fail(`${school}: onboarding did not return student id`); createdUsers.push({id:student.user?.id||student.user_id||studentId,token:admin.access_token});
-  const teacher=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Teacher ${runId}`,email:teacherEmail,password,role:"teacher"},expected:[201]})).data;
+  const teacher=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Teacher ${runId}`,email:teacherEmail,password,role:"teacher",staff_id:`QA-T-${runId}-${school}`},expected:[201]})).data;
   const teacherId=idOf(teacher); if(!teacherId) fail(`${school}: onboarding did not return teacher id`); createdUsers.push({id:teacher.user?.id||teacher.user_id||teacherId,token:admin.access_token});
   const parent=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Parent ${runId}`,email:parentEmail,password,role:"parent",student_id:studentId,relationship:"parent",primary:true},expected:[201]})).data;
   const parentId=idOf(parent); if(!parentId) fail(`${school}: onboarding did not return parent id`); createdUsers.push({id:parent.user?.id||parent.user_id||parentId,token:admin.access_token});

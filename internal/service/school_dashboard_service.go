@@ -288,9 +288,19 @@ func (s *SchoolDashboardService) Get(schoolID, adminID, sessionID, termID uuid.U
         if finance.TotalInvoiced > 0 { health.FinanceActivity = "Complete" }
     }
 
+    academic := SchoolDashboardAcademic{}
+    if sessionFound {
+        academic.SessionID = session.ID
+        academic.SessionName = session.Name
+    }
+    if termFound {
+        academic.TermID = term.ID
+        academic.TermName = term.Name
+    }
+
     return SchoolDashboard{
         School: SchoolDashboardIdentity{school.ID, school.Name, school.LogoURL, school.Address, school.ContactEmail, school.ContactPhone, SchoolDashboardPerson{admin.ID, admin.Name, admin.Email}},
-        AcademicContext: SchoolDashboardAcademic{},
+        AcademicContext: academic,
         Overview: overview,
         Attendance: attendance,
         Finance: finance,

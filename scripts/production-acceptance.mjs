@@ -163,7 +163,10 @@ async function bootstrapSchool(s){
   const teacher=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Teacher ${runId}`,email:teacherEmail,password,role:"teacher",staff_id:`QA-T-${runId}-${school}`},expected:[201]})).data;
   const teacherId=await resolveUserId(admin.access_token,teacherEmail,"teacher",teacher,{password,school_code:school}); createdUsers.push({id:teacherId,token:admin.access_token,email:teacherEmail});
   const parent=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Parent ${runId}`,email:parentEmail,password,role:"parent",student_id:studentId,relationship:"parent",primary:true},expected:[201]})).data;
-  const parentId=onboardingUserId(parent,"parent"); if(!parentId) fail(school+": onboarding did not return parent user id"); createdUsers.push({id:parentId,token:admin.access_token,email:parentEmail});
+  // Resolve the parent through the same verified path as teachers: onboarding response, school user list, then authenticated /me.
+  // The production API returns the created user in PersonOnboardingResult, but the acceptance test must tolerate legacy/minimal responses.
+  const parentId=await resolveUserId(admin.access_token,parentEmail,"parent",parent,{password,school_code:school});
+  createdUsers.push({id:parentId,token:admin.access_token,email:parentEmail});
   record("onboarding",school,"school_admin","PASS","Created temporary teacher/student/parent");
   const bulkStamp=runId+".bulk."+school.toLowerCase();
   const bulkStudentEmail="bulk.student."+bulkStamp+"@example.com";

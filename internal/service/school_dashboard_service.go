@@ -202,11 +202,9 @@ func (s *SchoolDashboardService) Get(schoolID, adminID, sessionID, termID uuid.U
             }
         }
         var pays []models.Payment
-        if err := s.db.Where("payments.school_id = ?", schoolID).Joins("JOIN invoices ON invoices.id = payments.invoice_id AND invoices.school_id = ? AND invoices.term_id = ?", schoolID, term.ID).Order("payments.created_at DESC").Limit(5).Find(&pays).Error; err != nil { return SchoolDashboard{}, err }
+        if err := s.db.Preload("Invoice", "school_id = ?", schoolID).Where("payments.school_id = ?", schoolID).Joins("JOIN invoices ON invoices.id = payments.invoice_id AND invoices.school_id = ? AND invoices.term_id = ?", schoolID, term.ID).Order("payments.created_at DESC").Limit(5).Find(&pays).Error; err != nil { return SchoolDashboard{}, err }
         for _, p := range pays {
-            var inv models.Invoice
-            _ = s.db.Select("invoice_number").Where("id = ? AND school_id = ?", p.InvoiceID, schoolID).First(&inv).Error
-            finance.RecentPayments = append(finance.RecentPayments, SchoolDashboardPayment{p.ID, p.InvoiceID, inv.InvoiceNumber, p.Amount, p.Provider, p.Reference, p.Status, p.PaidAt, p.CreatedAt})
+            finance.RecentPayments = append(finance.RecentPayments, SchoolDashboardPayment{p.ID, p.InvoiceID, p.Invoice.InvoiceNumber, p.Amount, p.Provider, p.Reference, p.Status, p.PaidAt, p.CreatedAt})
         }
     }
 
@@ -258,12 +256,19 @@ func (s *SchoolDashboardService) Get(schoolID, adminID, sessionID, termID uuid.U
     activity := make([]SchoolDashboardActivity, 0, 8)
     var logs []models.AuditLog
     if err := s.db.Where("audit_logs.school_id = ?", schoolID).Order("created_at DESC").Limit(8).Find(&logs).Error; err != nil { return SchoolDashboard{}, err }
+    actorIDs := make([]uuid.UUID, 0, len(logs))
     for _, log := range logs {
-        var actor models.User
+        if log.ActorID != nil { actorIDs = append(actorIDs, *log.ActorID) }
+    }
+    actorNames := make(map[uuid.UUID]string, len(actorIDs))
+    if len(actorIDs) > 0 {
+        var actors []models.User
+        if err := s.db.Select("id,name").Where("school_id = ? AND id IN ?", schoolID, actorIDs).Find(&actors).Error; err != nil { return SchoolDashboard{}, err }
+        for _, actor := range actors { actorNames[actor.ID] = actor.Name }
+    }
+    for _, log := range logs {
         actorName := ""
-        if log.ActorID != nil && s.db.Select("id,name").Where("id = ? AND school_id = ?", *log.ActorID, schoolID).First(&actor).Error == nil {
-            actorName = actor.Name
-        }
+        if log.ActorID != nil { actorName = actorNames[*log.ActorID] }
         activity = append(activity, SchoolDashboardActivity{log.ID, log.Action, log.Resource, log.ResourceID, log.ActorID, actorName, log.CreatedAt})
     }
 

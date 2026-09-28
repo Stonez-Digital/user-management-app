@@ -17,7 +17,13 @@ async function login(creds){return (await request("/auth/login",{method:"POST",b
 async function me(token){return (await request("/me",{token})).data}
 function list(d,k){return Array.isArray(d)?d:(d?.[k]||d?.data||[])}
 function record(area,school,role,status,notes=""){results.push({area,school,role,status,notes})}
-function idOf(v){return v?.id||v?.user?.id||v?.student?.id||v?.teacher?.id||v?.parent?.id}\nasync function resolveUserId(token,email,role){\n  const users=list((await request("/admin/users",{token})).data,"users");\n  const user=users.find(u=>String(u.email||"").toLowerCase()===email.toLowerCase()&&(!role||u.role===role));\n  if(!user?.id) fail(`Unable to resolve ${role||"user"} account ${email} after onboarding`);\n  return user.id;\n}
+function idOf(v){return v?.id||v?.user?.id||v?.student?.id||v?.teacher?.id||v?.parent?.id}
+async function resolveUserId(token,email,role){
+  const users=list((await request("/admin/users",{token})).data,"users");
+  const user=users.find(u=>String(u.email||"").toLowerCase()===email.toLowerCase()&&(!role||u.role===role));
+  if(!user?.id) fail(`Unable to resolve ${role||"user"} account ${email} after onboarding`);
+  return user.id;
+}
 async function ensureTerm(token,session,preferredStatus,dates,name){
   const terms=list((await request(`/admin/academic-sessions/${session.id}/terms`,{token})).data,"terms");
   const existing=terms.find(t=>preferredStatus==="active"?t.status==="active":t.status!=="closed");

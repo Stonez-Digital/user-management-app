@@ -193,8 +193,10 @@ async function bootstrapSchool(s){
   const teacherAuth=await login({email:teacherEmail,password,school_code:school});
   const parentAuth=await login({email:parentEmail,password,school_code:school});
   const studentMe=await me(studentAuth.access_token), teacherMe=await me(teacherAuth.access_token), parentMe=await me(parentAuth.access_token);
-  await request("/auth/refresh",{method:"POST",body:{refresh_token:studentAuth.refresh_token},expected:[200]});
-  await request("/auth/logout",{method:"POST",body:{refresh_token:studentAuth.refresh_token},expected:[200]});
+  const refreshed=await request("/auth/refresh",{method:"POST",body:{refresh_token:studentAuth.refresh_token},expected:[200]});
+  const rotatedRefreshToken=refreshed.data?.refresh_token;
+  if(!rotatedRefreshToken) fail(`${school}: refresh did not return rotated refresh token`);
+  await request("/auth/logout",{method:"POST",body:{refresh_token:rotatedRefreshToken},expected:[200]});
   await login({email:studentEmail,password,school_code:school});
   record("logout/session",school,"student","PASS","Refresh and logout cycle completed");
   for(const [role,x] of [["student",studentMe],["teacher",teacherMe],["parent",parentMe]]) {

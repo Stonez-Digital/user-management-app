@@ -150,6 +150,14 @@ async function bootstrapSchool(s){
   if(adminMe.role!=="school_admin"||!adminMe.school_name) fail(`${school}: school admin /me mismatch`);
   record("authentication",school,"school_admin","PASS",adminMe.school_name);
   const academic=await ensureAcademic(admin.access_token);
+  const dashboard=unwrap((await request("/admin/dashboard?academic_session_id="+academic.active.id+"&term_id="+academic.activeTerm.id,{token:admin.access_token})).data);
+  if(dashboard?.school?.name!==adminMe.school_name) fail(school+": school admin dashboard identity mismatch");
+  if(dashboard?.academic_context?.session_id!==academic.active.id||dashboard?.academic_context?.term_id!==academic.activeTerm.id) fail(school+": school admin dashboard academic context mismatch");
+  if(typeof dashboard?.overview?.students!=="number"||typeof dashboard?.overview?.active_enrollments!=="number") fail(school+": school admin dashboard overview is incomplete");
+  if(typeof dashboard?.attendance?.expected_today!=="number"||typeof dashboard?.attendance?.percentage!=="number") fail(school+": school admin dashboard attendance summary is incomplete");
+  if(typeof dashboard?.finance?.outstanding_balance!=="number"||!Array.isArray(dashboard?.finance?.recent_invoices)||!Array.isArray(dashboard?.finance?.recent_payments)) fail(school+": school admin dashboard finance summary is incomplete");
+  if(!Array.isArray(dashboard?.alerts)||!Array.isArray(dashboard?.recent_activity)||!dashboard?.health) fail(school+": school admin dashboard operational sections are incomplete");
+  record("school command center",school,"school_admin","PASS","Identity, academic context, overview, attendance, finance, alerts, activity and health loaded from live API");
   const stamp=`${runId}.${school.toLowerCase()}`;
   const password="QA-"+runId+"-Pass9";
   const studentEmail=`student.${stamp}@example.com`;
@@ -213,6 +221,9 @@ async function bootstrapSchool(s){
   await request("/admin/users",{token:studentAuth.access_token,expected:[403]});
   await request("/admin/users",{token:teacherAuth.access_token,expected:[403]});
   await request("/admin/users",{token:parentAuth.access_token,expected:[403]});
+  await request("/admin/dashboard",{token:studentAuth.access_token,expected:[403]});
+  await request("/admin/dashboard",{token:teacherAuth.access_token,expected:[403]});
+  await request("/admin/dashboard",{token:parentAuth.access_token,expected:[403]});
   await request("/student/profile",{token:teacherAuth.access_token,expected:[403]});
   await request("/student/profile",{token:parentAuth.access_token,expected:[403]});
   await request("/parent/children",{token:studentAuth.access_token,expected:[403]});

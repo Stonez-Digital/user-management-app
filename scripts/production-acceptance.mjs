@@ -252,11 +252,12 @@ try {
   const a=contexts[0], b=contexts[1];
   const bUsers=list((await request("/admin/users",{token:b.admin.access_token})).data,"users");
   const bStudents=list((await request("/admin/students",{token:b.admin.access_token})).data,"students");
-  if(bUsers[0]) await request(`/admin/users/${bUsers[0].id}`,{token:a.admin.access_token,expected:[404]});
+  const foreignUserId=bUsers.find(u=>u?.id||u?.user?.id)?.id||bUsers.find(u=>u?.user?.id)?.user?.id;
+  if(foreignUserId) await request(`/admin/users/${foreignUserId}`,{token:a.admin.access_token,expected:[404]});
   if(bStudents[0]) await request(`/admin/students/${bStudents[0].id}`,{token:a.admin.access_token,expected:[404]});
   const bSessions=list((await request("/admin/academic-sessions",{token:b.admin.access_token})).data,"sessions");
   if(bSessions[0]) await request(`/admin/academic-sessions/${bSessions[0].id}`,{token:a.admin.access_token,expected:[404]});
-  record("tenant isolation",a.school,"school_admin","PASS","Cross-school user/student/session IDs rejected");
+  record("tenant isolation",a.school,"school_admin","PASS",`Cross-school ${foreignUserId?"user, ":""}student and session IDs rejected`);
   console.log(JSON.stringify({run_id:runId,base_url:BASE_URL,results,temporary_accounts:{count:createdUsers.length,cleanup:"deactivate after run"}},null,2));
 } finally {
   if(createdUsers.length) await cleanup();

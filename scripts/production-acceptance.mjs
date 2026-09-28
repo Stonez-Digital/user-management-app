@@ -197,22 +197,23 @@ async function bootstrapSchool(s){
   const rotatedRefreshToken=refreshed.data?.refresh_token;
   if(!rotatedRefreshToken) fail(`${school}: refresh did not return rotated refresh token`);
   await request("/auth/logout",{method:"POST",body:{refresh_token:rotatedRefreshToken},expected:[200]});
-  await login({email:studentEmail,password,school_code:school});
+  const studentAuthAfterLogout=await login({email:studentEmail,password,school_code:school});
   record("logout/session",school,"student","PASS","Refresh and logout cycle completed");
   for(const [role,x] of [["student",studentMe],["teacher",teacherMe],["parent",parentMe]]) {
     if(x.role!==role||!x.school_name) fail(`${school}: ${role} /me mismatch`);
     record("authentication",school,role,"PASS",x.school_name);
   }
 
-  const selectedEnrollment=(await request(`/student/enrollment?academic_session_id=${academic.active.id}`,{token:studentAuth.access_token})).data;
-  if(selectedEnrollment.academic_session_id!==academic.active.id) fail(`${school}: student enrollment ignored selected session`);
-  const targetEnrollment=(await request(`/student/enrollment?academic_session_id=${academic.target.id}`,{token:studentAuth.access_token})).data;
-  if(targetEnrollment.academic_session_id!==academic.target.id) fail(`${school}: target student enrollment context mismatch`);
-  const studentTerms=list((await request(`/student/terms?academic_session_id=${academic.active.id}`,{token:studentAuth.access_token})).data,"terms");
-  if(!studentTerms.some(t=>t.academic_session_id===academic.active.id)) fail(`${school}: student terms crossed session`);
-  await request(`/student/attendance?academic_session_id=${academic.active.id}&term_id=${academic.activeTerm.id}`,{token:studentAuth.access_token});
-  await request(`/student/timetable?academic_session_id=${academic.active.id}&term_id=${academic.activeTerm.id}`,{token:studentAuth.access_token});
-  record("academic access",school,"student","PASS","Selected session/term propagated through enrollment, terms, attendance and timetable");
+  // Promotion intentionally completes the source enrollment and creates the target enrollment.
+  // The student portal exposes only the currently active enrollment, so after promotion
+  // the target session is the valid student-portal context.
+  const targetEnrollment=(await request(`/student/enrollment?academic_session_id=${academic.target.id}`,{token:studentAuthAfterLogout.access_token})).data;
+  if(targetEnrollment.academic_session_id!==academic.target.id) fail(`${school}: target student enrollment context mismatch after promotion`);
+  const targetTerms=list((await request(`/student/terms?academic_session_id=${academic.target.id}`,{token:studentAuthAfterLogout.access_token})).data,"terms");
+  if(!targetTerms.some(t=>t.academic_session_id===academic.target.id)) fail(`${school}: student terms crossed target session`);
+  await request(`/student/attendance?academic_session_id=${academic.target.id}&term_id=${academic.targetTerm.id}`,{token:studentAuthAfterLogout.access_token});
+  await request(`/student/timetable?academic_session_id=${academic.target.id}&term_id=${academic.targetTerm.id}`,{token:studentAuthAfterLogout.access_token});
+  record("academic access",school,"student","PASS","Selected target session/term propagated through enrollment, terms, attendance and timetable after promotion");
 
   const teacherAssignments=list((await request(`/teacher/assignments?academic_session_id=${academic.active.id}&term_id=${academic.activeTerm.id}`,{token:teacherAuth.access_token})).data,"assignments");
   if(!teacherAssignments.length) fail(`${school}: teacher assignment acceptance returned no selected-context assignment`);

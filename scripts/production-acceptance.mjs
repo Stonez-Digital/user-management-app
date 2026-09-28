@@ -22,20 +22,20 @@ async function ensureTerm(token,session,preferredStatus,dates,name){
   const terms=list((await request(`/admin/academic-sessions/${session.id}/terms`,{token})).data,"terms");
   const existing=terms.find(t=>preferredStatus==="active"?t.status==="active":t.status!=="closed");
   if(existing)return existing;
-  return (await request(`/admin/academic-sessions/${session.id}/terms`,{token,method:"POST",body:{name,start_date:dates[0],end_date:dates[1],status:preferredStatus},expected:[201]})).data;
+  return (await request(`/admin/academic-sessions/${session.id}/terms`,{token,method:"POST",body:{name,start_date:`${dates[0]}T00:00:00Z`,end_date:`${dates[1]}T23:59:59Z`,status:preferredStatus},expected:[201]})).data;
 }
 async function ensureAcademic(token){
   let sessions=list((await request("/admin/academic-sessions",{token})).data,"sessions");
   let active=sessions.find(x=>x.status==="active");
   if(!active){
-    active=(await request("/admin/academic-sessions",{token,method:"POST",body:{name:`QA ${runId} Active Session`,start_date:"2026-09-01",end_date:"2027-07-31",status:"active"},expected:[201]})).data;
+    active=(await request("/admin/academic-sessions",{token,method:"POST",body:{name:`QA ${runId} Active Session`,start_date:"2026-09-01T00:00:00Z",end_date:"2027-07-31T23:59:59Z",status:"active"},expected:[201]})).data;
   }
   let target=sessions.find(x=>x.id!==active.id);
   if(!target){
-    target=(await request("/admin/academic-sessions",{token,method:"POST",body:{name:`QA ${runId} Target Session`,start_date:"2027-09-01",end_date:"2028-07-31",status:"planned"},expected:[201]})).data;
+    target=(await request("/admin/academic-sessions",{token,method:"POST",body:{name:`QA ${runId} Target Session`,start_date:"2027-09-01T00:00:00Z",end_date:"2028-07-31T23:59:59Z",status:"planned"},expected:[201]})).data;
   }
-  const activeTerm=await ensureTerm(token,active,"active",["2026-09-01","2026-12-18"],`QA ${runId} First Term`);
-  const targetTerm=await ensureTerm(token,target,"planned",["2027-09-01","2027-12-17"],`QA ${runId} Target Term`);
+  const activeTerm=await ensureTerm(token,active,"active",["2026-09-01","2026-12-18"],"first");
+  const targetTerm=await ensureTerm(token,target,"planned",["2027-09-01","2027-12-17"],"second");
   let classes=list((await request("/admin/classes",{token})).data,"classes");
   let cls=classes[0];
   if(!cls) cls=(await request("/admin/classes",{token,method:"POST",body:{name:`QA JSS1 ${runId}`,level:1},expected:[201]})).data;

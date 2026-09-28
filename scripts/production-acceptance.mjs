@@ -17,8 +17,21 @@ async function login(creds){return (await request("/auth/login",{method:"POST",b
 async function me(token){return (await request("/me",{token})).data}
 function list(d,k){return Array.isArray(d)?d:(d?.[k]||d?.data||[])}
 function record(area,school,role,status,notes=""){results.push({area,school,role,status,notes})}
-function idOf(v){return v?.id||v?.user?.id||v?.student?.id||v?.teacher?.id||v?.parent?.id}
-async function resolveUserId(token,email,role){
+function onboardingUserId(v,role){
+  if(v?.user?.id)return v.user.id;
+  if(v?.id&&v?.role===role)return v.id;
+  if(v?.user_id&&role!=="student")return v.user_id;
+  if(v?.[role]?.user_id)return v[role].user_id;
+  return null;
+}
+function onboardingStudentId(v){
+  if(v?.student?.id)return v.student.id;
+  if(v?.id&&v?.user_id)return v.id;
+  return null;
+}
+async function resolveUserId(token,email,role,response){
+  const direct=onboardingUserId(response,role);
+  if(direct)return direct;
   const users=list((await request("/admin/users",{token})).data,"users");
   const user=users.find(u=>String(u.email||"").toLowerCase()===email.toLowerCase()&&(!role||u.role===role));
   if(!user?.id) fail(`Unable to resolve ${role||"user"} account ${email} after onboarding`);
@@ -73,6 +86,11 @@ async function bulkImport(token,kind,filename,csv,expected){
   if(Number(completed.created)!==expected.created||Number(completed.skipped)!==expected.skipped||Number(completed.failed)!==expected.failed) fail("bulk "+kind+" counters mismatch: "+JSON.stringify({created:completed.created,skipped:completed.skipped,failed:completed.failed,expected}));
   return completed;
 }
+async function recordBulkUserForCleanup(token,email){
+  const users=list((await request("/admin/users",{token})).data,"users");
+  const user=users.find(u=>String(u.email||"").toLowerCase()===email.toLowerCase());
+  if(user?.id) createdUsers.push({id:user.id,token,email});
+}
 
 async function createAssignment(token,teacherId,academic){
   const v=(await request("/admin/teacher-assignments",{token,method:"POST",body:{teacher_id:teacherId,subject_id:academic.subject.id,academic_session_id:academic.active.id,term_id:academic.activeTerm.id,class_id:academic.cls.id,section_id:academic.sec.id,allocation_type:"subject",active:true},expected:[201]})).data;
@@ -91,11 +109,14 @@ async function bootstrapSchool(s){
   const teacherEmail=`teacher.${stamp}@example.com`;
   const parentEmail=`parent.${stamp}@example.com`;
   const student=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Student ${runId}`,email:studentEmail,password,role:"student",admission_number:`QA-${runId}-${school}`,enrollment_status:"active"},expected:[201]})).data;
-  const studentId=idOf(student); if(!studentId) fail(`${school}: onboarding did not return student id`); createdUsers.push({id:student.user?.id||student.user_id||studentId,token:admin.access_token});
+  const studentId=onboardingStudentId(student); if(!studentId) fail(school+": onboarding did not return student profile id");
+  const studentUserId=onboardingUserId(student,"student");
+  if(!studentUserId) fail(school+": onboarding did not return student user id");
+  createdUsers.push({id:studentUserId,token:admin.access_token,email:studentEmail});
   const teacher=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Teacher ${runId}`,email:teacherEmail,password,role:"teacher",staff_id:`QA-T-${runId}-${school}`},expected:[201]})).data;
-  const teacherId=await resolveUserId(admin.access_token,teacherEmail,"teacher"); createdUsers.push({id:teacher.user?.id||teacher.user_id||teacherId,token:admin.access_token});
+  const teacherId=await resolveUserId(admin.access_token,teacherEmail,"teacher",teacher); createdUsers.push({id:teacherId,token:admin.access_token,email:teacherEmail});
   const parent=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Parent ${runId}`,email:parentEmail,password,role:"parent",student_id:studentId,relationship:"parent",primary:true},expected:[201]})).data;
-  const parentId=idOf(parent); if(!parentId) fail(`${school}: onboarding did not return parent id`); createdUsers.push({id:parent.user?.id||parent.user_id||parentId,token:admin.access_token});
+  const parentId=onboardingUserId(parent,"parent"); if(!parentId) fail(school+": onboarding did not return parent user id"); createdUsers.push({id:parentId,token:admin.access_token,email:parentEmail});
   record("onboarding",school,"school_admin","PASS","Created temporary teacher/student/parent");
   const bulkStamp=runId+".bulk."+school.toLowerCase();
   const bulkStudentEmail="bulk.student."+bulkStamp+"@example.com";
@@ -104,6 +125,9 @@ async function bootstrapSchool(s){
   await bulkImport(admin.access_token,"students","students.csv","name,email,admission_number\nQA Bulk Student "+runId+","+bulkStudentEmail+",BULK-"+runId+"-"+school+"\n",{created:1,skipped:0,failed:0});
   await bulkImport(admin.access_token,"teachers","teachers.csv","name,email,staff_id\nQA Bulk Teacher "+runId+","+bulkTeacherEmail+",BULK-T-"+runId+"-"+school+"\n",{created:1,skipped:0,failed:0});
   await bulkImport(admin.access_token,"parents","parents.csv","name,email,parent_identifier\nQA Bulk Parent "+runId+","+bulkParentEmail+",BULK-P-"+runId+"-"+school+"\n",{created:1,skipped:0,failed:0});
+  await recordBulkUserForCleanup(admin.access_token,bulkStudentEmail);
+  await recordBulkUserForCleanup(admin.access_token,bulkTeacherEmail);
+  await recordBulkUserForCleanup(admin.access_token,bulkParentEmail);
   record("bulk onboarding",school,"school_admin","PASS","Student, teacher and parent imports created one account each with zero failures");
   await bulkImport(admin.access_token,"students","students-duplicate.csv","name,email,admission_number\nExisting Student,"+studentEmail+",QA-"+runId+"-"+school+"\n",{created:0,skipped:1,failed:0});
   await bulkImport(admin.access_token,"teachers","teachers-duplicate.csv","name,email,staff_id\nExisting Teacher,"+bulkTeacherEmail+",BULK-T-"+runId+"-"+school+"\n",{created:0,skipped:1,failed:0});

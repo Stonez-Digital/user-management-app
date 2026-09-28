@@ -1,156 +1,254 @@
 "use client";
-import {useEffect,useState} from "react";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import {useRouter} from "next/navigation";
-import { normalizeAuthUser } from "../../lib/auth-session";
+import { useRouter } from "next/navigation";
+import { AcademicContextProvider, useAcademicContext } from "../../lib/academic-context";
+import AcademicSelector from "../../components/academic-selector";
+import { normalizeAuthUser, type AuthUser } from "../../lib/auth-session";
 
-type User={id:string;name:string;email:string;role:string;active:boolean;school_name?:string|null};
-type School={id:string;name:string;code:string;status:string;user_count:number};
-type Student={id:string;admission_number:string;gender:string;enrollment_status:string;user?:{name:string;email:string}};
-type AcademicSession={id:string;name:string;status:string};
-type ClassRecord={id:string;name:string;level:number};
-type Subject={id:string;code:string;name:string;active:boolean};
-type Monitoring={database:{status:string};schools:{total:number;pending:number;active:number;suspended:number};users:number;activity:{action:string;resource:string;created_at:string}[];checked_at:string};
-type AcademicReadiness={school_name:string;school_status:string;active_session?:{name:string;status:string};active_term?:{name:string;status:string};classes:number;sections:number;subjects:number;teacher_assignments:number;checks:Record<string,boolean>;ready:boolean};
+type DashboardData = {
+  school: {
+    id: string;
+    name: string;
+    logo_url?: string;
+    address?: string;
+    contact_email?: string;
+    contact_phone?: string;
+    administrator: { id: string; name: string; email: string };
+  };
+  academic_context: { session_id?: string; session_name?: string; term_id?: string; term_name?: string };
+  overview: {
+    students: number; active_enrollments: number; teachers: number; parents: number;
+    classes: number; sections: number; subjects: number;
+  };
+  attendance: {
+    expected_today: number; present: number; absent: number; late: number; excused: number;
+    percentage: number; recorded: boolean;
+  };
+  finance: {
+    total_invoiced: number; amount_paid: number; outstanding_balance: number; outstanding_invoices: number;
+    recent_invoices: { id: string; invoice_number: string; total_amount: number; paid_amount: number; balance: number; status: string; created_at: string }[];
+    recent_payments: { id: string; invoice_id: string; invoice_number: string; amount: number; provider: string; reference: string; status: string; paid_at?: string; created_at: string }[];
+  };
+  alerts: { key: string; severity: string; count: number; message: string; action: string }[];
+  recent_activity: { id: string; action: string; resource: string; resource_id?: string; actor_id?: string; actor_name?: string; created_at: string }[];
+  health: Record<string, string>;
+};
 
-async function api(path:string){
- const t=localStorage.getItem("access_token");
- const r=await fetch("/backend"+path,{headers:{Authorization:"Bearer "+t}});
- if(r.status===401)throw Error("Session expired");
- const d=await r.json();if(!r.ok)throw Error(d?.error?.message||d?.error||"Request failed");return d;
+type PlatformData = {
+  schools?: { id: string; name: string; code: string; status: string; user_count: number }[];
+  monitoring?: { database: { status: string }; schools: { total: number; pending: number; active: number; suspended: number }; users: number; activity: { action: string; resource: string; created_at: string }[] };
+};
+
+async function api(path: string) {
+  const token = localStorage.getItem("access_token");
+  const response = await fetch("/backend" + path, { headers: { Authorization: "Bearer " + token } });
+  const data = await response.json().catch(() => ({}));
+  if (response.status === 401) throw new Error("Session expired");
+  if (!response.ok) throw new Error(data?.error?.message || data?.error || "Request failed");
+  return data;
 }
 
-export default function Dashboard(){
- const router=useRouter();
- const[users,setUsers]=useState<User[]>([]);
- const[students,setStudents]=useState<Student[]>([]);
- const[schools,setSchools]=useState<School[]>([]);
- const[me,setMe]=useState<User|null>(null);
- const[school,setSchool]=useState<School|null>(null);
- const[monitoring,setMonitoring]=useState<Monitoring|null>(null);
- const[sessions,setSessions]=useState<AcademicSession[]>([]);
- const[classes,setClasses]=useState<ClassRecord[]>([]);
- const[subjects,setSubjects]=useState<Subject[]>([]);
- const[readiness,setReadiness]=useState<AcademicReadiness|null>(null);
- const[error,setError]=useState("");
- const[loading,setLoading]=useState(true);
- const[lastUpdated,setLastUpdated]=useState<Date|null>(null);
+export default function Dashboard() {
+  const router = useRouter();
+  const [me, setMe] = useState<AuthUser | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
- useEffect(()=>{
-  let timer:ReturnType<typeof setInterval>|undefined;
-  api("/me").then(async payload=>{
-   const m=normalizeAuthUser(payload);
-   if(!m) throw Error("Unable to load your account profile");
-   const sessionUser:User={id:m.id,name:m.name??"",email:m.email??"",role:m.role,active:m.active??true,school_name:m.school_name??null};
-   setMe(sessionUser);
-   if(m.role==="teacher"){router.replace("/dashboard/teacher");return}
-   if(m.role==="super_admin"){
-    const load=async()=>{try{const [d,mn]=await Promise.all([api("/platform/schools"),api("/platform/monitoring")]);setSchools(Array.isArray(d?.schools)?d.schools:[]);setMonitoring(mn);setLastUpdated(new Date());setError("")}catch(e){setError(e instanceof Error?e.message:"Unable to refresh platform monitoring")}};
-    await load();
-    timer=setInterval(load,30000);
-    return;
-   }
-   const s=await api("/admin/school");
-   setSchool(s);
-   const [u,st,ac,cl,su,rd]=await Promise.all([api("/admin/users"),api("/admin/students"),api("/admin/academic-sessions"),api("/admin/classes"),api("/admin/subjects"),api("/admin/school/readiness")]);
-   setUsers(Array.isArray(u)?u:u?.users||[]);
-   setStudents(Array.isArray(st)?st:st?.students||[]);
-   setSessions(Array.isArray(ac)?ac:ac?.sessions||[]);
-   setClasses(Array.isArray(cl)?cl:cl?.classes||[]);
-   setSubjects(Array.isArray(su)?su:su?.subjects||[]);
-   setReadiness(rd);
-  }).catch(e=>{localStorage.removeItem("access_token");localStorage.removeItem("refresh_token");setError(e instanceof Error?e.message:"Unable to load your account");router.push("/")}).finally(()=>setLoading(false));
-  return()=>{if(timer)clearInterval(timer)};
- },[router]);
+  useEffect(() => {
+    api("/me").then(payload => {
+      const user = normalizeAuthUser(payload);
+      if (!user) throw new Error("Unable to load your account profile");
+      setMe(user);
+      if (user.role === "teacher") router.replace("/dashboard/teacher");
+      else if (user.role === "student") router.replace("/dashboard/student");
+      else if (user.role === "parent") router.replace("/dashboard/parent");
+      else if (user.role === "accountant" || user.role === "staff") router.replace("/dashboard/operations");
+    }).catch(e => setError(e instanceof Error ? e.message : "Unable to load your account"))
+      .finally(() => setLoading(false));
+  }, [router]);
 
- function logout(){localStorage.clear();router.push("/")}
+  if (loading) return <main className="content"><div className="panel"><strong>Loading your workspace…</strong><p className="muted">Verifying your account and school access.</p></div></main>;
+  if (error) return <main className="content"><div className="error banner">{error}</div></main>;
+  if (me?.role === "school_admin") return <AcademicContextProvider><AcademicSelector /><SchoolAdminDashboard me={me} /></AcademicContextProvider>;
+  if (me?.role === "super_admin") return <SuperAdminDashboard />;
+  return <main className="content"><div className="panel"><h2>Workspace</h2><p className="muted">Your role uses a separate operational workspace.</p><Link href="/dashboard/operations">Open workspace →</Link></div></main>;
+}
 
- const isPlatform=me?.role==="super_admin";
- const activeSchools=schools.filter(s=>s.status==="active").length;
- const suspendedSchools=schools.filter(s=>s.status==="suspended").length;
- const platformUsers=schools.reduce((sum,s)=>sum+s.user_count,0);
+function SchoolAdminDashboard({ me }: { me: AuthUser }) {
+  const router = useRouter();
+  const { sessionId, termId } = useAcademicContext();
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
- return <div className="app-shell">
-  <aside className="sidebar">
-   <div className="logo"><span>S</span><div><strong>Stonez</strong><small>School OS</small></div></div>
-   <nav>
-    <Link className="active" href="/dashboard">Overview</Link>
-    {isPlatform&&<Link href="/platform/schools">Platform Schools</Link>}
-    {!isPlatform&&<><Link href="/dashboard/school">School Setup</Link><Link href="/dashboard/content">Blog & Gallery</Link><Link href="/dashboard/academic">Academic</Link><Link href="/dashboard/students">Students</Link><Link href="/dashboard/onboarding">Onboarding</Link><Link href="/dashboard/enrollments">Enrollment</Link><Link href="/dashboard/teacher-assignments">Teacher Assignments</Link><Link href="/dashboard/operations">Operations</Link><Link href="/dashboard/attendance">Attendance</Link><Link href="/dashboard/assessments">Assessments</Link><Link href="/dashboard/results">Results</Link><Link href="/dashboard/notifications">Notifications</Link><Link href="/dashboard/users">Users & Roles</Link><Link href="/dashboard/audit">Audit Logs</Link></>}
-   </nav>
-   <div className="sidebar-bottom"><div className="mini-user"><div className="avatar">{me?.name?.[0]||"A"}</div><div><strong>{me?.name||"Administrator"}</strong><small>{isPlatform?"Stonez Digital Platform":me?.role||"school_admin"}</small></div></div><button className="ghost" onClick={logout}>Sign out</button></div>
-  </aside>
-  <main className="content">
-   {loading&&<div className="panel"><strong>Loading your workspace…</strong><p className="muted">Verifying your Stonez Digital account and school access.</p></div>}
-   {!loading&&<header className="topbar">
-    <div><p className="eyebrow">{isPlatform?"STONEZ DIGITAL":"SCHOOL ADMINISTRATION"}</p><h1>{isPlatform?"Stonez Digital Platform":"School overview"}</h1><p className="muted">{isPlatform?"Monitor and manage onboarded school tenants.":<>Manage <strong>{me?.school_name||school?.name||"your school"}</strong>.</>}</p></div>
-    <div className="status"><span/> {isPlatform?"Platform operations":me?.school_name||school?.name||"School workspace"}</div>
-   </header>}
-   {error&&<div className="error banner">{error}</div>}
+  async function load() {
+    try {
+      setError("");
+      setLoading(true);
+      const query = new URLSearchParams();
+      if (sessionId) query.set("academic_session_id", sessionId);
+      if (termId) query.set("term_id", termId);
+      const value = await api("/admin/dashboard?" + query.toString());
+      setData(value);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to load school command center");
+    } finally {
+      setLoading(false);
+    }
+  }
 
-   {isPlatform ? <>
+  useEffect(() => { if (sessionId || termId) load(); }, [sessionId, termId]);
+
+  if (loading && !data) return <main className="content"><div className="panel"><strong>Loading school command center…</strong><p className="muted">Loading live school operations.</p></div></main>;
+  if (error && !data) return <main className="content"><div className="error banner">{error}</div><button onClick={load}>Retry</button></main>;
+  if (!data) return null;
+
+  const money = (value: number) => new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 }).format(value);
+  const health = [
+    ["Academic setup", data.health.academic_setup],
+    ["Enrollment", data.health.enrollment],
+    ["Teacher allocation", data.health.teacher_allocation],
+    ["Attendance activity", data.health.attendance_activity],
+    ["Assessment activity", data.health.assessment_activity],
+    ["Finance activity", data.health.finance_activity],
+  ];
+  const quickActions = [
+    ["Add Student", "/dashboard/onboarding", "Create a student account"],
+    ["Add Teacher", "/dashboard/onboarding", "Create a teacher account"],
+    ["Add Parent", "/dashboard/onboarding", "Create a parent account"],
+    ["Bulk Import", "/dashboard/onboarding", "Import people in bulk"],
+    ["Manage Enrollment", "/dashboard/enrollments", "Review student placement"],
+    ["Manage Classes", "/dashboard/academic", "Manage classes and sections"],
+    ["Manage Subjects", "/dashboard/academic", "Manage school subjects"],
+    ["Assign Teachers", "/dashboard/teacher-assignments", "Allocate teaching assignments"],
+    ["Record Attendance", "/dashboard/attendance", "Open daily attendance"],
+    ["Create Assessment", "/dashboard/assessments", "Create an assessment"],
+    ["View Results", "/dashboard/results", "Review results"],
+    ["Create Invoice", "/dashboard/finance", "Create student billing"],
+    ["View Payments", "/dashboard/finance", "Review payment records"],
+  ];
+
+  return <main className="content command-center">
+    <header className="topbar">
+      <div>
+        <p className="eyebrow">SCHOOL OPERATIONS</p>
+        <h1>{data.school.name}</h1>
+        <p className="muted">Operational command center for {data.academic_context.session_name || "the selected session"}{data.academic_context.term_name ? " · " + data.academic_context.term_name : ""}.</p>
+      </div>
+      <div className="status"><span /> {me.name || data.school.administrator.name || "Administrator"}</div>
+    </header>
+
+    {error && <div className="error banner">{error}</div>}
+
+    <section className="command-identity">
+      <div className="command-school">
+        {data.school.logo_url ? <img src={data.school.logo_url} alt={data.school.name + " logo"} /> : <div className="command-logo-placeholder">{data.school.name.charAt(0).toUpperCase()}</div>}
+        <div>
+          <strong>{data.school.name}</strong>
+          <span>{data.school.address || "School address not configured"}</span>
+          <span>{[data.school.contact_email, data.school.contact_phone].filter(Boolean).join(" · ") || "School contact information not configured"}</span>
+        </div>
+      </div>
+      <div className="command-admin"><span>Administrator</span><strong>{data.school.administrator.name || me.name || "School administrator"}</strong><small>{data.school.administrator.email || me.email || "—"}</small></div>
+    </section>
+
+    <section className="command-context">
+      <div><span>Current session</span><strong>{data.academic_context.session_name || "No active session"}</strong></div>
+      <div><span>Current term</span><strong>{data.academic_context.term_name || "No active term"}</strong></div>
+      <button className="ghost light" onClick={load}>Refresh</button>
+    </section>
+
     <section className="stats">
-     <Stat label="API database" value={monitoring?.database.status==="healthy"?1:0} detail={monitoring?.database.status==="healthy"?"Healthy":"Unavailable"}/>
-     <Stat label="Total schools" value={monitoring?.schools.total??schools.length} detail="Registered tenants"/>
-     <Stat label="Pending review" value={monitoring?.schools.pending??0} detail="Awaiting approval"/>
-     <Stat label="Users" value={monitoring?.users??platformUsers} detail="Across all schools"/>
+      <Stat label="Students" value={data.overview.students} detail="Student profiles" />
+      <Stat label="Active enrollments" value={data.overview.active_enrollments} detail="Selected session" />
+      <Stat label="Teachers" value={data.overview.teachers} detail="Active teacher accounts" />
+      <Stat label="Parents / guardians" value={data.overview.parents} detail="Active parent accounts" />
+      <Stat label="Classes" value={data.overview.classes} detail="School classes" />
+      <Stat label="Sections" value={data.overview.sections} detail="Configured sections" />
+      <Stat label="Subjects" value={data.overview.subjects} detail="Active subjects" />
+      <Stat label="Outstanding invoices" value={data.finance.outstanding_invoices} detail={money(data.finance.outstanding_balance)} />
     </section>
+
     <section className="grid-2">
-     <div className="panel"><div className="panel-head"><div><h2>Platform operations</h2><p>Application and tenant health from the live platform API.</p></div><span className={"pill "+(monitoring?.database.status==="healthy"?"active":"suspended")}>{monitoring?.database.status==="healthy"?"Operational":"Attention"}</span></div>
-      <div className="role-list">
-       <div><span>Database connectivity</span><strong>{monitoring?.database.status==="healthy"?"Healthy":"Unavailable"}</strong></div>
-       <div><span>Active school tenants</span><strong>{monitoring?.schools.active??activeSchools}</strong></div>
-       <div><span>Suspended tenants</span><strong>{monitoring?.schools.suspended??suspendedSchools}</strong></div>
-       <div><span>Platform boundary</span><strong>Enforced</strong></div>
+      <div className="panel">
+        <div className="panel-head"><div><h2>What needs attention?</h2><p>Actions are based on live school data.</p></div></div>
+        {data.alerts.length ? <div className="alert-list">{data.alerts.map(a => <Link className={"command-alert " + a.severity} key={a.key} href={a.action}><div><strong>{a.count}</strong><span>{a.message}</span></div><b>Review →</b></Link>)}</div> : <div className="empty">No operational gaps detected for the selected context.</div>}
       </div>
-     </div>
-     <div className="panel"><div className="panel-head"><div><h2>Attention queue</h2><p>Tenant conditions that may require action.</p></div><Link href="/platform/schools">Open control center →</Link></div>
-      <div className="table-wrap"><table><thead><tr><th>School</th><th>Signal</th><th>Status</th></tr></thead><tbody>
-       {schools.filter(s=>s.status!=="active"||s.user_count===0).slice(0,6).map(s=><tr key={s.id}><td><strong>{s.name}</strong><small>{s.code}</small></td><td>{s.status==="pending"?"Approval required":s.status==="suspended"?"Suspended tenant":"No users yet"}</td><td><span className={"pill "+s.status}>{s.status}</span></td></tr>)}
-      </tbody></table>{!schools.some(s=>s.status!=="active"||s.user_count===0)&&<div className="empty">No tenant issues detected.</div>}</div>
-     </div>
-    </section>
-    <section className="panel"><div className="panel-head"><div><h2>Tenant monitoring</h2><p>Monitor every school without entering its tenant workspace.</p></div><div><span className="muted">{lastUpdated?"Last checked "+lastUpdated.toLocaleTimeString():"Checking…"}</span> <button className="ghost" onClick={()=>window.location.reload()}>Refresh</button></div></div>
-     <div className="table-wrap"><table><thead><tr><th>School</th><th>Code</th><th>Users</th><th>Status</th><th>Signal</th></tr></thead><tbody>
-      {schools.map(s=>{const signal=s.status==="pending"?"Awaiting approval":s.status==="suspended"?"Access blocked":s.user_count===0?"No users provisioned":"Operational";return <tr key={s.id}><td><strong>{s.name}</strong></td><td>{s.code}</td><td>{s.user_count}</td><td><span className={"pill "+s.status}>{s.status}</span></td><td>{signal}</td></tr>})}
-     </tbody></table>{!schools.length&&<div className="empty">No school tenants onboarded yet.</div>}</div>
-    </section>
-    <section className="grid-2">
-     <div className="panel"><div className="panel-head"><div><h2>Recent platform activity</h2><p>Latest audit events across the system.</p></div></div>
-      <div className="table-wrap"><table><thead><tr><th>Action</th><th>Resource</th><th>Time</th></tr></thead><tbody>
-       {(monitoring?.activity||[]).map((a,i)=><tr key={i}><td><strong>{a.action}</strong></td><td>{a.resource}</td><td>{new Date(a.created_at).toLocaleString()}</td></tr>)}
-      </tbody></table>{!monitoring?.activity?.length&&<div className="empty">No recent audit activity.</div>}</div>
-     </div>
-     <div className="panel"><div className="panel-head"><div><h2>Control center</h2><p>Take action when monitoring identifies a tenant that needs attention.</p></div></div>
-      <div className="role-list"><div><span>Last API check</span><strong>{monitoring?.checked_at?new Date(monitoring.checked_at).toLocaleTimeString():"—"}</strong></div><div><span>Refresh interval</span><strong>30 seconds</strong></div><div><span>Infrastructure metrics</span><strong>Render</strong></div><div><span>Tenant management</span><Link href="/platform/schools">Open →</Link></div></div>
-     </div>
-    </section>
-   </>: <>
-    <section className="stats"><Stat label="Students" value={students.length} detail="Registered profiles"/><Stat label="Teachers" value={users.filter(u=>u.role==="teacher").length} detail="Teacher accounts"/><Stat label="Parents" value={users.filter(u=>u.role==="parent").length} detail="Parent accounts"/><Stat label="Classes" value={classes.length} detail="Configured classes"/></section>
-    <section className="grid-2">
-      <div className="panel"><div className="panel-head"><div><h2>School readiness</h2><p>Complete these foundations before daily operations.</p></div><Link href="/dashboard/academic">Manage academic setup →</Link></div>
-        <div className="role-list">
-          <div><span>School profile</span><strong>{readiness?.checks.school_profile?"Ready":"Attention"}</strong></div>
-          <div><span>Active academic session</span><strong>{readiness?.checks.active_session?"Ready":"Needs setup"}</strong></div>
-          <div><span>Active term</span><strong>{readiness?.checks.active_term?"Ready":"Needs setup"}</strong></div>
-          <div><span>Classes & sections</span><strong>{readiness?.checks.classes?"Ready":"Needs setup"} · {readiness?.classes??0} / {readiness?.sections??0}</strong></div>
-          <div><span>Subjects configured</span><strong>{readiness?.checks.subjects?"Ready":"Needs setup"} · {readiness?.subjects??0}</strong></div>
-          <div><span>Teacher coverage</span><strong>{readiness?.checks.teacher_coverage?"Ready":"Needs setup"} · <Link href="/dashboard/teacher-assignments">Review →</Link></strong></div>
+      <div className="panel">
+        <div className="panel-head"><div><h2>Attendance today</h2><p>{data.attendance.recorded ? "Attendance has been recorded." : "No attendance has been recorded today."}</p></div></div>
+        <div className="attendance-hero"><strong>{data.attendance.percentage.toFixed(1)}%</strong><span>attendance</span></div>
+        <div className="mini-metrics">
+          <Metric label="Expected" value={data.attendance.expected_today} />
+          <Metric label="Present" value={data.attendance.present} />
+          <Metric label="Absent" value={data.attendance.absent} />
+          <Metric label="Late" value={data.attendance.late} />
+          <Metric label="Excused" value={data.attendance.excused} />
         </div>
-        <div className="panel-head"><div><p className="muted">{readiness?.active_session?.name||"No active session"}{readiness?.active_term ? " · "+readiness.active_term.name : ""}</p></div><span className={"pill "+(readiness?.ready?"active":"pending")}>{readiness?.ready?"Ready for operations":"Setup required"}</span></div>
-      </div>
-      <div className="panel"><div className="panel-head"><div><h2>Quick actions</h2><p>Common school-administration tasks.</p></div></div>
-        <div className="module-grid">
-          <Link className="module" href="/dashboard/onboarding"><div className="module-icon">+</div><div><strong>Onboard people</strong><p>Add teachers, students and parents</p></div><span>Open</span></Link>
-          <Link className="module" href="/dashboard/enrollments"><div className="module-icon">E</div><div><strong>Enroll students</strong><p>Assign students to sessions and classes</p></div><span>Open</span></Link>
-          <Link className="module" href="/dashboard/attendance"><div className="module-icon">A</div><div><strong>Attendance</strong><p>Start daily attendance workflows</p></div><span>Open</span></Link>
-          <Link className="module" href="/dashboard/results"><div className="module-icon">R</div><div><strong>Results</strong><p>Review academic results and reports</p></div><span>Open</span></Link>
-        </div>
+        <Link href="/dashboard/attendance">Open attendance →</Link>
       </div>
     </section>
-    <section className="grid-2"><div className="panel"><div className="panel-head"><div><h2>Recent students</h2><p>Latest student records</p></div><Link href="/dashboard/students">View all →</Link></div><div className="table-wrap"><table><thead><tr><th>Student</th><th>Admission</th><th>Status</th></tr></thead><tbody>{students.slice(0,6).map(s=><tr key={s.id}><td><strong>{s.user?.name||"Student"}</strong><small>{s.user?.email||""}</small></td><td>{s.admission_number}</td><td><span className={"pill "+s.enrollment_status}>{s.enrollment_status}</span></td></tr>)}</tbody></table>{!students.length&&<div className="empty">No students yet.</div>}</div></div><div className="panel"><div className="panel-head"><div><h2>Access snapshot</h2><p>Current role distribution</p></div></div><div className="role-list">{["teacher","student","parent","accountant","staff"].map(role=><div key={role}><span>{role.replace("_"," ")}</span><strong>{users.filter(u=>u.role===role).length}</strong></div>)}</div></div></section>
-   </>}
-  </main>
- </div>
+
+    <section className="panel">
+      <div className="panel-head"><div><h2>Finance overview</h2><p>Selected-term invoice and payment activity.</p></div><Link href="/dashboard/finance">Open finance →</Link></div>
+      <div className="finance-summary">
+        <Metric label="Total invoiced" value={money(data.finance.total_invoiced)} />
+        <Metric label="Amount paid" value={money(data.finance.amount_paid)} />
+        <Metric label="Outstanding" value={money(data.finance.outstanding_balance)} />
+        <Metric label="Outstanding invoices" value={data.finance.outstanding_invoices} />
+      </div>
+      <div className="grid-2 finance-tables">
+        <Table title="Recent invoices" empty="No invoices have been created yet." rows={data.finance.recent_invoices.map(i => [i.invoice_number, money(i.total_amount), money(i.balance), i.status])} headers={["Invoice","Total","Balance","Status"]} />
+        <Table title="Recent payments" empty="No payments have been recorded yet." rows={data.finance.recent_payments.map(p => [p.invoice_number || p.invoice_id.slice(0, 8), money(p.amount), p.provider, p.status])} headers={["Invoice","Amount","Provider","Status"]} />
+      </div>
+    </section>
+
+    <section className="panel">
+      <div className="panel-head"><div><h2>Quick actions</h2><p>Go directly to existing school workflows.</p></div></div>
+      <div className="quick-actions">{quickActions.map(([label, href, description]) => <Link className="quick-action" key={label} href={href}><strong>{label}</strong><span>{description}</span><b>→</b></Link>)}</div>
+    </section>
+
+    <section className="grid-2">
+      <div className="panel">
+        <div className="panel-head"><div><h2>Operational health</h2><p>Descriptive status only — no artificial score.</p></div></div>
+        <div className="health-list">{health.map(([label, status]) => <div key={label}><span>{label}</span><strong className={"health-" + status.toLowerCase().replaceAll(" ", "-")}>{status}</strong></div>)}</div>
+      </div>
+      <div className="panel">
+        <div className="panel-head"><div><h2>Recent activity</h2><p>Latest school-scoped audit events.</p></div><Link href="/dashboard/audit">Open audit logs →</Link></div>
+        <div className="activity-list">{data.recent_activity.map(a => <div className="activity-row" key={a.id}><div><strong>{a.action}</strong><span>{a.resource}{a.actor_name ? " · " + a.actor_name : ""}</span></div><time>{new Date(a.created_at).toLocaleString()}</time></div>)}</div>
+        {!data.recent_activity.length && <div className="empty">No recent school activity.</div>}
+      </div>
+    </section>
+
+    <div className="command-footer"><span>Signed in as {me.email || data.school.administrator.email || "school administrator"}</span><button className="ghost light" onClick={() => router.push("/dashboard/school")}>School settings</button></div>
+  </main>;
 }
-function Stat(p:{label:string;value:number;detail:string}){return <div className="stat"><span>{p.label}</span><strong>{p.value}</strong><small>{p.detail}</small></div>}
+
+function SuperAdminDashboard() {
+  const [data, setData] = useState<PlatformData>({});
+  const [error, setError] = useState("");
+  useEffect(() => { Promise.all([api("/platform/schools"), api("/platform/monitoring")]).then(([schools, monitoring]) => setData({ schools: schools.schools || [], monitoring })).catch(e => setError(e.message)); }, []);
+  const schools = data.schools || [];
+  return <main className="content">
+    <header className="topbar"><div><p className="eyebrow">STONEZ DIGITAL</p><h1>Platform operations</h1><p className="muted">Monitor onboarded school tenants.</p></div><div className="status"><span /> Platform operations</div></header>
+    {error && <div className="error banner">{error}</div>}
+    <section className="stats">
+      <Stat label="Total schools" value={data.monitoring?.schools.total || schools.length} detail="Registered tenants" />
+      <Stat label="Active schools" value={data.monitoring?.schools.active || 0} detail="Active tenants" />
+      <Stat label="Pending review" value={data.monitoring?.schools.pending || 0} detail="Awaiting approval" />
+      <Stat label="Users" value={data.monitoring?.users || 0} detail="Across tenants" />
+    </section>
+    <section className="panel"><div className="panel-head"><div><h2>Tenant monitoring</h2><p>School tenants remain isolated from one another.</p></div><Link href="/platform/schools">Manage schools →</Link></div><div className="table-wrap"><table><thead><tr><th>School</th><th>Code</th><th>Users</th><th>Status</th></tr></thead><tbody>{schools.map(s => <tr key={s.id}><td><strong>{s.name}</strong></td><td>{s.code}</td><td>{s.user_count}</td><td><span className={"pill " + s.status}>{s.status}</span></td></tr>)}</tbody></table>{!schools.length && <div className="empty">No school tenants onboarded yet.</div>}</div></section>
+  </main>;
+}
+
+function Stat({ label, value, detail }: { label: string; value: number | string; detail: string }) {
+  return <div className="stat"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>;
+}
+function Metric({ label, value }: { label: string; value: number | string }) {
+  return <div className="metric"><span>{label}</span><strong>{value}</strong></div>;
+}
+function Table({ title, empty, rows, headers }: { title: string; empty: string; rows: string[][]; headers: string[] }) {
+  return <div className="command-table"><h3>{title}</h3><div className="table-wrap"><table><thead><tr>{headers.map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((r, i) => <tr key={i}>{r.map((v, j) => <td key={j}>{v}</td>)}</tr>)}</tbody></table>{!rows.length && <div className="empty">{empty}</div>}</div></div>;
+}

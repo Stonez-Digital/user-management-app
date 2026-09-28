@@ -202,7 +202,7 @@ func (s *SchoolDashboardService) Get(schoolID, adminID, sessionID, termID uuid.U
             }
         }
         var pays []models.Payment
-        if err := s.db.Where("school_id = ?", schoolID).Joins("JOIN invoices ON invoices.id = payments.invoice_id AND invoices.school_id = ? AND invoices.term_id = ?", schoolID, term.ID).Order("payments.created_at DESC").Limit(5).Find(&pays).Error; err != nil { return SchoolDashboard{}, err }
+        if err := s.db.Where("payments.school_id = ?", schoolID).Joins("JOIN invoices ON invoices.id = payments.invoice_id AND invoices.school_id = ? AND invoices.term_id = ?", schoolID, term.ID).Order("payments.created_at DESC").Limit(5).Find(&pays).Error; err != nil { return SchoolDashboard{}, err }
         for _, p := range pays {
             var inv models.Invoice
             _ = s.db.Select("invoice_number").Where("id = ? AND school_id = ?", p.InvoiceID, schoolID).First(&inv).Error

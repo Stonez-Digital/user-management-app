@@ -38,6 +38,9 @@ for (const file of [
   assert.doesNotMatch(content, /useAcademicContext|AcademicContextProvider|AcademicSelector/);
 }
 const platformDashboard = await read("app/dashboard/page.tsx");
-assert.match(platformDashboard, /role === ["\']super_admin["\']/);\nassert.match(platformDashboard, /AcademicContextProvider/);\nassert.match(platformDashboard, /AcademicSelector/);\nassert.match(platformDashboard, /admin\\/dashboard/);
+assert.match(platformDashboard, /role === ["\\']super_admin["\\']/);
+assert.match(platformDashboard, /AcademicContextProvider/);
+assert.match(platformDashboard, /AcademicSelector/);
+assert.match(platformDashboard, /admin\\/dashboard/);
 
 console.log("Dashboard academic-context scoping checks passed.");

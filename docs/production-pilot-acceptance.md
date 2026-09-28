@@ -64,10 +64,12 @@ For the pilot school:
 1. Confirm the school-admin account belongs to the correct school.
 2. Confirm school identity appears on the school dashboard.
 3. Confirm existing academic session/term data is visible.
-4. Confirm classes and sections are school-scoped.
-5. Confirm teacher accounts can access assigned teaching workflows.
+4. Open the School Admin Command Center and verify the selected session/term, school identity, overview, attendance, finance, alerts, recent activity and operational-health sections.
+5. Confirm classes and sections are school-scoped.
+6. Confirm teacher accounts can access assigned teaching workflows.
 6. Confirm student accounts can access only their own academic information.
 7. Confirm parent accounts can access only their linked student's information.
+8. Confirm teacher, student and parent accounts receive HTTP 403 from `/admin/dashboard`.
 
 ### 4. Student lifecycle
 
@@ -202,6 +204,8 @@ It runs `scripts/production-acceptance.mjs` against the live Render API and:
 
 - verifies the Super Admin session;
 - verifies both configured school-admin accounts and their `/me.school_name`;
+- verifies the School Admin Command Center API for identity, academic context, overview, attendance, finance, alerts, activity and health;
+- verifies teacher, student and parent accounts are denied the school-admin dashboard endpoint;
 - creates uniquely named temporary teacher/student/parent QA accounts inside each school;
 - creates missing QA academic session/class/section records when required;
 - enrolls the temporary student and executes promotion;

@@ -140,7 +140,7 @@ async function recordBulkUserForCleanup(token,email){
 }
 
 async function createAssignment(token,teacherId,academic){
-  const v=(await request("/admin/teacher-assignments",{token,method:"POST",body:{teacher_id:teacherId,subject_id:academic.subject.id,academic_session_id:academic.active.id,term_id:academic.activeTerm.id,class_id:academic.cls.id,section_id:academic.sec.id,allocation_type:"subject",active:true},expected:[201]})).data;
+  const v=(await request("/admin/teacher-assignments",{token,method:"POST",body:{teacher_id:teacherId,subject_id:academic.subject.id,academic_session_id:academic.active.id,term_id:academic.activeTerm.id,class_id:academic.cls.id,section_id:academic.sec.id,allocation_type:"subject_teacher",active:true},expected:[201]})).data;
   return v;
 }
 async function bootstrapSchool(s){

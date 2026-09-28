@@ -68,13 +68,21 @@ function findUserByEmail(payload,email,role){
   }
   return walk(payload);
 }
-async function resolveUserId(token,email,role,response){
+async function resolveUserId(token,email,role,response,{password,school_code}={}){
   const direct=onboardingUserId(response,role);
   if(direct)return direct;
   const usersResponse=(await request("/admin/users",{token})).data;
   const user=findUserByEmail(usersResponse,email,role);
-  if(!user?.id) fail("Unable to resolve "+(role||"user")+" account "+email+" after onboarding; onboarding response and /admin/users contained no matching user");
-  return user.id;
+  if(user?.id)return user.id;
+  // Fall back to the canonical authenticated profile. This handles a production
+  // deployment returning a legacy/minimal onboarding response or user listing.
+  if(password&&school_code){
+    const auth=await login({email,password,school_code});
+    const profile=await me(auth.access_token);
+    if(profile?.id&&(!role||profile.role===role))return profile.id;
+  }
+  const responseKeys=response&&typeof response==="object"?Object.keys(unwrap(response)||{}).join(","):"none";
+  fail("Unable to resolve "+(role||"user")+" account "+email+" after onboarding; response keys=["+responseKeys+"], /admin/users contained no matching user, and /me fallback did not resolve it");
 }
 async function ensureTerm(token,session,preferredStatus,dates,name){
   const terms=list((await request(`/admin/academic-sessions/${session.id}/terms`,{token})).data,"terms");
@@ -153,7 +161,7 @@ async function bootstrapSchool(s){
   if(!studentUserId) fail(school+": onboarding did not return student user id");
   createdUsers.push({id:studentUserId,token:admin.access_token,email:studentEmail});
   const teacher=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Teacher ${runId}`,email:teacherEmail,password,role:"teacher",staff_id:`QA-T-${runId}-${school}`},expected:[201]})).data;
-  const teacherId=await resolveUserId(admin.access_token,teacherEmail,"teacher",teacher); createdUsers.push({id:teacherId,token:admin.access_token,email:teacherEmail});
+  const teacherId=await resolveUserId(admin.access_token,teacherEmail,"teacher",teacher,{password,school_code:school}); createdUsers.push({id:teacherId,token:admin.access_token,email:teacherEmail});
   const parent=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Parent ${runId}`,email:parentEmail,password,role:"parent",student_id:studentId,relationship:"parent",primary:true},expected:[201]})).data;
   const parentId=onboardingUserId(parent,"parent"); if(!parentId) fail(school+": onboarding did not return parent user id"); createdUsers.push({id:parentId,token:admin.access_token,email:parentEmail});
   record("onboarding",school,"school_admin","PASS","Created temporary teacher/student/parent");

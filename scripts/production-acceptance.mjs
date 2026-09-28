@@ -231,7 +231,7 @@ async function bootstrapSchool(s){
   await request("/me",{expected:[401]});
   record("role isolation",school,"student","PASS","Student denied school-admin endpoint");
   record("unauthorized API",school,"anonymous","PASS","Protected /me returned 401");
-  return {school,admin,studentId,teacherId,parentId,assignment,academic};
+  return {school,admin,studentId,studentUserId,teacherId,parentId,assignment,academic};
 }
 async function cleanup(){
   const seen=new Set();
@@ -250,10 +250,12 @@ try {
   record("authentication","platform","super_admin","PASS","Platform profile loaded");
   const contexts=[]; for(const s of schools) contexts.push(await bootstrapSchool(s));
   const a=contexts[0], b=contexts[1];
-  const bUsers=list((await request("/admin/users",{token:b.admin.access_token})).data,"users");
-  const bStudents=list((await request("/admin/students",{token:b.admin.access_token})).data,"students");
-  if(bUsers[0]) await request(`/admin/users/${bUsers[0].id}`,{token:a.admin.access_token,expected:[404]});
-  if(bStudents[0]) await request(`/admin/students/${bStudents[0].id}`,{token:a.admin.access_token,expected:[404]});
+  // Use IDs captured and validated during School B onboarding. The list endpoints
+  // may return role/profile projections without a top-level user id; selecting
+  // bUsers[0].id can therefore construct the invalid path /admin/users/undefined.
+  if(!b.studentUserId||!b.studentId) fail("School B onboarding did not retain verified user/student IDs for tenant-isolation checks");
+  await request(`/admin/users/${b.studentUserId}`,{token:a.admin.access_token,expected:[404]});
+  await request(`/admin/students/${b.studentId}`,{token:a.admin.access_token,expected:[404]});
   const bSessions=list((await request("/admin/academic-sessions",{token:b.admin.access_token})).data,"sessions");
   if(bSessions[0]) await request(`/admin/academic-sessions/${bSessions[0].id}`,{token:a.admin.access_token,expected:[404]});
   record("tenant isolation",a.school,"school_admin","PASS","Cross-school user/student/session IDs rejected");

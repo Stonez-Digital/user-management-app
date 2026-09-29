@@ -5,6 +5,7 @@ import(
  "strings"
  "testing"
  "github.com/google/uuid"
+ "github.com/onoja217/users-management-app/internal/authz"
  "gorm.io/driver/sqlite"
  "gorm.io/gorm"
  "github.com/onoja217/users-management-app/internal/models"

@@ -13,6 +13,7 @@ import (
 )
 
 var ErrInvalidSchoolUserRole = errors.New("school administrators cannot provision this role")
+var ErrRoleProfileMismatch = errors.New("role does not match the user's role-specific profile")
 
 type UserService struct { repo repository.UserRepository; db *gorm.DB }
 

@@ -88,7 +88,11 @@ func(s *FinanceService)CreateInvoice(schoolID uuid.UUID,v models.Invoice,lines [
 func(s *FinanceService)ListInvoices(schoolID,sessionID,termID uuid.UUID)([]models.Invoice,error){rows,e:=s.invoices.List(schoolID);if e!=nil{return nil,e};out:=make([]models.Invoice,0,len(rows));for _,r:=range rows{if r.TermID==termID&&r.Term.AcademicSessionID==sessionID{out=append(out,r)}};return out,nil}
 func(s *FinanceService)GetInvoice(schoolID,id uuid.UUID)(models.Invoice,error){v,e:=s.invoices.Get(schoolID,id);if errors.Is(e,gorm.ErrRecordNotFound){return v,ErrInvoiceNotFound};return v,e}
 
-func(s *FinanceService)CreatePayment(schoolID uuid.UUID,v models.Payment)(models.Payment,error){\n    return s.createPayment(schoolID,v,true)\n}\n\nfunc(s *FinanceService)createPayment(schoolID uuid.UUID,v models.Payment,manualOnly bool)(models.Payment,error){
+func(s *FinanceService)CreatePayment(schoolID uuid.UUID,v models.Payment)(models.Payment,error){
+    return s.createPayment(schoolID,v,true)
+}
+
+func(s *FinanceService)createPayment(schoolID uuid.UUID,v models.Payment,manualOnly bool)(models.Payment,error){
     // This endpoint is intentionally the manual-payment path. Provider payments
     // must be created only after server-side provider verification.
     if schoolID==uuid.Nil||v.InvoiceID==uuid.Nil||v.Amount<=0||strings.TrimSpace(v.Reference)==""{return v,ErrPaymentInvalid}

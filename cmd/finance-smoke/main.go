@@ -33,7 +33,7 @@ func main() {
 
     // Everything created or changed by this smoke test lives inside one
     // transaction. The transaction is intentionally never committed.
-    schoolID, term, enrollment, invoice, fee := fixture(tx)
+    schoolID, term, enrollment, fee := fixture(tx)
 
     finance := service.NewFinanceService(
         repository.NewFeeItemRepository(tx),
@@ -60,15 +60,6 @@ func main() {
     must(err == nil, "active enrollment invoice creation failed: %v", err)
     must(created.TotalAmount == 50000 && created.Balance == 50000,
         "unexpected invoice totals: total=%v balance=%v", created.TotalAmount, created.Balance)
-
-    paid, err := finance.CreatePayment(schoolID, models.Payment{
-        InvoiceID: invoice.ID,
-        Amount:    0,
-        Provider:  "smoke",
-        Reference: "unused",
-    })
-    _ = paid
-    _ = err
 
     // Use the invoice returned by CreateInvoice for the positive payment path.
     _, err = finance.CreatePayment(schoolID, models.Payment{
@@ -147,7 +138,7 @@ func main() {
     log.Printf("FINANCE_SMOKE_PASS active-invoice active-payment inactive-enrollment session-lifecycle fee-integrity")
 }
 
-func fixture(tx *gorm.DB) (uuid.UUID, models.Term, models.StudentEnrollment, models.Invoice, models.FeeItem) {
+func fixture(tx *gorm.DB) (uuid.UUID, models.Term, models.StudentEnrollment, models.FeeItem) {
     suffix := uuid.NewString()[:8]
     school := models.School{
         Name:   "Production Finance Smoke " + suffix,
@@ -225,7 +216,7 @@ func fixture(tx *gorm.DB) (uuid.UUID, models.Term, models.StudentEnrollment, mod
     }
     must(tx.Create(&fee).Error == nil, "create smoke fee")
 
-    return school.ID, term, enrollment, models.Invoice{}, fee
+    return school.ID, term, enrollment, fee
 }
 
 func must(condition bool, format string, args ...interface{}) {

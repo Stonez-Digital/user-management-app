@@ -86,11 +86,13 @@ func TestAssignRoleRejectsRoleProfileMismatch(t *testing.T) {
     if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "role_profile_mismatch") { t.Fatalf("expected teacher profile mismatch conflict, got %d: %s", rec.Code, rec.Body.String()) }
     rec = tenantContextRouter(ac.AssignRole, school.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+student.ID.String()+"/role", `{"role":"teacher"}`)
     if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "role_profile_mismatch") { t.Fatalf("expected missing teacher profile conflict, got %d: %s", rec.Code, rec.Body.String()) }
-    var stored models.User
-    if err := db.First(&stored, "id = ?", parent.ID).Error; err != nil { t.Fatal(err) }
-    if stored.Role != authz.RoleParent { t.Fatalf("parent role changed unexpectedly: %s", stored.Role) }
-    if err := db.First(&stored, "id = ?", teacher.ID).Error; err != nil { t.Fatal(err) }
-    if stored.Role != authz.RoleTeacher { t.Fatalf("teacher role changed unexpectedly: %s", stored.Role) }
-    if err := db.First(&stored, "id = ?", student.ID).Error; err != nil { t.Fatal(err) }
-    if stored.Role != authz.RoleStudent { t.Fatalf("student role changed unexpectedly: %s", stored.Role) }
+    var storedParent models.User
+    if err := db.First(&storedParent, "id = ?", parent.ID).Error; err != nil { t.Fatal(err) }
+    if storedParent.Role != authz.RoleParent { t.Fatalf("parent role changed unexpectedly: %s", storedParent.Role) }
+    var storedTeacher models.User
+    if err := db.First(&storedTeacher, "id = ?", teacher.ID).Error; err != nil { t.Fatal(err) }
+    if storedTeacher.Role != authz.RoleTeacher { t.Fatalf("teacher role changed unexpectedly: %s", storedTeacher.Role) }
+    var storedStudent models.User
+    if err := db.First(&storedStudent, "id = ?", student.ID).Error; err != nil { t.Fatal(err) }
+    if storedStudent.Role != authz.RoleStudent { t.Fatalf("student role changed unexpectedly: %s", storedStudent.Role) }
 }

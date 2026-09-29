@@ -1,7 +1,6 @@
 package controller
 
 import (
-    "errors"
     "net/http"
     "net/http/httptest"
     "strings"
@@ -11,7 +10,6 @@ import (
     "github.com/onoja217/users-management-app/internal/authz"
     "github.com/onoja217/users-management-app/internal/middleware"
     "github.com/onoja217/users-management-app/internal/models"
-    "github.com/onoja217/users-management-app/internal/service"
     "gorm.io/driver/sqlite"
     "gorm.io/gorm"
 )

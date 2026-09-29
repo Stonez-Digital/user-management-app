@@ -58,6 +58,9 @@ func(s *FinanceService)CreateInvoice(schoolID uuid.UUID,v models.Invoice,lines [
     var enrollment models.StudentEnrollment
     if e:=s.db.Where("id = ? AND school_id = ?",v.StudentEnrollmentID,schoolID).First(&enrollment).Error;e!=nil{if errors.Is(e,gorm.ErrRecordNotFound){return v,ErrInvoiceEnrollmentMissing};return v,e}
     if enrollment.Status!=models.EnrollmentStatusActive{return v,ErrInvoiceInvalid}
+    var session models.AcademicSession
+    if e:=s.db.Where("id = ? AND school_id = ?",enrollment.AcademicSessionID,schoolID).First(&session).Error;e!=nil{if errors.Is(e,gorm.ErrRecordNotFound){return v,ErrInvoiceEnrollmentMissing};return v,e}
+    if session.Status==models.AcademicStatusClosed||session.Status==models.AcademicStatusArchived{return v,ErrInvoiceInvalid}
     var term models.Term
     if e:=s.db.Where("id = ? AND school_id = ? AND academic_session_id = ?",v.TermID,schoolID,enrollment.AcademicSessionID).First(&term).Error;e!=nil{if errors.Is(e,gorm.ErrRecordNotFound){return v,ErrInvoiceTermMissing};return v,e}
     if v.DueDate.Before(term.StartDate)||v.DueDate.After(term.EndDate){return v,ErrInvoiceInvalid}

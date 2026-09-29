@@ -44,8 +44,8 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     if err := db.Model(&Migration{}).Count(&migrationCount).Error; err != nil {
         t.Fatal(err)
     }
-    if migrationCount != 31 {
-        t.Fatalf("expected 31 migrations, got %d", migrationCount)
+    if migrationCount != 32 {
+        t.Fatalf("expected 32 migrations, got %d", migrationCount)
     }
     var slugIndexDef string
     if err := db.Raw("SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uq_schools_slug'").Scan(&slugIndexDef).Error; err != nil { t.Fatal(err) }

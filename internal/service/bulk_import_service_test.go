@@ -94,3 +94,18 @@ func TestBulkCreateUserRejectsExistingUserWithDifferentRole(t *testing.T) {
  db.Model(&models.TeacherProfile{}).Where("user_id=?",user.ID).Count(&profiles)
  if profiles!=0{t.Fatalf("expected no teacher profile, got %d",profiles)}
 }
+
+
+func TestBulkParentValidationAllowsIdentifierOrPhoneWithoutEmail(t *testing.T) {
+ svc:=&BulkImportService{}
+ schoolID:=uuid.New()
+ actor:=uuid.New()
+ cases:=[]BulkRow{
+  {"name":"Identifier Parent","parent_identifier":"P-001"},
+  {"name":"Phone Parent","phone":"08000000000"},
+ }
+ for i,row:=range cases {
+  errs,valid:=svc.Validate(schoolID,actor,"parents",[]BulkRow{row})
+  if len(errs)!=0||valid!=1{t.Fatalf("case %d: expected parent row without email to validate, got errors=%v valid=%d",i+1,errs,valid)}
+ }
+}

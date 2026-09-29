@@ -75,3 +75,41 @@ func TestFinanceSchoolIsolation(t *testing.T){
     if _,e:=svc.ListPayments(schoolB,invA.ID);e!=ErrInvoiceNotFound{t.Fatalf("expected cross-school payment list to fail, got %v",e)}
     if _,e:=svc.CreatePayment(schoolB,models.Payment{InvoiceID:invA.ID,Amount:1000,Provider:"manual",Reference:"PAY-B",Status:models.PaymentStatusSucceeded});e!=ErrInvoiceNotFound{t.Fatalf("expected cross-school payment creation to fail, got %v",e)}
 }
+
+
+func TestCreateInvoiceRejectsManipulatedFeeAmount(t *testing.T){
+    db:=financeTestDB(t)
+    schoolID,term,enrollment:=financeFixture(t,db,"FEE")
+    svc:=NewFinanceService(repository.NewFeeItemRepository(db),repository.NewInvoiceRepository(db),repository.NewPaymentRepository(db),db)
+    fee,e:=svc.CreateFee(schoolID,models.FeeItem{TermID:term.ID,Name:"Tuition",Amount:50000,Active:true});if e!=nil{t.Fatal(e)}
+    _,e=svc.CreateInvoice(schoolID,models.Invoice{StudentEnrollmentID:enrollment.ID,TermID:term.ID,DueDate:time.Date(2026,11,30,0,0,0,0,time.UTC)},[]InvoiceLineInput{{FeeItemID:&fee.ID,Description:"Tuition",Quantity:1,UnitAmount:1}})
+    if e!=ErrInvoiceInvalid{t.Fatalf("expected manipulated fee amount to be rejected, got %v",e)}
+}
+
+func TestCreateInvoiceRejectsInactiveEnrollment(t *testing.T){
+    db:=financeTestDB(t)
+    schoolID,term,enrollment:=financeFixture(t,db,"ENROLL")
+    svc:=NewFinanceService(repository.NewFeeItemRepository(db),repository.NewInvoiceRepository(db),repository.NewPaymentRepository(db),db)
+    for _,status:=range []string{models.EnrollmentStatusCompleted,models.EnrollmentStatusWithdrawn}{
+        if e:=db.Model(&models.StudentEnrollment{}).Where("id = ?",enrollment.ID).Update("status",status).Error;e!=nil{t.Fatal(e)}
+        if _,e:=svc.CreateInvoice(schoolID,models.Invoice{StudentEnrollmentID:enrollment.ID,TermID:term.ID,DueDate:time.Date(2026,11,30,0,0,0,0,time.UTC)},[]InvoiceLineInput{{Description:"Manual charge",Quantity:1,UnitAmount:50000}});e!=ErrInvoiceInvalid{t.Fatalf("expected invoice rejection for %s enrollment, got %v",status,e)}
+        if e:=db.Model(&models.StudentEnrollment{}).Where("id = ?",enrollment.ID).Update("status",models.EnrollmentStatusActive).Error;e!=nil{t.Fatal(e)}
+    }
+}
+
+func TestCreatePaymentRejectsInactiveEnrollmentAndUnavailableSession(t *testing.T){
+    db:=financeTestDB(t)
+    schoolID,term,enrollment:=financeFixture(t,db,"PAY-LIFE")
+    svc:=NewFinanceService(repository.NewFeeItemRepository(db),repository.NewInvoiceRepository(db),repository.NewPaymentRepository(db),db)
+    invoice,e:=svc.CreateInvoice(schoolID,models.Invoice{StudentEnrollmentID:enrollment.ID,TermID:term.ID,DueDate:time.Date(2026,11,30,0,0,0,0,time.UTC)},[]InvoiceLineInput{{Description:"Manual charge",Quantity:1,UnitAmount:50000}});if e!=nil{t.Fatal(e)}
+    for _,status:=range []string{models.EnrollmentStatusCompleted,models.EnrollmentStatusWithdrawn}{
+        if e:=db.Model(&models.StudentEnrollment{}).Where("id = ?",enrollment.ID).Update("status",status).Error;e!=nil{t.Fatal(e)}
+        if _,e:=svc.CreatePayment(schoolID,models.Payment{InvoiceID:invoice.ID,Amount:1000,Provider:"manual",Reference:"PAY-"+status,Status:models.PaymentStatusSucceeded});e!=ErrPaymentInvalid{t.Fatalf("expected payment rejection for %s enrollment, got %v",status,e)}
+        if e:=db.Model(&models.StudentEnrollment{}).Where("id = ?",enrollment.ID).Update("status",models.EnrollmentStatusActive).Error;e!=nil{t.Fatal(e)}
+    }
+    for _,status:=range []string{models.AcademicStatusClosed,models.AcademicStatusArchived}{
+        if e:=db.Model(&models.AcademicSession{}).Where("id = ?",enrollment.AcademicSessionID).Update("status",status).Error;e!=nil{t.Fatal(e)}
+        if _,e:=svc.CreatePayment(schoolID,models.Payment{InvoiceID:invoice.ID,Amount:1000,Provider:"manual",Reference:"PAY-"+status,Status:models.PaymentStatusSucceeded});e!=ErrPaymentInvalid{t.Fatalf("expected payment rejection for %s session, got %v",status,e)}
+        if e:=db.Model(&models.AcademicSession{}).Where("id = ?",enrollment.AcademicSessionID).Update("status",models.AcademicStatusActive).Error;e!=nil{t.Fatal(e)}
+    }
+}

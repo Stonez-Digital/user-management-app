@@ -1,16 +1,16 @@
 # Stonez Digital School Management System
 
-A full-stack, multi-school school management platform being developed by **Stonez Digital** to help schools manage administration, academics, finance, communication, teachers, students, parents, and operational workflows from one platform.
+A full-stack, multi-school school management platform developed by **Stonez Digital** to help schools manage administration, academics, finance, communication, teachers, students, parents, and operational workflows from one platform.
 
-The project has evolved from a Go-based user-management application into a **multi-tenant School Management SaaS foundation**. The current codebase has passed the foundational CRUD stage and now contains substantial school, academic, finance, portal, communication, tenant-isolation, authentication, and production-deployment work.
+The project has evolved from a Go-based user-management application into a **multi-tenant School Management SaaS foundation** with production infrastructure, tenant isolation, academic workflows, finance, portals, communication, and automated quality controls.
 
 ## Current Product Level
 
 **Current stage: Production Hardening / Pilot-Readiness**
 
-The platform is currently at the level of a **serious school-management product foundation**, rather than a simple demo or user-management CRUD application.
+The platform is beyond the MVP/CRUD stage. The current development focus is on **security, tenant isolation, data integrity, financial integrity, production verification, workflow reliability, and controlled real-school pilot preparation**.
 
-The major product layers are already present:
+The major product layers are established:
 
 - Platform administration
 - Multi-school tenant architecture
@@ -20,174 +20,153 @@ The major product layers are already present:
 - Role-based access control
 - Student enrollment
 - Academic sessions, terms, classes, sections, subjects and academic workflows
-- Teacher academic and operational workflows
+- Teacher assignments and teacher workflows
 - Assessments, results and report cards
-- Finance administration foundation
-- Parent portal
-- Student portal
-- Communication center
-- Platform operations monitoring
+- Finance administration
+- Parent and student portals
+- Guardian relationships
+- Communication workflows
+- Audit logging
 - Responsive web interface
 - Cloudflare frontend deployment
-- Public Go/Gin API deployment
-- PostgreSQL production database support
+- Render Go/Gin API deployment
+- PostgreSQL/Supabase production database
 - Automated CI and production QA
 
-The immediate work is no longer about proving that the platform can manage users. The priority is **production verification, workflow completeness, security, usability, data integrity, deployment reliability, and preparation for a controlled school pilot**.
-
-### What the current product is
-
-> **A multi-tenant digital operating system for schools that is approaching pilot deployment, with production infrastructure and the major school-management domains already established.**
-
-It is not yet described as a fully mature commercial SaaS product. Real-school pilot usage, operational feedback, deeper reporting, billing/subscription workflows, support processes, and additional hardening are still required before broad commercial rollout.
+The platform is now being treated as a **production-hardened pilot SaaS**, not simply as a feature-development project.
 
 ## Recent Development
 
-### School identity, dedicated login and branding
+### Production hardening and tenant isolation
 
-The latest development cycle introduced a school-first identity experience for multi-tenant deployments. Each registered school is treated as its own tenant and can be presented with its own identity throughout the school experience.
+The latest audit cycle focused on finding weaknesses and regression risks in the existing production system rather than rebuilding features that already work.
+
+Recent work strengthened:
+
+- Cross-school data isolation across student, academic, finance, guardian and portal workflows
+- School-scoped reads and mutations
+- Tenant-aware relationships and uniqueness rules
+- Database-level protection for public-content tables
+- Role/profile consistency
+- School-scoped user and profile validation
+- Academic session and term handling
+- Financial integrity and active-enrollment requirements
+- Guardian lifecycle and primary-guardian semantics
+
+The tenant-isolation review traced application flows from controllers through services and repositories and checked both reads and mutations for school context.
+
+### User and profile consistency
+
+Teacher, parent and student account handling has received additional production hardening.
 
 Recent changes include:
 
-- Separate public Stonez Digital platform login and school login flows
-- Dedicated school login routing after school registration
-- Pending/approval state on dedicated school login
-- School-specific name and identity in authenticated experiences
-- Authenticated profile responses exposing school branding data
-- Reusable school branding header across tenant dashboards
-- School branding applied across tenant dashboard routes
-- School-branded student and parent report cards
-- School-branded report headers
-- Stonez Digital fallback branding when a school logo is unavailable
-- Bedrock International Academy branding support during pilot development
+- Repairing missing parent profiles during relevant user processing
+- Rejecting unsafe same-school user creation when the requested role conflicts with an existing role
+- Preventing teacher/parent role changes that would leave incompatible profile records
+- School-scoped teacher and parent profile validation
+- Parent identifier uniqueness within a school
+- Database-level unique protection for parent identifiers
+- Verification that teacher and parent profile relationships remain consistent with user roles
 
-The intended tenant experience is:
+Production verification found no remaining teacher/parent profile mismatches in the audited data set.
 
-    Stonez Digital Platform
-            |
-            +---- School A -> School A identity/login/dashboard
-            |
-            +---- School B -> School B identity/login/dashboard
-            |
-            +---- School C -> School C identity/login/dashboard
+### Guardian relationship lifecycle
 
-Stonez Digital remains the platform owner/administrator, while each school sees its own school context inside the tenant application.
+Guardian access was hardened to prevent stale relationships from granting access through inactive parent accounts.
 
-### School logo storage
+Recent changes include:
 
-School logo uploads are implemented as a backend-managed Supabase Storage integration using the school-logos bucket.
+- Explicit guardian-link deactivation
+- Explicit guardian-link reactivation
+- Reactivation restricted to an active same-school parent account
+- Deactivation clears both active and primary status
+- Atomic replacement of an existing primary guardian
+- Database-level protection for one active primary guardian per student
+- Guardian lookups requiring an active guardian user
+- School-scoped guardian lifecycle operations
+- Audit records for guardian lifecycle changes
 
-Current storage configuration:
+Existing inactive-parent relationships were preserved as historical data; the authorization path now prevents inactive parent accounts from using those relationships.
 
-- Bucket: school-logos
-- Public bucket: enabled
-- Maximum file size: 2 MB
-- Supported formats: PNG, JPEG, WebP
-- School-specific object paths are used for tenant separation
-- Backend upload authorization uses the server-side SUPABASE_SECRET_KEY
+### Financial integrity and payment trust boundary
 
-The production bucket has been created and configured. The remaining production verification item is confirming that the Render API service has the required server-side SUPABASE_SECRET_KEY environment variable before completing an end-to-end logo upload test.
+Finance has undergone a dedicated integrity audit covering:
 
-Secrets must remain in Render environment configuration and must never be committed to GitHub.
+- Active enrollment requirements
+- Closed/archived academic-session restrictions
+- Cross-school invoice/payment protection
+- Invoice row locking during payment creation
+- Payment concurrency
+- Duplicate payment references
+- Invoice balance calculation
+- Payment status handling
+- Financial reporting coverage
+- Payment trust boundaries
 
+The latest finance hardening requires the normal payment-creation path to be an explicit **manual payment** path. A provider payment cannot simply be marked successful by supplying a provider name and succeeded status.
 
-The repository has gone through a major expansion in the current development cycle.
+A separate verified-provider service path now:
 
-### Academic management
+- Requires a provider verification implementation
+- Verifies the provider reference
+- Requires a positive verified amount
+- Requires a successful verified status
+- Stores verified payment metadata
+- Records the payment only after successful verification
+- Reuses the existing transactional invoice/payment protections
 
-The academic engine has progressed through:
+The production finance smoke harness was updated to reflect the explicit manual-payment trust boundary.
 
-- School and academic readiness
-- Core academic tenant isolation
-- Student enrollment
-- Teacher assignment
-- Assessment operations
-- Results processing
-- Report cards
-- Teacher academic workspace
-- Teacher operational workflows
-- Teacher-facing academic UI
+> **Important:** provider verification infrastructure is now hardened at the service boundary, but concrete production payment-provider integration and currency verification remain separate implementation/verification work where applicable.
 
-This establishes the academic workflow layer connecting schools, sessions, terms, classes, subjects, teachers, students, assessments, and results.
+### Academic sessions and terms
 
-### School operations and portals
+Academic data is no longer treated as a fixed three-term system.
 
-The product has also expanded into:
+The platform supports:
 
-- Finance administration
-- Parent portal
-- Student portal
-- Communication center
-- Platform operations monitoring
-- School self-onboarding and platform approval
+- First Term
+- Second Term
+- Third Term
+- Custom school-defined terms such as Michaelmas or other names
 
-These additions move the product toward a complete school operating platform rather than an administration dashboard.
+Term validation now accepts school-defined names rather than enforcing hardcoded term labels.
 
-### Multi-tenant platform architecture
+Financial operations also validate the associated academic session and prevent new financial activity against closed or archived sessions.
 
-The system now separates **Stonez Digital platform administration** from individual school tenants.
+### Production QA and CI
 
-The architecture supports:
+The development workflow has matured into a consistent:
 
-- Platform-level super_admin
-- School-level administration
-- School-scoped users and records
-- School-scoped academic data
-- School-scoped audit records
-- Tenant-aware database relationships
-- Tenant-scoped uniqueness and integrity controls
-- School onboarding and approval workflows
+    Feature Branch
+          |
+    Implementation
+          |
+    Tests / Build
+          |
+    Pull Request
+          |
+    CI / Security / Production QA
+          |
+    Review
+          |
+    Merge to main
+          |
+    Render / Cloudflare deployment
+          |
+    Production verification
 
-This is an important architectural milestone because the same application can be used by multiple schools without treating all school data as one shared tenant.
+Recent hardening PRs have repeatedly passed:
 
-### Production authentication hardening
+- Go Tests
+- Backend Checks
+- Frontend Checks where applicable
+- Security Checks
+- Production QA
+- Production-oriented finance smoke tests where applicable
 
-Recent production work stabilized authentication across roles.
-
-The current authentication layer includes:
-
-- JWT access tokens
-- Refresh tokens
-- Refresh-token rotation
-- Refresh-token reuse protection
-- Active-account checks
-- Password change and reset flows
-- Logout and logout-all controls
-- Protected routes
-- RBAC
-- Role-aware landing pages
-- Explicit authenticated-account API responses
-- Production fixes for /me profile loading
-- School-admin and platform-admin separation
-
-The recent authentication work specifically addressed a production issue where login could succeed while the authenticated account failed to load correctly in the frontend.
-
-### Responsive web application
-
-The web interface was refined for:
-
-- Android phones
-- iPhone-sized screens
-- Tablets
-- Desktop screens
-
-The responsive work preserved the existing application structure and business logic while improving:
-
-- Small-screen layouts
-- Touch targets
-- Safe-area handling
-- Forms
-- Cards
-- Wide tables
-- Horizontal overflow behavior
-
-### Branding and theme work
-
-The Stonez Digital application branding remains the platform-level identity, while school tenants can now carry their own school name and logo across the school-facing experience.
-
-The later Light/Dark theme experiment was subsequently reverted because the color changes were not producing the intended result and were interfering with the desired visual presentation.
-
-The current product therefore keeps the established platform styling and Stonez Digital branding while preserving the mobile responsiveness work and school-specific tenant branding.
+Obsolete historical pull requests were also reviewed and closed rather than being merged blindly into the current production codebase.
 
 ## Current Product Capabilities
 
@@ -215,7 +194,7 @@ The current product therefore keeps the established platform styling and Stonez 
 - JWT authentication
 - Access and refresh tokens
 - Refresh-token rotation
-- Reuse protection
+- Refresh-token reuse protection
 - Session management
 - Logout
 - Logout-all
@@ -227,11 +206,13 @@ The current product therefore keeps the established platform styling and Stonez 
 - Active-account enforcement
 - Audit logging
 - Tenant-aware authorization
+- Production security and regression checks
 
 ### Academic management
 
 - Academic sessions
 - Academic terms
+- Custom academic term names
 - Classes
 - Sections
 - Subjects
@@ -247,28 +228,42 @@ The current product therefore keeps the established platform styling and Stonez 
 ### Student management
 
 - Student profiles
-- Enrollment records
+- Session-scoped enrollment
 - School-scoped student data
 - Student portal
 - Academic access foundation
 
 ### Teacher management
 
+- Teacher profiles
 - Teacher academic workspace
 - Teacher operational workflows
 - Assigned academic responsibilities
 - Teacher-facing UI
+- Role/profile consistency controls
 
-### Parent management
+### Parent and guardian management
 
+- Parent profiles
 - Parent portal
-- Parent access to student-related information
-- Parent/student relationship foundation
+- Student/guardian relationships
+- Guardian lifecycle controls
+- Primary guardian rules
+- Parent identifier uniqueness
+- Active-parent access enforcement
 
 ### Finance
 
 - Finance administration foundation
-- Finance-related school administration workflows
+- Invoice management
+- Enrollment-aware invoice creation
+- Payment management
+- Payment concurrency protection
+- Payment reference uniqueness
+- Manual-payment trust boundary
+- Provider verification service boundary
+- Financial reporting
+- Session and enrollment integrity checks
 
 ### Communication
 
@@ -281,6 +276,7 @@ The current product therefore keeps the established platform styling and Stonez 
 - Platform monitoring foundation
 - Operational visibility for the platform owner
 - Administrative monitoring workflows
+- Production QA workflows
 
 ## School Roles
 
@@ -310,12 +306,12 @@ Role access is enforced by the backend. School-scoped roles are isolated from ot
        |
        | HTTPS
        v
-    Go / Gin API
+    Go / Gin API on Render
        |
     GORM + migrations
        |
        v
-    PostgreSQL database
+    PostgreSQL / Supabase
 
 ### Application layers
 
@@ -389,8 +385,6 @@ Production URL:
 
     https://stonez-school-management.onojamondayojonugba.workers.dev/
 
-The frontend uses Cloudflare as the edge/web runtime and communicates with the Go API over HTTPS.
-
 ### Backend
 
 The Go/Gin API is deployed separately on Render.
@@ -409,6 +403,7 @@ The backend is responsible for:
 - Database access
 - Migrations
 - School and academic workflows
+- Financial integrity controls
 
 ### Database
 
@@ -420,9 +415,7 @@ The frontend does **not** connect directly to PostgreSQL.
 
 ## Database and Tenant Isolation
 
-The database layer has been expanded beyond a simple shared user table.
-
-Current production-oriented controls include:
+The database layer includes production-oriented tenant controls:
 
 - PostgreSQL migrations
 - UUID identifiers
@@ -433,8 +426,24 @@ Current production-oriented controls include:
 - Controlled delete/update behavior
 - School-scoped audit records
 - Backend authorization checks
+- RLS protection for protected public-content tables
 
-The objective is to ensure that a user operating inside one school cannot access another school's protected data through normal application requests.
+The application audit has specifically checked cross-school access and mutation paths across:
+
+- Students
+- Enrollments
+- Classes and sections
+- Subjects
+- Teacher assignments
+- Attendance
+- Assessments and results
+- Academic sessions and terms
+- Invoices and payments
+- Guardian relationships
+- Student/parent portal access
+- Bulk-import workflows
+
+The objective is to ensure that a user operating inside one school cannot access or mutate another school's protected data through normal application requests.
 
 ## Authentication Architecture
 
@@ -475,17 +484,10 @@ Development follows a pull-request based workflow:
     Merge to main
           |
     Production Deployment
+          |
+    Production Verification
 
-The main branch is intended to be protected. Direct production changes should go through pull requests and automated checks.
-
-Recommended protection rules include:
-
-- Pull request required before merge
-- At least one approval
-- Required CI checks
-- Branch must be up to date before merge
-- Force pushes blocked
-- Branch deletion blocked
+Production changes should go through pull requests and automated checks. A successful CI run is treated as a gate before merge, followed by deployment and live verification.
 
 ## CI and Quality Controls
 
@@ -495,11 +497,14 @@ Current checks include:
 
 - Go tests
 - Frontend checks
+- Backend checks
+- Security checks
 - Production QA workflows
 - Frontend production builds
 - Cloudflare deployment validation
+- Production-oriented finance smoke testing
 
-Production changes should not be treated as complete until the relevant CI and deployment checks pass.
+The quality process now emphasizes regression detection and production hardening in addition to feature correctness.
 
 ## Local Development
 
@@ -552,31 +557,53 @@ The major school-management domains and role model are established.
 
 Multi-tenancy, backend authorization, migrations, PostgreSQL support, Cloudflare frontend infrastructure, and a separate Go API are established.
 
-### 3. Production hardening — active
+### 3. Production hardening — substantially advanced
 
-Authentication, tenant isolation, deployment behavior, responsive UI, CI, QA, and operational monitoring are still being verified and refined.
+Recent work has hardened:
 
-### 4. Commercial readiness — not yet complete
+- Cross-school isolation
+- Role/profile consistency
+- Guardian access lifecycle
+- Financial integrity
+- Payment trust boundaries
+- Academic session/term rules
+- Database constraints
+- CI and production QA
 
-Before broad market launch, the platform still needs controlled real-school pilots, deeper workflow validation, customer onboarding, subscription/billing strategy, support processes, stronger reporting, and continued security/performance testing.
+### 4. Pilot readiness — next major gate
+
+The next stage is controlled real-school operation. This requires end-to-end validation of real workflows, operational monitoring, user feedback, support processes, and remaining production defects.
+
+### 5. Commercial readiness — not yet complete
+
+Before broad market launch, the platform still needs:
+
+- Controlled real-school pilots
+- Deeper workflow validation
+- Customer onboarding processes
+- Subscription/billing strategy
+- Stronger reporting and analytics
+- Support and maintenance processes
+- Continued security and performance testing
+- Operational scaling validation
 
 ## Immediate Priorities
 
-The next development cycle should focus on **stabilization rather than adding disconnected features**.
+The next development cycle should focus on **stabilization, verification, and pilot readiness rather than adding disconnected features**.
 
 Priority order:
 
-1. Protect main with GitHub branch rules.
-2. Complete production authentication QA for all supported roles.
-3. Verify school-admin tenant isolation with multiple schools.
+1. Verify the latest finance hardening deployment on Render.
+2. Complete production role-by-role QA.
+3. Continue multi-school isolation verification with representative school data.
 4. Verify student, teacher, parent and accountant workflows end-to-end.
-5. Verify production Cloudflare to Render API communication.
+5. Complete production Cloudflare-to-Render communication checks.
 6. Validate PostgreSQL migrations and production data integrity.
 7. Complete responsive UI QA across phone, tablet and desktop widths.
-8. Fix production defects discovered during pilot testing.
-9. Improve operational reporting and school administration workflows.
-10. Prepare a controlled pilot with a real school.
-11. Capture pilot feedback before broad commercial deployment.
+8. Fix defects discovered during controlled pilot testing.
+9. Improve operational reporting, support tooling and school administration workflows.
+10. Run a controlled real-school pilot.
+11. Capture pilot feedback before broader commercial deployment.
 
 ## Product Roadmap
 
@@ -594,6 +621,7 @@ Priority order:
 ### Phase 2 — Academic Engine
 
 - [x] Academic sessions and terms
+- [x] Custom academic term names
 - [x] Classes and sections
 - [x] Subjects
 - [x] Student enrollment
@@ -608,12 +636,14 @@ Priority order:
 - [x] Teacher academic workspace
 - [x] Teacher operational workflows
 - [x] Teacher-facing academic UI
+- [x] Teacher/profile consistency controls
 
 ### Phase 4 — School Operations
 
 - [x] Finance administration foundation
 - [x] Parent portal
 - [x] Student portal
+- [x] Guardian relationship management
 - [x] Communication center
 - [x] Platform operations monitoring
 - [x] School self-onboarding and platform approval
@@ -631,11 +661,20 @@ Priority order:
 - [x] School-branded report cards and report headers
 - [x] School logo upload route and Cloudflare multipart proxy support
 - [x] Production school-logos storage bucket configuration
-- [ ] Complete Render server-side storage secret verification
+- [x] Cross-school isolation audit and hardening
+- [x] Teacher/parent profile consistency hardening
+- [x] Parent identifier uniqueness
+- [x] Guardian lifecycle and primary-guardian hardening
+- [x] Financial integrity audit and hardening
+- [x] Manual payment trust-boundary enforcement
+- [x] Provider payment verification service boundary
+- [x] Production finance smoke-test alignment
+- [x] CI/security/production-QA regression gates
+- [ ] Verify latest Render deployment and live finance behavior
 - [ ] Complete end-to-end school logo upload QA
 - [ ] Complete role-by-role production QA
-- [ ] Complete multi-school isolation QA
-- [ ] Complete pilot readiness review
+- [ ] Complete representative multi-school isolation QA
+- [ ] Complete controlled pilot readiness review
 
 ### Phase 6 — Commercial Expansion
 
@@ -645,6 +684,7 @@ Priority order:
 - [ ] Advanced reporting
 - [ ] Support and maintenance processes
 - [ ] Product analytics
+- [ ] Performance/scaling validation
 - [ ] Broader commercial rollout
 
 ## Project Structure
@@ -674,40 +714,60 @@ Priority order:
 
 ## Project Status
 
-**Status: Active development — production hardening, tenant branding and pilot preparation**
+**Status: Active development — production hardening, pilot preparation, and operational verification**
 
 The project has progressed from a user-management backend into a substantial multi-tenant school-management platform.
 
-The major product domains are now represented in the codebase. The current challenge is **not simply adding more modules**; it is making the existing modules reliable enough to operate together in a real school environment.
+The major product domains are represented in the codebase. The current challenge is **not simply adding more modules**; it is making the existing modules reliable enough to operate together in real schools.
 
-The immediate product goal is therefore:
+The immediate product goal is:
 
 > **Stabilize → verify → pilot → learn → harden → commercialize.**
 
-### Latest verified development checkpoint — 24 September 2026
+### Latest verified development checkpoint — 29 September 2026
 
-- PR #165: school logo upload through Cloudflare was merged.
-- PR #166: dedicated school login and school registration routing was merged.
-- PR #167: school-wide tenant branding and branded reports was merged.
-- Production authentication fixes remain part of the current stable platform foundation.
-- Supabase school-logos storage is configured for public school-logo delivery with a 2 MB image limit.
-- Render production configuration has been updated with the Supabase project URL.
-- End-to-end logo upload verification remains pending final server-side secret verification and deployment validation.
+Recent production-hardening work has included:
 
+- Cross-school tenant-isolation audit across core academic, student, finance, guardian and portal domains.
+- Database-level protection for selected public-content tables.
+- Academic-session restrictions for financial operations.
+- Flexible/custom academic term names.
+- Financial reporting and payment-state hardening.
+- Payment concurrency and duplicate-reference protection.
+- Active-enrollment and school/session validation for financial operations.
+- Teacher and parent profile consistency fixes.
+- Parent identifier uniqueness within a school.
+- Role-change protection for teacher/parent profile integrity.
+- Guardian-link lifecycle hardening.
+- Active-parent authorization for guardian access.
+- One-active-primary-guardian database protection.
+- Manual payment trust-boundary enforcement.
+- Verified-provider payment service boundary.
+- Production finance smoke-test alignment.
+- Repeated successful Go, backend, security and production-QA CI gates.
+- Review and cleanup of obsolete historical pull requests.
+- PR #214 merged into main after all final CI gates passed.
+
+Latest finance hardening merge:
+
+    525e87d7ef190788d93097883f44999e79e0ee9b
+
+The current platform state is best described as **production-hardened pilot preparation**. The next major proof point is controlled real-school usage rather than another large architectural rewrite.
 
 ## Roadmap Summary
 
     Platform Administration       ██████████  Established
     Multi-Tenant Architecture     ██████████  Established
-    Authentication & Security     ██████████  Established
+    Authentication & Security     ██████████  Hardened
     Academic Management            ██████████  Established
     Teacher Workflows              ██████████  Established
-    Finance Foundation             █████████░  Established
+    Finance Foundation             ██████████  Hardened
     Parent & Student Portals       █████████░  Established
+    Guardian Management             █████████░  Hardened
     Communication Center           █████████░  Established
     Production Infrastructure      █████████░  Established
-    Production QA / Hardening      ██████░░░░  In progress
-    Real-School Pilot              ██░░░░░░░░  Next
+    Production QA / Hardening      █████████░  Advanced
+    Real-School Pilot              ███░░░░░░░  Next
     Commercial SaaS                ░░░░░░░░░░  Future
 
 ## Author

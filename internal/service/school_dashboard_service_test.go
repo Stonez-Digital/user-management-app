@@ -101,7 +101,10 @@ func TestSchoolDashboardFinanceReportingIsolatesSessionTermSchoolAndPaymentStatu
     if err != nil { t.Fatal(err) }
     if err = db.AutoMigrate(
         &models.School{}, &models.User{}, &models.Student{}, &models.AcademicSession{}, &models.Term{},
-        &models.StudentEnrollment{}, &models.Invoice{}, &models.InvoiceLine{}, &models.Payment{},
+        &models.StudentEnrollment{}, &models.SchoolClass{}, &models.Section{}, &models.Subject{},
+        &models.TeacherAssignment{}, &models.AttendanceRecord{}, &models.Invoice{}, &models.InvoiceLine{},
+        &models.Payment{}, &models.Assessment{}, &models.AssessmentResult{}, &models.AuditLog{},
+        &models.GuardianRelationship{},
     ); err != nil { t.Fatal(err) }
 
     schoolA := models.School{Name: "Finance A", Code: "FA", Status: models.SchoolStatusActive}

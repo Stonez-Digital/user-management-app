@@ -4,6 +4,7 @@ import (
     "encoding/json"
     "errors"
     "fmt"
+    "math"
     "strings"
     "time"
     "github.com/google/uuid"
@@ -69,7 +70,11 @@ func(s *FinanceService)CreateInvoice(schoolID uuid.UUID,v models.Invoice,lines [
     var total float64
     for _,in:=range lines{
         if in.Quantity<=0||in.UnitAmount<=0||strings.TrimSpace(in.Description)==""{return v,ErrInvoiceInvalid}
-        if in.FeeItemID!=nil{var fee models.FeeItem;if e:=s.db.Where("id = ? AND school_id = ? AND term_id = ? AND active = ?",*in.FeeItemID,schoolID,v.TermID,true).First(&fee).Error;e!=nil{return v,ErrInvoiceInvalid}}
+        if in.FeeItemID!=nil{
+            var fee models.FeeItem
+            if e:=s.db.Where("id = ? AND school_id = ? AND term_id = ? AND active = ?",*in.FeeItemID,schoolID,v.TermID,true).First(&fee).Error;e!=nil{return v,ErrInvoiceInvalid}
+            if math.Abs(in.UnitAmount-fee.Amount)>0.000001{return v,ErrInvoiceInvalid}
+        }
         total+=in.Quantity*in.UnitAmount
     }
     if total<=0{return v,ErrInvoiceInvalid};v.TotalAmount=total;v.Balance=total
@@ -93,6 +98,18 @@ func(s *FinanceService)CreatePayment(schoolID uuid.UUID,v models.Payment)(models
         var invoice models.Invoice
         if e:=tx.Clauses(clause.Locking{Strength:"UPDATE"}).Where("id = ? AND school_id = ?",v.InvoiceID,schoolID).First(&invoice).Error;e!=nil{if errors.Is(e,gorm.ErrRecordNotFound){return ErrInvoiceNotFound};return e}
         if invoice.Status==models.InvoiceStatusCancelled||invoice.Balance<=0{return ErrPaymentInvalid}
+        var enrollment models.StudentEnrollment
+        if e:=tx.Where("id = ? AND school_id = ?",invoice.StudentEnrollmentID,schoolID).First(&enrollment).Error;e!=nil{
+            if errors.Is(e,gorm.ErrRecordNotFound){return ErrInvoiceEnrollmentMissing}
+            return e
+        }
+        if enrollment.Status!=models.EnrollmentStatusActive{return ErrPaymentInvalid}
+        var session models.AcademicSession
+        if e:=tx.Where("id = ? AND school_id = ?",enrollment.AcademicSessionID,schoolID).First(&session).Error;e!=nil{
+            if errors.Is(e,gorm.ErrRecordNotFound){return ErrInvoiceEnrollmentMissing}
+            return e
+        }
+        if session.Status==models.AcademicStatusClosed||session.Status==models.AcademicStatusArchived{return ErrPaymentInvalid}
         var existing models.Payment
         if e:=tx.Where("reference = ?",v.Reference).First(&existing).Error;e==nil{return ErrPaymentDuplicate}else if !errors.Is(e,gorm.ErrRecordNotFound){return e}
         if v.Status==models.PaymentStatusSucceeded{if v.Amount>invoice.Balance+0.000001{return ErrPaymentExceedsBalance};if v.PaidAt==nil{now:=time.Now().UTC();v.PaidAt=&now}}

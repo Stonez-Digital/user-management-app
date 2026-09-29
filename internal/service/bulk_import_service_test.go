@@ -109,3 +109,13 @@ func TestBulkParentValidationAllowsIdentifierOrPhoneWithoutEmail(t *testing.T) {
   if len(errs)!=0||valid!=1{t.Fatalf("case %d: expected parent row without email to validate, got errors=%v valid=%d",i+1,errs,valid)}
  }
 }
+
+func TestBulkParentRejectsDuplicateIdentifier(t *testing.T) {
+ db:=bulkTestDB(t);schoolID:=uuid.New();actor:=uuid.New()
+ existing:=models.User{ID:uuid.New(),Name:"Existing Parent",Email:"existing-parent@example.com",Role:"parent",Active:true,SchoolID:&schoolID};if e:=db.Create(&existing).Error;e!=nil{t.Fatal(e)}
+ if e:=db.Create(&models.ParentProfile{ID:uuid.New(),SchoolID:schoolID,UserID:existing.ID,ParentIdentifier:"p-010"}).Error;e!=nil{t.Fatal(e)}
+ rb,_:=json.Marshal([]BulkRow{{"name":"New Parent","email":"new-parent@example.com","parent_identifier":" P-010 "}})
+ job:=models.BulkImportJob{ID:uuid.New(),SchoolID:schoolID,InitiatedBy:actor,Kind:"parents",Status:models.BulkImportPending,Total:1,RowsJSON:string(rb)};if e:=db.Create(&job).Error;e!=nil{t.Fatal(e)}
+ NewBulkImportService(db,nil).run(job);var got models.BulkImportJob;if e:=db.First(&got,job.ID).Error;e!=nil{t.Fatal(e)}
+ if got.Failed!=1||got.Created!=0{t.Fatalf("expected duplicate identifier to fail, got failed=%d created=%d",got.Failed,got.Created)}
+}

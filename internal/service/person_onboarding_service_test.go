@@ -65,3 +65,10 @@ func TestPersonOnboardingRejectsDuplicateTeacherStaffID(t *testing.T) {
  _,e:=svc.Onboard(school.ID,PersonOnboardingRequest{Name:"Teacher One",Email:"teacher-g1@example.com",Password:"password123",Role:"teacher",StaffID:"T-007"});if e!=nil{t.Fatal(e)}
  _,e=svc.Onboard(school.ID,PersonOnboardingRequest{Name:"Teacher Two",Email:"teacher-g2@example.com",Password:"password123",Role:"teacher",StaffID:"T-007"});if e!=ErrOnboardingTeacherProfileExists{t.Fatalf("expected duplicate staff error, got %v",e)}
 }
+
+func TestPersonOnboardingRejectsDuplicateParentIdentifier(t *testing.T) {
+ db:=onboardingTestDB(t);school:=models.School{Name:"School A",Code:"ONB-H",Status:models.SchoolStatusActive};if e:=db.Create(&school).Error;e!=nil{t.Fatal(e)}
+ svc:=NewPersonOnboardingService(db)
+ _,e:=svc.Onboard(school.ID,PersonOnboardingRequest{Name:"Parent One",Email:"parent-h1@example.com",Password:"password123",Role:"parent",ParentIdentifier:"P-009"});if e!=nil{t.Fatal(e)}
+ _,e=svc.Onboard(school.ID,PersonOnboardingRequest{Name:"Parent Two",Email:"parent-h2@example.com",Password:"password123",Role:"parent",ParentIdentifier:" p-009 "});if e!=ErrOnboardingParentIdentifierExists{t.Fatalf("expected duplicate parent identifier error, got %v",e)}
+}

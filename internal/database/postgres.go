@@ -572,6 +572,17 @@ func Migrate(db *gorm.DB) error {
             }
             return nil
         }},
+        {Version:33,Name:"unique_school_parent_identifiers",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+
+            var duplicate int
+            if err:=tx.Raw("SELECT 1 FROM parent_profiles WHERE trim(coalesce(parent_identifier,'')) <> '' GROUP BY school_id,lower(trim(parent_identifier)) HAVING COUNT(*)>1 LIMIT 1").Scan(&duplicate).Error;err!=nil{return err}
+            if duplicate!=0{return fmt.Errorf("cannot apply parent identifier uniqueness: duplicate identifiers exist within a school")}
+
+            if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_school_parent_identifier ON parent_profiles(school_id,lower(trim(parent_identifier))) WHERE trim(coalesce(parent_identifier,'')) <> ''").Error;err!=nil{return fmt.Errorf("create parent identifier uniqueness index: %w",err)}
+            return nil
+        }},
+
 
     }
     for _,migration:=range migrations{

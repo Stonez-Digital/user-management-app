@@ -442,6 +442,33 @@ func (ac *AuthController) AssignRole(c *gin.Context) {
 
     previousRole := target.Role
     err = ac.DB.Transaction(func(tx *gorm.DB) error {
+        var teacherProfile models.TeacherProfile
+        teacherProfileErr := tx.Where("school_id = ? AND user_id = ?", schoolID, target.ID).First(&teacherProfile).Error
+        if teacherProfileErr != nil && !errors.Is(teacherProfileErr, gorm.ErrRecordNotFound) {
+            return teacherProfileErr
+        }
+        hasTeacherProfile := teacherProfileErr == nil
+
+        var parentProfile models.ParentProfile
+        parentProfileErr := tx.Where("school_id = ? AND user_id = ?", schoolID, target.ID).First(&parentProfile).Error
+        if parentProfileErr != nil && !errors.Is(parentProfileErr, gorm.ErrRecordNotFound) {
+            return parentProfileErr
+        }
+        hasParentProfile := parentProfileErr == nil
+
+        if hasTeacherProfile && req.Role != authz.RoleTeacher {
+            return service.ErrRoleProfileMismatch
+        }
+        if hasParentProfile && req.Role != authz.RoleParent {
+            return service.ErrRoleProfileMismatch
+        }
+        if req.Role == authz.RoleTeacher && !hasTeacherProfile {
+            return service.ErrRoleProfileMismatch
+        }
+        if req.Role == authz.RoleParent && !hasParentProfile {
+            return service.ErrRoleProfileMismatch
+        }
+
         if err := tx.Model(&target).Update("role", req.Role).Error; err != nil {
             return err
         }
@@ -456,6 +483,10 @@ func (ac *AuthController) AssignRole(c *gin.Context) {
         }
         return tx.Create(&audit).Error
     })
+    if errors.Is(err, service.ErrRoleProfileMismatch) {
+        httpx.Error(c, http.StatusConflict, "role_profile_mismatch", "role change would leave the user role inconsistent with an existing role-specific profile; update the profile first")
+        return
+    }
     if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to change role"})
         return

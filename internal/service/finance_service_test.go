@@ -113,3 +113,44 @@ func TestCreatePaymentRejectsInactiveEnrollmentAndUnavailableSession(t *testing.
         if e:=db.Model(&models.AcademicSession{}).Where("id = ?",enrollment.AcademicSessionID).Update("status",models.AcademicStatusActive).Error;e!=nil{t.Fatal(e)}
     }
 }
+
+
+type financeTestProvider struct{ name string; verification PaymentVerification; err error }
+func(p financeTestProvider)Name()string{return p.name}
+func(p financeTestProvider)Verify(reference string)(PaymentVerification,error){return p.verification,p.err}
+
+func TestCreatePaymentRejectsUnverifiedProviderSuccess(t *testing.T){
+    db:=financeTestDB(t)
+    schoolID,term,enrollment:=financeFixture(t,db,"TRUST")
+    svc:=NewFinanceService(repository.NewFeeItemRepository(db),repository.NewInvoiceRepository(db),repository.NewPaymentRepository(db),db)
+    invoice,e:=svc.CreateInvoice(schoolID,models.Invoice{StudentEnrollmentID:enrollment.ID,TermID:term.ID,DueDate:time.Date(2026,11,30,0,0,0,0,time.UTC)},[]InvoiceLineInput{{Description:"Manual charge",Quantity:1,UnitAmount:50000}})
+    if e!=nil{t.Fatal(e)}
+    for _,p:=range []string{"paystack","flutterwave"}{
+        if _,e=svc.CreatePayment(schoolID,models.Payment{InvoiceID:invoice.ID,Amount:1000,Provider:p,Reference:"UNVERIFIED-"+p,Status:models.PaymentStatusSucceeded});e!=ErrPaymentInvalid{t.Fatalf("expected unverified %s payment to be rejected, got %v",p,e)}
+    }
+}
+
+func TestCreateVerifiedPaymentRequiresProviderVerification(t *testing.T){
+    db:=financeTestDB(t)
+    schoolID,term,enrollment:=financeFixture(t,db,"VERIFY")
+    svc:=NewFinanceService(repository.NewFeeItemRepository(db),repository.NewInvoiceRepository(db),repository.NewPaymentRepository(db),db)
+    invoice,e:=svc.CreateInvoice(schoolID,models.Invoice{StudentEnrollmentID:enrollment.ID,TermID:term.ID,DueDate:time.Date(2026,11,30,0,0,0,0,time.UTC)},[]InvoiceLineInput{{Description:"Verified charge",Quantity:1,UnitAmount:50000}})
+    if e!=nil{t.Fatal(e)}
+    paidAt:=time.Date(2026,9,29,12,0,0,0,time.UTC)
+    p:=financeTestProvider{name:"paystack",verification:PaymentVerification{Reference:"PS-001",Amount:20000,Status:"succeeded",PaidAt:paidAt,Metadata:map[string]interface{}{"verified":true}}}
+    payment,e:=svc.CreateVerifiedPayment(schoolID,invoice.ID,p,"PS-001")
+    if e!=nil{t.Fatal(e)}
+    if payment.Provider!="paystack"||payment.Reference!="PS-001"||payment.Amount!=20000||payment.Status!=models.PaymentStatusSucceeded{t.Fatalf("unexpected verified payment: %+v",payment)}
+    updated,e:=svc.GetInvoice(schoolID,invoice.ID);if e!=nil{t.Fatal(e)}
+    if updated.PaidAmount!=20000||updated.Balance!=30000||updated.Status!=models.InvoiceStatusPartiallyPaid{t.Fatalf("unexpected verified invoice state: paid=%v balance=%v status=%s",updated.PaidAmount,updated.Balance,updated.Status)}
+}
+
+func TestCreateVerifiedPaymentRejectsMismatchedVerification(t *testing.T){
+    db:=financeTestDB(t)
+    schoolID,term,enrollment:=financeFixture(t,db,"VERIFY-MISMATCH")
+    svc:=NewFinanceService(repository.NewFeeItemRepository(db),repository.NewInvoiceRepository(db),repository.NewPaymentRepository(db),db)
+    invoice,e:=svc.CreateInvoice(schoolID,models.Invoice{StudentEnrollmentID:enrollment.ID,TermID:term.ID,DueDate:time.Date(2026,11,30,0,0,0,0,time.UTC)},[]InvoiceLineInput{{Description:"Verified charge",Quantity:1,UnitAmount:50000}})
+    if e!=nil{t.Fatal(e)}
+    p:=financeTestProvider{name:"paystack",verification:PaymentVerification{Reference:"OTHER",Amount:20000,Status:"failed"}}
+    if _,e=svc.CreateVerifiedPayment(schoolID,invoice.ID,p,"PS-002");e!=ErrPaymentInvalid{t.Fatalf("expected mismatched provider verification to fail, got %v",e)}
+}

@@ -125,4 +125,12 @@ func(s *FinanceService)CreatePayment(schoolID uuid.UUID,v models.Payment)(models
     })
     if err!=nil{return v,err};return v,nil
 }
+func(s *FinanceService)CreateVerifiedPayment(schoolID,invoiceID uuid.UUID,p PaymentProvider,reference string)(models.Payment,error){
+    if schoolID==uuid.Nil||invoiceID==uuid.Nil||p==nil||strings.TrimSpace(reference)==""{return models.Payment{},ErrPaymentInvalid}
+    verification,e:=p.Verify(reference);if e!=nil{return models.Payment{},ErrPaymentInvalid}
+    if !strings.EqualFold(strings.TrimSpace(verification.Reference),strings.TrimSpace(reference))||verification.Amount<=0||verification.Status!="succeeded"{return models.Payment{},ErrPaymentInvalid}
+    metadata:=""
+    if verification.Metadata!=nil{b,e:=json.Marshal(verification.Metadata);if e!=nil{return models.Payment{},ErrPaymentInvalid};metadata=string(b)}
+    return s.CreatePayment(schoolID,models.Payment{InvoiceID:invoiceID,Amount:verification.Amount,Provider:p.Name(),Reference:verification.Reference,Status:models.PaymentStatusSucceeded,PaidAt:&verification.PaidAt,Metadata:metadata})
+}
 func(s *FinanceService)ListPayments(schoolID,invoiceID uuid.UUID)([]models.Payment,error){if _,e:=s.GetInvoice(schoolID,invoiceID);e!=nil{return nil,e};return s.payments.ListByInvoice(schoolID,invoiceID)}

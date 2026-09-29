@@ -555,6 +555,24 @@ func Migrate(db *gorm.DB) error {
             return nil
         }},
 
+        {Version:32,Name:"harden_public_school_content_tenant_isolation",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+            tables:=[]string{"blog_posts","blog_categories","gallery_albums","gallery_images","school_advertisements"}
+            roles:=[]string{"anon","authenticated"}
+            for _,table:=range tables {
+                if err:=tx.Exec("ALTER TABLE "+table+" ENABLE ROW LEVEL SECURITY").Error;err!=nil{return err}
+                if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM public").Error;err!=nil{return err}
+                for _,role:=range roles {
+                    var exists bool
+                    if err:=tx.Raw("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)",role).Scan(&exists).Error;err!=nil{return err}
+                    if exists {
+                        if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM "+role).Error;err!=nil{return err}
+                    }
+                }
+            }
+            return nil
+        }},
+
     }
     for _,migration:=range migrations{
         var applied Migration

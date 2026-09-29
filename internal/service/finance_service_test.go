@@ -47,6 +47,17 @@ func TestFinanceInvoiceAndPaymentWorkflow(t *testing.T){
     if updated.PaidAmount!=50000||updated.Balance!=0||updated.Status!=models.InvoiceStatusPaid{t.Fatalf("unexpected paid state: paid=%v balance=%v status=%s",updated.PaidAmount,updated.Balance,updated.Status)}
 }
 
+func TestCreateInvoiceRejectsUnavailableAcademicSession(t *testing.T){
+    db:=financeTestDB(t)
+    schoolID,term,enrollment:=financeFixture(t,db,"SESSION")
+    svc:=NewFinanceService(repository.NewFeeItemRepository(db),repository.NewInvoiceRepository(db),repository.NewPaymentRepository(db),db)
+    for _,status:=range []string{models.AcademicStatusClosed,models.AcademicStatusArchived}{
+        if e:=db.Model(&models.AcademicSession{}).Where("id = ?",enrollment.AcademicSessionID).Update("status",status).Error;e!=nil{t.Fatal(e)}
+        if _,e:=svc.CreateInvoice(schoolID,models.Invoice{StudentEnrollmentID:enrollment.ID,TermID:term.ID,DueDate:time.Date(2026,11,30,0,0,0,0,time.UTC)},[]InvoiceLineInput{{Description:"Tuition",Quantity:1,UnitAmount:50000}});e!=ErrInvoiceInvalid{t.Fatalf("expected invoice rejection for %s session, got %v",status,e)}
+        if e:=db.Model(&models.AcademicSession{}).Where("id = ?",enrollment.AcademicSessionID).Update("status",models.AcademicStatusActive).Error;e!=nil{t.Fatal(e)}
+    }
+}
+
 func TestFinanceSchoolIsolation(t *testing.T){
     db:=financeTestDB(t)
     schoolA,termA,enrollmentA:=financeFixture(t,db,"A")

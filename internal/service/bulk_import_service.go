@@ -109,6 +109,7 @@ func(s *BulkImportService)createUser(tx *gorm.DB,schoolID uuid.UUID,name,email,r
  var u models.User
  if e:=tx.Where("LOWER(email)=?",email).First(&u).Error;e==nil {
   if u.SchoolID==nil || *u.SchoolID!=schoolID{return u,"",false,fmt.Errorf("email %q already belongs to another tenant",email)}
+  if u.Role!=role{return u,"",false,fmt.Errorf("email %q already belongs to a user with role %q",email,u.Role)}
   return u,"",false,nil
  } else if !errors.Is(e,gorm.ErrRecordNotFound){return u,"",false,e}
  password,e:=GenerateTemporaryPassword();if e!=nil{return u,"",false,e}

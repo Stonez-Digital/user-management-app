@@ -5,6 +5,7 @@ import(
  "strings"
  "testing"
  "github.com/google/uuid"
+ "github.com/onoja217/users-management-app/internal/authz"
  "gorm.io/driver/sqlite"
  "gorm.io/gorm"
  "github.com/onoja217/users-management-app/internal/models"
@@ -65,4 +66,31 @@ func TestRunPersistsSkippedCountForExistingParent(t *testing.T) {
  var got models.BulkImportJob
  if e:=db.First(&got,job.ID).Error;e!=nil{t.Fatal(e)}
  if got.Skipped!=1||got.Created!=0||got.Failed!=0{t.Fatalf("expected skipped=1 created=0 failed=0, got skipped=%d created=%d failed=%d",got.Skipped,got.Created,got.Failed)}
+}
+
+func TestBulkParentRepairsMissingProfileForExistingUser(t *testing.T) {
+ db:=bulkTestDB(t)
+ schoolID:=uuid.New()
+ actor:=uuid.New()
+ user:=models.User{ID:uuid.New(),Name:"Existing Parent",Email:"repair-parent@example.com",Role:"parent",Active:true,SchoolID:&schoolID}
+ if e:=db.Create(&user).Error;e!=nil{t.Fatal(e)}
+ rb,_:=json.Marshal([]BulkRow{{"name":"Existing Parent","email":"repair-parent@example.com","parent_identifier":"P-REPAIR","phone":"08000000000"}})
+ job:=models.BulkImportJob{ID:uuid.New(),SchoolID:schoolID,InitiatedBy:actor,Kind:"parents",Status:models.BulkImportPending,Total:1,RowsJSON:string(rb)}
+ if e:=db.Create(&job).Error;e!=nil{t.Fatal(e)}
+ NewBulkImportService(db,nil).run(job)
+ var profile models.ParentProfile
+ if e:=db.Where("user_id=? AND school_id=?",user.ID,schoolID).First(&profile).Error;e!=nil{t.Fatalf("expected missing parent profile to be repaired: %v",e)}
+ if profile.ParentIdentifier!="p-repair"||profile.Phone!="08000000000"{t.Fatalf("unexpected repaired profile: %+v",profile)}
+}
+
+func TestBulkCreateUserRejectsExistingUserWithDifferentRole(t *testing.T) {
+ db:=bulkTestDB(t)
+ schoolID:=uuid.New()
+ user:=models.User{ID:uuid.New(),Name:"Existing Student",Email:"role-conflict@example.com",Role:"student",Active:true,SchoolID:&schoolID}
+ if e:=db.Create(&user).Error;e!=nil{t.Fatal(e)}
+ svc:=NewBulkImportService(db,nil)
+ if _,_,_,e:=svc.createUser(db,schoolID,"Teacher","role-conflict@example.com",authz.RoleTeacher);e==nil||!strings.Contains(e.Error(),"role"){t.Fatalf("expected role mismatch rejection, got %v",e)}
+ var profiles int64
+ db.Model(&models.TeacherProfile{}).Where("user_id=?",user.ID).Count(&profiles)
+ if profiles!=0{t.Fatalf("expected no teacher profile, got %d",profiles)}
 }

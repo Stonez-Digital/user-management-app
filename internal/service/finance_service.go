@@ -88,11 +88,11 @@ func(s *FinanceService)CreateInvoice(schoolID uuid.UUID,v models.Invoice,lines [
 func(s *FinanceService)ListInvoices(schoolID,sessionID,termID uuid.UUID)([]models.Invoice,error){rows,e:=s.invoices.List(schoolID);if e!=nil{return nil,e};out:=make([]models.Invoice,0,len(rows));for _,r:=range rows{if r.TermID==termID&&r.Term.AcademicSessionID==sessionID{out=append(out,r)}};return out,nil}
 func(s *FinanceService)GetInvoice(schoolID,id uuid.UUID)(models.Invoice,error){v,e:=s.invoices.Get(schoolID,id);if errors.Is(e,gorm.ErrRecordNotFound){return v,ErrInvoiceNotFound};return v,e}
 
-func(s *FinanceService)CreatePayment(schoolID uuid.UUID,v models.Payment)(models.Payment,error){
+func(s *FinanceService)CreatePayment(schoolID uuid.UUID,v models.Payment)(models.Payment,error){\n    return s.createPayment(schoolID,v,true)\n}\n\nfunc(s *FinanceService)createPayment(schoolID uuid.UUID,v models.Payment,manualOnly bool)(models.Payment,error){
     // This endpoint is intentionally the manual-payment path. Provider payments
     // must be created only after server-side provider verification.
     if schoolID==uuid.Nil||v.InvoiceID==uuid.Nil||v.Amount<=0||strings.TrimSpace(v.Reference)==""{return v,ErrPaymentInvalid}
-    if !strings.EqualFold(strings.TrimSpace(v.Provider),"manual")||v.Status!=models.PaymentStatusSucceeded{return v,ErrPaymentInvalid}
+    if manualOnly && (!strings.EqualFold(strings.TrimSpace(v.Provider),"manual")||v.Status!=models.PaymentStatusSucceeded){return v,ErrPaymentInvalid}
     if v.Metadata!=""{var raw interface{};if json.Unmarshal([]byte(v.Metadata),&raw)!=nil{return v,ErrPaymentInvalid}}
     if v.ReceiptNumber==""{v.ReceiptNumber=fmt.Sprintf("RCT-%s-%s",time.Now().UTC().Format("20060102"),uuid.NewString()[:8])};v.SchoolID=schoolID
     err:=s.db.Transaction(func(tx *gorm.DB)error{
@@ -131,6 +131,6 @@ func(s *FinanceService)CreateVerifiedPayment(schoolID,invoiceID uuid.UUID,p Paym
     if !strings.EqualFold(strings.TrimSpace(verification.Reference),strings.TrimSpace(reference))||verification.Amount<=0||verification.Status!="succeeded"{return models.Payment{},ErrPaymentInvalid}
     metadata:=""
     if verification.Metadata!=nil{b,e:=json.Marshal(verification.Metadata);if e!=nil{return models.Payment{},ErrPaymentInvalid};metadata=string(b)}
-    return s.CreatePayment(schoolID,models.Payment{InvoiceID:invoiceID,Amount:verification.Amount,Provider:p.Name(),Reference:verification.Reference,Status:models.PaymentStatusSucceeded,PaidAt:&verification.PaidAt,Metadata:metadata})
+    return s.createPayment(schoolID,models.Payment{InvoiceID:invoiceID,Amount:verification.Amount,Provider:p.Name(),Reference:verification.Reference,Status:models.PaymentStatusSucceeded,PaidAt:&verification.PaidAt,Metadata:metadata},false)
 }
 func(s *FinanceService)ListPayments(schoolID,invoiceID uuid.UUID)([]models.Payment,error){if _,e:=s.GetInvoice(schoolID,invoiceID);e!=nil{return nil,e};return s.payments.ListByInvoice(schoolID,invoiceID)}

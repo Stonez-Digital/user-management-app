@@ -28,7 +28,7 @@ var (
 )
 
 type PaymentProvider interface { Name() string; Verify(string)(PaymentVerification,error) }
-type PaymentVerification struct { Reference string; Amount float64; Status string; PaidAt time.Time; Metadata map[string]interface{} }
+type PaymentVerification struct { Provider string; Reference string; Amount float64; Status string; PaidAt time.Time; Metadata map[string]interface{} }
 
 type FinanceService struct { fees repository.FeeItemRepository; invoices repository.InvoiceRepository; payments repository.PaymentRepository; db *gorm.DB }
 func NewFinanceService(f repository.FeeItemRepository,i repository.InvoiceRepository,p repository.PaymentRepository,db *gorm.DB)*FinanceService{return &FinanceService{fees:f,invoices:i,payments:p,db:db}}
@@ -89,9 +89,14 @@ func(s *FinanceService)ListInvoices(schoolID,sessionID,termID uuid.UUID)([]model
 func(s *FinanceService)GetInvoice(schoolID,id uuid.UUID)(models.Invoice,error){v,e:=s.invoices.Get(schoolID,id);if errors.Is(e,gorm.ErrRecordNotFound){return v,ErrInvoiceNotFound};return v,e}
 
 func(s *FinanceService)CreatePayment(schoolID uuid.UUID,v models.Payment)(models.Payment,error){
-    if schoolID==uuid.Nil||v.InvoiceID==uuid.Nil||v.Amount<=0||strings.TrimSpace(v.Provider)==""||strings.TrimSpace(v.Reference)==""{return v,ErrPaymentInvalid}
-    if v.Status==""{v.Status=models.PaymentStatusPending}
-    if v.Status!=models.PaymentStatusPending&&v.Status!=models.PaymentStatusSucceeded&&v.Status!=models.PaymentStatusFailed&&v.Status!=models.PaymentStatusRefunded{return v,ErrPaymentInvalid}
+    return s.createPayment(schoolID,v,true)
+}
+
+func(s *FinanceService)createPayment(schoolID uuid.UUID,v models.Payment,manualOnly bool)(models.Payment,error){
+    // This endpoint is intentionally the manual-payment path. Provider payments
+    // must be created only after server-side provider verification.
+    if schoolID==uuid.Nil||v.InvoiceID==uuid.Nil||v.Amount<=0||strings.TrimSpace(v.Reference)==""{return v,ErrPaymentInvalid}
+    if manualOnly && (!strings.EqualFold(strings.TrimSpace(v.Provider),"manual")||v.Status!=models.PaymentStatusSucceeded){return v,ErrPaymentInvalid}
     if v.Metadata!=""{var raw interface{};if json.Unmarshal([]byte(v.Metadata),&raw)!=nil{return v,ErrPaymentInvalid}}
     if v.ReceiptNumber==""{v.ReceiptNumber=fmt.Sprintf("RCT-%s-%s",time.Now().UTC().Format("20060102"),uuid.NewString()[:8])};v.SchoolID=schoolID
     err:=s.db.Transaction(func(tx *gorm.DB)error{
@@ -123,5 +128,13 @@ func(s *FinanceService)CreatePayment(schoolID uuid.UUID,v models.Payment)(models
         };return nil
     })
     if err!=nil{return v,err};return v,nil
+}
+func(s *FinanceService)CreateVerifiedPayment(schoolID,invoiceID uuid.UUID,p PaymentProvider,reference string)(models.Payment,error){
+    if schoolID==uuid.Nil||invoiceID==uuid.Nil||p==nil||strings.TrimSpace(reference)==""{return models.Payment{},ErrPaymentInvalid}
+    verification,e:=p.Verify(reference);if e!=nil{return models.Payment{},ErrPaymentInvalid}
+    if !strings.EqualFold(strings.TrimSpace(verification.Reference),strings.TrimSpace(reference))||verification.Amount<=0||verification.Status!="succeeded"{return models.Payment{},ErrPaymentInvalid}
+    metadata:=""
+    if verification.Metadata!=nil{b,e:=json.Marshal(verification.Metadata);if e!=nil{return models.Payment{},ErrPaymentInvalid};metadata=string(b)}
+    return s.createPayment(schoolID,models.Payment{InvoiceID:invoiceID,Amount:verification.Amount,Provider:p.Name(),Reference:verification.Reference,Status:models.PaymentStatusSucceeded,PaidAt:&verification.PaidAt,Metadata:metadata},false)
 }
 func(s *FinanceService)ListPayments(schoolID,invoiceID uuid.UUID)([]models.Payment,error){if _,e:=s.GetInvoice(schoolID,invoiceID);e!=nil{return nil,e};return s.payments.ListByInvoice(schoolID,invoiceID)}

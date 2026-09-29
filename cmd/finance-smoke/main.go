@@ -64,7 +64,7 @@ func main() {
     _, err = finance.CreatePayment(schoolID, models.Payment{
         InvoiceID: created.ID,
         Amount:    50000,
-        Provider:  "smoke",
+        Provider:  "manual",
         Reference: "FINANCE-SMOKE-" + uuid.NewString(),
         Status:    models.PaymentStatusSucceeded,
     })
@@ -80,7 +80,7 @@ func main() {
         _, err = finance.CreatePayment(schoolID, models.Payment{
             InvoiceID: created.ID,
             Amount:    1,
-            Provider:  "smoke",
+            Provider:  "manual",
             Reference: "FINANCE-SMOKE-" + uuid.NewString(),
             Status:    models.PaymentStatusSucceeded,
         })
@@ -103,7 +103,7 @@ func main() {
         _, err = finance.CreatePayment(schoolID, models.Payment{
             InvoiceID: created.ID,
             Amount:    1,
-            Provider:  "smoke",
+            Provider:  "manual",
             Reference: "FINANCE-SMOKE-" + uuid.NewString(),
             Status:    models.PaymentStatusSucceeded,
         })

@@ -44,8 +44,8 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     if err := db.Model(&Migration{}).Count(&migrationCount).Error; err != nil {
         t.Fatal(err)
     }
-    if migrationCount != 34 {
-        t.Fatalf("expected 34 migrations, got %d", migrationCount)
+    if migrationCount != 35 {
+        t.Fatalf("expected 35 migrations, got %d", migrationCount)
     }
     var slugIndexDef string
     if err := db.Raw("SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uq_schools_slug'").Scan(&slugIndexDef).Error; err != nil { t.Fatal(err) }
@@ -54,7 +54,6 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     var classIndexDef string
     if err := db.Raw("SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uq_school_class_name'").Scan(&classIndexDef).Error; err != nil { t.Fatal(err) }
     if !strings.Contains(strings.ToLower(classIndexDef), "lower(") && strings.Contains(strings.ToLower(classIndexDef), "name") || !strings.Contains(strings.ToLower(classIndexDef), "school_id") { t.Fatalf("expected school-scoped case-insensitive class-name index, got %q", classIndexDef) }
-
 
     var activeEnrollmentIndex string
     if err := db.Raw("SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uq_active_student_enrollment'").Scan(&activeEnrollmentIndex).Error; err != nil { t.Fatal(err) }
@@ -74,7 +73,7 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
             'teacher_assignments','assessments','assessment_results',
             'fee_items','invoices','invoice_lines','payments',
             'timetable_entries','guardian_relationships','announcements',
-            'notifications'
+            'notifications','class_subjects'
           )
     `).Scan(&nullable).Error; err != nil {
         t.Fatal(err)
@@ -93,8 +92,28 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     `).Scan(&fkCount).Error; err != nil {
         t.Fatal(err)
     }
-    if fkCount < 36 {
+    if fkCount < 37 {
         t.Fatalf("expected composite tenant foreign keys, found %d", fkCount)
+    }
+
+    var classSubjectIndexDef string
+    if err := db.Raw("SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uq_school_class_subject'").Scan(&classSubjectIndexDef).Error; err != nil { t.Fatal(err) }
+    classSubjectIndex := strings.ToLower(classSubjectIndexDef)
+    if !strings.Contains(classSubjectIndex, "school_id") || !strings.Contains(classSubjectIndex, "academic_session_id") || !strings.Contains(classSubjectIndex, "class_id") || !strings.Contains(classSubjectIndex, "subject_id") || !strings.Contains(classSubjectIndex, "curriculum_version") {
+        t.Fatalf("expected school/session/class/subject/curriculum unique index, got %q", classSubjectIndexDef)
+    }
+
+    var legacyIndexCount int64
+    if err := db.Raw(`
+        SELECT COUNT(*)
+        FROM pg_indexes
+        WHERE schemaname = current_schema()
+          AND indexname IN ('subjects_code_key','subjects_name_key')
+    `).Scan(&legacyIndexCount).Error; err != nil {
+        t.Fatal(err)
+    }
+    if legacyIndexCount != 0 {
+        t.Fatalf("expected legacy global subject indexes to be removed, found %d", legacyIndexCount)
     }
 
     var first, second models.School

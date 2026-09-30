@@ -82,13 +82,16 @@ export default function CurriculumPage() {
       for (const item of selectedClass.subjects.filter(v => v.active)) {
         let subject = currentSubjects.find(v => v.code.toUpperCase() === item.code.toUpperCase());
         if (!subject) {
-          subject = await api("/admin/subjects", {
+          const createdSubject = await api("/admin/subjects", {
             method: "POST",
             body: JSON.stringify({ code: item.code, name: item.name, description: "National curriculum subject" }),
-          });
-          currentSubjects.push(subject);
+          }) as Subject;
+          subject = createdSubject;
+          currentSubjects.push(createdSubject);
           createdSubjects++;
         }
+        if (!subject) throw new Error("Unable to resolve school subject");
+
         try {
           await api("/admin/class-subjects", {
             method: "POST",

@@ -592,8 +592,21 @@ func Migrate(db *gorm.DB) error {
         }},
 
         {Version:35,Name:"curriculum_class_subject_applicability",Up:func(tx *gorm.DB) error {
-            if err:=tx.AutoMigrate(&models.ClassSubject{});err!=nil{return err}
             if tx.Dialector.Name()=="postgres" {
+                if err:=tx.Exec(`CREATE TABLE IF NOT EXISTS class_subjects (
+                    id uuid PRIMARY KEY,
+                    school_id uuid NOT NULL,
+                    academic_session_id uuid NOT NULL,
+                    class_id uuid NOT NULL,
+                    subject_id uuid NOT NULL,
+                    curriculum_version varchar(100) NOT NULL,
+                    category varchar(20) NOT NULL,
+                    required boolean NOT NULL DEFAULT true,
+                    selection_group varchar(50),
+                    active boolean NOT NULL DEFAULT true,
+                    created_at timestamptz,
+                    updated_at timestamptz
+                )`).Error;err!=nil{return err}
                 if err:=tx.Exec("DROP INDEX IF EXISTS subjects_code_key").Error;err!=nil{return err}
                 if err:=tx.Exec("DROP INDEX IF EXISTS subjects_name_key").Error;err!=nil{return err}
                 if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_school_class_subject ON class_subjects(school_id,academic_session_id,class_id,subject_id,curriculum_version)").Error;err!=nil{return err}
@@ -610,6 +623,8 @@ func Migrate(db *gorm.DB) error {
                         if !strings.Contains(strings.ToLower(err.Error()),"already exists") {return err}
                     }
                 }
+            } else {
+                if err:=tx.AutoMigrate(&models.ClassSubject{});err!=nil{return err}
             }
             return nil
         }},

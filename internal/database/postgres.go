@@ -627,6 +627,7 @@ func Migrate(db *gorm.DB) error {
                 if err:=tx.AutoMigrate(&models.ClassSubject{});err!=nil{return err}
             }
             return nil
+        }},
         {Version:36,Name:"harden_class_subject_database_boundary",Up:func(tx *gorm.DB) error {
             if tx.Dialector.Name()!="postgres" { return nil }
             if err:=tx.Exec("ALTER TABLE class_subjects ALTER COLUMN id SET DEFAULT gen_random_uuid()").Error;err!=nil{return err}

@@ -44,8 +44,8 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     if err := db.Model(&Migration{}).Count(&migrationCount).Error; err != nil {
         t.Fatal(err)
     }
-    if migrationCount != 35 {
-        t.Fatalf("expected 35 migrations, got %d", migrationCount)
+    if migrationCount != 36 {
+        t.Fatalf("expected 36 migrations, got %d", migrationCount)
     }
     var slugIndexDef string
     if err := db.Raw("SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uq_schools_slug'").Scan(&slugIndexDef).Error; err != nil { t.Fatal(err) }
@@ -96,6 +96,12 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
         t.Fatalf("expected composite tenant foreign keys, found %d", fkCount)
     }
 
+    var classSubjectRLSEnabled bool
+    if err := db.Raw("SELECT relrowsecurity FROM pg_class WHERE oid = 'class_subjects'::regclass").Scan(&classSubjectRLSEnabled).Error; err != nil { t.Fatal(err) }
+    if !classSubjectRLSEnabled { t.Fatal("expected class_subjects RLS to be enabled") }
+    var classSubjectIDDefault string
+    if err := db.Raw("SELECT COALESCE(column_default,'') FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'class_subjects' AND column_name = 'id'").Scan(&classSubjectIDDefault).Error; err != nil { t.Fatal(err) }
+    if !strings.Contains(strings.ToLower(classSubjectIDDefault), "gen_random_uuid") { t.Fatalf("expected class_subjects.id UUID default, got %q", classSubjectIDDefault) }
     var classSubjectIndexDef string
     if err := db.Raw("SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uq_school_class_subject'").Scan(&classSubjectIndexDef).Error; err != nil { t.Fatal(err) }
     classSubjectIndex := strings.ToLower(classSubjectIndexDef)

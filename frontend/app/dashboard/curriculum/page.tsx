@@ -80,7 +80,14 @@ export default function CurriculumPage() {
     try {
       const currentSubjects = [...subjects];
       for (const item of selectedClass.subjects.filter(v => v.active)) {
-        let subject = currentSubjects.find(v => v.code.toUpperCase() === item.code.toUpperCase());
+        const normalizedCode = item.code.trim().toUpperCase();
+        const normalizedName = item.name.trim().toLocaleLowerCase();
+        const codeMatch = currentSubjects.find(v => v.code.trim().toUpperCase() === normalizedCode);
+        const nameMatch = currentSubjects.find(v => v.name.trim().toLocaleLowerCase() === normalizedName);
+        if (codeMatch && nameMatch && codeMatch.id !== nameMatch.id) {
+          throw new Error(`Cannot safely adopt "${item.name}": its code matches "${codeMatch.name}" while its name matches "${nameMatch.code}". Resolve the duplicate school subjects first.`);
+        }
+        let subject = codeMatch || nameMatch;
         if (!subject) {
           const createdSubject = await api("/admin/subjects", {
             method: "POST",

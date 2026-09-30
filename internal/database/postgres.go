@@ -627,6 +627,18 @@ func Migrate(db *gorm.DB) error {
                 if err:=tx.AutoMigrate(&models.ClassSubject{});err!=nil{return err}
             }
             return nil
+        {Version:36,Name:"harden_class_subject_database_boundary",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+            if err:=tx.Exec("ALTER TABLE class_subjects ALTER COLUMN id SET DEFAULT gen_random_uuid()").Error;err!=nil{return err}
+            if err:=tx.Exec("ALTER TABLE class_subjects ENABLE ROW LEVEL SECURITY").Error;err!=nil{return err}
+            if err:=tx.Exec("REVOKE ALL ON TABLE class_subjects FROM public").Error;err!=nil{return err}
+            for _,role:=range []string{"anon","authenticated"} {
+                var exists bool
+                if err:=tx.Raw("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)",role).Scan(&exists).Error;err!=nil{return err}
+                if exists { if err:=tx.Exec("REVOKE ALL ON TABLE class_subjects FROM "+role).Error;err!=nil{return err} }
+            }
+            return nil
+        }},
         }},
     }
     for _,migration:=range migrations{

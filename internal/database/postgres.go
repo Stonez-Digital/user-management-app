@@ -591,6 +591,28 @@ func Migrate(db *gorm.DB) error {
             return nil
         }},
 
+        {Version:35,Name:"curriculum_class_subject_applicability",Up:func(tx *gorm.DB) error {
+            if err:=tx.AutoMigrate(&models.ClassSubject{});err!=nil{return err}
+            if tx.Dialector.Name()=="postgres" {
+                if err:=tx.Exec("DROP INDEX IF EXISTS subjects_code_key").Error;err!=nil{return err}
+                if err:=tx.Exec("DROP INDEX IF EXISTS subjects_name_key").Error;err!=nil{return err}
+                if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_school_class_subject ON class_subjects(school_id,academic_session_id,class_id,subject_id,curriculum_version)").Error;err!=nil{return err}
+                if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_class_subjects_session_class ON class_subjects(school_id,academic_session_id,class_id,active)").Error;err!=nil{return err}
+                if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_class_subjects_subject ON class_subjects(school_id,subject_id)").Error;err!=nil{return err}
+                fks:=[]string{
+                    "ALTER TABLE class_subjects ADD CONSTRAINT class_subject_school_fk FOREIGN KEY (school_id) REFERENCES schools(id) ON UPDATE CASCADE ON DELETE RESTRICT",
+                    "ALTER TABLE class_subjects ADD CONSTRAINT class_subject_session_fk FOREIGN KEY (school_id,academic_session_id) REFERENCES academic_sessions(school_id,id) ON UPDATE CASCADE ON DELETE RESTRICT",
+                    "ALTER TABLE class_subjects ADD CONSTRAINT class_subject_class_fk FOREIGN KEY (school_id,class_id) REFERENCES school_classes(school_id,id) ON UPDATE CASCADE ON DELETE RESTRICT",
+                    "ALTER TABLE class_subjects ADD CONSTRAINT class_subject_subject_fk FOREIGN KEY (school_id,subject_id) REFERENCES subjects(school_id,id) ON UPDATE CASCADE ON DELETE RESTRICT",
+                }
+                for _,q:=range fks {
+                    if err:=tx.Exec(q).Error;err!=nil {
+                        if !strings.Contains(strings.ToLower(err.Error()),"already exists") {return err}
+                    }
+                }
+            }
+            return nil
+        }},
     }
     for _,migration:=range migrations{
         var applied Migration

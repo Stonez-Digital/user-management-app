@@ -640,6 +640,15 @@ func Migrate(db *gorm.DB) error {
                 `CREATE INDEX IF NOT EXISTS idx_national_curriculum_subjects_class ON national_curriculum_subjects(class_id,active)`,
             }
             for _,q:=range statements { if err:=tx.Exec(q).Error;err!=nil{return err} }
+            for _,table:=range []string{"national_curricula","national_curriculum_levels","national_curriculum_classes","national_curriculum_subjects"} {
+                if err:=tx.Exec("ALTER TABLE "+table+" ENABLE ROW LEVEL SECURITY").Error;err!=nil{return err}
+                if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM public").Error;err!=nil{return err}
+                for _,role:=range []string{"anon","authenticated"} {
+                    var exists bool
+                    if err:=tx.Raw("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)",role).Scan(&exists).Error;err!=nil{return err}
+                    if exists { if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM "+role).Error;err!=nil{return err} }
+                }
+            }
             return nil
         }},
 

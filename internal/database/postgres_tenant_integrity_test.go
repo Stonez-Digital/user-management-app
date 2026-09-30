@@ -44,7 +44,7 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     if err := db.Model(&Migration{}).Count(&migrationCount).Error; err != nil {
         t.Fatal(err)
     }
-    if migrationCount != 37 {
+    if migrationCount != 38 {
         t.Fatalf("expected 37 migrations, got %d", migrationCount)
     }
     var slugIndexDef string
@@ -99,6 +99,15 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     var classSubjectRLSEnabled bool
     if err := db.Raw("SELECT relrowsecurity FROM pg_class WHERE oid = 'class_subjects'::regclass").Scan(&classSubjectRLSEnabled).Error; err != nil { t.Fatal(err) }
     if !classSubjectRLSEnabled { t.Fatal("expected class_subjects RLS to be enabled") }
+    var curriculumCount int64
+    if err := db.Raw("SELECT COUNT(*) FROM national_curricula WHERE code IN ('NG-NERDC-BEC-2025','NG-NERDC-SSEC-2025')").Scan(&curriculumCount).Error; err != nil { t.Fatal(err) }
+    if curriculumCount != 2 { t.Fatalf("expected two seeded Nigeria curriculum catalogues, got %d", curriculumCount) }
+    var classCount int64
+    if err := db.Raw("SELECT COUNT(*) FROM national_curriculum_classes").Scan(&classCount).Error; err != nil { t.Fatal(err) }
+    if classCount != 12 { t.Fatalf("expected 12 seeded national curriculum classes, got %d", classCount) }
+    var subjectCount int64
+    if err := db.Raw("SELECT COUNT(*) FROM national_curriculum_subjects").Scan(&subjectCount).Error; err != nil { t.Fatal(err) }
+    if subjectCount != 243 { t.Fatalf("expected 243 seeded national curriculum subject rules, got %d", subjectCount) }
     for _,table := range []string{"national_curricula","national_curriculum_levels","national_curriculum_classes","national_curriculum_subjects"} {
         var enabled bool
         if err := db.Raw("SELECT relrowsecurity FROM pg_class WHERE oid = ?::regclass", table).Scan(&enabled).Error; err != nil { t.Fatal(err) }

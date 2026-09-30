@@ -664,6 +664,10 @@ func Migrate(db *gorm.DB) error {
             }
             return nil
         }},
+        {Version:38,Name:"seed_nigeria_national_curriculum_catalogue",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+            return seedNigeriaNationalCurriculum(tx)
+        }},
     }
     for _,migration:=range migrations{
         var applied Migration

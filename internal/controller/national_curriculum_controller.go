@@ -1,5 +1,5 @@
 package controller
-import ("net/http"; "github.com/gin-gonic/gin"; "github.com/onoja217/users-management-app/internal/models"; "github.com/onoja217/users-management-app/internal/service")
+import ("net/http"; "github.com/gin-gonic/gin"; "github.com/google/uuid"; "github.com/onoja217/users-management-app/internal/models"; "github.com/onoja217/users-management-app/internal/service")
 type NationalCurriculumController struct{svc *service.NationalCurriculumService}
 func NewNationalCurriculumController(svc *service.NationalCurriculumService)*NationalCurriculumController{return &NationalCurriculumController{svc}}
 func(c *NationalCurriculumController)List(ctx *gin.Context){v,e:=c.svc.List();if e!=nil{ctx.JSON(http.StatusInternalServerError,gin.H{"error":"failed to list national curricula"});return};ctx.JSON(http.StatusOK,v)}

@@ -17,6 +17,9 @@ const (
  NationalCurriculumCategoryTrade="trade"
 )
 
+// TableName prevents GORM from pluralizing the irregular SQL table name as "national_curriculums".
+func (NationalCurriculum) TableName() string { return "national_curricula" }
+
 type NationalCurriculum struct {
  ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
  Code string `gorm:"size:50;not null;uniqueIndex" json:"code"`

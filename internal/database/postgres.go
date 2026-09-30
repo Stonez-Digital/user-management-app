@@ -628,6 +628,30 @@ func Migrate(db *gorm.DB) error {
             }
             return nil
         }},
+        {Version:37,Name:"nigeria_national_curriculum_foundation",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+            statements:=[]string{
+                `CREATE TABLE IF NOT EXISTS national_curricula (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),code varchar(50) NOT NULL UNIQUE,name varchar(200) NOT NULL,authority varchar(120) NOT NULL,version varchar(80) NOT NULL,description text,effective_from timestamptz,effective_to timestamptz,status varchar(20) NOT NULL DEFAULT 'draft',created_at timestamptz,updated_at timestamptz)`,
+                `CREATE TABLE IF NOT EXISTS national_curriculum_levels (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),curriculum_id uuid NOT NULL,code varchar(30) NOT NULL,name varchar(100) NOT NULL,display_order integer NOT NULL,created_at timestamptz,updated_at timestamptz,CONSTRAINT uq_national_curriculum_level UNIQUE(curriculum_id,code),CONSTRAINT national_curriculum_level_curriculum_fk FOREIGN KEY(curriculum_id) REFERENCES national_curricula(id) ON UPDATE CASCADE ON DELETE CASCADE)`,
+                `CREATE TABLE IF NOT EXISTS national_curriculum_classes (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),level_id uuid NOT NULL,code varchar(30) NOT NULL,name varchar(100) NOT NULL,display_order integer NOT NULL,created_at timestamptz,updated_at timestamptz,CONSTRAINT uq_national_curriculum_class UNIQUE(level_id,code),CONSTRAINT national_curriculum_class_level_fk FOREIGN KEY(level_id) REFERENCES national_curriculum_levels(id) ON UPDATE CASCADE ON DELETE CASCADE)`,
+                `CREATE TABLE IF NOT EXISTS national_curriculum_subjects (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),class_id uuid NOT NULL,code varchar(40) NOT NULL,name varchar(150) NOT NULL,category varchar(20) NOT NULL,required boolean NOT NULL DEFAULT true,selection_group varchar(60),effective_from timestamptz,effective_to timestamptz,active boolean NOT NULL DEFAULT true,created_at timestamptz,updated_at timestamptz,CONSTRAINT uq_national_curriculum_subject UNIQUE(class_id,code),CONSTRAINT national_curriculum_subject_class_fk FOREIGN KEY(class_id) REFERENCES national_curriculum_classes(id) ON UPDATE CASCADE ON DELETE CASCADE)`,
+                `CREATE INDEX IF NOT EXISTS idx_national_curriculum_levels_curriculum ON national_curriculum_levels(curriculum_id,display_order)`,
+                `CREATE INDEX IF NOT EXISTS idx_national_curriculum_classes_level ON national_curriculum_classes(level_id,display_order)`,
+                `CREATE INDEX IF NOT EXISTS idx_national_curriculum_subjects_class ON national_curriculum_subjects(class_id,active)`,
+            }
+            for _,q:=range statements { if err:=tx.Exec(q).Error;err!=nil{return err} }
+            for _,table:=range []string{"national_curricula","national_curriculum_levels","national_curriculum_classes","national_curriculum_subjects"} {
+                if err:=tx.Exec("ALTER TABLE "+table+" ENABLE ROW LEVEL SECURITY").Error;err!=nil{return err}
+                if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM public").Error;err!=nil{return err}
+                for _,role:=range []string{"anon","authenticated"} {
+                    var exists bool
+                    if err:=tx.Raw("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)",role).Scan(&exists).Error;err!=nil{return err}
+                    if exists { if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM "+role).Error;err!=nil{return err} }
+                }
+            }
+            return nil
+        }},
+
         {Version:36,Name:"harden_class_subject_database_boundary",Up:func(tx *gorm.DB) error {
             if tx.Dialector.Name()!="postgres" { return nil }
             if err:=tx.Exec("ALTER TABLE class_subjects ALTER COLUMN id SET DEFAULT gen_random_uuid()").Error;err!=nil{return err}

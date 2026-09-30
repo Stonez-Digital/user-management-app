@@ -117,3 +117,34 @@ td strong,td small{display:block}td small{font-size:11px;color:#94a3b8;margin-to
 @media(max-width:1100px){.command-identity{grid-template-columns:1fr}.quick-actions{grid-template-columns:repeat(3,1fr)}.finance-summary{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:700px){.command-context{display:grid;grid-template-columns:1fr 1fr}.command-context div{min-width:0}.command-context button{margin-left:0;width:100%}.mini-metrics{grid-template-columns:repeat(2,1fr)}.quick-actions{grid-template-columns:1fr 1fr}.finance-summary{grid-template-columns:1fr 1fr}.command-footer{align-items:flex-start;flex-direction:column}}
 @media(max-width:480px){.command-school{align-items:flex-start}.command-school img,.command-logo-placeholder{width:48px;height:48px}.command-context{grid-template-columns:1fr}.quick-actions{grid-template-columns:1fr}.finance-summary{grid-template-columns:1fr}.activity-row{display:grid;gap:5px}.activity-row time{white-space:normal}}
+
+
+.theme-toggle{position:fixed;z-index:1000;width:46px;height:46px;min-height:46px;padding:0;border:1px solid #dbe1ea;border-radius:50%;display:grid;place-items:center;background:#fff;color:#172033;box-shadow:0 8px 24px #17203320;font-size:18px;line-height:1;transition:transform .15s ease,box-shadow .15s ease,background .15s ease}.theme-toggle:hover{transform:translateY(-1px);box-shadow:0 10px 28px #17203330}.theme-toggle:focus-visible{outline:3px solid #536db8;outline-offset:2px}
+html[data-theme="dark"] body{background:#0b1220;color:#e5e7eb}
+html[data-theme="dark"] .content,html[data-theme="dark"] .standalone{color:#e5e7eb}
+html[data-theme="dark"] .topbar h1,html[data-theme="dark"] .auth-card h1{color:#f8fafc}
+html[data-theme="dark"] .muted,html[data-theme="dark"] .panel-head p,html[data-theme="dark"] .panel-head>a,html[data-theme="dark"] .back,html[data-theme="dark"] .tenant-cards span,html[data-theme="dark"] .tenant-cards small{color:#aeb9d8}
+html[data-theme="dark"] .stat,html[data-theme="dark"] .panel,html[data-theme="dark"] .status,html[data-theme="dark"] .command-school,html[data-theme="dark"] .command-admin,html[data-theme="dark"] .command-context,html[data-theme="dark"] .command-alert,html[data-theme="dark"] .quick-action,html[data-theme="dark"] .school-report-header,html[data-theme="dark"] .school-code-card,html[data-theme="dark"] .tenant-cards>div{background:#111b2d;border-color:#26344d;color:#e5e7eb}
+html[data-theme="dark"] .status{color:#cbd5e1}
+html[data-theme="dark"] th,html[data-theme="dark"] .stat span,html[data-theme="dark"] .stat small,html[data-theme="dark"] td small,html[data-theme="dark"] .role-list div,html[data-theme="dark"] .health-list div,html[data-theme="dark"] .activity-row span,html[data-theme="dark"] .activity-row time{color:#94a3b8;border-color:#26344d}
+html[data-theme="dark"] th,html[data-theme="dark"] td{border-color:#26344d}
+html[data-theme="dark"] .form input,html[data-theme="dark"] .toolbar input,html[data-theme="dark"] .form-grid input,html[data-theme="dark"] .form-grid select,html[data-theme="dark"] .inline-form input,html[data-theme="dark"] .inline-form select,html[data-theme="dark"] .search-inline{background:#0f172a;color:#f8fafc;border-color:#334155}
+html[data-theme="dark"] .form input::placeholder,html[data-theme="dark"] .toolbar input::placeholder,html[data-theme="dark"] .search-inline::placeholder{color:#64748b}
+html[data-theme="dark"] .nested-list,html[data-theme="dark"] .metric,html[data-theme="dark"] .tenant-note{background:#0f172a;border-color:#26344d;color:#e5e7eb}
+html[data-theme="dark"] .nested-item{background:#1e293b;color:#cbd5e1}
+html[data-theme="dark"] .module{background:#111b2d;border-color:#26344d}
+html[data-theme="dark"] .module p,html[data-theme="dark"] .school-code-card small,html[data-theme="dark"] .school-code-card span{color:#94a3b8}
+html[data-theme="dark"] .school-brand-bar{background:#0f172a;border-color:#26344d;box-shadow:0 2px 10px #00000030}
+html[data-theme="dark"] .school-brand-logo,html[data-theme="dark"] .school-brand-placeholder,html[data-theme="dark"] .command-school img,html[data-theme="dark"] .command-logo-placeholder{background:#111b2d;border-color:#334155}
+html[data-theme="dark"] .command-context span,html[data-theme="dark"] .command-admin span,html[data-theme="dark"] .command-admin small,html[data-theme="dark"] .command-school span,html[data-theme="dark"] .command-alert span,html[data-theme="dark"] .quick-action span,html[data-theme="dark"] .command-footer{color:#94a3b8}
+html[data-theme="dark"] .quick-action:hover,html[data-theme="dark"] .command-alert:hover{background:#162238;border-color:#334155}
+html[data-theme="dark"] .ghost.light{background:#111b2d;border-color:#334155;color:#cbd5e1}
+html[data-theme="dark"] .theme-toggle{background:#111b2d;border-color:#334155;color:#f8fafc;box-shadow:0 8px 24px #00000040}
+html[data-theme="dark"] .auth-shell{background:linear-gradient(135deg,#0b1220,#111827)}
+html[data-theme="dark"] .auth-card{background:#111b2d;border-color:#26344d;color:#e5e7eb;box-shadow:0 20px 60px #00000040}
+html[data-theme="dark"] .auth-footer{border-color:#26344d}
+html[data-theme="dark"] .auth-footer strong,html[data-theme="dark"] .auth-footer span,html[data-theme="dark"] .hint{color:#94a3b8}
+html[data-theme="dark"] .tenant-badge,html[data-theme="dark"] .tenant-next{background:#172554;color:#bfdbfe}
+html[data-theme="dark"] .tenant-next span{color:#cbd5e1}
+html[data-theme="dark"] .empty{color:#64748b}
+@media(max-width:560px){.theme-toggle{width:44px;height:44px;min-height:44px}}

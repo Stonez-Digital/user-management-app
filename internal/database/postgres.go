@@ -640,7 +640,6 @@ func Migrate(db *gorm.DB) error {
             }
             return nil
         }},
-        }},
     }
     for _,migration:=range migrations{
         var applied Migration

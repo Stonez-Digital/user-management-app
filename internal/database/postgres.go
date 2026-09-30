@@ -607,8 +607,8 @@ func Migrate(db *gorm.DB) error {
                     created_at timestamptz,
                     updated_at timestamptz
                 )`).Error;err!=nil{return err}
-                if err:=tx.Exec("DROP INDEX IF EXISTS subjects_code_key").Error;err!=nil{return err}
-                if err:=tx.Exec("DROP INDEX IF EXISTS subjects_name_key").Error;err!=nil{return err}
+                if err:=tx.Exec("ALTER TABLE subjects DROP CONSTRAINT IF EXISTS subjects_code_key").Error;err!=nil{return err}
+                if err:=tx.Exec("ALTER TABLE subjects DROP CONSTRAINT IF EXISTS subjects_name_key").Error;err!=nil{return err}
                 if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_school_class_subject ON class_subjects(school_id,academic_session_id,class_id,subject_id,curriculum_version)").Error;err!=nil{return err}
                 if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_class_subjects_session_class ON class_subjects(school_id,academic_session_id,class_id,active)").Error;err!=nil{return err}
                 if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_class_subjects_subject ON class_subjects(school_id,subject_id)").Error;err!=nil{return err}

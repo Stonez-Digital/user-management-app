@@ -128,7 +128,7 @@ export default function AcademicPage() {
       <aside className="sidebar">
         <div className="logo"><span>S</span><div><strong>Stonez</strong><small>School OS</small></div></div>
         <nav>
-          <Link href="/dashboard">Overview</Link><Link className="active" href="/dashboard/academic">Academic</Link>
+          <Link href="/dashboard">Overview</Link><Link href="/dashboard/curriculum">Curriculum</Link><Link className="active" href="/dashboard/academic">Academic</Link>
           <Link href="/dashboard/students">Students</Link><Link href="/dashboard/enrollments">Enrollment</Link><Link href="/dashboard/teacher-assignments">Teacher Assignments</Link>
           <Link href="/dashboard/attendance">Attendance</Link><Link href="/dashboard/assessments">Assessments</Link>
           <Link href="/dashboard/results">Results</Link><Link href="/dashboard/timetable">Timetable</Link>

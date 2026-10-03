@@ -59,8 +59,12 @@ func TestSchoolDashboardSchoolIsolationAndSummary(t *testing.T) {
     if err = db.Create(&studentUserB).Error; err != nil { t.Fatal(err) }
     studentA := models.Student{SchoolID: schoolA.ID, UserID: studentUserA.ID, AdmissionNumber: "A-001", EnrollmentStatus: models.EnrollmentActive}
     studentB := models.Student{SchoolID: schoolB.ID, UserID: studentUserB.ID, AdmissionNumber: "B-001", EnrollmentStatus: models.EnrollmentActive}
+    inactiveUserA := models.User{Name: "Former Student A", Email: "former-student-a@test", Role: "student", Active: false, SchoolID: &schoolA.ID}
     if err = db.Create(&studentA).Error; err != nil { t.Fatal(err) }
     if err = db.Create(&studentB).Error; err != nil { t.Fatal(err) }
+    inactiveStudentA := models.Student{SchoolID: schoolA.ID, UserID: inactiveUserA.ID, AdmissionNumber: "A-OLD", EnrollmentStatus: models.EnrollmentInactive}
+    if err = db.Create(&inactiveUserA).Error; err != nil { t.Fatal(err) }
+    if err = db.Create(&inactiveStudentA).Error; err != nil { t.Fatal(err) }
 
     enrollmentA := models.StudentEnrollment{SchoolID: schoolA.ID, StudentID: studentA.ID, AcademicSessionID: sessionA.ID, ClassID: classA.ID, SectionID: sectionA.ID, Status: models.EnrollmentStatusActive}
     if err = db.Create(&enrollmentA).Error; err != nil { t.Fatal(err) }
@@ -81,7 +85,7 @@ func TestSchoolDashboardSchoolIsolationAndSummary(t *testing.T) {
     if err != nil { t.Fatal(err) }
 
     if got.School.Name != "School A" || got.School.Administrator.ID != adminA.ID { t.Fatalf("unexpected tenant identity: %+v", got.School) }
-    if got.Overview.Students != 1 || got.Overview.ActiveEnrollments != 1 || got.Overview.Teachers != 1 || got.Overview.Parents != 1 {
+    if got.Overview.Students != 2 || got.Overview.ActiveEnrollments != 1 || got.Overview.Teachers != 1 || got.Overview.Parents != 1 {
         t.Fatalf("unexpected overview: %+v", got.Overview)
     }
     if got.Finance.TotalInvoiced != 50000 || got.Finance.AmountPaid != 20000 || got.Finance.OutstandingBalance != 30000 || got.Finance.OutstandingInvoices != 1 {
@@ -89,6 +93,9 @@ func TestSchoolDashboardSchoolIsolationAndSummary(t *testing.T) {
     }
     if len(got.RecentActivity) != 1 || got.RecentActivity[0].ActorName != "Admin A" { t.Fatalf("unexpected activity: %+v", got.RecentActivity) }
     if got.AcademicContext.SessionID != sessionA.ID || got.AcademicContext.TermID != termA.ID { t.Fatalf("unexpected academic context: %+v", got.AcademicContext) }
+    if got.Health.Enrollment != "Complete" { t.Fatalf("inactive historical student should not make current enrollment incomplete: %+v", got.Health) }
+    for _, alert := range got.Alerts { if alert.Key == "students_without_enrollment" { t.Fatalf("inactive historical student should not trigger enrollment alert: %+v", alert) } }
+
 
     if _, err = svc.Get(schoolA.ID, adminB.ID, sessionA.ID, termA.ID); err == nil { t.Fatal("expected admin from another school to be rejected") }
 

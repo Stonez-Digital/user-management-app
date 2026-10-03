@@ -62,8 +62,8 @@ func TestSchoolDashboardSchoolIsolationAndSummary(t *testing.T) {
     inactiveUserA := models.User{Name: "Former Student A", Email: "former-student-a@test", Role: "student", Active: false, SchoolID: &schoolA.ID}
     if err = db.Create(&studentA).Error; err != nil { t.Fatal(err) }
     if err = db.Create(&studentB).Error; err != nil { t.Fatal(err) }
-    inactiveStudentA := models.Student{SchoolID: schoolA.ID, UserID: inactiveUserA.ID, AdmissionNumber: "A-OLD", EnrollmentStatus: models.EnrollmentInactive}
     if err = db.Create(&inactiveUserA).Error; err != nil { t.Fatal(err) }
+    inactiveStudentA := models.Student{SchoolID: schoolA.ID, UserID: inactiveUserA.ID, AdmissionNumber: "A-OLD", EnrollmentStatus: models.EnrollmentInactive}
     if err = db.Create(&inactiveStudentA).Error; err != nil { t.Fatal(err) }
 
     enrollmentA := models.StudentEnrollment{SchoolID: schoolA.ID, StudentID: studentA.ID, AcademicSessionID: sessionA.ID, ClassID: classA.ID, SectionID: sectionA.ID, Status: models.EnrollmentStatusActive}

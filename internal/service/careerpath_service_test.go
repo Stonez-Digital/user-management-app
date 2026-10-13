@@ -13,7 +13,7 @@ import (
 
 func careerPathTestDB(t *testing.T) (*gorm.DB, uuid.UUID, uuid.UUID) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open("file:careerpath-test?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open("file:careerpath-"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil { t.Fatal(err) }
 	if err := database.Migrate(db); err != nil { t.Fatal(err) }
 	var school models.School

@@ -13,7 +13,7 @@ func TestMigrateIsVersionedAndIdempotent(t *testing.T) {
     if err:=Migrate(db);err!=nil{t.Fatal(err)}
     var count int64
     if err:=db.Model(&Migration{}).Count(&count).Error;err!=nil{t.Fatal(err)}
-    if count!=38{t.Fatalf("expected thirty-eight applied migrations, got %d",count)}
+    if count!=39{t.Fatalf("expected thirty-nine applied migrations, got %d",count)}
 
     if !db.Migrator().HasTable(&models.User{}){t.Fatal("expected users table after migration")}
     if !db.Migrator().HasTable(&models.School{}){t.Fatal("expected schools table after migration")}
@@ -35,6 +35,7 @@ func TestMigrateIsVersionedAndIdempotent(t *testing.T) {
     if !db.Migrator().HasTable(&models.TimetableEntry{}){t.Fatal("expected timetable table after migration")}
     if !db.Migrator().HasTable(&models.GuardianRelationship{}){t.Fatal("expected guardian relationships table after migration")}
     if !db.Migrator().HasTable(&models.Notification{}){t.Fatal("expected notifications table after migration")}
+	if !db.Migrator().HasTable(&models.CareerPathAttempt{}){t.Fatal("expected CareerPath attempts table after migration")}
 }
 
 

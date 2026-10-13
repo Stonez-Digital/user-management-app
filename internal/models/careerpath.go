@@ -13,7 +13,9 @@ import (
 type CareerPathAttempt struct {
 	ID          uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
 	SchoolID    uuid.UUID  `gorm:"type:uuid;not null;index:idx_career_attempt_owner,priority:1" json:"-"`
+	School      School     `gorm:"foreignKey:SchoolID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
 	StudentID   uuid.UUID  `gorm:"type:uuid;not null;index:idx_career_attempt_owner,priority:2" json:"-"`
+	Student     Student    `gorm:"foreignKey:StudentID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
 	UserID      uuid.UUID  `gorm:"type:uuid;not null;index" json:"-"`
 	Version     string     `gorm:"size:32;not null" json:"version"`
 	Status      string     `gorm:"size:20;not null;index" json:"status"`

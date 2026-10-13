@@ -53,6 +53,22 @@ func TestCareerPathAssessmentSubmissionIsDeterministicAndIdempotent(t *testing.T
 	if _,err:=svc.SaveResponses(schoolID,userID,attempt.ID,completeCareerPathResponses());!errors.Is(err,ErrCareerPathSubmitted){t.Fatalf("expected submitted attempt to be immutable, got %v",err)}
 }
 
+func TestCareerPathCreateOrResumeReturnsLatestSubmittedAttempt(t *testing.T) {
+	db, schoolID, userID := careerPathTestDB(t)
+	svc := NewCareerPathService(db)
+	attempt, err := svc.CreateOrResume(schoolID, userID)
+	if err != nil { t.Fatal(err) }
+	if _, err := svc.SaveResponses(schoolID, userID, attempt.ID, completeCareerPathResponses()); err != nil { t.Fatal(err) }
+	submitted, err := svc.Submit(schoolID, userID, attempt.ID)
+	if err != nil { t.Fatal(err) }
+	returned, err := svc.CreateOrResume(schoolID, userID)
+	if err != nil { t.Fatal(err) }
+	if returned.ID != submitted.ID { t.Fatalf("expected submitted attempt %s to be restored, got %s", submitted.ID, returned.ID) }
+	if returned.Status != "submitted" { t.Fatalf("expected submitted status after reopening, got %q", returned.Status) }
+	if len(returned.Results) != len(submitted.Results) || len(returned.Results) == 0 { t.Fatalf("expected saved results after reopening, got %d results", len(returned.Results)) }
+	if len(returned.Responses) != len(submitted.Responses) { t.Fatalf("expected saved answers after reopening, got %d response groups", len(returned.Responses)) }
+}
+
 func TestCareerPathRejectsIncompleteAndUnknownResponses(t *testing.T) {
 	db, schoolID, userID := careerPathTestDB(t)
 	svc := NewCareerPathService(db)

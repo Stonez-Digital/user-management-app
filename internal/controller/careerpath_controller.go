@@ -21,6 +21,7 @@ func careerPathError(c *gin.Context, err error) {
 	case errors.Is(err,service.ErrCareerPathSubmitted): httpx.Error(c,409,"careerpath_attempt_submitted","Submitted assessments cannot be changed")
 	case errors.Is(err,service.ErrCareerPathInvalidResponse): httpx.Error(c,400,"careerpath_invalid_response","One or more assessment responses are invalid")
 	case errors.Is(err,service.ErrCareerPathIncomplete): httpx.Error(c,400,"careerpath_incomplete","Answer each required question before submitting")
+	case errors.Is(err,service.ErrCareerPathVersionMismatch): httpx.Error(c,409,"careerpath_version_mismatch","This draft uses an older assessment version and cannot be edited with the current questions")
 	default: httpx.Error(c,500,"careerpath_operation_failed","CareerPath request could not be completed")
 	}
 }

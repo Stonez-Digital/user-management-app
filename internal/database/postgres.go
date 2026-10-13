@@ -668,6 +668,7 @@ func Migrate(db *gorm.DB) error {
             if tx.Dialector.Name()!="postgres" { return nil }
             return seedNigeriaNationalCurriculum(tx)
         }},
+        {Version:39,Name:"careerpath_assessment_attempts",Up:func(tx *gorm.DB) error { return tx.AutoMigrate(&models.CareerPathAttempt{}) }},
     }
     for _,migration:=range migrations{
         var applied Migration

@@ -89,5 +89,10 @@ func TestCareerPathAttemptCannotBeReadByAnotherStudent(t *testing.T) {
 	svc:=NewCareerPathService(db)
 	attempt,err:=svc.CreateOrResume(schoolID,firstUserID);if err!=nil{t.Fatal(err)}
 	if _,err:=svc.Get(schoolID,secondUser.ID,attempt.ID);!errors.Is(err,ErrCareerPathNotFound){t.Fatalf("expected other student's attempt to be hidden, got %v",err)}
-	if _,err:=svc.Get(uuid.New(),firstUserID,attempt.ID);!errors.Is(err,ErrCareerPathForbidden){t.Fatalf("expected cross-school request to be forbidden, got %v",err)}
+	if _,err:=svc.SaveResponses(schoolID,secondUser.ID,attempt.ID,completeCareerPathResponses());!errors.Is(err,ErrCareerPathNotFound){t.Fatalf("expected other student response write to be hidden, got %v",err)}
+	if _,err:=svc.Submit(schoolID,secondUser.ID,attempt.ID);!errors.Is(err,ErrCareerPathNotFound){t.Fatalf("expected other student submission to be hidden, got %v",err)}
+	otherSchoolID:=uuid.New()
+	if _,err:=svc.Get(otherSchoolID,firstUserID,attempt.ID);!errors.Is(err,ErrCareerPathForbidden){t.Fatalf("expected cross-school read to be forbidden, got %v",err)}
+	if _,err:=svc.SaveResponses(otherSchoolID,firstUserID,attempt.ID,completeCareerPathResponses());!errors.Is(err,ErrCareerPathForbidden){t.Fatalf("expected cross-school response write to be forbidden, got %v",err)}
+	if _,err:=svc.Submit(otherSchoolID,firstUserID,attempt.ID);!errors.Is(err,ErrCareerPathForbidden){t.Fatalf("expected cross-school submission to be forbidden, got %v",err)}
 }

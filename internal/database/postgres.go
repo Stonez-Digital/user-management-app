@@ -668,7 +668,7 @@ func Migrate(db *gorm.DB) error {
             if tx.Dialector.Name()!="postgres" { return nil }
             return seedNigeriaNationalCurriculum(tx)
         }},
-        {Version:39,Name:"careerpath_assessment_attempts",Up:func(tx *gorm.DB) error { return tx.AutoMigrate(&models.CareerPathAttempt{}) }},
+        {Version:39,Name:"careerpath_assessment_attempts",Up:func(tx *gorm.DB) error { if err:=tx.AutoMigrate(&models.CareerPathAttempt{});err!=nil{return err};return tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_careerpath_one_draft ON career_path_attempts(school_id, student_id, version) WHERE status = 'in_progress'").Error }},
     }
     for _,migration:=range migrations{
         var applied Migration

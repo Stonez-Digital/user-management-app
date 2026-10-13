@@ -55,7 +55,6 @@ export default function Dashboard() {
   const [me, setMe] = useState<AuthUser | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [actionSearch, setActionSearch] = useState("");
 
   useEffect(() => {
     api("/me").then(payload => {
@@ -83,6 +82,7 @@ function SchoolAdminDashboard({ me }: { me: AuthUser }) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [actionSearch, setActionSearch] = useState("");
 
   async function load() {
     try {

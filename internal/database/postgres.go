@@ -710,19 +710,10 @@ func Migrate(db *gorm.DB) error {
                     Where("s.id IS NULL").Count(&mismatches).Error;err!=nil{return err}
                 if mismatches>0{return fmt.Errorf("CareerPath tenant integrity migration blocked: %d attempt rows have mismatched school/student/user ownership",mismatches)}
                 if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_students_school_id_id_user_id ON students(school_id, id, user_id)").Error;err!=nil{return err}
-                return tx.Exec(`DO $ BEGIN
-                    IF NOT EXISTS (
-                        SELECT 1 FROM pg_constraint
-                        WHERE conname='fk_career_path_attempts_tenant_student'
-                          AND conrelid='career_path_attempts'::regclass
-                    ) THEN
-                        ALTER TABLE career_path_attempts
-                        ADD CONSTRAINT fk_career_path_attempts_tenant_student
-                        FOREIGN KEY (school_id, student_id, user_id)
-                        REFERENCES students(school_id, id, user_id)
-                        ON UPDATE CASCADE ON DELETE RESTRICT;
-                    END IF;
-                END $`).Error
+                var constraintExists bool
+                if err:=tx.Raw("SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = ? AND conrelid = 'career_path_attempts'::regclass)", "fk_career_path_attempts_tenant_student").Scan(&constraintExists).Error;err!=nil{return err}
+                if constraintExists{return nil}
+                return tx.Exec("ALTER TABLE career_path_attempts ADD CONSTRAINT fk_career_path_attempts_tenant_student FOREIGN KEY (school_id, student_id, user_id) REFERENCES students(school_id, id, user_id) ON UPDATE CASCADE ON DELETE RESTRICT").Error
             }
             if tx.Dialector.Name()=="sqlite" {
                 // SQLite cannot add a composite foreign key to an existing table.

@@ -148,3 +148,66 @@ html[data-theme="dark"] .tenant-badge,html[data-theme="dark"] .tenant-next{backg
 html[data-theme="dark"] .tenant-next span{color:#cbd5e1}
 html[data-theme="dark"] .empty{color:#64748b}
 @media(max-width:560px){.theme-toggle{width:44px;height:44px;min-height:44px}}
+
+
+/* CareerPath answer cards: the shared .module>span rule positions all spans as badges.
+   Keep answer labels in normal flow so they never overlap the selection indicator. */
+button.module[aria-pressed] {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-height: 72px;
+  color: #172033;
+  background: #fff;
+  border: 1px solid #dbe1ea;
+  text-align: left;
+  line-height: 1.45;
+  white-space: normal;
+  transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
+}
+button.module[aria-pressed] > span {
+  position: static;
+  inset: auto;
+  display: block;
+  color: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  overflow-wrap: anywhere;
+}
+button.module[aria-pressed] > span:first-child {
+  display: grid;
+  place-items: center;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid #cbd5e1;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+}
+button.module[aria-pressed="true"] > span:first-child {
+  color: #fff;
+  background: #162a72;
+  border-color: #162a72;
+}
+button.module[aria-pressed]:hover:not(:disabled) {
+  border-color: #536db8;
+  box-shadow: 0 3px 12px #162a7212;
+}
+button.module[aria-pressed]:focus-visible {
+  outline: 3px solid #8da5f0;
+  outline-offset: 3px;
+}
+button.module[aria-pressed]:disabled {
+  cursor: not-allowed;
+}
+@media (prefers-reduced-motion: reduce) {
+  button.module[aria-pressed] { transition: none; }
+}

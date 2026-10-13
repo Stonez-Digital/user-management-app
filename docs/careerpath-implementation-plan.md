@@ -1,6 +1,6 @@
 # CareerPath — Repository Inspection and Implementation Plan
 
-**Status:** Phase 1 inspection completed against the repository's current `main` snapshot; implementation not yet started.  
+**Status:** Phase 1 inspection completed; the first student-owned assessment vertical slice is implemented on the feature branch and awaiting CI/review.  
 **Reference inspiration:** https://www.careerexplorer.com/career-test/  
 **Product owner:** Stonez Digital
 
@@ -23,13 +23,15 @@
 
 ### Phase A — Safe, student-owned vertical slice
 
-1. Add CareerPath domain models for a versioned assessment, questions/options, student attempts/responses, curated career catalogue, and saved result/match explanations. Keep the initial catalogue intentionally small and reviewed.
-2. Add a new, additive migration after the latest existing migration version. Include school ownership, student ownership, foreign keys, unique constraints for question keys and one response per question per attempt, and indexes for school/student/status lookups. Avoid destructive backfills or deleting existing records.
-3. Add a dedicated service layer for assessment retrieval, create/resume, response validation and saving, submission, deterministic matching, and explanation generation. Make submission idempotent and reject attempts to change submitted responses.
-4. Add authenticated student endpoints under the existing student route group. Derive school and user identity from middleware context; resolve the matching student record server-side. Scope every query by school and student. Never expose other students' answers or results.
-5. Add a responsive CareerPath page to the existing student dashboard, with an overview, original multi-step questions, save/resume, review/submit, and results with several matches. Use the existing CSS classes/components and API proxy; do not add a second auth system.
-6. Add Go unit/integration tests for scoring determinism, missing/invalid answers, attempts, idempotent submission, tenant/student isolation, and unauthorized requests. Add frontend regression coverage where the existing test harness supports it.
-7. Run the repository's documented Go tests and frontend checks through CI. Open a draft PR; do not merge or deploy before required checks and review.
+Implemented on the feature branch (pending CI and review):
+
+1. Added `models.CareerPathAttempt` for versioned, school/student-owned attempts with response/result payloads, state and submission timestamp. GORM relationships constrain attempts to existing school and student records.
+2. Added migration 39, `careerpath_assessment_attempts`, and a partial unique index limiting each student/version to one in-progress draft. The migration is additive and does not delete or rewrite existing records.
+3. Added `CareerPathService` with original questions, a reviewed starter catalogue of eight careers, strict option/question validation, draft resume, deterministic tag-overlap matching with plain-language explanations, idempotent submission, and immutable submitted attempts.
+4. Added authenticated student endpoints for assessment retrieval, create/resume, attempt retrieval, saving responses, and submission. Identity and school context come from existing middleware; service queries scope by school, user and student.
+5. Added a responsive student CareerPath route and dashboard entry using the existing `/backend` proxy and bearer-token session. The first slice shows several career possibilities, subjects, skills and a practical activity.
+6. Added backend tests for deterministic/idempotent matching, incomplete and invalid answers, immutability, and student/cross-school access boundaries. Migration tests now expect the added migration.
+7. CI must be observed and any failures fixed before this PR can be marked ready; no merge or production deployment is authorized before review.
 
 ### Phase B — Expand after the first slice is reviewed
 
@@ -59,4 +61,4 @@
 
 ## Scope note
 
-This document records inspection findings and the intended implementation sequence. It is not evidence that the CareerPath runtime feature, migration, endpoints, or tests have been implemented or deployed.
+This document records verified inspection findings and implementation scope. The first vertical slice exists only on this feature branch until CI, review, and merge are complete; it has not been deployed to production.

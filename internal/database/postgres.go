@@ -668,7 +668,38 @@ func Migrate(db *gorm.DB) error {
             if tx.Dialector.Name()!="postgres" { return nil }
             return seedNigeriaNationalCurriculum(tx)
         }},
-        {Version:39,Name:"careerpath_assessment_attempts",Up:func(tx *gorm.DB) error { if err:=tx.AutoMigrate(&models.CareerPathAttempt{});err!=nil{return err};return tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_careerpath_one_draft ON career_path_attempts(school_id, student_id, version) WHERE status = 'in_progress'").Error }},
+        {Version:39,Name:"careerpath_assessment_attempts",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()=="postgres" {
+                // Avoid AutoMigrate traversing CareerPathAttempt's School/Student
+                // relations into the legacy users schema. Some production databases
+                // do not have GORM's expected uni_users_email constraint name.
+                statements:=[]string{
+                    `CREATE TABLE IF NOT EXISTS career_path_attempts (
+                        id uuid PRIMARY KEY,
+                        school_id uuid NOT NULL,
+                        student_id uuid NOT NULL,
+                        user_id uuid NOT NULL,
+                        version varchar(32) NOT NULL,
+                        status varchar(20) NOT NULL,
+                        responses text NOT NULL DEFAULT '{}',
+                        results text NOT NULL DEFAULT '[]',
+                        submitted_at timestamptz,
+                        created_at timestamptz,
+                        updated_at timestamptz,
+                        CONSTRAINT fk_career_path_attempts_school FOREIGN KEY (school_id) REFERENCES schools(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                        CONSTRAINT fk_career_path_attempts_student FOREIGN KEY (student_id) REFERENCES students(id) ON UPDATE CASCADE ON DELETE RESTRICT
+                    )`,
+                    "CREATE INDEX IF NOT EXISTS idx_career_attempt_owner ON career_path_attempts(school_id, student_id)",
+                    "CREATE INDEX IF NOT EXISTS idx_career_path_attempts_user_id ON career_path_attempts(user_id)",
+                    "CREATE INDEX IF NOT EXISTS idx_career_path_attempts_status ON career_path_attempts(status)",
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_careerpath_one_draft ON career_path_attempts(school_id, student_id, version) WHERE status = 'in_progress'",
+                }
+                for _,q:=range statements { if err:=tx.Exec(q).Error;err!=nil{return err} }
+                return nil
+            }
+            if err:=tx.AutoMigrate(&models.CareerPathAttempt{});err!=nil{return err}
+            return tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_careerpath_one_draft ON career_path_attempts(school_id, student_id, version) WHERE status = 'in_progress'").Error
+        }},
     }
     for _,migration:=range migrations{
         var applied Migration

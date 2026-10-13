@@ -96,3 +96,25 @@ func TestCareerPathAttemptCannotBeReadByAnotherStudent(t *testing.T) {
 	if _,err:=svc.SaveResponses(otherSchoolID,firstUserID,attempt.ID,completeCareerPathResponses());!errors.Is(err,ErrCareerPathForbidden){t.Fatalf("expected cross-school response write to be forbidden, got %v",err)}
 	if _,err:=svc.Submit(otherSchoolID,firstUserID,attempt.ID);!errors.Is(err,ErrCareerPathForbidden){t.Fatalf("expected cross-school submission to be forbidden, got %v",err)}
 }
+
+func TestCareerPathCreateOrResumeKeepsOneDraft(t *testing.T) {
+	db, schoolID, userID := careerPathTestDB(t)
+	svc := NewCareerPathService(db)
+
+	first, err := svc.CreateOrResume(schoolID, userID)
+	if err != nil { t.Fatal(err) }
+	second, err := svc.CreateOrResume(schoolID, userID)
+	if err != nil { t.Fatal(err) }
+	if second.ID != first.ID {
+		t.Fatalf("expected resume to return the existing draft %s, got %s", first.ID, second.ID)
+	}
+	var drafts int64
+	if err := db.Model(&models.CareerPathAttempt{}).
+		Where("school_id = ? AND user_id = ? AND version = ? AND status = ?", schoolID, userID, CareerPathAssessmentVersion, "in_progress").
+		Count(&drafts).Error; err != nil {
+		t.Fatal(err)
+	}
+	if drafts != 1 {
+		t.Fatalf("expected exactly one in-progress draft, got %d", drafts)
+	}
+}

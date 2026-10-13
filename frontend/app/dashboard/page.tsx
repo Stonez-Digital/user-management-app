@@ -82,6 +82,7 @@ function SchoolAdminDashboard({ me }: { me: AuthUser }) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [actionSearch, setActionSearch] = useState("");
 
   async function load() {
     try {
@@ -157,7 +158,7 @@ function SchoolAdminDashboard({ me }: { me: AuthUser }) {
     <section className="command-context">
       <div><span>Current session</span><strong>{data.academic_context.session_name || "No active session"}</strong></div>
       <div><span>Current term</span><strong>{data.academic_context.term_name || "No active term"}</strong></div>
-      <button className="ghost light" onClick={load}>Refresh</button>
+      <button className="ghost light" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
     </section>
 
     <section className="stats">
@@ -205,8 +206,13 @@ function SchoolAdminDashboard({ me }: { me: AuthUser }) {
     </section>
 
     <section className="panel">
-      <div className="panel-head"><div><h2>Quick actions</h2><p>Go directly to existing school workflows.</p></div></div>
-      <div className="quick-actions">{quickActions.map(([label, href, description]) => <Link className="quick-action" key={label} href={href}><strong>{label}</strong><span>{description}</span><b>→</b></Link>)}</div>
+      <div className="panel-head">
+        <div><h2>Quick actions</h2><p>Search and open common school workflows.</p></div>
+        <label className="quick-action-search"> <span>Find an action</span><input aria-label="Search dashboard actions" value={actionSearch} onChange={e => setActionSearch(e.target.value)} placeholder="Try “onboard”, “attendance”, “invoice”…" /></label>
+      </div>
+      <div className="quick-action-count" aria-live="polite">{quickActions.filter(([label, , description]) => (label + " " + description).toLowerCase().includes(actionSearch.trim().toLowerCase())).length} actions</div>
+      <div className="quick-actions">{quickActions.filter(([label, , description]) => (label + " " + description).toLowerCase().includes(actionSearch.trim().toLowerCase())).map(([label, href, description]) => <Link className="quick-action" key={label} href={href}><strong>{label}</strong><span>{description}</span><b>→</b></Link>)}</div>
+      {!quickActions.some(([label, , description]) => (label + " " + description).toLowerCase().includes(actionSearch.trim().toLowerCase())) && <div className="empty">No actions match “{actionSearch}”. Try a different keyword.</div>}
     </section>
 
     <section className="grid-2">

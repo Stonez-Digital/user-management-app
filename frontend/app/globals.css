@@ -211,3 +211,10 @@ button.module[aria-pressed]:disabled {
 @media (prefers-reduced-motion: reduce) {
   button.module[aria-pressed] { transition: none; }
 }
+
+/* Persistent dashboard navigation, including the people onboarding workflow. */
+.dashboard-section-nav{display:flex;align-items:center;gap:4px;padding:10px 24px;background:#fff;border-bottom:1px solid #e2e8f0;overflow-x:auto;white-space:nowrap;scrollbar-width:thin}
+.dashboard-section-nav a{display:inline-flex;align-items:center;min-height:40px;padding:9px 12px;border-radius:8px;color:#334155;font-size:13px;font-weight:650;flex:0 0 auto}
+.dashboard-section-nav a:hover,.dashboard-section-nav a:focus-visible{background:#eef2ff;color:#162a72;outline:none}
+.dashboard-section-nav a[href="/dashboard/onboarding"]{color:#162a72;background:#eef2ff}
+@media(max-width:700px){.dashboard-section-nav{padding:8px 12px;gap:2px}.dashboard-section-nav a{padding:8px 10px;font-size:12px}.content{padding:20px 14px}}

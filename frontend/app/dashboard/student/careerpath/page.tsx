@@ -22,6 +22,7 @@ export default function CareerPathPage() {
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   const [responses, setResponses] = useState<Record<string, string[]>>({});
   const [step, setStep] = useState(0);
+  const [reviewing, setReviewing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -83,7 +84,7 @@ export default function CareerPathPage() {
       <div className="panel-head"><div><h2>{attempt.status === "submitted" ? "Your career ideas" : "Discover what interests you"}</h2><p>{attempt.status === "submitted" ? "Explore these possibilities at your own pace. You can change your interests over time." : "Choose the answers that feel right to you. You can save and resume whenever you need."}</p></div><span className="badge">{attempt.status === "submitted" ? "Completed" : "In progress"}</span></div>
       {error && <div className="error banner" role="alert">{error}</div>}
       {notice && <p role="status" className="muted">{notice}</p>}
-      {attempt.status !== "submitted" && question && <>
+      {attempt.status !== "submitted" && question && !reviewing && <>
         <div aria-label={"Question " + (step + 1) + " of " + assessment.questions.length} className="muted">Question {step + 1} of {assessment.questions.length}</div>
         <div style={{ height: 8, background: "var(--border, #e5e7eb)", borderRadius: 999, margin: "12px 0 24px" }}><div style={{ height: "100%", width: ((step + 1) / assessment.questions.length * 100) + "%", background: "var(--primary, #0D2175)", borderRadius: 999 }} /></div>
         <h2>{question.prompt}</h2>{question.help && <p className="muted">{question.help}</p>}
@@ -99,11 +100,12 @@ export default function CareerPathPage() {
             <button type="button" disabled={saving} onClick={save}>{saving ? "Saving…" : "Save progress"}</button>
             {step < assessment.questions.length - 1
               ? <button type="button" disabled={!(responses[question.id] || []).length} onClick={() => setStep(s => Math.min(assessment.questions.length - 1, s + 1))}>Next →</button>
-              : <button type="button" disabled={!answered || saving} onClick={submit}>{saving ? "Submitting…" : "Review & submit"}</button>}
+              : <button type="button" disabled={!answered || saving} onClick={() => setReviewing(true)}>Review answers →</button>}
           </div>
         </div>
         <p className="muted">Your answers are private to your account in this first release. CareerPath offers ideas for exploration, not a diagnosis or a decision about your future.</p>
       </>}
+      {attempt.status !== "submitted" && reviewing && <section aria-labelledby="careerpath-review-title"><h2 id="careerpath-review-title">Review your answers</h2><p className="muted">Check your selections before submitting. You can go back and change anything.</p>{assessment.questions.map((q, index) => <div className="module" key={q.id} style={{ alignItems: "flex-start" }}><div><strong>{index + 1}. {q.prompt}</strong><p>{(responses[q.id] || []).map(id => q.options.find(o => o.id === id)?.label || id).join(", ") || "Not answered"}</p></div><button type="button" onClick={() => { setStep(index); setReviewing(false); }}>Edit</button></div>)}<div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16 }}><button type="button" disabled={saving} onClick={() => setReviewing(false)}>← Back to questions</button><button type="button" disabled={!answered || saving} onClick={submit}>{saving ? "Submitting…" : "Confirm and submit"}</button></div></section>}
       {attempt.status === "submitted" && <><div className="module-grid">{(attempt.results || []).map(match => <article className="module" key={match.career.id} style={{ alignItems: "flex-start" }}><div><h3>{match.career.title}</h3><p>{match.career.description}</p><p><strong>Why it appeared</strong><br />{match.explanation}</p><p><strong>Subjects to explore</strong><br />{match.career.relevant_subjects.join(", ")}</p><p><strong>Skills to develop</strong><br />{match.career.skills_to_explore.join(", ")}</p><p><strong>Try this activity</strong><br />{match.career.exploration_activity}</p></div></article>)}</div><p className="muted">These suggestions use transparent overlap between your selected interests and a small starter catalogue. They are not scientifically validated predictions, and they do not determine admissions, placement, or future opportunities.</p></>}
     </div>
   </main>;

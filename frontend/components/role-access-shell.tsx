@@ -97,12 +97,12 @@ export default function RoleAccessShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!ready || !role) return;
     if (!canRoleAccessPath(role, pathname)) router.replace(landingPathForRole(role));
-    else if (pathname === "/dashboard" && ["student", "teacher", "parent", "accountant", "staff"].includes(role)) router.replace(landingPathForRole(role));
+    else if (pathname === "/dashboard" && landingPathForRole(role) !== pathname && ["student", "teacher", "parent", "accountant", "staff"].includes(role)) router.replace(landingPathForRole(role));
   }, [pathname, ready, role, router]);
 
   if (!ready) return <main className="content"><section className="panel"><strong>Verifying access…</strong><p className="muted">Loading the workspace permitted for your account.</p></section></main>;
   if (failure || !role) return <main className="content"><section className="panel" role="alert"><h1>Unable to verify access</h1><p>{failure || "Please sign in again to continue."}</p></section></main>;
-  if (!canRoleAccessPath(role, pathname) || (pathname === "/dashboard" && ["student", "teacher", "parent", "accountant", "staff"].includes(role))) {
+  if (!canRoleAccessPath(role, pathname) || (pathname === "/dashboard" && landingPathForRole(role) !== pathname && ["student", "teacher", "parent", "accountant", "staff"].includes(role))) {
     return <main className="content"><section className="panel"><strong>Opening your workspace…</strong></section></main>;
   }
 

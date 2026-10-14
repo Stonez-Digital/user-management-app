@@ -31,7 +31,8 @@ export default function CareerPathPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [form, draft] = await Promise.all([api("/student/careerpath/assessment"), api("/student/careerpath/attempts", "POST")]);
+        const draft = await api("/student/careerpath/attempts", "POST") as Attempt;
+        const form = await api("/student/careerpath/assessment?version=" + encodeURIComponent(draft.version)) as Assessment;
         setAssessment(form);
         setAttempt(draft);
         setResponses(draft.responses || {});
@@ -82,6 +83,7 @@ export default function CareerPathPage() {
   return <main className="content standalone">
     <Link className="back" href="/dashboard/student">← Student dashboard</Link>
     <header className="topbar"><div><p className="eyebrow">STONEZ DIGITAL · CAREER EXPLORATION</p><h1>{assessment.title}</h1><p className="muted">{assessment.description}</p></div></header>
+    {attempt.version === "careerpath-v1" && attempt.status !== "submitted" && <div className="panel" role="status" style={{ marginBottom: 16 }}><strong>Continuing an earlier assessment</strong><p className="muted">Your saved answers belong to an earlier version of CareerPath. You can continue and submit this assessment without losing your progress.</p></div>}
     <div className="panel" style={{ marginBottom: 16 }}><strong>What you will explore</strong><p className="muted">Interests · Strengths · Work settings · Subjects and skills · Experience · Next steps</p><p className="muted">You can select more than one answer on each question. Your choices help start a conversation about possibilities; they do not define your personality or limit your future.</p></div>
     <div className="panel">
       <div className="panel-head"><div><h2>{attempt.status === "submitted" ? "Your career ideas" : "Discover what interests you"}</h2><p>{attempt.status === "submitted" ? "Explore these possibilities at your own pace. You can change your interests over time." : "Choose the answers that feel right to you. You can save and resume whenever you need."}</p></div><span className="badge">{attempt.status === "submitted" ? "Completed" : "In progress"}</span></div>

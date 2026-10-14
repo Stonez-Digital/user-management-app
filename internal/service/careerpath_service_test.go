@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
@@ -35,6 +36,48 @@ func completeCareerPathResponses() map[string][]string {
 		"subjects": {"maths", "computing", "arts"},
 		"education_experience": {"school_project", "digital_project"},
 		"goals": {"solve", "make"},
+	}
+}
+
+func TestCareerPathV1DraftCanBeResumedAndSubmittedAfterV2Upgrade(t *testing.T) {
+	db, schoolID, userID := careerPathTestDB(t)
+	svc := NewCareerPathService(db)
+	var student models.Student
+	if err := db.Where("school_id = ? AND user_id = ?", schoolID, userID).First(&student).Error; err != nil {
+		t.Fatal(err)
+	}
+	legacyResponses := map[string][]string{
+		"interests": {"build", "investigate"},
+		"work_style": {"independent", "studio"},
+		"subjects": {"maths", "computing"},
+		"goals": {"solve", "make"},
+	}
+	raw, err := json.Marshal(legacyResponses)
+	if err != nil { t.Fatal(err) }
+	legacy := models.CareerPathAttempt{SchoolID: schoolID, StudentID: student.ID, UserID: userID, Version: "careerpath-v1", Status: "in_progress", Responses: string(raw), Results: "[]"}
+	if err := db.Create(&legacy).Error; err != nil { t.Fatal(err) }
+
+	resumed, err := svc.CreateOrResume(schoolID, userID)
+	if err != nil { t.Fatal(err) }
+	if resumed.ID != legacy.ID || resumed.Version != "careerpath-v1" {
+		t.Fatalf("expected legacy draft %s/version careerpath-v1, got %s/version %s", legacy.ID, resumed.ID, resumed.Version)
+	}
+	assessment := svc.AssessmentForVersion(resumed.Version)
+	if assessment.Version != "careerpath-v1" || len(assessment.Questions) != 4 {
+		t.Fatalf("expected original v1 assessment definition, got version %s with %d questions", assessment.Version, len(assessment.Questions))
+	}
+	if _, err := svc.SaveResponses(schoolID, userID, resumed.ID, legacyResponses); err != nil {
+		t.Fatalf("legacy draft should accept its original response schema: %v", err)
+	}
+	submitted, err := svc.Submit(schoolID, userID, resumed.ID)
+	if err != nil { t.Fatalf("legacy draft should submit against its original assessment: %v", err) }
+	if submitted.Status != "submitted" || submitted.Version != "careerpath-v1" || len(submitted.Results) == 0 {
+		t.Fatalf("expected submitted legacy results, got status=%s version=%s results=%d", submitted.Status, submitted.Version, len(submitted.Results))
+	}
+	reopened, err := svc.CreateOrResume(schoolID, userID)
+	if err != nil { t.Fatal(err) }
+	if reopened.ID != submitted.ID || reopened.Version != "careerpath-v1" || len(reopened.Results) == 0 {
+		t.Fatalf("expected prior v1 results to remain visible after reopening, got id=%s version=%s results=%d", reopened.ID, reopened.Version, len(reopened.Results))
 	}
 }
 

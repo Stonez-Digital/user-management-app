@@ -28,10 +28,13 @@ func careerPathTestDB(t *testing.T) (*gorm.DB, uuid.UUID, uuid.UUID) {
 
 func completeCareerPathResponses() map[string][]string {
 	return map[string][]string{
-		"interests":{"build","investigate","create"},
-		"work_style":{"independent","studio"},
-		"subjects":{"maths","computing","arts"},
-		"goals":{"solve","make"},
+		"interests": {"build", "investigate", "create"},
+		"personality_strengths": {"curious", "creative_thinker"},
+		"work_style": {"independent", "studio"},
+		"workplace_preferences": {"behind_scenes", "digital"},
+		"subjects": {"maths", "computing", "arts"},
+		"education_experience": {"school_project", "digital_project"},
+		"goals": {"solve", "make"},
 	}
 }
 
@@ -116,5 +119,50 @@ func TestCareerPathCreateOrResumeKeepsOneDraft(t *testing.T) {
 	}
 	if drafts != 1 {
 		t.Fatalf("expected exactly one in-progress draft, got %d", drafts)
+	}
+}
+
+
+func TestCareerPathV2CoversFourCareerFitDimensions(t *testing.T) {
+	assessment := careerPathAssessment()
+	if assessment.Version != "careerpath-v2" {
+		t.Fatalf("expected v2 assessment, got %q", assessment.Version)
+	}
+	required := map[string]bool{
+		"interests": false,
+		"personality_strengths": false,
+		"workplace_preferences": false,
+		"education_experience": false,
+	}
+	for _, q := range assessment.Questions {
+		if _, ok := required[q.ID]; ok {
+			required[q.ID] = true
+		}
+	}
+	for dimension, found := range required {
+		if !found {
+			t.Errorf("missing career-fit dimension question %q", dimension)
+		}
+	}
+	if len(assessment.Questions) < 6 {
+		t.Fatalf("expected a broader assessment, got %d questions", len(assessment.Questions))
+	}
+}
+
+func TestCareerPathV2ResultsExplainTheirConnections(t *testing.T) {
+	db, schoolID, userID := careerPathTestDB(t)
+	svc := NewCareerPathService(db)
+	attempt, err := svc.CreateOrResume(schoolID, userID)
+	if err != nil { t.Fatal(err) }
+	if _, err = svc.SaveResponses(schoolID, userID, attempt.ID, completeCareerPathResponses()); err != nil { t.Fatal(err) }
+	result, err := svc.Submit(schoolID, userID, attempt.ID)
+	if err != nil { t.Fatal(err) }
+	for _, match := range result.Results {
+		if match.Explanation == "" || len(match.MatchedInterests) == 0 {
+			t.Errorf("career %q lacks a response-based explanation", match.Career.ID)
+		}
+		if match.Career.Activity == "" || len(match.Career.Skills) == 0 {
+			t.Errorf("career %q lacks an activity or skills to explore", match.Career.ID)
+		}
 	}
 }

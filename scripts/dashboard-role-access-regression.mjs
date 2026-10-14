@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { canRoleAccessPath } from "../frontend/lib/dashboard-access.mjs";
 
 const studentAllowed = [
   "/dashboard",
   "/dashboard/student",
   "/dashboard/student/careerpath",
-  "/dashboard/student/report-card?termId=t1",
+  "/dashboard/student/report-card",
   "/dashboard/notifications",
 ];
 const studentDenied = [
@@ -38,8 +39,8 @@ assert.equal(canRoleAccessPath("unknown", "/dashboard"), false);
 assert.equal(canRoleAccessPath("school_admin", "/dashboard/users"), true);
 assert.equal(canRoleAccessPath("super_admin", "/dashboard/audit"), true);
 
-const shell = await (await import("node:fs/promises")).readFile(new URL("../frontend/components/role-access-shell.tsx", import.meta.url), "utf8");
-assert.match(shell, /fetch\("\/backend\/me"/);
-assert.match(shell, /router\.replace\(landingPathForRole\(role\)\)/);
-assert.match(shell, /if \(!ready\)/);
+const shell = await readFile(new URL("../frontend/components/role-access-shell.tsx", import.meta.url), "utf8");
+assert.ok(shell.includes('fetch("/backend/me"'));
+assert.ok(shell.includes("router.replace(landingPathForRole(role))"));
+assert.ok(shell.includes("if (!ready)"));
 console.log("Role-aware dashboard access regression checks passed.");

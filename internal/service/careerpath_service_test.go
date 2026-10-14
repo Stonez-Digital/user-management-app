@@ -74,6 +74,11 @@ func TestCareerPathV1DraftCanBeResumedAndSubmittedAfterV2Upgrade(t *testing.T) {
 	if submitted.Status != "submitted" || submitted.Version != "careerpath-v1" || len(submitted.Results) == 0 {
 		t.Fatalf("expected submitted legacy results, got status=%s version=%s results=%d", submitted.Status, submitted.Version, len(submitted.Results))
 	}
+	reopened, err := svc.CreateOrResume(schoolID, userID)
+	if err != nil { t.Fatal(err) }
+	if reopened.ID != submitted.ID || reopened.Version != "careerpath-v1" || len(reopened.Results) == 0 {
+		t.Fatalf("expected prior v1 results to remain visible after reopening, got id=%s version=%s results=%d", reopened.ID, reopened.Version, len(reopened.Results))
+	}
 }
 
 func TestCareerPathAssessmentSubmissionIsDeterministicAndIdempotent(t *testing.T) {

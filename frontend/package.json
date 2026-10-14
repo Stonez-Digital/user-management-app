@@ -16,6 +16,7 @@
     "preview": "vinext-cloudflare deploy --preview",
     "cf-typegen": "wrangler types",
     "test:dashboard-context": "node ../scripts/dashboard-academic-context-regression.mjs",
+    "test:role-access": "node ../scripts/dashboard-role-access-regression.mjs",
     "test:careerpath": "node ../scripts/careerpath-v2-regression.mjs"
   },
   "dependencies": {

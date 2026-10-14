@@ -41,6 +41,8 @@ export default function CareerPathPage() {
   }, []);
 
   const question = assessment?.questions[step];
+  const dimensionLabels: Record<string, string> = { interests: "Interests", personality_strengths: "Personality and strengths", work_style: "Work style", workplace_preferences: "Workplace preferences", subjects: "Subjects and skills", education_experience: "Education and experience", goals: "Next steps and goals" };
+  const currentDimension = question ? dimensionLabels[question.id] || "Career exploration" : "";
   const answered = useMemo(() => !!assessment && assessment.questions.every(q => (responses[q.id] || []).length > 0), [assessment, responses]);
   function toggle(option: string) {
     if (!question || attempt?.status === "submitted") return;
@@ -80,6 +82,7 @@ export default function CareerPathPage() {
   return <main className="content standalone">
     <Link className="back" href="/dashboard/student">← Student dashboard</Link>
     <header className="topbar"><div><p className="eyebrow">STONEZ DIGITAL · CAREER EXPLORATION</p><h1>{assessment.title}</h1><p className="muted">{assessment.description}</p></div></header>
+    <div className="panel" style={{ marginBottom: 16 }}><strong>What you will explore</strong><p className="muted">Interests · Strengths · Work settings · Subjects and skills · Experience · Next steps</p><p className="muted">You can select more than one answer on each question. Your choices help start a conversation about possibilities; they do not define your personality or limit your future.</p></div>
     <div className="panel">
       <div className="panel-head"><div><h2>{attempt.status === "submitted" ? "Your career ideas" : "Discover what interests you"}</h2><p>{attempt.status === "submitted" ? "Explore these possibilities at your own pace. You can change your interests over time." : "Choose the answers that feel right to you. You can save and resume whenever you need."}</p></div><span className="badge">{attempt.status === "submitted" ? "Completed" : "In progress"}</span></div>
       {error && <div className="error banner" role="alert">{error}</div>}
@@ -87,7 +90,7 @@ export default function CareerPathPage() {
       {attempt.status !== "submitted" && question && !reviewing && <>
         <div aria-label={"Question " + (step + 1) + " of " + assessment.questions.length} className="muted">Question {step + 1} of {assessment.questions.length}</div>
         <div style={{ height: 8, background: "var(--border, #e5e7eb)", borderRadius: 999, margin: "12px 0 24px" }}><div style={{ height: "100%", width: ((step + 1) / assessment.questions.length * 100) + "%", background: "var(--primary, #0D2175)", borderRadius: 999 }} /></div>
-        <h2>{question.prompt}</h2>{question.help && <p className="muted">{question.help}</p>}
+        <p className="eyebrow">{currentDimension}</p><h2>{question.prompt}</h2>{question.help && <p className="muted">{question.help}</p>}
         <fieldset style={{ border: 0, padding: 0, margin: "16px 0" }}><legend className="muted">{question.multiple ? "Select all that interest you." : "Choose one answer."}</legend>
           <div className="module-grid">{question.options.map(option => {
             const selected = (responses[question.id] || []).includes(option.id);

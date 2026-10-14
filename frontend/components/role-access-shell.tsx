@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { landingPathForRole, normalizeAuthUser } from "../lib/auth-session";
+import { canRoleAccessPath } from "../lib/dashboard-access.mjs";
 
 type NavItem = { label: string; href: string };
 
@@ -59,34 +60,6 @@ function isPathWithin(pathname: string, base: string) {
   return pathname === base || pathname.startsWith(base + "/");
 }
 
-export function canRoleAccessPath(role: string, pathname: string): boolean {
-  if (role === "super_admin" || role === "school_admin") return true;
-  if (role === "student") {
-    return isPathWithin(pathname, "/dashboard/student") ||
-      pathname === "/dashboard/notifications" ||
-      pathname === "/dashboard";
-  }
-  if (role === "teacher") {
-    return pathname === "/dashboard" || ["/dashboard/teacher", "/dashboard/attendance", "/dashboard/assessments", "/dashboard/results", "/dashboard/timetable", "/dashboard/notifications"].some((base) => isPathWithin(pathname, base));
-  }
-  if (role === "parent") {
-    return isPathWithin(pathname, "/dashboard/parent") ||
-      pathname === "/dashboard/notifications" ||
-      pathname === "/dashboard";
-  }
-  if (role === "accountant") {
-    return isPathWithin(pathname, "/dashboard/operations") ||
-      isPathWithin(pathname, "/dashboard/finance") ||
-      pathname === "/dashboard/notifications" ||
-      pathname === "/dashboard";
-  }
-  if (role === "staff") {
-    return isPathWithin(pathname, "/dashboard/operations") ||
-      pathname === "/dashboard/notifications" ||
-      pathname === "/dashboard";
-  }
-  return false;
-}
 
 export default function RoleAccessShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();

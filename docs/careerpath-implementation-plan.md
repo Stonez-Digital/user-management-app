@@ -33,7 +33,14 @@ Implemented on the feature branch (pending CI and review):
 6. Added backend tests for deterministic/idempotent matching, incomplete and invalid answers, immutability, and student/cross-school access boundaries. Migration tests now expect the added migration.
 7. CI must be observed and any failures fixed before this PR can be marked ready; no merge or production deployment is authorized before review.
 
-### Phase B — Expand after the first slice is reviewed
+### Phase B — Career-fit assessment v2 (implementation in progress)
+
+- Added a new versioned v2 assessment with original questions for interests, non-diagnostic strengths/work preferences, workplace preferences, subjects/skills, education/experience, and next-step goals.
+- Kept the existing deterministic tag-overlap matcher and career catalogue; results remain advisory and explain selected-response connections.
+- Added focused backend tests for v2 dimension coverage and response-based explanations, and clarified the dimensions in the student UI.
+- Remaining work before v2 is complete: explicit retake/history UI, shortlist and career comparison, student-owned goals/milestones, legacy draft migration/continuation policy, and frontend regression tests. Do not treat this initial increment as the complete recommendation list.
+
+### Further planned enhancements
 
 - Career catalogue search/details, saved/dismissed careers, comparison, and career goals/milestones.
 - Learning pathway activities and verified, dated learning resources.

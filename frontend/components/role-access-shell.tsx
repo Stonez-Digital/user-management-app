@@ -67,7 +67,7 @@ export function canRoleAccessPath(role: string, pathname: string): boolean {
       pathname === "/dashboard";
   }
   if (role === "teacher") {
-    return ["/dashboard/teacher", "/dashboard/attendance", "/dashboard/assessments", "/dashboard/results", "/dashboard/timetable", "/dashboard/notifications", "/dashboard"].some((base) => isPathWithin(pathname, base));
+    return pathname === "/dashboard" || ["/dashboard/teacher", "/dashboard/attendance", "/dashboard/assessments", "/dashboard/results", "/dashboard/timetable", "/dashboard/notifications"].some((base) => isPathWithin(pathname, base));
   }
   if (role === "parent") {
     return isPathWithin(pathname, "/dashboard/parent") ||

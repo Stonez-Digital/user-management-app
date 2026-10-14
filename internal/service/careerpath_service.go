@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CareerPathAssessmentVersion = "careerpath-v1"
+const CareerPathAssessmentVersion = "careerpath-v2"
 
 var (
 	ErrCareerPathForbidden = errors.New("careerpath access forbidden")
@@ -35,12 +35,69 @@ type CareerPathService struct { db *gorm.DB }
 func NewCareerPathService(db *gorm.DB) *CareerPathService { return &CareerPathService{db: db} }
 
 func careerPathAssessment() CareerPathAssessment {
-	return CareerPathAssessment{ID:"explore-v1", Version:CareerPathAssessmentVersion, Title:"Explore your interests", Description:"A short reflection to help you explore possible careers. There are no right or wrong answers; your results are suggestions, not a decision about your future.", Questions:[]CareerPathQuestion{
-		{ID:"interests", Prompt:"Which activities would you enjoy exploring?", Multiple:true, Options:[]CareerPathOption{{"build","Building or fixing things",[]string{"hands_on","design","engineering"}},{"investigate","Investigating questions and patterns",[]string{"research","science","analysis"}},{"help","Helping or teaching people",[]string{"people","care","teaching"}},{"create","Creating stories, art or digital media",[]string{"creative","communication","design"}},{"organize","Planning events, projects or resources",[]string{"organize","business","leadership"}},{"nature","Working with plants, animals or the environment",[]string{"nature","science","hands_on"}}}},
-		{ID:"work_style", Prompt:"Which work settings sound appealing to you?", Multiple:true, Options:[]CareerPathOption{{"team","Working with a team",[]string{"people","collaboration"}},{"independent","Having time to focus independently",[]string{"analysis","independent"}},{"field","Being active outdoors or in the field",[]string{"nature","hands_on"}},{"studio","Making or designing things",[]string{"creative","design"}},{"community","Serving a school or community",[]string{"people","care","teaching"}}}},
-		{ID:"subjects", Prompt:"Which subjects or skills would you like to use more?", Multiple:true, Options:[]CareerPathOption{{"maths","Mathematics and logical problem-solving",[]string{"analysis","engineering","technology"}},{"science","Science and experiments",[]string{"science","research"}},{"language","Languages, reading or writing",[]string{"communication","creative","teaching"}},{"computing","Computers and digital tools",[]string{"technology","analysis","design"}},{"business","Business, money or entrepreneurship",[]string{"business","organize","analysis"}},{"arts","Art, design or practical crafts",[]string{"creative","design","hands_on"}}}},
-		{ID:"goals", Prompt:"What would you most like to explore next?", Multiple:true, Options:[]CareerPathOption{{"solve","Solving a real-world problem",[]string{"research","analysis","engineering"}},{"make","Making a useful product or service",[]string{"hands_on","design","technology"}},{"support","Supporting people to learn or thrive",[]string{"people","care","teaching"}},{"express","Sharing ideas through creative work",[]string{"creative","communication"}},{"improve","Improving how a group or organisation works",[]string{"business","organize","leadership"}},{"protect","Caring for nature or public wellbeing",[]string{"nature","science","care"}}}},
-	}}
+	return CareerPathAssessment{
+		ID: "explore-v2", Version: CareerPathAssessmentVersion,
+		Title: "Explore your interests and strengths",
+		Description: "Explore career ideas through your interests, strengths, preferred work settings, subjects and experiences. There are no right or wrong answers. Your results are suggestions, not a decision about your future.",
+		Questions: []CareerPathQuestion{
+			{ID:"interests", Prompt:"Which activities would you enjoy exploring?", Help:"Choose all that sound interesting, even if you have not tried them yet.", Multiple:true, Options:[]CareerPathOption{
+				{"build","Building or fixing things",[]string{"hands_on","design","engineering"}},
+				{"investigate","Investigating questions and patterns",[]string{"research","science","analysis"}},
+				{"help","Helping or teaching people",[]string{"people","care","teaching"}},
+				{"create","Creating stories, art or digital media",[]string{"creative","communication","design"}},
+				{"organize","Planning events, projects or resources",[]string{"organize","business","leadership"}},
+				{"nature","Working with plants, animals or the environment",[]string{"nature","science","hands_on"}},
+			}},
+			{ID:"personality_strengths", Prompt:"Which ways of working feel most natural or enjoyable to you?", Help:"This is a reflection, not a personality test or diagnosis. Select more than one if they fit.", Multiple:true, Options:[]CareerPathOption{
+				{"curious","Asking questions and finding out how things work",[]string{"research","science","analysis"}},
+				{"creative_thinker","Imagining new ideas or different solutions",[]string{"creative","design","engineering"}},
+				{"supportive","Listening, encouraging or helping others",[]string{"people","care","teaching","communication"}},
+				{"planner","Organising tasks and keeping things on track",[]string{"organize","business","leadership"}},
+				{"practical","Learning by doing, building or testing",[]string{"hands_on","engineering","design"}},
+				{"independent_thinker","Focusing deeply and solving problems independently",[]string{"analysis","independent","technology"}},
+			}},
+			{ID:"work_style", Prompt:"Which work settings sound appealing to you?", Help:"Think about the kind of day-to-day environment you might enjoy.", Multiple:true, Options:[]CareerPathOption{
+				{"team","Working with a team",[]string{"people","collaboration"}},
+				{"independent","Having time to focus independently",[]string{"analysis","independent"}},
+				{"field","Being active outdoors or in the field",[]string{"nature","hands_on"}},
+				{"studio","Making or designing things",[]string{"creative","design"}},
+				{"community","Serving a school or community",[]string{"people","care","teaching"}},
+			}},
+			{ID:"workplace_preferences", Prompt:"What kind of workplace or tasks would you like to try?", Help:"Choose the options that appeal to you; there is no preferred or better answer.", Multiple:true, Options:[]CareerPathOption{
+				{"structured","Clear steps, routines and organised tasks",[]string{"organize","business","analysis"}},
+				{"flexible","Varied tasks and room to try new approaches",[]string{"creative","design","research"}},
+				{"people_facing","Talking with, teaching or supporting people",[]string{"people","teaching","communication","care"}},
+				{"behind_scenes","Working behind the scenes to improve a system",[]string{"technology","analysis","engineering"}},
+				{"outdoors","Working outdoors or visiting different places",[]string{"nature","hands_on","science"}},
+				{"digital","Using computers or digital tools to make things",[]string{"technology","design","analysis"}},
+			}},
+			{ID:"subjects", Prompt:"Which subjects or skills would you like to use more?", Help:"You can choose subjects you enjoy now or want to learn.", Multiple:true, Options:[]CareerPathOption{
+				{"maths","Mathematics and logical problem-solving",[]string{"analysis","engineering","technology"}},
+				{"science","Science and experiments",[]string{"science","research"}},
+				{"language","Languages, reading or writing",[]string{"communication","creative","teaching"}},
+				{"computing","Computers and digital tools",[]string{"technology","analysis","design"}},
+				{"business","Business, money or entrepreneurship",[]string{"business","organize","analysis"}},
+				{"arts","Art, design or practical crafts",[]string{"creative","design","hands_on"}},
+			}},
+			{ID:"education_experience", Prompt:"What have you already tried or would like to practise?", Help:"Choose skills or activities you have tried, or would like to try next. You do not need formal work experience.", Multiple:true, Options:[]CareerPathOption{
+				{"school_project","A school project, experiment or research task",[]string{"research","science","analysis"}},
+				{"digital_project","Making something with a computer or phone",[]string{"technology","design","creative"}},
+				{"helping_activity","Helping, tutoring or volunteering",[]string{"people","care","teaching"}},
+				{"creative_project","Writing, drawing, designing or making media",[]string{"creative","communication","design"}},
+				{"practical_task","Repairing, building, growing or fixing something",[]string{"hands_on","engineering","nature"}},
+				{"organising_activity","Planning an event, club activity or small project",[]string{"organize","business","leadership"}},
+				{"not_yet","I have not tried these yet, but I am ready to explore",[]string{"research","learning","curiosity"}},
+			}},
+			{ID:"goals", Prompt:"What would you most like to explore next?", Help:"Pick the next steps that sound useful to you.", Multiple:true, Options:[]CareerPathOption{
+				{"solve","Solving a real-world problem",[]string{"research","analysis","engineering"}},
+				{"make","Making a useful product or service",[]string{"hands_on","design","technology"}},
+				{"support","Supporting people to learn or thrive",[]string{"people","care","teaching"}},
+				{"express","Sharing ideas through creative work",[]string{"creative","communication"}},
+				{"improve","Improving how a group or organisation works",[]string{"business","organize","leadership"}},
+				{"protect","Caring for nature or public wellbeing",[]string{"nature","science","care"}},
+			}},
+		},
+	}
 }
 func careerPathCatalogue() []CareerPathCareer { return []CareerPathCareer{
 	{ID:"software-developer",Title:"Software Developer",Description:"Designs and builds software that helps people solve problems.",Subjects:[]string{"Mathematics","Computing","English"},Skills:[]string{"Programming","Problem-solving","Testing"},Activity:"Build a simple study timetable or quiz app.",Tags:[]string{"technology","analysis","engineering","design","independent"}},

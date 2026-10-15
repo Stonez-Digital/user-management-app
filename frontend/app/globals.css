@@ -148,3 +148,85 @@ html[data-theme="dark"] .tenant-badge,html[data-theme="dark"] .tenant-next{backg
 html[data-theme="dark"] .tenant-next span{color:#cbd5e1}
 html[data-theme="dark"] .empty{color:#64748b}
 @media(max-width:560px){.theme-toggle{width:44px;height:44px;min-height:44px}}
+
+
+/* CareerPath answer cards: the shared .module>span rule positions all spans as badges.
+   Keep answer labels in normal flow so they never overlap the selection indicator. */
+button.module[aria-pressed] {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-height: 72px;
+  color: #172033;
+  background: #fff;
+  border: 1px solid #dbe1ea;
+  text-align: left;
+  line-height: 1.45;
+  white-space: normal;
+  transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
+}
+button.module[aria-pressed] > span {
+  position: static;
+  inset: auto;
+  display: block;
+  color: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  overflow-wrap: anywhere;
+}
+button.module[aria-pressed] > span:first-child {
+  display: grid;
+  place-items: center;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid #cbd5e1;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+}
+button.module[aria-pressed="true"] > span:first-child {
+  color: #fff;
+  background: #162a72;
+  border-color: #162a72;
+}
+button.module[aria-pressed]:hover:not(:disabled) {
+  border-color: #536db8;
+  box-shadow: 0 3px 12px #162a7212;
+}
+button.module[aria-pressed]:focus-visible {
+  outline: 3px solid #8da5f0;
+  outline-offset: 3px;
+}
+button.module[aria-pressed]:disabled {
+  cursor: not-allowed;
+}
+@media (prefers-reduced-motion: reduce) {
+  button.module[aria-pressed] { transition: none; }
+}
+
+/* Persistent dashboard navigation, including the people onboarding workflow. */
+.dashboard-section-nav{display:flex;align-items:center;gap:4px;padding:10px 24px;background:#fff;border-bottom:1px solid #e2e8f0;overflow-x:auto;white-space:nowrap;scrollbar-width:thin}
+.dashboard-section-nav a{display:inline-flex;align-items:center;min-height:40px;padding:9px 12px;border-radius:8px;color:#334155;font-size:13px;font-weight:650;flex:0 0 auto}
+.dashboard-section-nav a:hover,.dashboard-section-nav a:focus-visible{background:#eef2ff;color:#162a72;outline:none}
+.dashboard-section-nav a[href="/dashboard/onboarding"]{color:#162a72;background:#eef2ff}
+@media(max-width:700px){.dashboard-section-nav{padding:8px 12px;gap:2px}.dashboard-section-nav a{padding:8px 10px;font-size:12px}.content{padding:20px 14px}}
+
+/* School admin dashboard: searchable actions and visible interaction states. */
+.quick-action-search{display:grid;gap:5px;min-width:min(340px,100%);font-size:11px;font-weight:700;color:#475569}
+.quick-action-search input{width:100%;min-width:0;border:1px solid #dbe1ea;border-radius:10px;padding:10px 12px;background:#fff;color:#172033;font:inherit;font-weight:500;outline:none}
+.quick-action-search input:focus-visible{border-color:#536db8;box-shadow:0 0 0 3px #536db81c}
+.quick-action-count{font-size:11px;color:#64748b;margin:-4px 0 12px}
+.command-context button:disabled{opacity:.65;cursor:wait}
+.quick-action:focus-visible,.command-alert:focus-visible{outline:3px solid #536db8;outline-offset:2px}
+@media(max-width:700px){.quick-action-search{min-width:0;width:100%}}
+html[data-theme="dark"] .quick-action-search{color:#cbd5e1}
+html[data-theme="dark"] .quick-action-search input{background:#0f172a;color:#f8fafc;border-color:#334155}
+html[data-theme="dark"] .quick-action-count{color:#94a3b8}

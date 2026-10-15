@@ -668,6 +668,76 @@ func Migrate(db *gorm.DB) error {
             if tx.Dialector.Name()!="postgres" { return nil }
             return seedNigeriaNationalCurriculum(tx)
         }},
+        {Version:39,Name:"careerpath_assessment_attempts",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()=="postgres" {
+                // Avoid AutoMigrate traversing CareerPathAttempt's School/Student
+                // relations into the legacy users schema. Some production databases
+                // do not have GORM's expected uni_users_email constraint name.
+                statements:=[]string{
+                    `CREATE TABLE IF NOT EXISTS career_path_attempts (
+                        id uuid PRIMARY KEY,
+                        school_id uuid NOT NULL,
+                        student_id uuid NOT NULL,
+                        user_id uuid NOT NULL,
+                        version varchar(32) NOT NULL,
+                        status varchar(20) NOT NULL,
+                        responses text NOT NULL DEFAULT '{}',
+                        results text NOT NULL DEFAULT '[]',
+                        submitted_at timestamptz,
+                        created_at timestamptz,
+                        updated_at timestamptz,
+                        CONSTRAINT fk_career_path_attempts_school FOREIGN KEY (school_id) REFERENCES schools(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                        CONSTRAINT fk_career_path_attempts_student FOREIGN KEY (student_id) REFERENCES students(id) ON UPDATE CASCADE ON DELETE RESTRICT
+                    )`,
+                    "CREATE INDEX IF NOT EXISTS idx_career_attempt_owner ON career_path_attempts(school_id, student_id)",
+                    "CREATE INDEX IF NOT EXISTS idx_career_path_attempts_user_id ON career_path_attempts(user_id)",
+                    "CREATE INDEX IF NOT EXISTS idx_career_path_attempts_status ON career_path_attempts(status)",
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_careerpath_one_draft ON career_path_attempts(school_id, student_id, version) WHERE status = 'in_progress'",
+                }
+                for _,q:=range statements { if err:=tx.Exec(q).Error;err!=nil{return err} }
+                return nil
+            }
+            if err:=tx.AutoMigrate(&models.CareerPathAttempt{});err!=nil{return err}
+            return tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_careerpath_one_draft ON career_path_attempts(school_id, student_id, version) WHERE status = 'in_progress'").Error
+        }},
+        {Version:40,Name:"careerpath_attempt_tenant_integrity",Up:func(tx *gorm.DB) error {
+            // Fail closed if existing rows don't prove that school, student, and user
+            // refer to the same tenant. Do not rewrite existing assessment records.
+            if tx.Dialector.Name()=="postgres" {
+                var mismatches int64
+                if err:=tx.Table("career_path_attempts AS a").
+                    Joins("LEFT JOIN students AS s ON s.id = a.student_id AND s.school_id = a.school_id AND s.user_id = a.user_id").
+                    Where("s.id IS NULL").Count(&mismatches).Error;err!=nil{return err}
+                if mismatches>0{return fmt.Errorf("CareerPath tenant integrity migration blocked: %d attempt rows have mismatched school/student/user ownership",mismatches)}
+                if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_students_school_id_id_user_id ON students(school_id, id, user_id)").Error;err!=nil{return err}
+                var constraintExists bool
+                if err:=tx.Raw("SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = ? AND conrelid = 'career_path_attempts'::regclass)", "fk_career_path_attempts_tenant_student").Scan(&constraintExists).Error;err!=nil{return err}
+                if constraintExists{return nil}
+                return tx.Exec("ALTER TABLE career_path_attempts ADD CONSTRAINT fk_career_path_attempts_tenant_student FOREIGN KEY (school_id, student_id, user_id) REFERENCES students(school_id, id, user_id) ON UPDATE CASCADE ON DELETE RESTRICT").Error
+            }
+            if tx.Dialector.Name()=="sqlite" {
+                // SQLite cannot add a composite foreign key to an existing table.
+                // These triggers enforce the same ownership invariant in automated tests.
+                statements:=[]string{
+                    `CREATE TRIGGER IF NOT EXISTS trg_career_path_attempts_tenant_insert
+                    BEFORE INSERT ON career_path_attempts
+                    FOR EACH ROW WHEN NOT EXISTS (
+                        SELECT 1 FROM students
+                        WHERE id = NEW.student_id AND school_id = NEW.school_id AND user_id = NEW.user_id
+                    )
+                    BEGIN SELECT RAISE(ABORT, 'careerpath student tenant mismatch'); END`,
+                    `CREATE TRIGGER IF NOT EXISTS trg_career_path_attempts_tenant_update
+                    BEFORE UPDATE OF school_id, student_id, user_id ON career_path_attempts
+                    FOR EACH ROW WHEN NOT EXISTS (
+                        SELECT 1 FROM students
+                        WHERE id = NEW.student_id AND school_id = NEW.school_id AND user_id = NEW.user_id
+                    )
+                    BEGIN SELECT RAISE(ABORT, 'careerpath student tenant mismatch'); END`,
+                }
+                for _,statement:=range statements {if err:=tx.Exec(statement).Error;err!=nil{return err}}
+            }
+            return nil
+        }},
     }
     for _,migration:=range migrations{
         var applied Migration

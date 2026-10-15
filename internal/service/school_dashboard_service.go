@@ -217,7 +217,7 @@ func (s *SchoolDashboardService) Get(schoolID, adminID, sessionID, termID uuid.U
 
     var count int64
     if sessionFound {
-        s.db.Model(&models.Student{}).Where("students.school_id = ? AND NOT EXISTS (SELECT 1 FROM student_enrollments WHERE student_enrollments.school_id = students.school_id AND student_enrollments.student_id = students.id AND student_enrollments.academic_session_id = ? AND student_enrollments.status = ?)", schoolID, session.ID, models.EnrollmentStatusActive).Count(&count)
+        s.db.Model(&models.Student{}).Where("students.school_id = ? AND students.enrollment_status = ? AND NOT EXISTS (SELECT 1 FROM student_enrollments WHERE student_enrollments.school_id = students.school_id AND student_enrollments.student_id = students.id AND student_enrollments.academic_session_id = ? AND student_enrollments.status = ?)", schoolID, models.EnrollmentActive, session.ID, models.EnrollmentStatusActive).Count(&count)
         if count > 0 { alerts = append(alerts, SchoolDashboardAlert{"students_without_enrollment","warning",count,"students have no active enrollment in the selected session.","/dashboard/enrollments"}) }
     }
     s.db.Model(&models.Student{}).Where("school_id = ? AND (admission_number = '' OR user_id IS NULL)", schoolID).Count(&count)
@@ -281,7 +281,9 @@ func (s *SchoolDashboardService) Get(schoolID, adminID, sessionID, termID uuid.U
         FinanceActivity: "Not started",
     }
     if sessionFound && termFound { health.AcademicSetup = "Complete" } else if sessionFound { health.AcademicSetup = "Needs attention" }
-    if overview.Students > 0 && overview.ActiveEnrollments == overview.Students { health.Enrollment = "Complete" } else if overview.Students > 0 { health.Enrollment = "Needs attention" }
+    var activeStudents int64
+    s.db.Model(&models.Student{}).Where("school_id = ? AND enrollment_status = ?", schoolID, models.EnrollmentActive).Count(&activeStudents)
+    if activeStudents > 0 && overview.ActiveEnrollments == activeStudents { health.Enrollment = "Complete" } else if activeStudents > 0 { health.Enrollment = "Needs attention" }
     if sessionFound && termFound {
         var assigned int64
         s.db.Model(&models.TeacherAssignment{}).Where("school_id = ? AND academic_session_id = ? AND term_id = ? AND active = ?", schoolID, session.ID, term.ID, true).Count(&assigned)

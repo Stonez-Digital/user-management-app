@@ -13,7 +13,7 @@ func TestMigrateIsVersionedAndIdempotent(t *testing.T) {
     if err:=Migrate(db);err!=nil{t.Fatal(err)}
     var count int64
     if err:=db.Model(&Migration{}).Count(&count).Error;err!=nil{t.Fatal(err)}
-    if count!=38{t.Fatalf("expected thirty-eight applied migrations, got %d",count)}
+    if count!=40{t.Fatalf("expected forty applied migrations, got %d",count)}
 
     if !db.Migrator().HasTable(&models.User{}){t.Fatal("expected users table after migration")}
     if !db.Migrator().HasTable(&models.School{}){t.Fatal("expected schools table after migration")}
@@ -35,6 +35,7 @@ func TestMigrateIsVersionedAndIdempotent(t *testing.T) {
     if !db.Migrator().HasTable(&models.TimetableEntry{}){t.Fatal("expected timetable table after migration")}
     if !db.Migrator().HasTable(&models.GuardianRelationship{}){t.Fatal("expected guardian relationships table after migration")}
     if !db.Migrator().HasTable(&models.Notification{}){t.Fatal("expected notifications table after migration")}
+	if !db.Migrator().HasTable(&models.CareerPathAttempt{}){t.Fatal("expected CareerPath attempts table after migration")}
 }
 
 
@@ -70,4 +71,41 @@ func TestSchoolScopedUniquenessAllowsSameAcademicDataAcrossSchools(t *testing.T)
         {SchoolID:second.ID,UserID:users[1].ID,AdmissionNumber:"ADM-001"},
     }
     if err:=db.Create(&students).Error;err!=nil{t.Fatalf("same admission number should be allowed across schools: %v",err)}
+}
+
+func TestCareerPathAttemptRejectsCrossTenantStudent(t *testing.T) {
+    db,err:=gorm.Open(sqlite.Open("file:careerpath-tenant-integrity?mode=memory&cache=shared"),&gorm.Config{})
+    if err!=nil{t.Fatal(err)}
+    if err:=Migrate(db);err!=nil{t.Fatal(err)}
+
+    var first models.School
+    if err:=db.Where("code = ?","DEFAULT").First(&first).Error;err!=nil{t.Fatal(err)}
+    second:=models.School{Name:"Tenant Integrity School",Code:"TENANT-INTEGRITY",Status:models.SchoolStatusActive}
+    if err:=db.Create(&second).Error;err!=nil{t.Fatal(err)}
+
+    firstID,secondID:=first.ID,second.ID
+    users:=[]models.User{
+        {SchoolID:&firstID,Name:"First Tenant Student",Email:"tenant-first@example.test",Role:"student",Active:true},
+        {SchoolID:&secondID,Name:"Second Tenant Student",Email:"tenant-second@example.test",Role:"student",Active:true},
+    }
+    if err:=db.Create(&users).Error;err!=nil{t.Fatal(err)}
+    students:=[]models.Student{
+        {SchoolID:first.ID,UserID:users[0].ID,AdmissionNumber:"TENANT-001"},
+        {SchoolID:second.ID,UserID:users[1].ID,AdmissionNumber:"TENANT-002"},
+    }
+    if err:=db.Create(&students).Error;err!=nil{t.Fatal(err)}
+
+    invalid:=models.CareerPathAttempt{
+        SchoolID:first.ID,StudentID:students[1].ID,UserID:users[1].ID,
+        Version:"careerpath-v1",Status:"in_progress",Responses:"{}",Results:"[]",
+    }
+    if err:=db.Create(&invalid).Error;err==nil{
+        t.Fatal("expected database to reject an assessment owned by a different school")
+    }
+
+    valid:=models.CareerPathAttempt{
+        SchoolID:first.ID,StudentID:students[0].ID,UserID:users[0].ID,
+        Version:"careerpath-v1",Status:"in_progress",Responses:"{}",Results:"[]",
+    }
+    if err:=db.Create(&valid).Error;err!=nil{t.Fatalf("expected same-tenant assessment to be allowed: %v",err)}
 }

@@ -109,6 +109,24 @@ func (s *SchoolLogoStorage) ensureBucket() error {
     }
     defer resp.Body.Close()
     if resp.StatusCode == http.StatusConflict {
+        resp.Body.Close()
+        updatePayload := []byte(`{"public":true,"file_size_limit":2097152,"allowed_mime_types":["image/png","image/jpeg","image/webp"]}`)
+        updateReq, updateErr := http.NewRequest(http.MethodPatch, s.baseURL+"/storage/v1/bucket/"+schoolLogoBucket, bytes.NewReader(updatePayload))
+        if updateErr != nil {
+            return fmt.Errorf("school logo storage setup failed: %w", updateErr)
+        }
+        updateReq.Header.Set("Authorization", "Bearer "+s.secretKey)
+        updateReq.Header.Set("apikey", s.secretKey)
+        updateReq.Header.Set("Content-Type", "application/json")
+        updateResp, updateErr := s.client.Do(updateReq)
+        if updateErr != nil {
+            return fmt.Errorf("school logo storage setup failed: %w", updateErr)
+        }
+        defer updateResp.Body.Close()
+        if updateResp.StatusCode < 200 || updateResp.StatusCode >= 300 {
+            detail, _ := io.ReadAll(io.LimitReader(updateResp.Body, 4096))
+            return fmt.Errorf("school logo storage setup failed: %s", strings.TrimSpace(string(detail)))
+        }
         return nil
     }
     if resp.StatusCode < 200 || resp.StatusCode >= 300 {

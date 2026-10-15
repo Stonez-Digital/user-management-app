@@ -43,7 +43,16 @@ func(s *SchoolMediaStorage) ensureBucket()error{
  req,err:=http.NewRequest(http.MethodPost,s.baseURL+"/storage/v1/bucket",bytes.NewReader(payload));if err!=nil{return err}
  req.Header.Set("Authorization","Bearer "+s.secretKey);req.Header.Set("apikey",s.secretKey);req.Header.Set("Content-Type","application/json")
  resp,err:=s.client.Do(req);if err!=nil{return fmt.Errorf("school media storage setup failed: %w",err)};defer resp.Body.Close()
- if resp.StatusCode==http.StatusConflict{return nil};if resp.StatusCode<200||resp.StatusCode>=300{detail,_:=io.ReadAll(io.LimitReader(resp.Body,4096));return fmt.Errorf("school media storage setup failed: %s",strings.TrimSpace(string(detail)))}
+ if resp.StatusCode==http.StatusConflict {
+  resp.Body.Close()
+  updatePayload:=[]byte(`{"public":true,"file_size_limit":10485760,"allowed_mime_types":["image/png","image/jpeg","image/webp"]}`)
+  updateReq,updateErr:=http.NewRequest(http.MethodPatch,s.baseURL+"/storage/v1/bucket/"+schoolMediaBucket,bytes.NewReader(updatePayload));if updateErr!=nil{return fmt.Errorf("school media storage setup failed: %w",updateErr)}
+  updateReq.Header.Set("Authorization","Bearer "+s.secretKey);updateReq.Header.Set("apikey",s.secretKey);updateReq.Header.Set("Content-Type","application/json")
+  updateResp,updateErr:=s.client.Do(updateReq);if updateErr!=nil{return fmt.Errorf("school media storage setup failed: %w",updateErr)};defer updateResp.Body.Close()
+  if updateResp.StatusCode<200||updateResp.StatusCode>=300{detail,_:=io.ReadAll(io.LimitReader(updateResp.Body,4096));return fmt.Errorf("school media storage setup failed: %s",strings.TrimSpace(string(detail)))}
+  return nil
+ }
+ if resp.StatusCode<200||resp.StatusCode>=300{detail,_:=io.ReadAll(io.LimitReader(resp.Body,4096));return fmt.Errorf("school media storage setup failed: %s",strings.TrimSpace(string(detail)))}
  return nil
 }
 func extensionForContentMime(contentType string)string{exts,_:=mime.ExtensionsByType(contentType);if len(exts)>0{return exts[0]};return ""}

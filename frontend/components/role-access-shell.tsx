@@ -20,6 +20,7 @@ const adminLinks: NavItem[] = [
   { label: "Results", href: "/dashboard/results" },
   { label: "Timetable", href: "/dashboard/timetable" },
   { label: "Operations", href: "/dashboard/operations" },
+  { label: "Blog & Gallery", href: "/dashboard/content" },
   { label: "Users & Roles", href: "/dashboard/users" },
   { label: "Onboarding", href: "/dashboard/onboarding" },
   { label: "Audit Logs", href: "/dashboard/audit" },

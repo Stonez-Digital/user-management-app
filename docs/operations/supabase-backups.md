@@ -1,64 +1,39 @@
 # Supabase production database backups
 
-The `Supabase Daily Encrypted Backup` GitHub Actions workflow creates a PostgreSQL custom-format dump, encrypts it with age, verifies that the encrypted file can be decrypted and its archive index read, uploads the encrypted artifact to Cloudflare R2, checks the remote object size, and removes expired backup objects older than 30 days.
+## Source of truth
 
-- Schedule: daily at 02:17 UTC (03:17 Nigeria time).
-- Manual execution: GitHub → Actions → Supabase Daily Encrypted Backup → Run workflow.
-- R2 object prefix: `supabase-production/`.
-- Encryption: age; R2 receives only the encrypted `.dump.age` file.
-- Retention: 30 days, restricted to backup objects matching the expected filename pattern in the dedicated prefix.
-- Production safety: the workflow only reads the database. It does not run migrations, write application rows, or restore production.
+Production database backup automation is managed in the private repository [Stonez-Digital/production-db-backups](https://github.com/Stonez-Digital/production-db-backups). The obsolete Cloudflare R2-based workflow in this application repository has been removed. Do not recreate the old R2 workflow or add R2 secrets for the current backup path.
 
-## Required GitHub Actions secrets
+- [Daily encrypted custom-format backup workflow](https://github.com/Stonez-Digital/production-db-backups/blob/main/.github/workflows/supabase-daily-backup.yml): scheduled daily at 02:17 UTC (03:17 Nigeria time).
+- [Weekly Supabase-filtered compatibility backup workflow](https://github.com/Stonez-Digital/production-db-backups/blob/main/.github/workflows/supabase-filtered-backup-compatibility.yml): scheduled Sundays at 04:17 UTC (05:17 Nigeria time).
+- [Encrypted disposable PostgreSQL restore test](https://github.com/Stonez-Digital/production-db-backups/blob/main/.github/workflows/encrypted-backup-restore-test.yml): manually triggered; restores compatible objects into a disposable PostgreSQL 17 service, never production.
+- [Restore-drill runbook](https://github.com/Stonez-Digital/production-db-backups/blob/main/docs/restore-drill-runbook.md).
+- [Backup repository README](https://github.com/Stonez-Digital/production-db-backups/blob/main/README.md).
 
-Set these in the repository's **Settings → Secrets and variables → Actions → New repository secret**. Never commit these values to the repository, issue comments, workflow files, or logs.
+## Required secrets
 
-| Secret | Value |
+Configure secrets in **Settings → Secrets and variables → Actions** of the private `production-db-backups` repository only. Secret values must never be committed, pasted into issues/chat, or printed in logs.
+
+| Secret | Purpose |
 |---|---|
-| `SUPABASE_DB_URL` | Production PostgreSQL connection URI with TLS required (`sslmode=require`). Use the direct connection or a session-mode pooler, not transaction-mode pooling. The DB role must be able to dump the required schemas, tables, sequences, and data. Prefer a dedicated least-privilege backup role if your Supabase configuration supports it. |
-| `BACKUP_AGE_RECIPIENT` | Public age recipient, usually beginning with `age1`. |
-| `BACKUP_AGE_IDENTITY` | Private age identity generated for this backup. Treat as a high-value secret. |
-| `R2_ACCOUNT_ID` | Cloudflare account ID that owns the bucket. |
-| `R2_ACCESS_KEY_ID` | R2 API token access key ID scoped to the backup bucket. |
-| `R2_SECRET_ACCESS_KEY` | Matching R2 API token secret. |
-| `R2_BUCKET` | Existing R2 bucket name. |
+| `SUPABASE_DB_URL` | Production PostgreSQL connection URI; require TLS and use a direct connection or session-mode pooler, not transaction-mode pooling. |
+| `BACKUP_AGE_RECIPIENT` | Public age encryption recipient. |
+| `BACKUP_AGE_IDENTITY` | Private age identity used to decrypt backups; retain a protected offline recovery copy. |
 
-## Generate age encryption keys safely
+GitHub Actions artifacts have a 30-day retention target and are not a permanent archive. Keep the repository private and review artifact expiry/storage limits.
 
-On a trusted local machine with the age utility installed:
+## What has been verified
 
-```sh
-age-keygen -o age-identity.txt
-age-keygen -y age-identity.txt
-```
+- The encrypted custom-format artifact workflow validates that the dump can be decrypted and its PostgreSQL archive index can be read.
+- The disposable PostgreSQL 17 compatibility restore test succeeded on 2026-10-19 in 51 seconds using artifact `supabase-production-39218658661-1`. It excludes Supabase-managed extension registration and Vault schema objects.
+- The separate local Supabase restore drill and public-schema row-count checks are documented in the restore-drill runbook.
 
-- Put the output of `age-keygen -y age-identity.txt` into `BACKUP_AGE_RECIPIENT`.
-- Put the complete contents of `age-identity.txt` into `BACKUP_AGE_IDENTITY`.
-- Store the private identity separately in an offline password manager or other protected recovery location. If the private identity is lost, the encrypted backups cannot be decrypted.
-- Do not upload or commit `age-identity.txt`.
+These checks are different levels of evidence. A valid encrypted archive is not by itself a successful restore; a stock PostgreSQL restore does not prove Supabase Vault, Storage object payloads, project settings, Auth configuration, or recovery into a fresh managed Supabase project.
 
-## Cloudflare R2 permissions
+## Safe operating rules
 
-Create an R2 API token limited to the existing backup bucket with object read/write permission. The workflow needs list, upload, head-object, and delete permission for retention. Do not use an account-wide administrator token. R2 encryption at rest is provided by Cloudflare; age adds client-side encryption before upload.
-
-## First-run verification
-
-1. Add all seven secrets above.
-2. Merge this workflow through the normal pull-request review.
-3. In GitHub Actions, manually run **Supabase Daily Encrypted Backup** once.
-4. Confirm the job succeeds, including archive-index validation, upload, and remote size check.
-5. In R2, confirm a new `supabase-production/database-....dump.age` object exists.
-6. Keep the age private identity outside GitHub and test a restore into a separate disposable database before relying on this backup for recovery.
-
-A successful workflow run proves the dump was created, encrypted, archive-index validated, uploaded, and size-checked. It does **not** prove a full restore is successful. Test restoration separately in a non-production project.
-
-## Restore outline (never target production for the first test)
-
-Download a selected `.dump.age` object from R2, decrypt it with the private age identity, and inspect it with PostgreSQL 17's `pg_restore --list`. For a real recovery drill, restore into a separate empty test database and validate representative row counts, schema objects, and application behavior. Review any production recovery plan with the project owner before restoring production.
-
-## Important scope notes
-
-- This is a logical database backup; it does not include Supabase Storage objects, project settings, or secrets.
-- Keep a separate backup of important Storage objects if the app relies on them.
-- GitHub-hosted runner disk is ephemeral; temporary plaintext files are permission-restricted and removed when the job exits.
-- Failed runs should be investigated immediately. Do not assume a backup exists merely because the workflow is scheduled.
+1. Use the backup repository's workflows as the source of truth; do not re-enable the removed R2-based workflow in this app repository.
+2. Never restore to production during a test.
+3. Do not create a paid Supabase project or branch without explicit approval.
+4. The database dump does not include Supabase Storage file payloads, project settings, or secrets. Storage-object recovery is tracked separately.
+5. Verify actual scheduled workflow runs and unexpired encrypted artifacts before declaring scheduled backup health.

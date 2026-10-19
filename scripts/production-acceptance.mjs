@@ -8,6 +8,9 @@ const results = [];
 const createdUsers = [];
 const createdStudents = [];
 const createdAssignments = [];
+const createdAttendance = [];
+const createdAssessments = [];
+const createdResults = [];
 function fail(message){throw new Error(message)}
 async function request(path,{token,method="GET",body,expected=[200],retries=3}={}) {
   let last;
@@ -173,6 +176,11 @@ async function bootstrapSchool(s){
   if(adminMe.role!=="school_admin"||!adminMe.school_name) fail(`${school}: school admin /me mismatch`);
   record("authentication",school,"school_admin","PASS",adminMe.school_name);
   const academic=await ensureAcademic(admin.access_token);
+  await request(`/admin/classes/${academic.cls.id}`,{token:admin.access_token});
+  const verifiedSections=list((await request(`/admin/classes/${academic.cls.id}/sections`,{token:admin.access_token})).data,"sections");
+  if(!verifiedSections.some(s=>s.id===academic.sec.id)) fail(school+": selected section not returned by its class");
+  await request(`/admin/subjects/${academic.subject.id}`,{token:admin.access_token});
+  record("academic structure",school,"school_admin","PASS","Class, section and subject read back through scoped API");
   const dashboard=unwrap((await request("/admin/dashboard?academic_session_id="+academic.active.id+"&term_id="+academic.activeTerm.id,{token:admin.access_token})).data);
   if(dashboard?.school?.name!==adminMe.school_name) fail(school+": school admin dashboard identity mismatch");
   if(dashboard?.academic_context?.session_id!==academic.active.id||dashboard?.academic_context?.term_id!==academic.activeTerm.id) fail(school+": school admin dashboard academic context mismatch");
@@ -221,6 +229,25 @@ async function bootstrapSchool(s){
   if(promoted.status!=="active"||history.length<2) fail(`${school}: promotion/history verification failed`);
   record("student lifecycle",school,"school_admin","PASS","Promotion created active target and preserved history");
   const assignment=await createAssignment(admin.access_token,teacherId,academic);
+  const targetAssignment=await createAssignment(admin.access_token,teacherId,{...academic,active:academic.target,activeTerm:academic.targetTerm});
+  const today=new Date().toISOString().slice(0,10);
+  const attendance=(await request("/admin/attendance",{token:admin.access_token,method:"POST",body:{enrollment_id:promoted.id,term_id:academic.targetTerm.id,date:today,status:"present",note:"Production acceptance QA "+runId},expected:[201]})).data;
+  if(!attendance?.id) fail(school+": attendance creation did not return an ID");
+  createdAttendance.push({id:attendance.id,token:admin.access_token});
+  await request(`/admin/attendance/${attendance.id}`,{token:admin.access_token});
+  record("attendance",school,"school_admin","PASS","Created and retrieved a QA attendance record for the promoted enrollment");
+  const assessment=(await request("/admin/assessments",{token:admin.access_token,method:"POST",body:{teacher_assignment_id:targetAssignment.id,title:"QA Assessment "+runId,type:"test",max_score:100,weight:100,date:today},expected:[201]})).data;
+  if(!assessment?.id) fail(school+": assessment creation did not return an ID");
+  createdAssessments.push({id:assessment.id,token:admin.access_token});
+  await request(`/admin/assessments/${assessment.id}`,{token:admin.access_token});
+  record("assessments",school,"school_admin","PASS","Created and retrieved a QA assessment through the scoped API");
+  const result=(await request("/admin/assessment-results",{token:admin.access_token,method:"POST",body:{assessment_id:assessment.id,student_enrollment_id:promoted.id,score:87},expected:[201]})).data;
+  if(!result?.id) fail(school+": assessment result creation did not return an ID");
+  createdResults.push({id:result.id,token:admin.access_token});
+  await request(`/admin/assessment-results/${result.id}`,{token:admin.access_token});
+  record("results",school,"school_admin","PASS","Created and retrieved a QA assessment result");
+  await request(`/admin/report-cards/${promoted.id}?academic_session_id=${academic.target.id}&term_id=${academic.targetTerm.id}`,{token:admin.access_token});
+  record("report cards",school,"school_admin","PASS","Generated the report-card response for the promoted QA enrollment and selected term");
   const studentAuth=await login({email:studentEmail,password,school_code:school});
   const teacherAuth=await login({email:teacherEmail,password,school_code:school});
   const parentAuth=await login({email:parentEmail,password,school_code:school});
@@ -286,12 +313,14 @@ async function bootstrapSchool(s){
 async function cleanup(){
   const seen=new Set();
   const errors=[...untrackedAccounts.map(email=>`Could not resolve a user ID for ${email}`)];
-  for(const item of createdUsers){
-    if(!item?.id||seen.has(item.id)) continue; seen.add(item.id);
-    try {
-      await request(`/admin/users/${item.id}/deactivate`,{token:item.token,method:"POST",expected:[200,404]});
-    } catch(err) {
-      errors.push(`${item.email}: ${String(err?.message||err)}`);
+  for(const [items,path,label] of [
+    [createdResults,"/admin/assessment-results","assessment result"],
+    [createdAssessments,"/admin/assessments","assessment"],
+    [createdAttendance,"/admin/attendance","attendance record"]
+  ]){
+    for(const item of items){
+      try { await request(`${path}/${item.id}`,{token:item.token,method:"DELETE",expected:[200,404]}); }
+      catch(err) { errors.push(`${label} ${item.id}: ${String(err?.message||err)}`); }
     }
   }
   for(const item of createdAssignments){
@@ -306,6 +335,14 @@ async function cleanup(){
       await request(`/admin/students/${item.id}`,{token:item.token,method:"PUT",body:{enrollment_status:"inactive"},expected:[200]});
     } catch(err) {
       errors.push(`student profile ${item.email}: ${String(err?.message||err)}`);
+    }
+  }
+  for(const item of createdUsers){
+    if(!item?.id||seen.has(item.id)) continue; seen.add(item.id);
+    try {
+      await request(`/admin/users/${item.id}/deactivate`,{token:item.token,method:"POST",expected:[200,404]});
+    } catch(err) {
+      errors.push(`${item.email}: ${String(err?.message||err)}`);
     }
   }
   return errors;
@@ -342,8 +379,20 @@ try {
   },temporary_student_profiles:{
     count:createdStudents.length,
     cleanup:cleanupErrors.length ? "incomplete" : "completed"
+  },temporary_student_profiles:{
+    count:createdStudents.length,
+    cleanup:cleanupErrors.length ? "incomplete" : "completed"
   },temporary_teacher_assignments:{
     count:createdAssignments.length,
+    cleanup:cleanupErrors.length ? "incomplete" : "completed"
+  },temporary_attendance_records:{
+    count:createdAttendance.length,
+    cleanup:cleanupErrors.length ? "incomplete" : "completed"
+  },temporary_assessments:{
+    count:createdAssessments.length,
+    cleanup:cleanupErrors.length ? "incomplete" : "completed"
+  },temporary_assessment_results:{
+    count:createdResults.length,
     cleanup:cleanupErrors.length ? "incomplete" : "completed"
   },retained_qa_history:{
     bulk_import_jobs:"retained for audit",

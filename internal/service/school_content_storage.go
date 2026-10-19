@@ -43,15 +43,13 @@ func(s *SchoolMediaStorage) ensureBucket()error{
  req,err:=http.NewRequest(http.MethodPost,s.baseURL+"/storage/v1/bucket",bytes.NewReader(payload));if err!=nil{return err}
  req.Header.Set("Authorization","Bearer "+s.secretKey);req.Header.Set("apikey",s.secretKey);req.Header.Set("Content-Type","application/json")
  resp,err:=s.client.Do(req);if err!=nil{return fmt.Errorf("school media storage setup failed: %w",err)};defer resp.Body.Close()
- // Supabase returns 409 BucketAlreadyExists when this bucket has already been created.
- // The existing school-media bucket is provisioned separately and its settings are managed
- // in Supabase. Treat this response as success instead of attempting to recreate or mutate it.
- if resp.StatusCode==http.StatusConflict {
-  detail,_:=io.ReadAll(io.LimitReader(resp.Body,4096))
-  if strings.Contains(string(detail),"BucketAlreadyExists") || strings.Contains(string(detail),"already exists") { return nil }
-  return fmt.Errorf("school media storage setup failed: %s",strings.TrimSpace(string(detail)))
- }
- if resp.StatusCode<200||resp.StatusCode>=300{detail,_:=io.ReadAll(io.LimitReader(resp.Body,4096));return fmt.Errorf("school media storage setup failed: %s",strings.TrimSpace(string(detail)))}
+ detail,_:=io.ReadAll(io.LimitReader(resp.Body,4096))
+ // Supabase Storage may encode statusCode=409 in its JSON error body while the
+ // transport response is not HTTP 409. Detect the duplicate by its response body
+ // before applying the generic HTTP status check. Never mutate the existing bucket.
+ body:=string(detail)
+ if strings.Contains(body,"BucketAlreadyExists") || strings.Contains(body,"already exists") { return nil }
+ if resp.StatusCode<200||resp.StatusCode>=300{return fmt.Errorf("school media storage setup failed: %s",strings.TrimSpace(body))}
  return nil
 }
 func extensionForContentMime(contentType string)string{exts,_:=mime.ExtensionsByType(contentType);if len(exts)>0{return exts[0]};return ""}

@@ -66,6 +66,7 @@ export default function RoleAccessShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [role, setRole] = useState("");
+  const [schoolSlug, setSchoolSlug] = useState("");
   const [ready, setReady] = useState(false);
   const [failure, setFailure] = useState("");
 
@@ -81,10 +82,12 @@ export default function RoleAccessShell({ children }: { children: ReactNode }) {
         });
         if (response.status === 401) throw new Error("Your session has expired. Please sign in again.");
         if (!response.ok) throw new Error("Unable to verify your account permissions.");
-        const user = normalizeAuthUser(await response.json());
+        const payload = await response.json();
+        const user = normalizeAuthUser(payload);
         if (!user) throw new Error("Unable to verify your account permissions.");
         if (!active) return;
         setRole(user.role);
+        setSchoolSlug(typeof payload.school_slug === "string" ? payload.school_slug : "");
         setReady(true);
       } catch (error) {
         if (!active) return;
@@ -107,7 +110,8 @@ export default function RoleAccessShell({ children }: { children: ReactNode }) {
     return <main className="content"><section className="panel"><strong>Opening your workspace…</strong></section></main>;
   }
 
-  const links = role === "school_admin" || role === "super_admin"
+  const isSchoolAdmin = role === "school_admin";
+  const links = isSchoolAdmin || role === "super_admin"
     ? adminLinks
     : roleLinks[role] || [];
   return (
@@ -116,6 +120,11 @@ export default function RoleAccessShell({ children }: { children: ReactNode }) {
         {links.map(({ label, href }) => (
           <Link key={href} href={href} aria-current={isPathWithin(pathname, href) ? "page" : undefined}>{label}</Link>
         ))}
+        {isSchoolAdmin && schoolSlug && (
+          <Link href={"/school/" + encodeURIComponent(schoolSlug)} target="_blank" rel="noreferrer">
+            School Homepage ↗
+          </Link>
+        )}
       </nav>
       {children}
     </>

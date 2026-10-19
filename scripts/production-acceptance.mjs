@@ -11,6 +11,9 @@ const createdAssignments = [];
 const createdAttendance = [];
 const createdAssessments = [];
 const createdResults = [];
+// Academic scaffolding created by this run is tracked explicitly. We retain it when
+// enrollment/history rows reference it, rather than claiming it was deleted.
+const createdAcademicRecords = [];
 function fail(message){throw new Error(message)}
 async function request(path,{token,method="GET",body,expected=[200],retries=3}={}) {
   let last;
@@ -95,29 +98,42 @@ async function ensureTerm(token,session,preferredStatus,dates,name){
   const terms=list((await request(`/admin/academic-sessions/${session.id}/terms`,{token})).data,"terms");
   const existing=terms.find(t=>preferredStatus==="active"?t.status==="active":t.status!=="closed");
   if(existing)return existing;
-  return (await request(`/admin/academic-sessions/${session.id}/terms`,{token,method:"POST",body:{name,start_date:`${dates[0]}T00:00:00Z`,end_date:`${dates[1]}T23:59:59Z`,status:preferredStatus},expected:[201]})).data;
+  const created=(await request(`/admin/academic-sessions/${session.id}/terms`,{token,method:"POST",body:{name,start_date:`${dates[0]}T00:00:00Z`,end_date:`${dates[1]}T23:59:59Z`,status:preferredStatus},expected:[201]})).data;
+  createdAcademicRecords.push({kind:"academic_term",id:created.id,token,name:created.name,parent_session_id:session.id});
+  return created;
 }
 async function ensureAcademic(token){
   let sessions=list((await request("/admin/academic-sessions",{token})).data,"sessions");
   let active=sessions.find(x=>x.status==="active");
   if(!active){
     active=(await request("/admin/academic-sessions",{token,method:"POST",body:{name:`QA ${runId} Active Session`,start_date:"2026-09-01T00:00:00Z",end_date:"2027-07-31T23:59:59Z",status:"active"},expected:[201]})).data;
+    createdAcademicRecords.push({kind:"academic_session",id:active.id,token,name:active.name});
   }
   let target=sessions.find(x=>x.id!==active.id);
   if(!target){
     target=(await request("/admin/academic-sessions",{token,method:"POST",body:{name:`QA ${runId} Target Session`,start_date:"2027-09-01T00:00:00Z",end_date:"2028-07-31T23:59:59Z",status:"planned"},expected:[201]})).data;
+    createdAcademicRecords.push({kind:"academic_session",id:target.id,token,name:target.name});
   }
   const activeTerm=await ensureTerm(token,active,"active",["2026-09-01","2026-12-18"],"first");
   const targetTerm=await ensureTerm(token,target,"planned",["2027-09-01","2027-12-17"],"second");
   let classes=list((await request("/admin/classes",{token})).data,"classes");
   let cls=classes[0];
-  if(!cls) cls=(await request("/admin/classes",{token,method:"POST",body:{name:`QA JSS1 ${runId}`,level:1},expected:[201]})).data;
+  if(!cls) {
+    cls=(await request("/admin/classes",{token,method:"POST",body:{name:`QA JSS1 ${runId}`,level:1},expected:[201]})).data;
+    createdAcademicRecords.push({kind:"class",id:cls.id,token,name:cls.name});
+  }
   let sections=list((await request(`/admin/classes/${cls.id}/sections`,{token})).data,"sections");
   let sec=sections[0];
-  if(!sec) sec=(await request(`/admin/classes/${cls.id}/sections`,{token,method:"POST",body:{name:"QA-A"},expected:[201]})).data;
+  if(!sec) {
+    sec=(await request(`/admin/classes/${cls.id}/sections`,{token,method:"POST",body:{name:"QA-A"},expected:[201]})).data;
+    createdAcademicRecords.push({kind:"section",id:sec.id,token,name:sec.name,parent_class_id:cls.id});
+  }
   let subjects=list((await request("/admin/subjects",{token})).data,"subjects");
   let subject=subjects[0];
-  if(!subject) subject=(await request("/admin/subjects",{token,method:"POST",body:{code:`QA-${runId.slice(-6)}`,name:`QA Mathematics ${runId}`,description:"Production acceptance subject"},expected:[201]})).data;
+  if(!subject) {
+    subject=(await request("/admin/subjects",{token,method:"POST",body:{code:`QA-${runId.slice(-6)}`,name:`QA Mathematics ${runId}`,description:"Production acceptance subject"},expected:[201]})).data;
+    createdAcademicRecords.push({kind:"subject",id:subject.id,token,name:subject.name});
+  }
   return {active,target,activeTerm,targetTerm,cls,sec,subject};
 }
 async function bulkImport(token,kind,filename,csv,expected){
@@ -140,7 +156,7 @@ async function bulkImport(token,kind,filename,csv,expected){
   if(Number(completed.created)!==expected.created||Number(completed.skipped)!==expected.skipped||Number(completed.failed)!==expected.failed) fail("bulk "+kind+" counters mismatch: "+JSON.stringify({created:completed.created,skipped:completed.skipped,failed:completed.failed,expected}));
   return completed;
 }
-const untrackedAccounts = [];
+const untrackedCleanupItems = [];
 async function recordBulkUserForCleanup(token,email,kind,studentAdmissionNumber){
   let user=null;
   // Bulk-import completion and the user list can become visible on adjacent reads;
@@ -159,14 +175,14 @@ async function recordBulkUserForCleanup(token,email,kind,studentAdmissionNumber)
     } catch {}
   }
   if(id) createdUsers.push({id,token,email});
-  else untrackedAccounts.push(email);
+  else untrackedCleanupItems.push({kind:"user_account",label:email});
 }
 
 async function createAssignment(token,teacherId,academic){
   const body={teacher_id:teacherId,subject_id:academic.subject.id,academic_session_id:academic.active.id,term_id:academic.activeTerm.id,class_id:academic.cls.id,section_id:academic.sec.id,allocation_type:"subject_teacher",active:true};
   const v=(await request("/admin/teacher-assignments",{token,method:"POST",body,expected:[201]})).data;
   if(v?.id) createdAssignments.push({id:v.id,token,body:{...body,active:false}});
-  else untrackedAccounts.push("teacher assignment for "+teacherId);
+  else untrackedCleanupItems.push({kind:"teacher_assignment",label:"teacher "+teacherId});
   return v;
 }
 async function bootstrapSchool(s){
@@ -312,7 +328,7 @@ async function bootstrapSchool(s){
 }
 async function cleanup(){
   const seen=new Set();
-  const errors=[...untrackedAccounts.map(email=>`Could not resolve a user ID for ${email}`)];
+  const errors=[...untrackedCleanupItems.map(item=>`Could not track ${item.kind}: ${item.label}`)];
   for(const [items,path,label] of [
     [createdResults,"/admin/assessment-results","assessment result"],
     [createdAssessments,"/admin/assessments","assessment"],
@@ -340,7 +356,7 @@ async function cleanup(){
   for(const item of createdUsers){
     if(!item?.id||seen.has(item.id)) continue; seen.add(item.id);
     try {
-      await request(`/admin/users/${item.id}/deactivate`,{token:item.token,method:"POST",expected:[200,404]});
+      await request(`/admin/users/${item.id}/deactivate`,{token:item.token,method:"POST",expected:[200]});
     } catch(err) {
       errors.push(`${item.email}: ${String(err?.message||err)}`);
     }
@@ -379,9 +395,6 @@ try {
   },temporary_student_profiles:{
     count:createdStudents.length,
     cleanup:cleanupErrors.length ? "incomplete" : "completed"
-  },temporary_student_profiles:{
-    count:createdStudents.length,
-    cleanup:cleanupErrors.length ? "incomplete" : "completed"
   },temporary_teacher_assignments:{
     count:createdAssignments.length,
     cleanup:cleanupErrors.length ? "incomplete" : "completed"
@@ -394,6 +407,10 @@ try {
   },temporary_assessment_results:{
     count:createdResults.length,
     cleanup:cleanupErrors.length ? "incomplete" : "completed"
+  },retained_academic_scaffolding:{
+    count:createdAcademicRecords.length,
+    records:createdAcademicRecords.map(({kind,id,name,parent_session_id,parent_class_id})=>({kind,id,name,parent_session_id,parent_class_id})),
+    cleanup:"retained intentionally; academic sessions, terms, classes, sections, or subjects created by this run may be referenced by retained enrollment/history records"
   },retained_qa_history:{
     bulk_import_jobs:"retained for audit",
     student_enrollments:"retained for lifecycle/history verification"

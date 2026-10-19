@@ -56,10 +56,12 @@ func (ctrl *UserController) GetMe(c *gin.Context) {
     if err:=ctrl.service.DB().Where("id = ? AND active = true",id).First(&user).Error;err!=nil{httpx.Error(c,404,"user_not_found","user not found");return}
     schoolName := ""
     schoolLogoURL := ""
+    schoolSlug := ""
     if user.SchoolID != nil {
         var school models.School
-        if err := ctrl.service.DB().Select("name, logo_url").First(&school, "id = ?", *user.SchoolID).Error; err == nil {
+        if err := ctrl.service.DB().Select("name, slug, logo_url").First(&school, "id = ?", *user.SchoolID).Error; err == nil {
             schoolName = school.Name
+            schoolSlug = school.Slug
             schoolLogoURL = school.LogoURL
         }
     }
@@ -71,6 +73,7 @@ func (ctrl *UserController) GetMe(c *gin.Context) {
         "active": user.Active,
         "school_id": user.SchoolID,
         "school_name": schoolName,
+        "school_slug": schoolSlug,
         "school_logo_url": schoolLogoURL,
     })
 }

@@ -230,7 +230,7 @@ async function bootstrapSchool(s){
   record("student lifecycle",school,"school_admin","PASS","Promotion created active target and preserved history");
   const assignment=await createAssignment(admin.access_token,teacherId,academic);
   const targetAssignment=await createAssignment(admin.access_token,teacherId,{...academic,active:academic.target,activeTerm:academic.targetTerm});
-  const today=new Date().toISOString().slice(0,10);
+  const today=String(academic.targetTerm.start_date||"2027-09-01").slice(0,10);
   const attendance=(await request("/admin/attendance",{token:admin.access_token,method:"POST",body:{enrollment_id:promoted.id,term_id:academic.targetTerm.id,date:today,status:"present",note:"Production acceptance QA "+runId},expected:[201]})).data;
   if(!attendance?.id) fail(school+": attendance creation did not return an ID");
   createdAttendance.push({id:attendance.id,token:admin.access_token});

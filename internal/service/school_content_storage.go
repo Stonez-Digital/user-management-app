@@ -43,14 +43,13 @@ func(s *SchoolMediaStorage) ensureBucket()error{
  req,err:=http.NewRequest(http.MethodPost,s.baseURL+"/storage/v1/bucket",bytes.NewReader(payload));if err!=nil{return err}
  req.Header.Set("Authorization","Bearer "+s.secretKey);req.Header.Set("apikey",s.secretKey);req.Header.Set("Content-Type","application/json")
  resp,err:=s.client.Do(req);if err!=nil{return fmt.Errorf("school media storage setup failed: %w",err)};defer resp.Body.Close()
+ // Supabase returns 409 BucketAlreadyExists when this bucket has already been created.
+ // The existing school-media bucket is provisioned separately and its settings are managed
+ // in Supabase. Treat this response as success instead of attempting to recreate or mutate it.
  if resp.StatusCode==http.StatusConflict {
-  resp.Body.Close()
-  updatePayload:=[]byte(`{"public":true,"file_size_limit":10485760,"allowed_mime_types":["image/png","image/jpeg","image/webp"]}`)
-  updateReq,updateErr:=http.NewRequest(http.MethodPatch,s.baseURL+"/storage/v1/bucket/"+schoolMediaBucket,bytes.NewReader(updatePayload));if updateErr!=nil{return fmt.Errorf("school media storage setup failed: %w",updateErr)}
-  updateReq.Header.Set("Authorization","Bearer "+s.secretKey);updateReq.Header.Set("apikey",s.secretKey);updateReq.Header.Set("Content-Type","application/json")
-  updateResp,updateErr:=s.client.Do(updateReq);if updateErr!=nil{return fmt.Errorf("school media storage setup failed: %w",updateErr)};defer updateResp.Body.Close()
-  if updateResp.StatusCode<200||updateResp.StatusCode>=300{detail,_:=io.ReadAll(io.LimitReader(updateResp.Body,4096));return fmt.Errorf("school media storage setup failed: %s",strings.TrimSpace(string(detail)))}
-  return nil
+  detail,_:=io.ReadAll(io.LimitReader(resp.Body,4096))
+  if strings.Contains(string(detail),"BucketAlreadyExists") || strings.Contains(string(detail),"already exists") { return nil }
+  return fmt.Errorf("school media storage setup failed: %s",strings.TrimSpace(string(detail)))
  }
  if resp.StatusCode<200||resp.StatusCode>=300{detail,_:=io.ReadAll(io.LimitReader(resp.Body,4096));return fmt.Errorf("school media storage setup failed: %s",strings.TrimSpace(string(detail)))}
  return nil

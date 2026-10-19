@@ -138,20 +138,19 @@ async function bulkImport(token,kind,filename,csv,expected){
   return completed;
 }
 const untrackedAccounts = [];
-async function recordBulkUserForCleanup(token,email,kind){
-  const usersResponse=(await request("/admin/users",{token})).data;
-  let user=findUserByEmail(usersResponse,email);
-  if(!user){
-    const profilePath={students:"/admin/students",teachers:"/admin/teachers",parents:"/admin/parents"}[kind];
-    if(profilePath){
-      try { user=findUserByEmail((await request(profilePath,{token})).data,email); } catch {}
-    }
+async function recordBulkUserForCleanup(token,email,kind,studentAdmissionNumber){
+  let user=null;
+  // Bulk-import completion and the user list can become visible on adjacent reads;
+  // retry briefly, but never silently treat an untracked account as cleaned up.
+  for(let attempt=0;attempt<3&&!user;attempt++){
+    user=findUserByEmail((await request("/admin/users",{token})).data,email);
+    if(!user && attempt<2) await new Promise(resolve=>setTimeout(resolve,500));
   }
   let id=user?.user_id || user?.user?.id || user?.id;
   if(kind==="students"){
     try {
       const studentList=list((await request("/admin/students",{token})).data,"students");
-      const profile=studentList.find(s=>s?.user_id===id || s?.user?.id===id || s?.user?.email?.toLowerCase()===email.toLowerCase());
+      const profile=studentList.find(s=>s?.admission_number===studentAdmissionNumber || s?.user_id===id || s?.user?.id===id);
       if(profile?.id && !createdStudents.some(s=>s.id===profile.id)) createdStudents.push({id:profile.id,token,email});
       if(!id && profile?.user_id) id=profile.user_id;
     } catch {}
@@ -208,7 +207,7 @@ async function bootstrapSchool(s){
   await bulkImport(admin.access_token,"students","students.csv","name,email,admission_number\nQA Bulk Student "+runId+","+bulkStudentEmail+",BULK-"+runId+"-"+school+"\n",{created:1,skipped:0,failed:0});
   await bulkImport(admin.access_token,"teachers","teachers.csv","name,email,staff_id\nQA Bulk Teacher "+runId+","+bulkTeacherEmail+",BULK-T-"+runId+"-"+school+"\n",{created:1,skipped:0,failed:0});
   await bulkImport(admin.access_token,"parents","parents.csv","name,email,parent_identifier\nQA Bulk Parent "+runId+","+bulkParentEmail+",BULK-P-"+runId+"-"+school+"\n",{created:1,skipped:0,failed:0});
-  await recordBulkUserForCleanup(admin.access_token,bulkStudentEmail,"students");
+  await recordBulkUserForCleanup(admin.access_token,bulkStudentEmail,"students","BULK-"+runId+"-"+school);
   await recordBulkUserForCleanup(admin.access_token,bulkTeacherEmail,"teachers");
   await recordBulkUserForCleanup(admin.access_token,bulkParentEmail,"parents");
   record("bulk onboarding",school,"school_admin","PASS","Student, teacher and parent imports created one account each with zero failures");
@@ -345,6 +344,9 @@ try {
   },temporary_teacher_assignments:{
     count:createdAssignments.length,
     cleanup:cleanupErrors.length ? "incomplete" : "completed"
+  },retained_qa_history:{
+    bulk_import_jobs:"retained for audit",
+    student_enrollments:"retained for lifecycle/history verification"
   }};
   console.log(JSON.stringify(report,null,2));
   if(cleanupErrors.length) process.exitCode=1;

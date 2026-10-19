@@ -6,6 +6,11 @@ const schools = JSON.parse(process.env.PRODUCTION_QA_SCHOOLS_JSON || "[]");
 const superAdmin = {email:process.env.PRODUCTION_QA_SUPER_ADMIN_EMAIL,password:process.env.PRODUCTION_QA_SUPER_ADMIN_PASSWORD,school_code:""};
 const results = [];
 const createdUsers = [];
+const createdStudents = [];
+const createdAssignments = [];
+const createdAttendance = [];
+const createdAssessments = [];
+const createdResults = [];
 function fail(message){throw new Error(message)}
 async function request(path,{token,method="GET",body,expected=[200],retries=3}={}) {
   let last;
@@ -40,6 +45,8 @@ function record(area,school,role,status,notes=""){results.push({area,school,role
 function unwrap(v){return v?.data&&typeof v.data==="object"&&!Array.isArray(v.data)?v.data:v}
 function onboardingUserId(v,role){
   const x=unwrap(v);
+  // A student's profile ID is not the user ID required by /admin/users/:id/deactivate.
+  if(role==="student") return x?.user?.id || x?.student?.user?.id || x?.student?.user_id || x?.user_id || null;
   if(x?.user?.id)return x.user.id;
   if(x?.[role]?.user?.id)return x[role].user.id;
   if(x?.[role]?.id&&(!x[role].role||x[role].role===role))return x[role].id;
@@ -62,7 +69,7 @@ function findUserByEmail(payload,email,role){
     if(!v||typeof v!=="object"||seen.has(v))return null;
     seen.add(v);
     if(Array.isArray(v)){for(const item of v){const hit=walk(item);if(hit)return hit}return null}
-    if(String(v.email||"").toLowerCase()===target&&(!role||v.role===role)&&v.id)return v;
+    if(String(v.email||"").toLowerCase()===target&&(!role||v.role===role)&&(v.id||v.ID))return v;
     for(const value of Object.values(v)){const hit=walk(value);if(hit)return hit}
     return null;
   }
@@ -73,7 +80,7 @@ async function resolveUserId(token,email,role,response,{password,school_code}={}
   if(direct)return direct;
   const usersResponse=(await request("/admin/users",{token})).data;
   const user=findUserByEmail(usersResponse,email,role);
-  if(user?.id)return user.id;
+  if(user?.id||user?.ID)return user.id||user.ID;
   // Fall back to the canonical authenticated profile. This handles a production
   // deployment returning a legacy/minimal onboarding response or user listing.
   if(password&&school_code){
@@ -133,14 +140,33 @@ async function bulkImport(token,kind,filename,csv,expected){
   if(Number(completed.created)!==expected.created||Number(completed.skipped)!==expected.skipped||Number(completed.failed)!==expected.failed) fail("bulk "+kind+" counters mismatch: "+JSON.stringify({created:completed.created,skipped:completed.skipped,failed:completed.failed,expected}));
   return completed;
 }
-async function recordBulkUserForCleanup(token,email){
-  const usersResponse=(await request("/admin/users",{token})).data;
-  const user=findUserByEmail(usersResponse,email);
-  if(user?.id) createdUsers.push({id:user.id,token,email});
+const untrackedAccounts = [];
+async function recordBulkUserForCleanup(token,email,kind,studentAdmissionNumber){
+  let user=null;
+  // Bulk-import completion and the user list can become visible on adjacent reads;
+  // retry briefly, but never silently treat an untracked account as cleaned up.
+  for(let attempt=0;attempt<3&&!user;attempt++){
+    user=findUserByEmail((await request("/admin/users",{token})).data,email);
+    if(!user && attempt<2) await new Promise(resolve=>setTimeout(resolve,500));
+  }
+  let id=user?.user_id || user?.user?.id || user?.user?.ID || user?.id || user?.ID;
+  if(kind==="students"){
+    try {
+      const studentList=list((await request("/admin/students",{token})).data,"students");
+      const profile=studentList.find(s=>s?.admission_number===studentAdmissionNumber || s?.user_id===id || s?.user?.id===id);
+      if(profile?.id && !createdStudents.some(s=>s.id===profile.id)) createdStudents.push({id:profile.id,token,email});
+      if(!id && profile?.user_id) id=profile.user_id;
+    } catch {}
+  }
+  if(id) createdUsers.push({id,token,email});
+  else untrackedAccounts.push(email);
 }
 
 async function createAssignment(token,teacherId,academic){
-  const v=(await request("/admin/teacher-assignments",{token,method:"POST",body:{teacher_id:teacherId,subject_id:academic.subject.id,academic_session_id:academic.active.id,term_id:academic.activeTerm.id,class_id:academic.cls.id,section_id:academic.sec.id,allocation_type:"subject_teacher",active:true},expected:[201]})).data;
+  const body={teacher_id:teacherId,subject_id:academic.subject.id,academic_session_id:academic.active.id,term_id:academic.activeTerm.id,class_id:academic.cls.id,section_id:academic.sec.id,allocation_type:"subject_teacher",active:true};
+  const v=(await request("/admin/teacher-assignments",{token,method:"POST",body,expected:[201]})).data;
+  if(v?.id) createdAssignments.push({id:v.id,token,body:{...body,active:false}});
+  else untrackedAccounts.push("teacher assignment for "+teacherId);
   return v;
 }
 async function bootstrapSchool(s){
@@ -150,6 +176,11 @@ async function bootstrapSchool(s){
   if(adminMe.role!=="school_admin"||!adminMe.school_name) fail(`${school}: school admin /me mismatch`);
   record("authentication",school,"school_admin","PASS",adminMe.school_name);
   const academic=await ensureAcademic(admin.access_token);
+  await request(`/admin/classes/${academic.cls.id}`,{token:admin.access_token});
+  const verifiedSections=list((await request(`/admin/classes/${academic.cls.id}/sections`,{token:admin.access_token})).data,"sections");
+  if(!verifiedSections.some(s=>s.id===academic.sec.id)) fail(school+": selected section not returned by its class");
+  await request(`/admin/subjects/${academic.subject.id}`,{token:admin.access_token});
+  record("academic structure",school,"school_admin","PASS","Class, section and subject read back through scoped API");
   const dashboard=unwrap((await request("/admin/dashboard?academic_session_id="+academic.active.id+"&term_id="+academic.activeTerm.id,{token:admin.access_token})).data);
   if(dashboard?.school?.name!==adminMe.school_name) fail(school+": school admin dashboard identity mismatch");
   if(dashboard?.academic_context?.session_id!==academic.active.id||dashboard?.academic_context?.term_id!==academic.activeTerm.id) fail(school+": school admin dashboard academic context mismatch");
@@ -168,6 +199,7 @@ async function bootstrapSchool(s){
   const studentUserId=onboardingUserId(student,"student");
   if(!studentUserId) fail(school+": onboarding did not return student user id");
   createdUsers.push({id:studentUserId,token:admin.access_token,email:studentEmail});
+  createdStudents.push({id:studentId,token:admin.access_token,email:studentEmail});
   const teacher=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Teacher ${runId}`,email:teacherEmail,password,role:"teacher",staff_id:`QA-T-${runId}-${school}`},expected:[201]})).data;
   const teacherId=await resolveUserId(admin.access_token,teacherEmail,"teacher",teacher,{password,school_code:school}); createdUsers.push({id:teacherId,token:admin.access_token,email:teacherEmail});
   const parent=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Parent ${runId}`,email:parentEmail,password,role:"parent",student_id:studentId,relationship:"parent",primary:true},expected:[201]})).data;
@@ -183,9 +215,9 @@ async function bootstrapSchool(s){
   await bulkImport(admin.access_token,"students","students.csv","name,email,admission_number\nQA Bulk Student "+runId+","+bulkStudentEmail+",BULK-"+runId+"-"+school+"\n",{created:1,skipped:0,failed:0});
   await bulkImport(admin.access_token,"teachers","teachers.csv","name,email,staff_id\nQA Bulk Teacher "+runId+","+bulkTeacherEmail+",BULK-T-"+runId+"-"+school+"\n",{created:1,skipped:0,failed:0});
   await bulkImport(admin.access_token,"parents","parents.csv","name,email,parent_identifier\nQA Bulk Parent "+runId+","+bulkParentEmail+",BULK-P-"+runId+"-"+school+"\n",{created:1,skipped:0,failed:0});
-  await recordBulkUserForCleanup(admin.access_token,bulkStudentEmail);
-  await recordBulkUserForCleanup(admin.access_token,bulkTeacherEmail);
-  await recordBulkUserForCleanup(admin.access_token,bulkParentEmail);
+  await recordBulkUserForCleanup(admin.access_token,bulkStudentEmail,"students","BULK-"+runId+"-"+school);
+  await recordBulkUserForCleanup(admin.access_token,bulkTeacherEmail,"teachers");
+  await recordBulkUserForCleanup(admin.access_token,bulkParentEmail,"parents");
   record("bulk onboarding",school,"school_admin","PASS","Student, teacher and parent imports created one account each with zero failures");
   await bulkImport(admin.access_token,"students","students-duplicate.csv","name,email,admission_number\nExisting Student,"+studentEmail+",QA-"+runId+"-"+school+"\n",{created:0,skipped:1,failed:0});
   await bulkImport(admin.access_token,"teachers","teachers-duplicate.csv","name,email,staff_id\nExisting Teacher,"+bulkTeacherEmail+",BULK-T-"+runId+"-"+school+"\n",{created:0,skipped:1,failed:0});
@@ -197,6 +229,25 @@ async function bootstrapSchool(s){
   if(promoted.status!=="active"||history.length<2) fail(`${school}: promotion/history verification failed`);
   record("student lifecycle",school,"school_admin","PASS","Promotion created active target and preserved history");
   const assignment=await createAssignment(admin.access_token,teacherId,academic);
+  const targetAssignment=await createAssignment(admin.access_token,teacherId,{...academic,active:academic.target,activeTerm:academic.targetTerm});
+  const today=String(academic.targetTerm.start_date||"2027-09-01").slice(0,10);
+  const attendance=(await request("/admin/attendance",{token:admin.access_token,method:"POST",body:{enrollment_id:promoted.id,term_id:academic.targetTerm.id,date:today,status:"present",note:"Production acceptance QA "+runId},expected:[201]})).data;
+  if(!attendance?.id) fail(school+": attendance creation did not return an ID");
+  createdAttendance.push({id:attendance.id,token:admin.access_token});
+  await request(`/admin/attendance/${attendance.id}`,{token:admin.access_token});
+  record("attendance",school,"school_admin","PASS","Created and retrieved a QA attendance record for the promoted enrollment");
+  const assessment=(await request("/admin/assessments",{token:admin.access_token,method:"POST",body:{teacher_assignment_id:targetAssignment.id,title:"QA Assessment "+runId,type:"test",max_score:100,weight:100,date:today},expected:[201]})).data;
+  if(!assessment?.id) fail(school+": assessment creation did not return an ID");
+  createdAssessments.push({id:assessment.id,token:admin.access_token});
+  await request(`/admin/assessments/${assessment.id}`,{token:admin.access_token});
+  record("assessments",school,"school_admin","PASS","Created and retrieved a QA assessment through the scoped API");
+  const result=(await request("/admin/assessment-results",{token:admin.access_token,method:"POST",body:{assessment_id:assessment.id,student_enrollment_id:promoted.id,score:87},expected:[201]})).data;
+  if(!result?.id) fail(school+": assessment result creation did not return an ID");
+  createdResults.push({id:result.id,token:admin.access_token});
+  await request(`/admin/assessment-results/${result.id}`,{token:admin.access_token});
+  record("results",school,"school_admin","PASS","Created and retrieved a QA assessment result");
+  await request(`/admin/report-cards/${promoted.id}?academic_session_id=${academic.target.id}&term_id=${academic.targetTerm.id}`,{token:admin.access_token});
+  record("report cards",school,"school_admin","PASS","Generated the report-card response for the promoted QA enrollment and selected term");
   const studentAuth=await login({email:studentEmail,password,school_code:school});
   const teacherAuth=await login({email:teacherEmail,password,school_code:school});
   const parentAuth=await login({email:parentEmail,password,school_code:school});
@@ -261,10 +312,40 @@ async function bootstrapSchool(s){
 }
 async function cleanup(){
   const seen=new Set();
+  const errors=[...untrackedAccounts.map(email=>`Could not resolve a user ID for ${email}`)];
+  for(const [items,path,label] of [
+    [createdResults,"/admin/assessment-results","assessment result"],
+    [createdAssessments,"/admin/assessments","assessment"],
+    [createdAttendance,"/admin/attendance","attendance record"]
+  ]){
+    for(const item of items){
+      try { await request(`${path}/${item.id}`,{token:item.token,method:"DELETE",expected:[200,404]}); }
+      catch(err) { errors.push(`${label} ${item.id}: ${String(err?.message||err)}`); }
+    }
+  }
+  for(const item of createdAssignments){
+    try {
+      await request(`/admin/teacher-assignments/${item.id}`,{token:item.token,method:"PUT",body:item.body,expected:[200]});
+    } catch(err) {
+      errors.push(`teacher assignment ${item.id}: ${String(err?.message||err)}`);
+    }
+  }
+  for(const item of createdStudents){
+    try {
+      await request(`/admin/students/${item.id}`,{token:item.token,method:"PUT",body:{enrollment_status:"inactive"},expected:[200]});
+    } catch(err) {
+      errors.push(`student profile ${item.email}: ${String(err?.message||err)}`);
+    }
+  }
   for(const item of createdUsers){
     if(!item?.id||seen.has(item.id)) continue; seen.add(item.id);
-    try { await request(`/admin/users/${item.id}/deactivate`,{token:item.token,method:"POST",expected:[200,404]}); } catch {}
+    try {
+      await request(`/admin/users/${item.id}/deactivate`,{token:item.token,method:"POST",expected:[200,404]});
+    } catch(err) {
+      errors.push(`${item.email}: ${String(err?.message||err)}`);
+    }
   }
+  return errors;
 }
 
 try {
@@ -278,13 +359,45 @@ try {
   const a=contexts[0], b=contexts[1];
   const bUsers=list((await request("/admin/users",{token:b.admin.access_token})).data,"users");
   const bStudents=list((await request("/admin/students",{token:b.admin.access_token})).data,"students");
-  const foreignUserId=bUsers.find(u=>u?.id||u?.user?.id)?.id||bUsers.find(u=>u?.user?.id)?.user?.id;
+  const foreignUser=bUsers.find(u=>u?.id||u?.ID||u?.user?.id||u?.user?.ID);
+  const foreignUserId=foreignUser?.id||foreignUser?.ID||foreignUser?.user?.id||foreignUser?.user?.ID;
   if(foreignUserId) await request(`/admin/users/${foreignUserId}`,{token:a.admin.access_token,expected:[404]});
   if(bStudents[0]) await request(`/admin/students/${bStudents[0].id}`,{token:a.admin.access_token,expected:[404]});
   const bSessions=list((await request("/admin/academic-sessions",{token:b.admin.access_token})).data,"sessions");
   if(bSessions[0]) await request(`/admin/academic-sessions/${bSessions[0].id}`,{token:a.admin.access_token,expected:[404]});
   record("tenant isolation",a.school,"school_admin","PASS",`Cross-school ${foreignUserId?"user, ":""}student and session IDs rejected`);
-  console.log(JSON.stringify({run_id:runId,base_url:BASE_URL,results,temporary_accounts:{count:createdUsers.length,cleanup:"deactivate after run"}},null,2));
+  // Report and cleanup are finalized in finally so the artifact reflects cleanup success.
+} catch(err) {
+  console.error(`Production acceptance failed: ${String(err?.message||err)}`);
+  process.exitCode=1;
 } finally {
-  if(createdUsers.length) await cleanup();
+  const cleanupErrors=await cleanup();
+  const report={run_id:runId,base_url:BASE_URL,results,temporary_accounts:{
+    count:createdUsers.length,
+    cleanup:cleanupErrors.length ? "incomplete" : "completed",
+    cleanup_failures:cleanupErrors
+  },temporary_student_profiles:{
+    count:createdStudents.length,
+    cleanup:cleanupErrors.length ? "incomplete" : "completed"
+  },temporary_student_profiles:{
+    count:createdStudents.length,
+    cleanup:cleanupErrors.length ? "incomplete" : "completed"
+  },temporary_teacher_assignments:{
+    count:createdAssignments.length,
+    cleanup:cleanupErrors.length ? "incomplete" : "completed"
+  },temporary_attendance_records:{
+    count:createdAttendance.length,
+    cleanup:cleanupErrors.length ? "incomplete" : "completed"
+  },temporary_assessments:{
+    count:createdAssessments.length,
+    cleanup:cleanupErrors.length ? "incomplete" : "completed"
+  },temporary_assessment_results:{
+    count:createdResults.length,
+    cleanup:cleanupErrors.length ? "incomplete" : "completed"
+  },retained_qa_history:{
+    bulk_import_jobs:"retained for audit",
+    student_enrollments:"retained for lifecycle/history verification"
+  }};
+  console.log(JSON.stringify(report,null,2));
+  if(cleanupErrors.length) process.exitCode=1;
 }

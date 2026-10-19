@@ -66,7 +66,7 @@ function findUserByEmail(payload,email,role){
     if(!v||typeof v!=="object"||seen.has(v))return null;
     seen.add(v);
     if(Array.isArray(v)){for(const item of v){const hit=walk(item);if(hit)return hit}return null}
-    if(String(v.email||"").toLowerCase()===target&&(!role||v.role===role)&&v.id)return v;
+    if(String(v.email||"").toLowerCase()===target&&(!role||v.role===role)&&(v.id||v.ID))return v;
     for(const value of Object.values(v)){const hit=walk(value);if(hit)return hit}
     return null;
   }
@@ -77,7 +77,7 @@ async function resolveUserId(token,email,role,response,{password,school_code}={}
   if(direct)return direct;
   const usersResponse=(await request("/admin/users",{token})).data;
   const user=findUserByEmail(usersResponse,email,role);
-  if(user?.id)return user.id;
+  if(user?.id||user?.ID)return user.id||user.ID;
   // Fall back to the canonical authenticated profile. This handles a production
   // deployment returning a legacy/minimal onboarding response or user listing.
   if(password&&school_code){
@@ -146,7 +146,7 @@ async function recordBulkUserForCleanup(token,email,kind,studentAdmissionNumber)
     user=findUserByEmail((await request("/admin/users",{token})).data,email);
     if(!user && attempt<2) await new Promise(resolve=>setTimeout(resolve,500));
   }
-  let id=user?.user_id || user?.user?.id || user?.id;
+  let id=user?.user_id || user?.user?.id || user?.user?.ID || user?.id || user?.ID;
   if(kind==="students"){
     try {
       const studentList=list((await request("/admin/students",{token})).data,"students");
@@ -322,7 +322,8 @@ try {
   const a=contexts[0], b=contexts[1];
   const bUsers=list((await request("/admin/users",{token:b.admin.access_token})).data,"users");
   const bStudents=list((await request("/admin/students",{token:b.admin.access_token})).data,"students");
-  const foreignUserId=bUsers.find(u=>u?.id||u?.user?.id)?.id||bUsers.find(u=>u?.user?.id)?.user?.id;
+  const foreignUser=bUsers.find(u=>u?.id||u?.ID||u?.user?.id||u?.user?.ID);
+  const foreignUserId=foreignUser?.id||foreignUser?.ID||foreignUser?.user?.id||foreignUser?.user?.ID;
   if(foreignUserId) await request(`/admin/users/${foreignUserId}`,{token:a.admin.access_token,expected:[404]});
   if(bStudents[0]) await request(`/admin/students/${bStudents[0].id}`,{token:a.admin.access_token,expected:[404]});
   const bSessions=list((await request("/admin/academic-sessions",{token:b.admin.access_token})).data,"sessions");

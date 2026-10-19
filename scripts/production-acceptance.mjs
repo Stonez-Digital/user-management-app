@@ -6,6 +6,7 @@ const schools = JSON.parse(process.env.PRODUCTION_QA_SCHOOLS_JSON || "[]");
 const superAdmin = {email:process.env.PRODUCTION_QA_SUPER_ADMIN_EMAIL,password:process.env.PRODUCTION_QA_SUPER_ADMIN_PASSWORD,school_code:""};
 const results = [];
 const createdUsers = [];
+const createdStudents = [];
 const createdAssignments = [];
 function fail(message){throw new Error(message)}
 async function request(path,{token,method="GET",body,expected=[200],retries=3}={}) {
@@ -146,7 +147,15 @@ async function recordBulkUserForCleanup(token,email,kind){
       try { user=findUserByEmail((await request(profilePath,{token})).data,email); } catch {}
     }
   }
-  const id=user?.user_id || user?.user?.id || user?.id;
+  let id=user?.user_id || user?.user?.id || user?.id;
+  if(kind==="students"){
+    try {
+      const studentList=list((await request("/admin/students",{token})).data,"students");
+      const profile=studentList.find(s=>s?.user_id===id || s?.user?.id===id || s?.user?.email?.toLowerCase()===email.toLowerCase());
+      if(profile?.id && !createdStudents.some(s=>s.id===profile.id)) createdStudents.push({id:profile.id,token,email});
+      if(!id && profile?.user_id) id=profile.user_id;
+    } catch {}
+  }
   if(id) createdUsers.push({id,token,email});
   else untrackedAccounts.push(email);
 }
@@ -183,6 +192,7 @@ async function bootstrapSchool(s){
   const studentUserId=onboardingUserId(student,"student");
   if(!studentUserId) fail(school+": onboarding did not return student user id");
   createdUsers.push({id:studentUserId,token:admin.access_token,email:studentEmail});
+  createdStudents.push({id:studentId,token:admin.access_token,email:studentEmail});
   const teacher=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Teacher ${runId}`,email:teacherEmail,password,role:"teacher",staff_id:`QA-T-${runId}-${school}`},expected:[201]})).data;
   const teacherId=await resolveUserId(admin.access_token,teacherEmail,"teacher",teacher,{password,school_code:school}); createdUsers.push({id:teacherId,token:admin.access_token,email:teacherEmail});
   const parent=(await request("/admin/onboarding/people",{token:admin.access_token,method:"POST",body:{name:`QA Parent ${runId}`,email:parentEmail,password,role:"parent",student_id:studentId,relationship:"parent",primary:true},expected:[201]})).data;
@@ -292,6 +302,13 @@ async function cleanup(){
       errors.push(`teacher assignment ${item.id}: ${String(err?.message||err)}`);
     }
   }
+  for(const item of createdStudents){
+    try {
+      await request(`/admin/students/${item.id}`,{token:item.token,method:"PUT",body:{enrollment_status:"inactive"},expected:[200]});
+    } catch(err) {
+      errors.push(`student profile ${item.email}: ${String(err?.message||err)}`);
+    }
+  }
   return errors;
 }
 
@@ -322,6 +339,9 @@ try {
     count:createdUsers.length,
     cleanup:cleanupErrors.length ? "incomplete" : "completed",
     cleanup_failures:cleanupErrors
+  },temporary_student_profiles:{
+    count:createdStudents.length,
+    cleanup:cleanupErrors.length ? "incomplete" : "completed"
   },temporary_teacher_assignments:{
     count:createdAssignments.length,
     cleanup:cleanupErrors.length ? "incomplete" : "completed"

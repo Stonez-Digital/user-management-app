@@ -6,6 +6,7 @@ const schools = JSON.parse(process.env.PRODUCTION_QA_SCHOOLS_JSON || "[]");
 const superAdmin = {email:process.env.PRODUCTION_QA_SUPER_ADMIN_EMAIL,password:process.env.PRODUCTION_QA_SUPER_ADMIN_PASSWORD,school_code:""};
 const results = [];
 const createdUsers = [];
+const createdAssignments = [];
 function fail(message){throw new Error(message)}
 async function request(path,{token,method="GET",body,expected=[200],retries=3}={}) {
   let last;
@@ -151,7 +152,10 @@ async function recordBulkUserForCleanup(token,email,kind){
 }
 
 async function createAssignment(token,teacherId,academic){
-  const v=(await request("/admin/teacher-assignments",{token,method:"POST",body:{teacher_id:teacherId,subject_id:academic.subject.id,academic_session_id:academic.active.id,term_id:academic.activeTerm.id,class_id:academic.cls.id,section_id:academic.sec.id,allocation_type:"subject_teacher",active:true},expected:[201]})).data;
+  const body={teacher_id:teacherId,subject_id:academic.subject.id,academic_session_id:academic.active.id,term_id:academic.activeTerm.id,class_id:academic.cls.id,section_id:academic.sec.id,allocation_type:"subject_teacher",active:true};
+  const v=(await request("/admin/teacher-assignments",{token,method:"POST",body,expected:[201]})).data;
+  if(v?.id) createdAssignments.push({id:v.id,token,body:{...body,active:false}});
+  else untrackedAccounts.push("teacher assignment for "+teacherId);
   return v;
 }
 async function bootstrapSchool(s){
@@ -281,6 +285,13 @@ async function cleanup(){
       errors.push(`${item.email}: ${String(err?.message||err)}`);
     }
   }
+  for(const item of createdAssignments){
+    try {
+      await request(`/admin/teacher-assignments/${item.id}`,{token:item.token,method:"PUT",body:item.body,expected:[200]});
+    } catch(err) {
+      errors.push(`teacher assignment ${item.id}: ${String(err?.message||err)}`);
+    }
+  }
   return errors;
 }
 
@@ -311,6 +322,9 @@ try {
     count:createdUsers.length,
     cleanup:cleanupErrors.length ? "incomplete" : "completed",
     cleanup_failures:cleanupErrors
+  },temporary_teacher_assignments:{
+    count:createdAssignments.length,
+    cleanup:cleanupErrors.length ? "incomplete" : "completed"
   }};
   console.log(JSON.stringify(report,null,2));
   if(cleanupErrors.length) process.exitCode=1;

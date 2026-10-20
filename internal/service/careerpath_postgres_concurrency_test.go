@@ -2,9 +2,11 @@ package service
 
 import (
 	"errors"
+	"net/url"
 	"os"
 	"sync"
 	"testing"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/onoja217/users-management-app/internal/database"
@@ -21,12 +23,29 @@ func careerPathPostgresTestService(t *testing.T) (*gorm.DB, *CareerPathService, 
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL is not set; PostgreSQL concurrency test skipped")
 	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	adminDB, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open PostgreSQL test database: %v", err)
 	}
+	schema := "careerpath_test_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	if err := adminDB.Exec("CREATE SCHEMA " + schema).Error; err != nil {
+		t.Fatalf("create isolated PostgreSQL test schema: %v", err)
+	}
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		_ = adminDB.Exec("DROP SCHEMA " + schema + " CASCADE").Error
+		t.Fatalf("parse TEST_DATABASE_URL: %v", err)
+	}
+	query := parsed.Query()
+	query.Set("search_path", schema)
+	parsed.RawQuery = query.Encode()
+	db, err := gorm.Open(postgres.Open(parsed.String()), &gorm.Config{})
+	if err != nil {
+		_ = adminDB.Exec("DROP SCHEMA " + schema + " CASCADE").Error
+		t.Fatalf("open isolated PostgreSQL test schema: %v", err)
+	}
 	if err := database.Migrate(db); err != nil {
-		t.Fatalf("migrate PostgreSQL test database: %v", err)
+		t.Fatalf("migrate isolated PostgreSQL test schema: %v", err)
 	}
 
 	var school models.School
@@ -44,8 +63,8 @@ func careerPathPostgresTestService(t *testing.T) (*gorm.DB, *CareerPathService, 
 		t.Fatalf("create synthetic test user: %v", err)
 	}
 	student := models.Student{
-		SchoolID:       school.ID,
-		UserID:         user.ID,
+		SchoolID:        school.ID,
+		UserID:           user.ID,
 		AdmissionNumber: "CP-" + uuid.NewString(),
 	}
 	if err := db.Create(&student).Error; err != nil {
@@ -54,10 +73,11 @@ func careerPathPostgresTestService(t *testing.T) (*gorm.DB, *CareerPathService, 
 	}
 
 	t.Cleanup(func() {
-		_ = db.Where("user_id = ?", user.ID).Delete(&models.CareerPathAttempt{}).Error
-		_ = db.Where("user_id = ?", user.ID).Delete(&models.Student{}).Error
-		_ = db.Delete(&user).Error
 		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+		_ = adminDB.Exec("DROP SCHEMA " + schema + " CASCADE").Error
+		if sqlDB, err := adminDB.DB(); err == nil {
 			_ = sqlDB.Close()
 		}
 	})

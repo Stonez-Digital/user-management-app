@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       confirm_create_attempts:
-        description: "Allow creating/resuming draft attempts for both designated QA students"
+        description: "Allow creating/resuming draft attempts for all three designated QA students"
         required: true
         type: choice
         options: ["no", "yes"]
@@ -42,16 +42,20 @@ jobs:
           QA_B_EMAIL: ${{ secrets.CAREERPATH_QA_STUDENT_B_EMAIL }}
           QA_B_PASSWORD: ${{ secrets.CAREERPATH_QA_STUDENT_B_PASSWORD }}
           QA_B_SCHOOL_CODE: ${{ secrets.CAREERPATH_QA_STUDENT_B_SCHOOL_CODE }}
+          QA_C_EMAIL: ${{ secrets.CAREERPATH_QA_STUDENT_C_EMAIL }}
+          QA_C_PASSWORD: ${{ secrets.CAREERPATH_QA_STUDENT_C_PASSWORD }}
+          QA_C_SCHOOL_CODE: ${{ secrets.CAREERPATH_QA_STUDENT_C_SCHOOL_CODE }}
           CONFIRM_IMMUTABLE_SUBMIT: ${{ inputs.confirm_immutable_submit }}
         run: |
           set -euo pipefail
           node --version
           node -e 'const u=new URL(process.env.API_BASE_URL); if(u.protocol!=="https:") throw Error("API_BASE_URL must use HTTPS"); if(u.username||u.password||u.search||u.hash) throw Error("API_BASE_URL must be an origin/path without credentials, query, or fragment");'
-          for name in QA_A_EMAIL QA_A_PASSWORD QA_A_SCHOOL_CODE QA_B_EMAIL QA_B_PASSWORD QA_B_SCHOOL_CODE; do
+          for name in QA_A_EMAIL QA_A_PASSWORD QA_A_SCHOOL_CODE QA_B_EMAIL QA_B_PASSWORD QA_B_SCHOOL_CODE QA_C_EMAIL QA_C_PASSWORD QA_C_SCHOOL_CODE; do
             if [ -z "${!name:-}" ]; then echo "::error::Required GitHub Actions secret is missing: $name"; exit 1; fi
           done
-          if [ "$QA_A_EMAIL" = "$QA_B_EMAIL" ]; then echo "::error::Student A and B must be different QA accounts"; exit 1; fi
+          if [ "$QA_A_EMAIL" = "$QA_B_EMAIL" ] || [ "$QA_A_EMAIL" = "$QA_C_EMAIL" ] || [ "$QA_B_EMAIL" = "$QA_C_EMAIL" ]; then echo "::error::QA Students A, B, and C must be three distinct accounts"; exit 1; fi
           if [ "$CONFIRM_IMMUTABLE_SUBMIT" = "yes" ]; then echo "Immutable submission is explicitly enabled for this run."; else echo "Submission disabled; this run will verify draft save/resume and access denial only."; fi
+          echo "Required account layout: A and B in the same school; C in a different school."
 
       - name: Run authenticated live API checks
         env:
@@ -62,5 +66,8 @@ jobs:
           QA_B_EMAIL: ${{ secrets.CAREERPATH_QA_STUDENT_B_EMAIL }}
           QA_B_PASSWORD: ${{ secrets.CAREERPATH_QA_STUDENT_B_PASSWORD }}
           QA_B_SCHOOL_CODE: ${{ secrets.CAREERPATH_QA_STUDENT_B_SCHOOL_CODE }}
+          QA_C_EMAIL: ${{ secrets.CAREERPATH_QA_STUDENT_C_EMAIL }}
+          QA_C_PASSWORD: ${{ secrets.CAREERPATH_QA_STUDENT_C_PASSWORD }}
+          QA_C_SCHOOL_CODE: ${{ secrets.CAREERPATH_QA_STUDENT_C_SCHOOL_CODE }}
           CONFIRM_IMMUTABLE_SUBMIT: ${{ inputs.confirm_immutable_submit }}
         run: node scripts/careerpath-live-smoke.mjs

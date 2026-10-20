@@ -56,9 +56,13 @@ async function main() {
   assert.equal(base.protocol, "https:", "API_BASE_URL must use HTTPS");
   const a = await login(process.env.QA_A_EMAIL, process.env.QA_A_PASSWORD, process.env.QA_A_SCHOOL_CODE);
   const b = await login(process.env.QA_B_EMAIL, process.env.QA_B_PASSWORD, process.env.QA_B_SCHOOL_CODE);
-  assert.notEqual(a.profile.id, b.profile.id, "QA accounts must be distinct");
-  assert.notEqual(a.profile.school_id, b.profile.school_id, "Student A and Student B must belong to different schools");
-  record("Both QA accounts authenticated as students in distinct schools");
+  const c = await login(process.env.QA_C_EMAIL, process.env.QA_C_PASSWORD, process.env.QA_C_SCHOOL_CODE);
+  assert.notEqual(a.profile.id, b.profile.id, "Students A and B must be different students");
+  assert.notEqual(a.profile.id, c.profile.id, "Students A and C must be different students");
+  assert.notEqual(b.profile.id, c.profile.id, "Students B and C must be different students");
+  assert.equal(a.profile.school_id, b.profile.school_id, "Students A and B must belong to the same school to test cross-student isolation");
+  assert.notEqual(a.profile.school_id, c.profile.school_id, "Student C must belong to a different school to test cross-school isolation");
+  record("Three QA accounts authenticated: A/B same school, C in a different school");
 
   const createdA = await request("/student/careerpath/attempts", { token: a.token, method: "POST" });
   assert.equal(createdA.status, 200, "Student A create/resume failed");
@@ -86,7 +90,13 @@ async function main() {
   assert.equal(createdB.status, 200, "Student B create/resume failed");
   const attemptB = createdB.data?.id;
   assert.ok(attemptB && attemptB !== attemptA, "Student B must have a distinct attempt");
-  record("Student B created or resumed a separate draft");
+  record("Student B created or resumed a separate draft in the same school");
+
+  const createdC = await request("/student/careerpath/attempts", { token: c.token, method: "POST" });
+  assert.equal(createdC.status, 200, "Student C create/resume failed");
+  const attemptC = createdC.data?.id;
+  assert.ok(attemptC && attemptC !== attemptA && attemptC !== attemptB, "Student C must have a distinct attempt");
+  record("Student C created or resumed a separate draft in another school");
 
   for (const [label, path, method, body] of [
     ["read", `/student/careerpath/attempts/${attemptB}`, "GET", undefined],
@@ -94,19 +104,29 @@ async function main() {
     ["submit", `/student/careerpath/attempts/${attemptB}/submit`, "POST", undefined],
   ]) {
     const result = await request(path, { token: a.token, method, body });
-    assert.ok([403, 404].includes(result.status), `Student A must be denied Student B's ${label}; got HTTP ${result.status}`);
+    assert.ok([403, 404].includes(result.status), `same-school cross-student access: Student A must be denied Student B's ${label}; got HTTP ${result.status}`);
   }
-  record("Student A was denied read/save/submit access to Student B's attempt");
+  record("Same-school cross-student isolation: A denied read/save/submit access to B's attempt");
 
-  const crossSchool = await request(`/student/careerpath/attempts/${attemptA}`, { token: b.token });
-  assert.ok([403, 404].includes(crossSchool.status), `cross-school read must be denied; got HTTP ${crossSchool.status}`);
-  const crossSchoolSave = await request(`/student/careerpath/attempts/${attemptA}/responses`, {
-    token: b.token, method: "PUT", body: { responses: completeResponses },
-  });
-  assert.ok([403, 404].includes(crossSchoolSave.status), `cross-school save must be denied; got HTTP ${crossSchoolSave.status}`);
-  const crossSchoolSubmit = await request(`/student/careerpath/attempts/${attemptA}/submit`, { token: b.token, method: "POST" });
-  assert.ok([403, 404].includes(crossSchoolSubmit.status), `cross-school submit must be denied; got HTTP ${crossSchoolSubmit.status}`);
-  record("Student B was denied read/save/submit access to Student A's attempt across schools");
+  for (const [label, path, method, body] of [
+    ["read", `/student/careerpath/attempts/${attemptA}`, "GET", undefined],
+    ["save", `/student/careerpath/attempts/${attemptA}/responses`, "PUT", { responses: completeResponses }],
+    ["submit", `/student/careerpath/attempts/${attemptA}/submit`, "POST", undefined],
+  ]) {
+    const result = await request(path, { token: c.token, method, body });
+    assert.ok([403, 404].includes(result.status), `cross-school access: Student C must be denied Student A's ${label}; got HTTP ${result.status}`);
+  }
+  record("Cross-school isolation: C denied read/save/submit access to A's attempt");
+
+  for (const [label, path, method, body] of [
+    ["read", `/student/careerpath/attempts/${attemptC}`, "GET", undefined],
+    ["save", `/student/careerpath/attempts/${attemptC}/responses`, "PUT", { responses: completeResponses }],
+    ["submit", `/student/careerpath/attempts/${attemptC}/submit`, "POST", undefined],
+  ]) {
+    const result = await request(path, { token: a.token, method, body });
+    assert.ok([403, 404].includes(result.status), `cross-school access: Student A must be denied Student C's ${label}; got HTTP ${result.status}`);
+  }
+  record("Cross-school isolation: A denied read/save/submit access to C's attempt");
 
   if (process.env.CONFIRM_IMMUTABLE_SUBMIT === "yes") {
     const submitted = await request(`/student/careerpath/attempts/${attemptA}/submit`, { token: a.token, method: "POST" });

@@ -4,9 +4,9 @@ import (
 	"errors"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"testing"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/onoja217/users-management-app/internal/database"
@@ -44,6 +44,15 @@ func careerPathPostgresTestService(t *testing.T) (*gorm.DB, *CareerPathService, 
 		_ = adminDB.Exec("DROP SCHEMA " + schema + " CASCADE").Error
 		t.Fatalf("open isolated PostgreSQL test schema: %v", err)
 	}
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+		_ = adminDB.Exec("DROP SCHEMA " + schema + " CASCADE").Error
+		if sqlDB, err := adminDB.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
 	if err := database.Migrate(db); err != nil {
 		t.Fatalf("migrate isolated PostgreSQL test schema: %v", err)
 	}
@@ -72,15 +81,6 @@ func careerPathPostgresTestService(t *testing.T) (*gorm.DB, *CareerPathService, 
 		t.Fatalf("create synthetic test student: %v", err)
 	}
 
-	t.Cleanup(func() {
-		if sqlDB, err := db.DB(); err == nil {
-			_ = sqlDB.Close()
-		}
-		_ = adminDB.Exec("DROP SCHEMA " + schema + " CASCADE").Error
-		if sqlDB, err := adminDB.DB(); err == nil {
-			_ = sqlDB.Close()
-		}
-	})
 	return db, NewCareerPathService(db), school.ID, user.ID
 }
 

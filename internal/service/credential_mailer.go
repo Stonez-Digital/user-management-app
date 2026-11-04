@@ -57,9 +57,7 @@ func BuildPasswordResetURL(baseURL, token string) (string, error) {
 	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" {
 		return "", fmt.Errorf("password reset URL must be an absolute HTTP(S) URL")
 	}
-	query := parsed.Query()
-	query.Set("token", token)
-	parsed.RawQuery = query.Encode()
+	parsed.Fragment = url.Values{"token": []string{token}}.Encode()
 	return parsed.String(), nil
 }
 

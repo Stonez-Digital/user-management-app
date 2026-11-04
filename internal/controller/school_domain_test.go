@@ -39,6 +39,7 @@ func TestUniqueSchoolSlugUsesNameAndAddsCodeOnlyOnCollision(t *testing.T) {
 }
 
 func TestPlatformSchoolActivationAttachesExactDomainBeforeActivation(t *testing.T) {
+	t.Setenv("SCHOOL_BASE_DOMAIN", "schools.example.test")
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil { t.Fatal(err) }
 	if err := db.AutoMigrate(&models.School{}, &models.User{}, &models.AuditLog{}); err != nil { t.Fatal(err) }
@@ -55,7 +56,7 @@ func TestPlatformSchoolActivationAttachesExactDomainBeforeActivation(t *testing.
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec,req)
 	if rec.Code != http.StatusOK { t.Fatalf("expected 200, got %d: %s",rec.Code,rec.Body.String()) }
-	if provisioner.hostname != "bedrock-international.stonezdigital.com.ng" { t.Fatalf("unexpected provisioned hostname %q",provisioner.hostname) }
+	if provisioner.hostname != "bedrock-international.schools.example.test" { t.Fatalf("unexpected provisioned hostname %q",provisioner.hostname) }
 	if err := db.First(&school,"id = ?",school.ID).Error; err != nil { t.Fatal(err) }
 	if school.Status != models.SchoolStatusActive { t.Fatalf("expected active status, got %q",school.Status) }
 }

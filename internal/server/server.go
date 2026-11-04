@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -31,6 +30,7 @@ type rateLimitEntry struct {
 type rateLimiter struct {
 	mu       sync.Mutex
 	entries  map[string]rateLimitEntry
+	overflow rateLimitEntry
 	requests uint64
 }
 
@@ -48,18 +48,17 @@ func (l *rateLimiter) allow(key string, now time.Time) (bool, int) {
 
 	l.requests++
 	if l.requests%cleanupEvery == 0 {
-		for client, entry := range l.entries {
-			if now.Sub(entry.windowStart) >= authRateWindow {
-				delete(l.entries, client)
-			}
-		}
+		l.cleanupExpired(now)
 	}
 
 	entry, ok := l.entries[key]
 	if !ok {
-		// Fail closed for new keys rather than allowing unbounded memory growth.
 		if len(l.entries) >= maxRateLimitEntries {
-			return false, 0
+			// Reclaim expired keys immediately before using the shared overflow bucket.
+			l.cleanupExpired(now)
+			if len(l.entries) >= maxRateLimitEntries {
+				return l.allowOverflow(now)
+			}
 		}
 		l.entries[key] = rateLimitEntry{count: 1, windowStart: now}
 		return true, authRateLimit - 1
@@ -76,31 +75,17 @@ func (l *rateLimiter) allow(key string, now time.Time) (bool, int) {
 	return true, authRateLimit - entry.count
 }
 
-// clientIPFromRequest uses forwarding headers only when the immediate peer is
-// explicitly listed in TRUSTED_PROXY_CIDRS. Otherwise it uses the socket peer.
-// X-Forwarded-For is walked from right to left, skipping trusted proxies.
-func clientIPFromRequest(remoteAddr, forwardedFor string, trusted []*net.IPNet) string {
-	peer := parseIP(remoteAddr)
-	if peer == nil {
-		return "unknown"
+// clientIPFromRequest prefers Cloudflare's single-address visitor header.
+// Render routes public web-service ingress through Cloudflare; X-Forwarded-For
+// is intentionally not parsed because it can contain client-supplied entries.
+func clientIPFromRequest(remoteAddr, cfConnectingIP string) string {
+	if ip := net.ParseIP(strings.TrimSpace(cfConnectingIP)); ip != nil {
+		return ip.String()
 	}
-	if !isTrustedProxy(peer, trusted) {
+	if peer := parseIP(remoteAddr); peer != nil {
 		return peer.String()
 	}
-
-	chain := strings.Split(forwardedFor, ",")
-	current := peer
-	for i := len(chain) - 1; i >= 0; i-- {
-		candidate := net.ParseIP(strings.TrimSpace(chain[i]))
-		if candidate == nil {
-			continue
-		}
-		current = candidate
-		if !isTrustedProxy(candidate, trusted) {
-			return candidate.String()
-		}
-	}
-	return current.String()
+	return "unknown"
 }
 
 func parseIP(address string) net.IP {
@@ -111,29 +96,27 @@ func parseIP(address string) net.IP {
 	return net.ParseIP(strings.Trim(strings.TrimSpace(address), "[]"))
 }
 
-func isTrustedProxy(ip net.IP, trusted []*net.IPNet) bool {
-	for _, network := range trusted {
-		if network.Contains(ip) {
-			return true
+func (l *rateLimiter) cleanupExpired(now time.Time) {
+	for client, entry := range l.entries {
+		if now.Sub(entry.windowStart) >= authRateWindow {
+			delete(l.entries, client)
 		}
 	}
-	return false
+	if !l.overflow.windowStart.IsZero() && now.Sub(l.overflow.windowStart) >= authRateWindow {
+		l.overflow = rateLimitEntry{}
+	}
 }
 
-func trustedProxyNetworks() ([]*net.IPNet, error) {
-	raw := strings.TrimSpace(os.Getenv("TRUSTED_PROXY_CIDRS"))
-	if raw == "" {
-		return nil, nil
+func (l *rateLimiter) allowOverflow(now time.Time) (bool, int) {
+	if l.overflow.windowStart.IsZero() || now.Sub(l.overflow.windowStart) >= authRateWindow {
+		l.overflow = rateLimitEntry{count: 1, windowStart: now}
+		return true, authRateLimit - 1
 	}
-	var networks []*net.IPNet
-	for _, item := range strings.Split(raw, ",") {
-		_, network, err := net.ParseCIDR(strings.TrimSpace(item))
-		if err != nil {
-			return nil, fmt.Errorf("invalid TRUSTED_PROXY_CIDRS entry %q: %w", item, err)
-		}
-		networks = append(networks, network)
+	if l.overflow.count >= authRateLimit {
+		return false, 0
 	}
-	return networks, nil
+	l.overflow.count++
+	return true, authRateLimit - l.overflow.count
 }
 
 func ValidateEnvironment() error {
@@ -148,19 +131,12 @@ func ValidateEnvironment() error {
 			return fmt.Errorf("production requires CORS_ALLOWED_ORIGINS")
 		}
 	}
-	_, err := trustedProxyNetworks()
-	return err
+	return nil
 }
 
 func Configure(r *gin.Engine) {
 	allowed := configuredOrigins()
 	limiter := newRateLimiter()
-	trusted, err := trustedProxyNetworks()
-	if err != nil {
-		// ValidateEnvironment is called before the server starts. Keep Configure
-		// defensive for tests and non-standard callers.
-		panic(err)
-	}
 
 	r.Use(func(c *gin.Context) {
 		c.Header("X-Content-Type-Options", "nosniff")
@@ -195,7 +171,7 @@ func Configure(r *gin.Engine) {
 		}
 
 		if strings.HasPrefix(c.Request.URL.Path, "/auth/") {
-			key := clientIPFromRequest(c.Request.RemoteAddr, c.Request.Header.Get("X-Forwarded-For"), trusted)
+			key := clientIPFromRequest(c.Request.RemoteAddr, c.Request.Header.Get("CF-Connecting-IP"))
 			allowedRequest, remaining := limiter.allow(key, time.Now())
 			c.Header("X-RateLimit-Limit", fmt.Sprint(authRateLimit))
 			c.Header("X-RateLimit-Remaining", fmt.Sprint(remaining))

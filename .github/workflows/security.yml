@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  security:
-    name: Security checks
+  go-security:
+    name: Go security checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -36,21 +36,29 @@ jobs:
           go-version-input: '1.26.x'
           go-package: './...'
 
+  frontend-security:
+    name: Frontend dependency security
+    runs-on: ubuntu-latest
+    needs: go-security
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
       - name: Generate dependency lock for audit
-        working-directory: frontend
         run: npm install --package-lock-only --ignore-scripts
 
       - name: Audit production dependencies
-        working-directory: frontend
         run: npm audit --omit=dev --audit-level=high
 
       - name: Audit development dependencies
-        working-directory: frontend
         shell: bash
         run: |
           set -euo pipefail

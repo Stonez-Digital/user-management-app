@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -76,7 +77,37 @@ func (p *CloudflareSchoolDomainProvisioner) Attach(ctx context.Context, hostname
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 || !success {
 		return fmt.Errorf("Cloudflare rejected the domain (HTTP %d)", resp.StatusCode)
 	}
-	return nil
+	return p.verifyAttached(ctx, host)
+}
+
+func (p *CloudflareSchoolDomainProvisioner) verifyAttached(ctx context.Context, hostname string) error {
+	endpoint := strings.TrimRight(p.apiBaseURL, "/") + "/accounts/" + p.accountID + "/workers/domains"
+	query := url.Values{}
+	query.Set("hostname", hostname)
+	query.Set("service", p.workerName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"?"+query.Encode(), nil)
+	if err != nil { return err }
+	req.Header.Set("Authorization", "Bearer "+p.token)
+	resp, err := p.client.Do(req)
+	if err != nil { return fmt.Errorf("Cloudflare domain verification request failed: %w", err) }
+	defer resp.Body.Close()
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("Cloudflare returned an unreadable verification response (HTTP %d)", resp.StatusCode)
+	}
+	success, _ := result["success"].(bool)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 || !success {
+		return fmt.Errorf("Cloudflare domain verification failed (HTTP %d)", resp.StatusCode)
+	}
+	entries, _ := result["result"].([]interface{})
+	for _, entry := range entries {
+		domain, _ := entry.(map[string]interface{})
+		host, _ := domain["hostname"].(string)
+		service, _ := domain["service"].(string)
+		enabled, _ := domain["enabled"].(bool)
+		if strings.EqualFold(host, hostname) && service == p.workerName && enabled { return nil }
+	}
+	return fmt.Errorf("Cloudflare did not confirm an enabled domain attachment to the configured Worker")
 }
 
 func validCloudflareLabel(label string) bool {

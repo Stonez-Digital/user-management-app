@@ -6,7 +6,7 @@ import Link from "next/link";
 export default function ResetPasswordPage() {
   const [token, setToken] = useState("");
   useEffect(() => {
-    setToken(new URLSearchParams(window.location.search).get("token") || "");
+    setToken(new URLSearchParams(window.location.hash.replace(/^#/, "")).get("token") || "");
   }, []);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");

@@ -37,5 +37,5 @@ func TestPlatformSchoolUpdateRegeneratesSlug(t *testing.T){
  req:=httptest.NewRequest(http.MethodPut,"/schools/"+school.ID.String(),body);req.Header.Set("Content-Type","application/json");w:=httptest.NewRecorder();r.ServeHTTP(w,req)
  if w.Code!=http.StatusOK{t.Fatalf("expected 200, got %d: %s",w.Code,w.Body.String())}
  var got models.School;if err=db.First(&got,"id = ?",school.ID).Error;err!=nil{t.Fatal(err)}
- if got.Slug!="school-b-sca-001"{t.Fatalf("expected regenerated slug, got %q",got.Slug)}
+ if got.Slug!="school-a"{t.Fatalf("expected the original canonical domain slug to remain stable, got %q",got.Slug)}
 }

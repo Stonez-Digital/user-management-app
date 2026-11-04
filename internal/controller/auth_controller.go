@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"log"
 	"strings"
 	"time"
 
@@ -37,9 +38,18 @@ type LoginRequest struct { Email string `json:"email" binding:"required,email,ma
 type AssignRoleRequest struct { Role string `json:"role" binding:"required"` }
 
 
-type AuthController struct { DB *gorm.DB }
+type PasswordResetMailer interface {
+	SendPasswordReset(name, email, token string) error
+}
 
-func NewAuthController(db *gorm.DB) *AuthController { return &AuthController{DB: db} }
+type AuthController struct {
+	DB *gorm.DB
+	Mailer PasswordResetMailer
+}
+
+func NewAuthController(db *gorm.DB) *AuthController {
+	return &AuthController{DB: db, Mailer: service.NewCredentialMailerFromEnv()}
+}
 
 func validPassword(password string) bool { return len(password) >= minPasswordLength }
 
@@ -72,11 +82,16 @@ func (ac *AuthController) ForgotPassword(c *gin.Context) {
 		return
 	}
 
-	response := gin.H{"message": "if the account exists, a reset link will be sent"}
-	if strings.EqualFold(os.Getenv("APP_ENV"), "development") {
-		response["reset_token"] = token
+	// Keep the response identical for existing and unknown accounts. Never return
+	// the raw token from the API; it is delivered only through the configured mailer.
+	if ac.Mailer == nil {
+		_ = ac.DB.Model(&reset).Update("used", true).Error
+		log.Printf("password reset email unavailable: mailer is not configured")
+	} else if err := ac.Mailer.SendPasswordReset(user.Name, user.Email, token); err != nil {
+		_ = ac.DB.Model(&reset).Update("used", true).Error
+		log.Printf("password reset email delivery failed: %v", err)
 	}
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusOK, gin.H{"message": "if the account exists, a reset link will be sent"})
 }
 
 func (ac *AuthController) ResetPassword(c *gin.Context) {

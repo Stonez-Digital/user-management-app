@@ -5,14 +5,20 @@ on:
     branches: [main]
     paths:
       - "frontend/**"
+      - "scripts/school-domain-routing.test.mjs"
       - ".github/workflows/frontend.yml"
       - ".github/workflows/cloudflare-deploy.yml"
   push:
     branches: [main]
     paths:
       - "frontend/**"
+      - "scripts/school-domain-routing.test.mjs"
       - ".github/workflows/frontend.yml"
       - ".github/workflows/cloudflare-deploy.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -31,6 +37,8 @@ jobs:
           cache-dependency-path: frontend/package.json
       - name: Install dependencies
         run: npm install
+      - name: School-domain routing regression checks
+        run: npm run test:school-domains
       - name: Dashboard academic-context regression checks
         run: npm run test:dashboard-context
       - name: Role-aware dashboard access regression checks

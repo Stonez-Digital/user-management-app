@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import ThemeToggle from "../components/theme-toggle";
+import SchoolDomainRouter from "../components/school-domain-router";
 
 export const metadata: Metadata = {
   title: "Stonez School Management",
@@ -9,5 +10,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body><ThemeToggle />{children}</body></html>;
+  return <html lang="en"><body><SchoolDomainRouter /><ThemeToggle />{children}</body></html>;
 }

@@ -9,9 +9,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  go-security:
-    name: Go security checks
+  security:
+    name: Security checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,32 +36,24 @@ jobs:
           go-version-input: '1.26.x'
           go-package: './...'
 
-  frontend-security:
-    name: Frontend dependency security
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Install dependencies
-        run: npm install --package-lock=false
+      - name: Generate dependency lock for audit
+        working-directory: frontend
+        run: npm install --package-lock-only --ignore-scripts
 
       - name: Audit production dependencies
-        run: npm install --package-lock-only --ignore-scripts && npm audit --omit=dev --audit-level=high
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Audit development dependencies
+        working-directory: frontend
         shell: bash
         run: |
           set -euo pipefail
-          npm install --package-lock-only --ignore-scripts
           npm audit --json > audit.json || true
           node - <<'NODE'
           const fs = require('fs');
@@ -66,11 +62,8 @@ jobs:
           const vulnerabilities = report.vulnerabilities || {};
           const allowedAdvisory = 'GHSA-vfj7-8cjw-p6xm';
 
-          // npm audit represents transitive vulnerabilities in two ways:
-          // the root package may point at an advisory object, while packages
-          // above it point at the vulnerable package name. Walk the dependency
-          // graph so the exception applies only to the known unpatched
-          // braces advisory and its direct dependency chain.
+          // Permit only the known unpatched braces advisory and its
+          // transitive dependency chain; all other high/critical findings block.
           const reachesAllowedAdvisory = (packageName, visiting = new Set()) => {
             if (packageName === 'braces') return true;
             if (visiting.has(packageName)) return false;
@@ -86,8 +79,7 @@ jobs:
                 return reachesAllowedAdvisory(issue, nextVisiting);
               }
               if (issue && typeof issue === 'object') {
-                return issue.url?.endsWith('/' + allowedAdvisory) ||
-                  issue.source === Number(issue.source) && false;
+                return issue.url?.endsWith('/' + allowedAdvisory);
               }
               return false;
             });
@@ -109,6 +101,3 @@ jobs:
           console.log('No blocking high/critical development dependency vulnerabilities found.');
           console.log('The braces advisory is allowed only for the known unpatched advisory and its dependency chain.');
           NODE
-
-      - name: Build
-        run: npm run build

@@ -213,7 +213,8 @@ func (ac *AuthController) Login(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "platform administrators must use the platform login"})
 		return
 	}
-	accessToken, err := auth.GenerateToken(user.ID.String(), user.Role)
+	sessionID := uuid.New()
+	accessToken, err := auth.GenerateTokenForSession(user.ID.String(), user.Role, sessionID.String())
 	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate access token"}); return }
 	refreshToken, err := auth.GenerateRefreshToken(user.ID.String())
 	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate refresh token"}); return }
@@ -222,7 +223,7 @@ func (ac *AuthController) Login(c *gin.Context) {
 		familyID := uuid.New()
 		expiry := time.Now().Add(auth.RefreshTokenTTL)
 		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: auth.HashRefreshToken(refreshToken), ExpiresAt: expiry}).Error; err != nil { return err }
-		return tx.Create(&models.Session{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, RefreshTokenHash: auth.HashRefreshToken(refreshToken), ExpiresAt: expiry, UserAgent: c.Request.UserAgent(), IP: c.ClientIP()}).Error
+		return tx.Create(&models.Session{ID: sessionID, UserID: user.ID, FamilyID: familyID, RefreshTokenHash: auth.HashRefreshToken(refreshToken), ExpiresAt: expiry, UserAgent: c.Request.UserAgent(), IP: c.ClientIP()}).Error
 	})
 	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session"}); return }
 	_ = audit.Record(ac.DB, c, &user.ID, "auth.login", "user", &user.ID, nil)
@@ -261,7 +262,12 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 		return
 	}
 
-	accessToken, err := auth.GenerateToken(user.ID.String(), user.Role)
+	var session models.Session
+	if err := ac.DB.Where("refresh_token_hash = ? AND user_id = ? AND revoked = false AND expires_at > ?", auth.HashRefreshToken(req.RefreshToken), user.ID, time.Now()).First(&session).Error; err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
+		return
+	}
+	accessToken, err := auth.GenerateTokenForSession(user.ID.String(), user.Role, session.ID.String())
 	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate access token"}); return }
 	newRefreshToken, err := auth.GenerateRefreshToken(user.ID.String())
 	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate refresh token"}); return }
@@ -273,7 +279,9 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 		familyID := stored.FamilyID
 		expiry := time.Now().Add(auth.RefreshTokenTTL)
 		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: auth.HashRefreshToken(newRefreshToken), ExpiresAt: expiry}).Error; err != nil { return err }
-		if err := tx.Model(&models.Session{}).Where("refresh_token_hash = ? AND revoked = false", auth.HashRefreshToken(req.RefreshToken)).Updates(map[string]interface{}{"refresh_token_hash": auth.HashRefreshToken(newRefreshToken), "expires_at": expiry}).Error; err != nil { return err }
+		result = tx.Model(&models.Session{}).Where("id = ? AND refresh_token_hash = ? AND revoked = false", session.ID, auth.HashRefreshToken(req.RefreshToken)).Updates(map[string]interface{}{"refresh_token_hash": auth.HashRefreshToken(newRefreshToken), "expires_at": expiry})
+		if result.Error != nil { return result.Error }
+		if result.RowsAffected != 1 { return errRefreshReused }
 		return nil
 	})
 	if errors.Is(err, errRefreshReused) {

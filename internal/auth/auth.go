@@ -55,10 +55,15 @@ func ParseToken(tokenString string) (*Claims, error) {
 }
 
 func GenerateToken(userID, role string) (string, error) {
+	return GenerateTokenForSession(userID, role, "")
+}
+
+func GenerateTokenForSession(userID, role, sessionID string) (string, error) {
 	if len(Secret) == 0 {
 		return "", errors.New("authentication secret is not configured")
 	}
 	claims := Claims{UserID: userID, Role: role, RegisteredClaims: jwt.RegisteredClaims{
+		ID: sessionID,
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(AccessTokenTTL)),
 		IssuedAt: jwt.NewNumericDate(time.Now()),
 	}}

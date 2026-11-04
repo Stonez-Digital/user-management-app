@@ -4,6 +4,7 @@ import (
     "net/http"
     "net/http/httptest"
     "testing"
+    "time"
 
     "github.com/gin-gonic/gin"
     "github.com/google/uuid"
@@ -17,13 +18,16 @@ import (
 func TestAuthMiddlewareUsesCurrentDatabaseRole(t *testing.T) {
     db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
     if err != nil { t.Fatal(err) }
-    if err := db.AutoMigrate(&models.User{}); err != nil { t.Fatal(err) }
+    if err := db.AutoMigrate(&models.User{}, &models.Session{}); err != nil { t.Fatal(err) }
 
     if err := auth.ConfigureSecret("this-is-a-test-secret-with-at-least-32-chars"); err != nil { t.Fatal(err) }
     user := models.User{ID: uuid.New(), Name: "Test", Email: "test@example.com", Role: authz.RoleStudent, Active: true}
     if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
 
-    token, err := auth.GenerateToken(user.ID.String(), user.Role)
+    session := models.Session{ID: uuid.New(), UserID: user.ID, RefreshTokenHash: "rbac-test-refresh-hash", ExpiresAt: time.Now().Add(time.Hour)}
+    if err := db.Create(&session).Error; err != nil { t.Fatal(err) }
+
+    token, err := auth.GenerateTokenForSession(user.ID.String(), user.Role, session.ID.String())
     if err != nil { t.Fatal(err) }
 
     if err := db.Model(&user).Update("role", authz.RoleSchoolAdmin).Error; err != nil { t.Fatal(err) }

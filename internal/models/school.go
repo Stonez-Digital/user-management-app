@@ -3,7 +3,6 @@ package models
 import (
     "time"
     "strings"
-    "unicode"
     "github.com/google/uuid"
     "gorm.io/gorm"
 )

@@ -2,8 +2,8 @@ const DEFAULT_BASE_DOMAIN = "stonezdigital.com.ng";
 const RESERVED_SUBDOMAINS = new Set(["app", "api", "www", "mail", "smtp", "ftp", "admin", "autodiscover"]);
 
 export function schoolSlugFromHostname(hostname, baseDomain = DEFAULT_BASE_DOMAIN) {
-  const host = String(hostname || "").trim().toLowerCase().replace(/:\\d+$/, "").replace(/\\.$/, "");
-  const normalizedBase = String(baseDomain).trim().toLowerCase().replace(/^\\.|\\.$/g, "");
+  const host = String(hostname || "").trim().toLowerCase().replace(/:\d+$/, "").replace(/\.$/, "");
+  const normalizedBase = String(baseDomain).trim().toLowerCase().replace(/^\./, "").replace(/\.$/, "");
   const suffix = "." + normalizedBase;
   if (!host.endsWith(suffix)) return null;
 

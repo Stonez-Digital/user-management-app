@@ -16,6 +16,7 @@ type CloudflareSchoolDomainProvisioner struct {
 	accountID  string
 	workerName string
 	baseDomain string
+	apiBaseURL string
 	client     *http.Client
 }
 
@@ -32,7 +33,7 @@ func NewCloudflareSchoolDomainProvisionerFromEnv() *CloudflareSchoolDomainProvis
 	}
 	return &CloudflareSchoolDomainProvisioner{
 		token: token, accountID: accountID, workerName: workerName, baseDomain: baseDomain,
-		client: &http.Client{Timeout: 15 * time.Second},
+		apiBaseURL: "https://api.cloudflare.com/client/v4", client: &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
@@ -55,7 +56,7 @@ func (p *CloudflareSchoolDomainProvisioner) Attach(ctx context.Context, hostname
 	if err != nil {
 		return err
 	}
-	url := "https://api.cloudflare.com/client/v4/accounts/" + p.accountID + "/workers/domains"
+	url := strings.TrimRight(p.apiBaseURL, "/") + "/accounts/" + p.accountID + "/workers/domains"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(body))
 	if err != nil {
 		return err

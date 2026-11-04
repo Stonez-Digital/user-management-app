@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
-	"os"
 	"log"
 	"strings"
 	"time"

@@ -12,6 +12,12 @@ import (
 	"time"
 )
 
+func SchoolBaseDomainFromEnv() string {
+	domain := strings.Trim(strings.ToLower(strings.TrimSpace(os.Getenv("SCHOOL_BASE_DOMAIN"))), ".")
+	if domain == "" { return "stonezdigital.com.ng" }
+	return domain
+}
+
 type CloudflareSchoolDomainProvisioner struct {
 	token      string
 	accountID  string
@@ -25,10 +31,7 @@ func NewCloudflareSchoolDomainProvisionerFromEnv() *CloudflareSchoolDomainProvis
 	token := strings.TrimSpace(os.Getenv("CLOUDFLARE_API_TOKEN"))
 	accountID := strings.TrimSpace(os.Getenv("CLOUDFLARE_ACCOUNT_ID"))
 	workerName := strings.TrimSpace(os.Getenv("CLOUDFLARE_WORKER_NAME"))
-	baseDomain := strings.Trim(strings.ToLower(strings.TrimSpace(os.Getenv("SCHOOL_BASE_DOMAIN"))), ".")
-	if baseDomain == "" {
-		baseDomain = "stonezdigital.com.ng"
-	}
+	baseDomain := SchoolBaseDomainFromEnv()
 	if token == "" || accountID == "" || workerName == "" {
 		return nil
 	}

@@ -47,7 +47,7 @@ func TestRateLimiterExpiresAndCleansOldEntries(t *testing.T) {
 	limiter := newRateLimiter()
 	now := time.Now()
 	limiter.allow("expired-client", now)
-	for i := 0; i < cleanupEvery; i++ {
+	for i := 0; i < cleanupEvery-1; i++ {
 		limiter.allow(fmt.Sprintf("client-%d", i), now.Add(authRateWindow))
 	}
 	if _, ok := limiter.entries["expired-client"]; ok {

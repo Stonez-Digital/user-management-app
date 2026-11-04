@@ -50,7 +50,7 @@ export default function LoginPage() {
     {error&&<div className="error">{error}</div>}
     <button disabled={loading}>{loading?"Signing in...":"Sign in"}</button>
    </form>
-   <div className="auth-footer"><span>Want to register a school?</span><Link href="/school-signup">Register your school</Link></div>
+   <div className="auth-footer"><Link href="/forgot-password">Forgot password?</Link><span> · Want to register a school? </span><Link href="/school-signup">Register your school</Link></div>
    <p className="hint">Public platform entry · School tenants use isolated branded login pages</p>
   </section>
  </main>;

@@ -1,22 +1,33 @@
 package service
 
 import (
+	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/smtp"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
+
+const resendEmailsEndpoint = "https://api.resend.com/emails"
 
 type CredentialMailer struct {
 	host string
 	port int
 	username string
 	password string
+	resendAPIKey string
+	resendAPIURL string
+	httpClient *http.Client
 	from string
 	fromName string
 	loginURL string
@@ -30,9 +41,17 @@ func NewCredentialMailerFromEnv() *CredentialMailer {
 	}
 	from := strings.TrimSpace(os.Getenv("SMTP_FROM_EMAIL"))
 	if from == "" { from = strings.TrimSpace(os.Getenv("SMTP_USERNAME")) }
+	resendKey := strings.TrimSpace(os.Getenv("RESEND_API_KEY"))
+	// Existing Resend SMTP configuration stores the Resend API key in SMTP_PASSWORD.
+	// Reuse it for HTTPS delivery when the configured SMTP host is Resend.
+	if resendKey == "" && strings.EqualFold(strings.TrimSpace(os.Getenv("SMTP_HOST")), "smtp.resend.com") &&
+		strings.EqualFold(strings.TrimSpace(os.Getenv("SMTP_USERNAME")), "resend") {
+		resendKey = strings.TrimSpace(os.Getenv("SMTP_PASSWORD"))
+	}
 	return &CredentialMailer{
 		host: strings.TrimSpace(os.Getenv("SMTP_HOST")), port: port,
 		username: strings.TrimSpace(os.Getenv("SMTP_USERNAME")), password: os.Getenv("SMTP_PASSWORD"),
+		resendAPIKey: resendKey, resendAPIURL: resendEmailsEndpoint, httpClient: &http.Client{Timeout: 12 * time.Second},
 		from: from, fromName: strings.TrimSpace(os.Getenv("SMTP_FROM_NAME")),
 		loginURL: strings.TrimRight(strings.TrimSpace(os.Getenv("APP_LOGIN_URL")), "/"),
 		passwordResetURL: strings.TrimSpace(os.Getenv("APP_PASSWORD_RESET_URL")),
@@ -62,7 +81,7 @@ func BuildPasswordResetURL(baseURL, token string) (string, error) {
 }
 
 func (m *CredentialMailer) SendPasswordReset(name, email, token string) error {
-	if m == nil || m.host == "" || m.from == "" || strings.TrimSpace(m.passwordResetURL) == "" {
+	if m == nil || m.from == "" || strings.TrimSpace(m.passwordResetURL) == "" {
 		return fmt.Errorf("password reset email is not configured")
 	}
 	if strings.TrimSpace(email) == "" || strings.TrimSpace(token) == "" {
@@ -73,7 +92,45 @@ func (m *CredentialMailer) SendPasswordReset(name, email, token string) error {
 	greeting := strings.TrimSpace(name)
 	if greeting == "" { greeting = "there" }
 	body := fmt.Sprintf("Hello %s,\n\nWe received a request to reset your Stonez Digital school portal password.\n\nUse the secure link below to choose a new password. This link expires in 15 minutes and can only be used once.\n\n%s\n\nIf you did not request this change, you can ignore this email. Your password will remain unchanged.\n\nStonez Digital", greeting, resetURL)
-	return m.send(email, "Reset your Stonez Digital school portal password", body)
+	subject := "Reset your Stonez Digital school portal password"
+
+	if m.resendAPIKey != "" {
+		return m.sendViaResend(email, subject, body)
+	}
+	if strings.EqualFold(m.host, "smtp.resend.com") {
+		return fmt.Errorf("Resend API key is missing; set RESEND_API_KEY or the existing SMTP_PASSWORD")
+	}
+	return m.send(email, subject, body)
+}
+
+func (m *CredentialMailer) sendViaResend(email, subject, body string) error {
+	if strings.ContainsAny(email, "\r\n") { return fmt.Errorf("invalid recipient email") }
+	payload := struct {
+		From string `json:"from"`
+		To []string `json:"to"`
+		Subject string `json:"subject"`
+		Text string `json:"text"`
+	}{From: m.from, To: []string{email}, Subject: subject, Text: body}
+	encoded, err := json.Marshal(payload)
+	if err != nil { return fmt.Errorf("encode Resend email: %w", err) }
+	endpoint := m.resendAPIURL
+	if endpoint == "" { endpoint = resendEmailsEndpoint }
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded))
+	if err != nil { return fmt.Errorf("create Resend request: %w", err) }
+	req.Header.Set("Authorization", "Bearer "+m.resendAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	client := m.httpClient
+	if client == nil { client = &http.Client{Timeout: 12*time.Second} }
+	resp, err := client.Do(req)
+	if err != nil { return fmt.Errorf("Resend API request failed: %w", err) }
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf("Resend API returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(detail)))
+	}
+	return nil
 }
 
 func (m *CredentialMailer) send(email, subject, body string) error {

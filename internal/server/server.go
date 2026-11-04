@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,6 +19,8 @@ const (
 	maxRequestBodyBytes = 1 << 20
 	authRateLimit       = 10
 	authRateWindow      = time.Minute
+	maxRateLimitEntries = 10000
+	cleanupEvery       = 64
 )
 
 type rateLimitEntry struct {
@@ -26,8 +29,10 @@ type rateLimitEntry struct {
 }
 
 type rateLimiter struct {
-	mu      sync.Mutex
-	entries map[string]rateLimitEntry
+	mu       sync.Mutex
+	entries  map[string]rateLimitEntry
+	overflow rateLimitEntry
+	requests uint64
 }
 
 func newRateLimiter() *rateLimiter {
@@ -35,11 +40,31 @@ func newRateLimiter() *rateLimiter {
 }
 
 func (l *rateLimiter) allow(key string, now time.Time) (bool, int) {
+	if key == "" {
+		key = "unknown"
+	}
+
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	l.requests++
+	if l.requests%cleanupEvery == 0 {
+		l.cleanupExpired(now)
+	}
+
 	entry, ok := l.entries[key]
-	if !ok || now.Sub(entry.windowStart) >= authRateWindow {
+	if !ok {
+		if len(l.entries) >= maxRateLimitEntries {
+			// Reclaim expired keys immediately before using the shared overflow bucket.
+			l.cleanupExpired(now)
+			if len(l.entries) >= maxRateLimitEntries {
+				return l.allowOverflow(now)
+			}
+		}
+		l.entries[key] = rateLimitEntry{count: 1, windowStart: now}
+		return true, authRateLimit - 1
+	}
+	if now.Sub(entry.windowStart) >= authRateWindow {
 		l.entries[key] = rateLimitEntry{count: 1, windowStart: now}
 		return true, authRateLimit - 1
 	}
@@ -49,6 +74,50 @@ func (l *rateLimiter) allow(key string, now time.Time) (bool, int) {
 	entry.count++
 	l.entries[key] = entry
 	return true, authRateLimit - entry.count
+}
+
+// clientIPFromRequest prefers Cloudflare's single-address visitor header.
+// Render routes public web-service ingress through Cloudflare; X-Forwarded-For
+// is intentionally not parsed because it can contain client-supplied entries.
+func clientIPFromRequest(remoteAddr, cfConnectingIP string) string {
+	if ip := net.ParseIP(strings.TrimSpace(cfConnectingIP)); ip != nil {
+		return ip.String()
+	}
+	if peer := parseIP(remoteAddr); peer != nil {
+		return peer.String()
+	}
+	return "unknown"
+}
+
+func parseIP(address string) net.IP {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(address))
+	if err == nil {
+		return net.ParseIP(host)
+	}
+	return net.ParseIP(strings.Trim(strings.TrimSpace(address), "[]"))
+}
+
+func (l *rateLimiter) cleanupExpired(now time.Time) {
+	for client, entry := range l.entries {
+		if now.Sub(entry.windowStart) >= authRateWindow {
+			delete(l.entries, client)
+		}
+	}
+	if !l.overflow.windowStart.IsZero() && now.Sub(l.overflow.windowStart) >= authRateWindow {
+		l.overflow = rateLimitEntry{}
+	}
+}
+
+func (l *rateLimiter) allowOverflow(now time.Time) (bool, int) {
+	if l.overflow.windowStart.IsZero() || now.Sub(l.overflow.windowStart) >= authRateWindow {
+		l.overflow = rateLimitEntry{count: 1, windowStart: now}
+		return true, authRateLimit - 1
+	}
+	if l.overflow.count >= authRateLimit {
+		return false, 0
+	}
+	l.overflow.count++
+	return true, authRateLimit - l.overflow.count
 }
 
 func ValidateEnvironment() error {
@@ -103,7 +172,8 @@ func Configure(r *gin.Engine) {
 		}
 
 		if strings.HasPrefix(c.Request.URL.Path, "/auth/") {
-			allowedRequest, remaining := limiter.allow(c.ClientIP(), time.Now())
+			key := clientIPFromRequest(c.Request.RemoteAddr, c.Request.Header.Get("CF-Connecting-IP"))
+			allowedRequest, remaining := limiter.allow(key, time.Now())
 			c.Header("X-RateLimit-Limit", fmt.Sprint(authRateLimit))
 			c.Header("X-RateLimit-Remaining", fmt.Sprint(remaining))
 			if !allowedRequest {

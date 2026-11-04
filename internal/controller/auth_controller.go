@@ -181,7 +181,6 @@ func (ac *AuthController) PublicSchool(c *gin.Context) {
 		c.JSON(http.StatusGone, gin.H{"error": "school account is currently inactive"}); return
 	}
 	logo := strings.TrimSpace(school.LogoURL)
-	if logo == "" { logo = "/stonez-digital-logo.svg" }
 	c.JSON(http.StatusOK, gin.H{"id": school.ID, "name": school.Name, "code": school.Code, "slug": school.Slug, "logo_url": logo})
 }
 

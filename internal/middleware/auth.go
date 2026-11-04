@@ -3,6 +3,7 @@ package middleware
 import (
     "net/http"
     "strings"
+    "time"
 
     "github.com/gin-gonic/gin"
     "github.com/onoja217/users-management-app/internal/auth"
@@ -32,6 +33,17 @@ func AuthMiddleware(db *gorm.DB) gin.HandlerFunc {
         }
 
         var user models.User
+        if claims.ID == "" {
+            c.JSON(http.StatusUnauthorized, gin.H{"error": "session is no longer valid"})
+            c.Abort()
+            return
+        }
+        var session models.Session
+        if err := db.Where("id = ? AND user_id = ? AND revoked = false AND expires_at > ?", claims.ID, claims.UserID, time.Now()).First(&session).Error; err != nil {
+            c.JSON(http.StatusUnauthorized, gin.H{"error": "session is no longer valid"})
+            c.Abort()
+            return
+        }
         if err := db.Select("id, active, role").First(&user, "id = ?", claims.UserID).Error; err != nil || !user.Active {
             c.JSON(http.StatusUnauthorized, gin.H{"error": "account inactive or unavailable"})
             c.Abort()

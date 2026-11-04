@@ -47,3 +47,23 @@ func TestCloudflareSchoolDomainProvisionerRejectsReservedAndForeignHosts(t *test
 		}
 	}
 }
+
+
+func TestCloudflareSchoolDomainProvisionerRejectsUnverifiedAttachment(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPut {
+			_, _ = w.Write([]byte("{\"success\":true}"))
+			return
+		}
+		_, _ = w.Write([]byte("{\"success\":true,\"result\":[{\"hostname\":\"bedrock-international.stonezdigital.com.ng\",\"service\":\"another-worker\",\"enabled\":true}]}"))
+	}))
+	defer server.Close()
+	provisioner := &CloudflareSchoolDomainProvisioner{
+		token:"test-token", accountID:"account-123", workerName:"stonez-school-management",
+		baseDomain:"stonezdigital.com.ng", apiBaseURL:server.URL, client:server.Client(),
+	}
+	if err := provisioner.Attach(context.Background(), "bedrock-international.stonezdigital.com.ng"); err == nil {
+		t.Fatal("expected attachment verification to reject a different Worker")
+	}
+}

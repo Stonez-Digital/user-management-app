@@ -10,15 +10,20 @@ import (
 
 func TestCloudflareSchoolDomainProvisionerAttachesExactHostname(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPut { t.Fatalf("expected PUT, got %s", r.Method) }
 		if r.URL.Path != "/accounts/account-123/workers/domains" { t.Fatalf("unexpected path %s", r.URL.Path) }
 		if r.Header.Get("Authorization") != "Bearer test-token" { t.Fatal("expected bearer token") }
-		var body map[string]string
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil { t.Fatal(err) }
-		if body["hostname"] != "bedrock-international.stonezdigital.com.ng" { t.Fatalf("unexpected hostname %q", body["hostname"]) }
-		if body["service"] != "stonez-school-management" { t.Fatalf("unexpected Worker %q", body["service"]) }
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte("{\"success\":true,\"errors\":[]}"))
+		if r.Method == http.MethodPut {
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil { t.Fatal(err) }
+			if body["hostname"] != "bedrock-international.stonezdigital.com.ng" { t.Fatalf("unexpected hostname %q", body["hostname"]) }
+			if body["service"] != "stonez-school-management" { t.Fatalf("unexpected Worker %q", body["service"]) }
+			_, _ = w.Write([]byte("{\"success\":true,\"errors\":[]}"))
+			return
+		}
+		if r.Method != http.MethodGet { t.Fatalf("expected GET verification, got %s", r.Method) }
+		if r.URL.Query().Get("hostname") != "bedrock-international.stonezdigital.com.ng" || r.URL.Query().Get("service") != "stonez-school-management" { t.Fatalf("unexpected verification query: %s", r.URL.RawQuery) }
+		_, _ = w.Write([]byte("{\"success\":true,\"result\":[{\"hostname\":\"bedrock-international.stonezdigital.com.ng\",\"service\":\"stonez-school-management\",\"enabled\":true}]}"))
 	}))
 	defer server.Close()
 

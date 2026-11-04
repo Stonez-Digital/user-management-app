@@ -136,6 +136,15 @@ func ValidateEnvironment() error {
 }
 
 func Configure(r *gin.Engine) {
+	configureWithClock(r, time.Now)
+}
+
+// configureWithClock keeps the production middleware on the real wall clock while
+// allowing deterministic, in-memory tests of the one-minute rate-limit window.
+func configureWithClock(r *gin.Engine, now func() time.Time) {
+	if now == nil {
+		now = time.Now
+	}
 	allowed := configuredOrigins()
 	limiter := newRateLimiter()
 
@@ -173,7 +182,7 @@ func Configure(r *gin.Engine) {
 
 		if strings.HasPrefix(c.Request.URL.Path, "/auth/") {
 			key := clientIPFromRequest(c.Request.RemoteAddr, c.Request.Header.Get("CF-Connecting-IP"))
-			allowedRequest, remaining := limiter.allow(key, time.Now())
+			allowedRequest, remaining := limiter.allow(key, now())
 			c.Header("X-RateLimit-Limit", fmt.Sprint(authRateLimit))
 			c.Header("X-RateLimit-Remaining", fmt.Sprint(remaining))
 			if !allowedRequest {

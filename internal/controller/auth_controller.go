@@ -153,20 +153,22 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
  if err:=c.ShouldBindJSON(&req);err!=nil{httpx.Validation(c,httpx.ValidationErrors(err));return}
  name:=strings.TrimSpace(req.SchoolName);code:=strings.ToUpper(strings.TrimSpace(req.SchoolCode));email:=strings.ToLower(strings.TrimSpace(req.AdminEmail))
  hash,err:=auth.HashPassword(req.AdminPassword);if err!=nil{httpx.Error(c,500,"password_hash_failed","failed to secure administrator password");return}
- school:=models.School{ID:uuid.New(),Name:name,Code:code,Slug:models.SchoolSlug(name,code),Status:models.SchoolStatusPending}
+ school:=models.School{ID:uuid.New(),Name:name,Code:code,Status:models.SchoolStatusPending}
  admin:=models.User{ID:uuid.New(),Name:strings.TrimSpace(req.AdminName),Email:email,PasswordHash:hash,Role:authz.RoleSchoolAdmin,Active:true}
  err=ac.DB.Transaction(func(tx *gorm.DB)error{
   var existing models.School
   if e:=tx.Where("lower(code) = ?",strings.ToLower(code)).First(&existing).Error;e==nil{return gorm.ErrDuplicatedKey}else if !errors.Is(e,gorm.ErrRecordNotFound){return e}
   var existingUser models.User
   if e:=tx.Where("lower(email) = ?",email).First(&existingUser).Error;e==nil{return gorm.ErrDuplicatedKey}else if !errors.Is(e,gorm.ErrRecordNotFound){return e}
+  slug,e:=uniqueSchoolSlug(tx,name,code,uuid.Nil);if e!=nil{return e};school.Slug=slug
   if e:=tx.Create(&school).Error;e!=nil{return e}
   admin.SchoolID=&school.ID
   return tx.Create(&admin).Error
  })
  if err!=nil{if errors.Is(err,gorm.ErrDuplicatedKey){httpx.Error(c,409,"school_or_email_exists","school code or administrator email already exists")}else{httpx.Error(c,500,"school_signup_failed","failed to submit school onboarding")};return}
  _=audit.Record(ac.DB,c,nil,"school.signup","school",&school.ID,map[string]interface{}{"code":school.Code,"admin_user_id":admin.ID})
- c.JSON(http.StatusCreated,gin.H{"message":"school onboarding submitted","status":school.Status,"school":gin.H{"id":school.ID,"name":school.Name,"code":school.Code},"administrator":gin.H{"name":admin.Name,"email":admin.Email}})
+ domain:=school.Slug+".stonezdigital.com.ng"
+ c.JSON(http.StatusCreated,gin.H{"message":"school onboarding submitted","status":school.Status,"school":gin.H{"id":school.ID,"name":school.Name,"code":school.Code,"slug":school.Slug,"domain":domain,"domain_status":"pending_approval"},"administrator":gin.H{"name":admin.Name,"email":admin.Email}})
 }
 
 func (ac *AuthController) PublicSchool(c *gin.Context) {

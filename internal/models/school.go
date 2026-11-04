@@ -3,7 +3,6 @@ package models
 import (
     "time"
     "strings"
-    "unicode"
     "github.com/google/uuid"
     "gorm.io/gorm"
 )
@@ -33,16 +32,15 @@ type School struct {
     Users []User `gorm:"foreignKey:SchoolID" json:"-"`
 }
 
-func SchoolSlug(name, code string) string {
+func SchoolSlug(name, _ string) string {
     var b strings.Builder
     lastDash := false
     for _, r := range strings.ToLower(strings.TrimSpace(name)) {
-        if unicode.IsLetter(r) || unicode.IsDigit(r) { b.WriteRune(r); lastDash = false; continue }
+        if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') { b.WriteRune(r); lastDash = false; continue }
         if !lastDash { b.WriteByte('-'); lastDash = true }
     }
     slug := strings.Trim(b.String(), "-")
     if slug == "" { slug = "school" }
-    if code = strings.Trim(strings.ToLower(code), "- "); code != "" { slug += "-" + code }
     return slug
 }
 

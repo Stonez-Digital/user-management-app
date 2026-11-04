@@ -15,7 +15,7 @@ export default function SchoolBrand(){
    .catch(()=>{});
  },[]);
  if(!me?.school_id)return null;
- const logo=me.school_logo_url||"";
+ const logo=me.school_logo_url||"https://raw.githubusercontent.com/Stonez-Digital/Stonez-Digital-Platform/main/public/School%20Management%20Platform%20Logo.png";
  return <div className="school-brand-bar" aria-label={me.school_name||"School"}>
   {logo ? <img src={logo} alt={`${me.school_name||"School"} logo`} className="school-brand-logo"/> : <div className="school-brand-placeholder" aria-hidden="true">{(me.school_name||"S").charAt(0).toUpperCase()}</div>}
   <div className="school-brand-copy"><strong>{me.school_name||"School"}</strong><span>School Management Portal</span></div>

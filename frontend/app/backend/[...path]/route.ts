@@ -39,6 +39,7 @@ async function proxyBackendRequest(request: Request, context: RouteContext): Pro
     responseHeaders.delete("connection");
     responseHeaders.delete("transfer-encoding");
     responseHeaders.delete("content-encoding");
+    responseHeaders.delete("content-length");
 
     return new Response(upstream.body, {
       status: upstream.status,

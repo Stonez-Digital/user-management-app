@@ -46,6 +46,20 @@ func TestPublicSchoolRejectsInactiveSchool(t *testing.T){
  if w.Code!=http.StatusGone{t.Fatalf("expected 410, got %d",w.Code)}
 }
 
+
+func TestPublicSchoolWithoutLogoReturnsEmptyLogoURL(t *testing.T) {
+ db:=brandedLoginDB(t)
+ school:=models.School{Name:"Kings College",Code:"KINGS",Slug:"kings-college",Status:models.SchoolStatusActive}
+ if err:=db.Create(&school).Error;err!=nil{t.Fatal(err)}
+ r:=gin.New();r.GET("/public/schools/:slug",NewAuthController(db).PublicSchool)
+ req:=httptest.NewRequest(http.MethodGet,"/public/schools/kings-college",nil);w:=httptest.NewRecorder();r.ServeHTTP(w,req)
+ if w.Code!=http.StatusOK{t.Fatalf("expected 200, got %d: %s",w.Code,w.Body.String())}
+ var body map[string]any
+ if err:=json.Unmarshal(w.Body.Bytes(),&body);err!=nil{t.Fatal(err)}
+ if body["logo_url"]!=""{t.Fatalf("expected empty logo URL for a school without branding, got %#v",body["logo_url"])}
+ if body["name"]!="Kings College"{t.Fatalf("school name missing from branding response: %#v",body)}
+}
+
 func TestSchoolLoginRejectsWrongTenantSlug(t *testing.T){
  db:=brandedLoginDB(t)
  if err:=auth.ConfigureSecret("test-secret-that-is-at-least-32-characters-long");err!=nil{t.Fatal(err)}

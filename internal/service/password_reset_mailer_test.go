@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -11,7 +12,11 @@ func TestBuildPasswordResetURLPreservesExistingQuery(t *testing.T) {
 	parsed, err := url.Parse(got)
 	if err != nil { t.Fatal(err) }
 	if parsed.Query().Get("source") != "email" { t.Fatal("existing query parameter was lost") }
-	if parsed.Query().Get("token") != "a+b/c" { t.Fatalf("token was not safely encoded: %q", parsed.Query().Get("token")) }
+	if parsed.Query().Get("token") != "" { t.Fatal("reset token must not be placed in the query string") }
+	if parsed.Fragment == "" || url.QueryUnescape(strings.TrimPrefix(parsed.Fragment, "token=")) == "" { t.Fatalf("token fragment was not encoded: %q", parsed.Fragment) }
+	fragment, err := url.ParseQuery(parsed.Fragment)
+	if err != nil { t.Fatal(err) }
+	if fragment.Get("token") != "a+b/c" { t.Fatalf("token was not safely encoded: %q", fragment.Get("token")) }
 }
 
 func TestBuildPasswordResetURLRejectsNonHTTPAndRelativeURLs(t *testing.T) {

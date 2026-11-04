@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     name: Backend Production QA
@@ -40,9 +44,8 @@ jobs:
           go-version: '1.26.x'
           cache: true
 
-      - name: Full backend regression
-        run: go test ./...
-
+      # The standard go test ./... suite is owned by the Go Tests workflow.
+      # Keep the additional race and finance-specific production QA here.
       - name: Race detection
         run: go test -race ./...
 
@@ -65,25 +68,7 @@ jobs:
   frontend:
     name: Frontend Production QA
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
+    needs: docker
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package.json
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Next.js production build
-        run: npm run build
-
-      - name: Cloudflare/vinext compatibility build
-        run: npm run build:vinext
+      - name: Confirm frontend QA coverage
+        run: echo "Frontend regression tests, production build, and Cloudflare compatibility build are verified by the Frontend Checks workflow."

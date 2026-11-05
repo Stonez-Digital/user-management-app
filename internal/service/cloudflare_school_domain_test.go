@@ -41,7 +41,7 @@ func TestCloudflareSchoolDomainProvisionerRejectsReservedAndForeignHosts(t *test
 		token:"test-token", accountID:"account-123", workerName:"stonez-school-management",
 		baseDomain:"stonezdigital.com.ng", apiBaseURL:"https://example.invalid", client:http.DefaultClient,
 	}
-	for _, host := range []string{"app.stonezdigital.com.ng", "www.stonezdigital.com.ng", "nested.school.stonezdigital.com.ng", "school.example.com"} {
+	for _, host := range []string{"app.stonezdigital.com.ng", "www.stonezdigital.com.ng", "api.stonezdigital.com.ng", "mail.stonezdigital.com.ng", "smtp.stonezdigital.com.ng", "ftp.stonezdigital.com.ng", "admin.stonezdigital.com.ng", "autodiscover.stonezdigital.com.ng", "nested.school.stonezdigital.com.ng", "school.example.com"} {
 		if err := provisioner.Attach(context.Background(), host); err == nil {
 			t.Fatalf("expected %q to be rejected", host)
 		}

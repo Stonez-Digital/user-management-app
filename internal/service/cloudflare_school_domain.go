@@ -52,7 +52,7 @@ func (p *CloudflareSchoolDomainProvisioner) Attach(ctx context.Context, hostname
 	}
 	label := strings.TrimSuffix(host, suffix)
 	if label == "" || strings.Contains(label, ".") || len(label) > 63 ||
-		!validCloudflareLabel(label) || label == "app" || label == "www" || label == "api" || label == "mail" {
+		!validCloudflareLabel(label) || reservedCloudflareSchoolLabels[label] {
 		return fmt.Errorf("invalid or reserved school hostname")
 	}
 
@@ -111,6 +111,13 @@ func (p *CloudflareSchoolDomainProvisioner) verifyAttached(ctx context.Context, 
 		if strings.EqualFold(host, hostname) && service == p.workerName && enabled { return nil }
 	}
 	return fmt.Errorf("Cloudflare did not confirm an enabled domain attachment to the configured Worker")
+}
+
+// Keep this list aligned with controller.reservedSchoolSlugs so a slug accepted
+// during school creation cannot later fail Cloudflare hostname validation.
+var reservedCloudflareSchoolLabels = map[string]bool{
+	"app": true, "api": true, "www": true, "mail": true, "smtp": true,
+	"ftp": true, "admin": true, "autodiscover": true,
 }
 
 func validCloudflareLabel(label string) bool {

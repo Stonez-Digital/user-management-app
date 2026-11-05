@@ -89,6 +89,8 @@ const (
 	SchoolEnquiryClosed = "closed"
 )
 
+const SchoolEnquiryPrivacyNoticeVersion = "2026-11-05-v1"
+
 type SchoolEnquiry struct {
 	ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
 	SchoolID uuid.UUID `gorm:"type:uuid;not null;index" json:"school_id"`
@@ -99,6 +101,7 @@ type SchoolEnquiry struct {
 	Message string `gorm:"size:2000;not null" json:"message"`
 	Status string `gorm:"size:20;not null;default:new;index" json:"status"`
 	ConsentAt time.Time `gorm:"not null" json:"consent_at"`
+	PrivacyNoticeVersion string `gorm:"size:40;not null;default:2026-11-05-v1" json:"privacy_notice_version"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

@@ -1,0 +1,77 @@
+name: Read-only School Domain Audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: read-only-school-domain-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    environment: production
+    name: Inventory PostgreSQL schools and Worker domains
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate required secrets
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          [[ -n "$SUPABASE_DB_URL" ]] || missing+=("SUPABASE_DB_URL")
+          [[ -n "$CLOUDFLARE_API_TOKEN" ]] || missing+=("CLOUDFLARE_API_TOKEN")
+          [[ -n "$CLOUDFLARE_ACCOUNT_ID" ]] || missing+=("CLOUDFLARE_ACCOUNT_ID")
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required Actions secrets (repository or production environment): %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: true
+
+      - name: Run read-only inventory
+        env:
+          DB_DRIVER: postgres
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_WORKER_NAME: stonez-school-management
+          SCHOOL_BASE_DOMAIN: stonezdigital.com.ng
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run ./cmd/school-domain-audit > school-domain-audit.json
+          jq -r '
+            "## Read-only school-domain audit",
+            "",
+            "- Generated: \(.generated_at)",
+            "- Database inventory: \(.school_count) schools (\(.active_school_count) active)",
+            "- Enabled Worker attachments: \(.ready_count)",
+            "- Active schools missing attachments: \(.missing_worker_attachments)",
+            "- Invalid legacy slugs: \(.invalid_slug_count)",
+            "",
+            "The full JSON inventory is attached as a workflow artifact. No repair or provisioning was performed."
+          ' school-domain-audit.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload JSON audit report
+        if: always() && hashFiles('school-domain-audit.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: school-domain-audit-${{ github.run_id }}
+          path: school-domain-audit.json
+          if-no-files-found: error
+          retention-days: 7

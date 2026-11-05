@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/onoja217/users-management-app/internal/audit"
 	"github.com/onoja217/users-management-app/internal/httpx"
 	"github.com/onoja217/users-management-app/internal/models"
 	"github.com/onoja217/users-management-app/internal/service"
@@ -144,6 +145,9 @@ func (ctrl *SchoolDomainReconciliationController) Reconcile(c *gin.Context) {
 		httpx.Error(c, http.StatusConflict, "school_slug_update_failed", "school slug was not updated; replacement attachment compensation was attempted")
 		return
 	}
+
+	actor, _ := uuid.Parse(c.GetString("user_id"))
+	_ = audit.Record(ctrl.DB, c, &actor, "school.domain.reconcile", "school", &school.ID, map[string]interface{}{"previous_slug": school.Slug, "slug": slug, "hostname": newHost})
 
 	cleanup := "not_required"
 	if oldAttachment == nil {

@@ -5,6 +5,7 @@ import (
     "net/http"
     "net/http/httptest"
     "strings"
+    "sync"
     "testing"
     "time"
 
@@ -246,4 +247,56 @@ func TestPendingSchoolCannotLoginUntilApproved(t *testing.T) {
     if err := db.Model(&school).Update("status", models.SchoolStatusActive).Error; err != nil { t.Fatal(err) }
     rec = authJSONRequest(t, NewAuthController(db), http.MethodPost, "/login", `{"email":"pending-admin@example.com","password":"password123","school_code":"PENDING"}`)
     if rec.Code != http.StatusOK { t.Fatalf("expected approved school login to succeed, got %d: %s", rec.Code, rec.Body.String()) }
+}
+
+
+func TestPasswordResetTokenClaimAllowsOnlyOneConcurrentConsumer(t *testing.T) {
+    db := authControllerTestDB(t)
+    sqlDB, err := db.DB()
+    if err != nil { t.Fatal(err) }
+    // A single SQLite connection serializes the competing UPDATE statements;
+    // the conditional predicate must still allow exactly one successful claim.
+    sqlDB.SetMaxOpenConns(1)
+
+    hash, err := auth.HashPassword("old-password123")
+    if err != nil { t.Fatal(err) }
+    user := models.User{Name: "Concurrent Reset", Email: "concurrent-reset-" + strings.ToLower(t.Name()) + "@example.com", PasswordHash: hash, Role: authz.RoleStudent, Active: true}
+    if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
+    reset := models.PasswordResetToken{
+        ID: uuid.New(), UserID: user.ID, TokenHash: auth.HashResetToken("one-time-concurrent-token"),
+        ExpiresAt: time.Now().Add(15 * time.Minute), Used: false,
+    }
+    if err := db.Create(&reset).Error; err != nil { t.Fatal(err) }
+
+    start := make(chan struct{})
+    results := make(chan int64, 2)
+    errs := make(chan error, 2)
+    var wg sync.WaitGroup
+    for i := 0; i < 2; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            <-start
+            claim := db.Model(&models.PasswordResetToken{}).
+                Where("id = ? AND used = false AND expires_at > ?", reset.ID, time.Now()).
+                Update("used", true)
+            if claim.Error != nil { errs <- claim.Error; return }
+            results <- claim.RowsAffected
+        }()
+    }
+    close(start)
+    wg.Wait()
+    close(results)
+    close(errs)
+    for err := range errs { t.Fatalf("token claim failed: %v", err) }
+    successes := 0
+    attempts := 0
+    for affected := range results {
+        attempts++
+        if affected == 1 { successes++ } else if affected != 0 {
+            t.Fatalf("unexpected rows affected by token claim: %d", affected)
+        }
+    }
+    if attempts != 2 { t.Fatalf("expected two competing claims, got %d", attempts) }
+    if successes != 1 { t.Fatalf("expected exactly one successful token claim, got %d", successes) }
 }

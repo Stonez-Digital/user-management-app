@@ -97,7 +97,7 @@ export default function SchoolHome() {
         body: JSON.stringify({ full_name: enquiryName, email: enquiryEmail, phone: enquiryPhone, subject: enquirySubject, message: enquiryMessage, consent: enquiryConsent, website: enquiryWebsite }),
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result?.error?.message || result?.message || "We couldn't submit your enquiry. Please try again.");
+      if (!response.ok) throw new Error(result?.error?.message || (typeof result?.error === "string" ? result.error : "") || result?.message || "We couldn't submit your enquiry. Please try again.");
       setEnquiryName(""); setEnquiryEmail(""); setEnquiryPhone(""); setEnquirySubject("Admissions"); setEnquiryMessage(""); setEnquiryConsent(false); setEnquiryWebsite("");
       setEnquiryFeedback(result?.message || "Thank you. Your enquiry has been received.");
     } catch (reason) {
@@ -210,7 +210,7 @@ export default function SchoolHome() {
       </div>
 
 
-        <section className="school-contact" id="contact">
+        <section className="school-contact school-wrap" id="contact">
           <div className="school-contact-copy">
             <p className="school-section-label">Talk to our school</p>
             <h2>How can we help you?</h2>
@@ -225,7 +225,7 @@ export default function SchoolHome() {
               <label>Phone number <span style={{fontWeight:500,color:"#8792a6"}}>(optional)</span><input type="tel" maxLength={40} autoComplete="tel" value={enquiryPhone} onChange={(event) => setEnquiryPhone(event.target.value)} placeholder="+234…" /></label>
               <label>Enquiry type<select value={enquirySubject} onChange={(event) => setEnquirySubject(event.target.value)}><option>Admissions</option><option>General</option><option>Fees</option><option>Visit</option><option>Other</option></select></label>
               <label className="school-contact-wide">Your message<textarea required minLength={10} maxLength={2000} value={enquiryMessage} onChange={(event) => setEnquiryMessage(event.target.value)} placeholder="How can the school help you?" /></label>
-              <label className="school-contact-consent school-contact-wide"><input required type="checkbox" checked={enquiryConsent} onChange={(event) => setEnquiryConsent(event.target.checked)} /><span>I agree that the school may use these details to respond to my enquiry. I have read the school's privacy notice or will request it from the school.</span></label>
+              <label className="school-contact-consent school-contact-wide"><input required type="checkbox" checked={enquiryConsent} onChange={(event) => setEnquiryConsent(event.target.checked)} /><span>I consent to the school using these details to respond to my enquiry. I understand this form is not an admission application. I can request the school's privacy notice.</span></label>
               <label className="school-honeypot" aria-hidden="true">Leave this field empty<input tabIndex={-1} autoComplete="off" value={enquiryWebsite} onChange={(event) => setEnquiryWebsite(event.target.value)} /></label>
               <div className="school-contact-wide"><button className="school-contact-submit" type="submit" disabled={enquiryBusy}>{enquiryBusy ? "Sending enquiry…" : "Send enquiry →"}</button></div>
             </div>

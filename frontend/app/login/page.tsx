@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { landingPathForRole, normalizeAuthUser } from "../lib/auth-session";
+import { landingPathForRole, normalizeAuthUser } from "../../lib/auth-session";
 
 async function readResponse(response: Response) {
  const text = await response.text();

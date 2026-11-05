@@ -738,6 +738,38 @@ func Migrate(db *gorm.DB) error {
             }
             return nil
         }},
+        {Version:41,Name:"school_enquiries",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()=="postgres" {
+                statements:=[]string{
+                    `CREATE TABLE IF NOT EXISTS school_enquiries (
+                        id uuid PRIMARY KEY,
+                        school_id uuid NOT NULL,
+                        full_name varchar(120) NOT NULL,
+                        email varchar(254) NOT NULL,
+                        phone varchar(40),
+                        subject varchar(80) NOT NULL,
+                        message varchar(2000) NOT NULL,
+                        status varchar(20) NOT NULL DEFAULT 'new',
+                        consent_at timestamptz NOT NULL,
+                        created_at timestamptz,
+                        updated_at timestamptz,
+                        CONSTRAINT school_enquiries_school_fk FOREIGN KEY (school_id) REFERENCES schools(id) ON UPDATE CASCADE ON DELETE RESTRICT
+                    )`,
+                    "CREATE INDEX IF NOT EXISTS idx_school_enquiries_school_created ON school_enquiries(school_id, created_at DESC)",
+                    "CREATE INDEX IF NOT EXISTS idx_school_enquiries_school_status ON school_enquiries(school_id, status)",
+                    "ALTER TABLE school_enquiries ENABLE ROW LEVEL SECURITY",
+                    "REVOKE ALL ON TABLE school_enquiries FROM public",
+                }
+                for _,q:=range statements {if err:=tx.Exec(q).Error;err!=nil{return err}}
+                for _,role:=range []string{"anon","authenticated"} {
+                    var exists bool
+                    if err:=tx.Raw("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)",role).Scan(&exists).Error;err!=nil{return err}
+                    if exists {if err:=tx.Exec("REVOKE ALL ON TABLE school_enquiries FROM "+role).Error;err!=nil{return err}}
+                }
+                return nil
+            }
+            return tx.AutoMigrate(&models.SchoolEnquiry{})
+        }},
     }
     for _,migration:=range migrations{
         var applied Migration

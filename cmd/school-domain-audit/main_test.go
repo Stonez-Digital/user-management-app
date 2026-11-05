@@ -43,6 +43,28 @@ func TestAuditAddsCodeSuffixWhenSuggestedSlugIsAlreadyReserved(t *testing.T) {
 	}
 }
 
+func TestSuggestedSlugsRemainUniqueAcrossMultipleInvalidSchools(t *testing.T) {
+	name := "Same Academy"
+	schools := []models.School{
+		{ID: uuid.New(), Name: name, Code: "SAME", Slug: "invalid slug one"},
+		{ID: uuid.New(), Name: name, Code: "SAME", Slug: "invalid slug two"},
+		{ID: uuid.New(), Name: name, Code: "SAME", Slug: "invalid slug three"},
+	}
+	reserved := map[string]bool{}
+	seen := map[string]bool{}
+	for _, school := range schools {
+		got := suggestedUniqueSlugWithReserved(school, schools, reserved)
+		if got == "" || seen[got] {
+			t.Fatalf("expected a unique safe proposal for school %s, got %q", school.ID, got)
+		}
+		if !validSchoolDNSLabel(got) {
+			t.Fatalf("proposal %q is not a valid DNS label", got)
+		}
+		seen[got] = true
+		reserved[got] = true
+	}
+}
+
 func TestAuditOnlyMarksEnabledAttachmentForConfiguredWorkerReady(t *testing.T) {
 	school := models.School{ID: uuid.New(), Name: "Bedrock International", Code: "BEDROCK", Slug: "bedrock-international", Status: models.SchoolStatusActive}
 	domains := []service.CloudflareWorkerDomain{

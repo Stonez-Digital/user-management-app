@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"net/http"
 	"regexp"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/onoja217/users-management-app/internal/audit"
+	"github.com/onoja217/users-management-app/internal/models"
 	"github.com/onoja217/users-management-app/internal/httpx"
 	"github.com/onoja217/users-management-app/internal/models"
 	"github.com/onoja217/users-management-app/internal/service"
@@ -80,6 +82,16 @@ func (ctrl *SchoolDomainReconciliationController) Reconcile(c *gin.Context) {
 			httpx.Error(c, http.StatusBadRequest, "invalid_previous_hostname", "previous_hostname must be one valid school hostname under the configured base domain")
 			return
 		}
+		var priorAudit models.AuditLog
+		if err := ctrl.DB.Where("action = ? AND resource = ? AND resource_id = ?", "school.domain.reconcile", "school", id).Order("created_at DESC").First(&priorAudit).Error; err != nil {
+			httpx.Error(c, http.StatusConflict, "previous_hostname_unverified", "previous_hostname is only accepted for a hostname recorded by an earlier reconciliation")
+			return
+		}
+		var priorMetadata map[string]interface{}
+		if err := json.Unmarshal([]byte(priorAudit.Metadata), &priorMetadata); err != nil || priorMetadata["slug"] != oldSlug || priorMetadata["previous_hostname"] != candidate {
+			httpx.Error(c, http.StatusConflict, "previous_hostname_unverified", "previous_hostname does not match this school's latest reconciliation record")
+			return
+		}
 		oldHost = candidate
 		if oldHost == newHost { httpx.Error(c, http.StatusBadRequest, "invalid_previous_hostname", "previous_hostname must differ from the replacement hostname"); return }
 	} else if reconciliationSlugPattern.MatchString(oldSlug) && !reconciliationReservedSlugs[oldSlug] && slug != oldSlug {
@@ -147,7 +159,7 @@ func (ctrl *SchoolDomainReconciliationController) Reconcile(c *gin.Context) {
 	}
 
 	actor, _ := uuid.Parse(c.GetString("user_id"))
-	_ = audit.Record(ctrl.DB, c, &actor, "school.domain.reconcile", "school", &school.ID, map[string]interface{}{"previous_slug": school.Slug, "slug": slug, "hostname": newHost})
+	_ = audit.Record(ctrl.DB, c, &actor, "school.domain.reconcile", "school", &school.ID, map[string]interface{}{"previous_slug": school.Slug, "slug": slug, "hostname": newHost, "previous_hostname": oldHost})
 
 	cleanup := "not_required"
 	if oldAttachment == nil {

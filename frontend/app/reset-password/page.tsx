@@ -59,7 +59,7 @@ export default function ResetPasswordPage() {
           {message && <div className="tenant-note" role="status"><strong>Password updated</strong><span>{message}</span></div>}
           <button disabled={loading || !token}>{loading ? "Updating password..." : "Reset password"}</button>
         </form>
-        <div className="auth-footer"><Link href="/forgot-password">Request another reset link</Link><span> · </span><Link href="/">Back to sign in</Link></div>
+        <div className="auth-footer"><Link href="/forgot-password">Request another reset link</Link><span> · </span><Link href="/login">Back to sign in</Link></div>
       </section>
     </main>
   );

@@ -32,7 +32,7 @@ func NewSchoolDomainReconciliationController(db *gorm.DB) *SchoolDomainReconcili
 
 type reconcileSchoolDomainRequest struct {
 	Slug string `json:"slug" binding:"required,min=1,max=63"`
-	PreviousHostname string `json:"previous_hostname"`
+	PreviousHostname string `json:"previous_hostname" binding:"omitempty,max=253"`
 	Confirm bool `json:"confirm"`
 }
 
@@ -140,25 +140,39 @@ func (ctrl *SchoolDomainReconciliationController) Reconcile(c *gin.Context) {
 			return
 		}
 	}
+	actor, _ := uuid.Parse(c.GetString("user_id"))
 	var updateErr error
-	if slug != oldSlug {
-		result := ctrl.DB.Model(&models.School{}).
-			Where("id = ? AND (slug = ? OR (slug IS NULL AND ? IS NULL))", id, school.Slug, school.Slug).
-			Update("slug", slug)
-		if result.Error != nil || result.RowsAffected != 1 { updateErr = result.Error; if updateErr == nil { updateErr = gorm.ErrRecordNotFound } }
-	}
+	updateErr = ctrl.DB.Transaction(func(tx *gorm.DB) error {
+		if slug != oldSlug {
+			result := tx.Model(&models.School{}).
+				Where("id = ? AND (slug = ? OR (slug IS NULL AND ? IS NULL))", id, school.Slug, school.Slug).
+				Update("slug", slug)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return gorm.ErrRecordNotFound
+			}
+		}
+		// The slug change and its recovery/audit record must commit together.
+		// Otherwise a failed audit insert could make old-host cleanup impossible
+		// to authorize and retry after the response is lost.
+		return audit.Record(tx, c, &actor, "school.domain.reconcile", "school", &school.ID, map[string]interface{}{
+			"previous_slug": school.Slug,
+			"slug": slug,
+			"hostname": newHost,
+			"previous_hostname": oldHost,
+		})
+	})
 	if updateErr != nil {
 		if attachedByThisRequest {
 			if current, lookupErr := ctrl.Provisioner.LookupAttachment(c.Request.Context(), newHost); lookupErr == nil && current != nil && current.Service == ctrl.Provisioner.WorkerName() {
 				_ = ctrl.Provisioner.DetachAttachment(c.Request.Context(), *current)
 			}
 		}
-		httpx.Error(c, http.StatusConflict, "school_slug_update_failed", "school slug was not updated; replacement attachment compensation was attempted")
+		httpx.Error(c, http.StatusConflict, "school_domain_reconciliation_commit_failed", "school slug and audit record were not committed; replacement attachment compensation was attempted")
 		return
 	}
-
-	actor, _ := uuid.Parse(c.GetString("user_id"))
-	_ = audit.Record(ctrl.DB, c, &actor, "school.domain.reconcile", "school", &school.ID, map[string]interface{}{"previous_slug": school.Slug, "slug": slug, "hostname": newHost, "previous_hostname": oldHost})
 
 	cleanup := "not_required"
 	if oldAttachment == nil {

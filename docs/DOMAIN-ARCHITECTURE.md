@@ -31,3 +31,24 @@ Configure the Render API service with `CLOUDFLARE_API_TOKEN` (a narrowly scoped 
 3. Configure the Cloudflare API credentials on the backend service and verify `app.stonezdigital.com.ng` login and school signup.
 4. Approve one pilot school through the platform UI; confirm its exact hostname is attached automatically, then verify public pages and branded login.
 5. Confirm the apex and `www` still resolve to the Stonez Digital portfolio before onboarding additional schools.
+
+## Read-only production reconciliation audit
+
+Before repairing legacy school slugs or attaching missing school hostnames, run the read-only inventory tool against the intended production database and Cloudflare account:
+
+```bash
+DB_DRIVER=postgres \
+DATABASE_URL="$DATABASE_URL" \
+CLOUDFLARE_API_TOKEN="$CLOUDFLARE_API_TOKEN" \
+CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID" \
+CLOUDFLARE_WORKER_NAME=stonez-school-management \
+SCHOOL_BASE_DOMAIN=stonezdigital.com.ng \
+go run ./cmd/school-domain-audit
+```
+
+The command requires PostgreSQL explicitly and refuses SQLite. It reads school IDs, names, codes, slugs and statuses, then lists custom domains attached to the configured Worker. It prints a JSON report containing invalid legacy slugs, collision-aware proposed replacements, active schools with missing Worker attachments, and attachments that are enabled for the expected Worker.
+
+**This command is strictly read-only.** It does not update school rows, call the Cloudflare attachment endpoint, create DNS records, activate schools, or modify Worker configuration. It accepts no apply flag. Review the generated report and approve a separate, narrowly scoped repair before changing any production slug or attaching any missing hostname. Do not infer that an active school is ready for public traffic merely because its Worker attachment exists; validate DNS/TLS, school routing, branded login, and tenant isolation independently.
+
+The slug proposal uses the school's normalized name first and adds a normalized school-code suffix only when the name slug is already reserved or occupied. Existing canonical slugs are not rewritten automatically.
+

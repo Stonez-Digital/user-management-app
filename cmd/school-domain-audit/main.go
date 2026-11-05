@@ -88,6 +88,17 @@ func buildAuditReport(schools []models.School, domains []service.CloudflareWorke
 		}
 	}
 
+	// Reserve all currently valid slugs first, then reserve each generated
+	// proposal as it is produced. This prevents two invalid schools from being
+	// assigned the same suggested hostname when their normalized names/codes
+	// collide.
+	reservedProposals := make(map[string]bool, len(schools))
+	for _, school := range schools {
+		if validSchoolDNSLabel(school.Slug) {
+			reservedProposals[strings.ToLower(school.Slug)] = true
+		}
+	}
+
 	for _, school := range schools {
 		entry := schoolAuditEntry{
 			SchoolID: school.ID.String(), SchoolName: school.Name, Status: school.Status,
@@ -96,7 +107,10 @@ func buildAuditReport(schools []models.School, domains []service.CloudflareWorke
 		}
 		if !entry.SlugValid {
 			report.InvalidSlugCount++
-			entry.SuggestedSlug = suggestedUniqueSlug(school, schools)
+			entry.SuggestedSlug = suggestedUniqueSlugWithReserved(school, schools, reservedProposals)
+			if entry.SuggestedSlug != "" {
+				reservedProposals[entry.SuggestedSlug] = true
+			}
 			entry.Action = "review_slug_repair_before_domain_attachment"
 		}
 		if school.Status == models.SchoolStatusActive {
@@ -127,9 +141,13 @@ func buildAuditReport(schools []models.School, domains []service.CloudflareWorke
 }
 
 func suggestedUniqueSlug(school models.School, schools []models.School) string {
+	return suggestedUniqueSlugWithReserved(school, schools, nil)
+}
+
+func suggestedUniqueSlugWithReserved(school models.School, schools []models.School, reserved map[string]bool) string {
 	base := trimDNSLabel(models.SchoolSlug(school.Name, ""))
 	candidate := base
-	if reservedSchoolHosts[candidate] || slugTaken(candidate, school.ID, schools) {
+	if slugUnavailable(candidate, school.ID, schools, reserved) {
 		suffix := models.SchoolSlug(school.Code, "")
 		if suffix == "school" {
 			suffix = strings.ReplaceAll(school.ID.String()[:8], "-", "")
@@ -137,21 +155,38 @@ func suggestedUniqueSlug(school models.School, schools []models.School) string {
 		if len(suffix) > 24 {
 			suffix = suffix[:24]
 		}
-		maxBase := 63 - len(suffix) - 1
-		if maxBase < 1 {
-			return ""
+		candidate = appendDNSLabelSuffix(base, suffix)
+	}
+	if candidate == "" || slugUnavailable(candidate, school.ID, schools, reserved) {
+		suffix := strings.ReplaceAll(school.ID.String(), "-", "")
+		if len(suffix) > 12 {
+			suffix = suffix[:12]
 		}
-		candidate = strings.Trim(trimDNSLabel(base[:min(len(base), maxBase)]), "-") + "-" + suffix
+		candidate = appendDNSLabelSuffix(base, suffix)
 	}
-	if reservedSchoolHosts[candidate] || slugTaken(candidate, school.ID, schools) {
-		suffix := strings.ReplaceAll(school.ID.String()[:8], "-", "")
-		maxBase := 63 - len(suffix) - 1
-		candidate = strings.Trim(trimDNSLabel(base[:min(len(base), maxBase)]), "-") + "-" + suffix
-	}
-	if !validSchoolDNSLabel(candidate) || reservedSchoolHosts[candidate] || slugTaken(candidate, school.ID, schools) {
+	if candidate == "" || !validSchoolDNSLabel(candidate) || slugUnavailable(candidate, school.ID, schools, reserved) {
 		return ""
 	}
 	return candidate
+}
+
+func appendDNSLabelSuffix(base, suffix string) string {
+	if suffix == "" {
+		return ""
+	}
+	maxBase := 63 - len(suffix) - 1
+	if maxBase < 1 {
+		return ""
+	}
+	prefix := strings.Trim(trimDNSLabel(base[:min(len(base), maxBase)]), "-")
+	if prefix == "" {
+		return ""
+	}
+	return prefix + "-" + suffix
+}
+
+func slugUnavailable(candidate string, schoolID interface{ String() string }, schools []models.School, reserved map[string]bool) bool {
+	return reservedSchoolHosts[candidate] || reserved[strings.ToLower(candidate)] || slugTaken(candidate, schoolID, schools)
 }
 
 func slugTaken(candidate string, schoolID interface{ String() string }, schools []models.School) bool {

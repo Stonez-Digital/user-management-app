@@ -31,6 +31,7 @@ func NewSchoolDomainReconciliationController(db *gorm.DB) *SchoolDomainReconcili
 
 type reconcileSchoolDomainRequest struct {
 	Slug string `json:"slug" binding:"required,min=1,max=63"`
+	PreviousHostname string `json:"previous_hostname"`
 	Confirm bool `json:"confirm"`
 }
 
@@ -71,10 +72,19 @@ func (ctrl *SchoolDomainReconciliationController) Reconcile(c *gin.Context) {
 	newHost := slug + "." + baseDomain
 	oldHost := ""
 	oldSlug := strings.ToLower(strings.TrimSpace(school.Slug))
-	if reconciliationSlugPattern.MatchString(oldSlug) && !reconciliationReservedSlugs[oldSlug] {
+	if strings.TrimSpace(req.PreviousHostname) != "" {
+		candidate := strings.ToLower(strings.TrimSpace(req.PreviousHostname))
+		suffix := "." + baseDomain
+		label := strings.TrimSuffix(candidate, suffix)
+		if !strings.HasSuffix(candidate, suffix) || strings.Contains(label, ".") || !reconciliationSlugPattern.MatchString(label) {
+			httpx.Error(c, http.StatusBadRequest, "invalid_previous_hostname", "previous_hostname must be one valid school hostname under the configured base domain")
+			return
+		}
+		oldHost = candidate
+	} else if reconciliationSlugPattern.MatchString(oldSlug) && !reconciliationReservedSlugs[oldSlug] && slug != oldSlug {
 		oldHost = oldSlug + "." + baseDomain
 	}
-	if slug == oldSlug {
+	if slug == oldSlug && oldHost == "" {
 		c.JSON(http.StatusOK, gin.H{"mode":"preview", "school_id":school.ID, "current_slug":school.Slug, "requested_slug":slug, "new_hostname":newHost, "old_hostname":oldHost, "changes_required":false})
 		return
 	}
@@ -118,10 +128,14 @@ func (ctrl *SchoolDomainReconciliationController) Reconcile(c *gin.Context) {
 			return
 		}
 	}
-	result := ctrl.DB.Model(&models.School{}).
-		Where("id = ? AND slug IS NOT DISTINCT FROM ?", id, school.Slug).
-		Update("slug", slug)
-	if result.Error != nil || result.RowsAffected != 1 {
+	var updateErr error
+	if slug != oldSlug {
+		result := ctrl.DB.Model(&models.School{}).
+			Where("id = ? AND (slug = ? OR (slug IS NULL AND ? IS NULL))", id, school.Slug, school.Slug).
+			Update("slug", slug)
+		if result.Error != nil || result.RowsAffected != 1 { updateErr = result.Error; if updateErr == nil { updateErr = gorm.ErrRecordNotFound } }
+	}
+	if updateErr != nil {
 		if attachedByThisRequest {
 			if current, lookupErr := ctrl.Provisioner.LookupAttachment(c.Request.Context(), newHost); lookupErr == nil && current != nil && current.Service == configuredWorkerName() {
 				_ = ctrl.Provisioner.DetachAttachment(c.Request.Context(), *current)

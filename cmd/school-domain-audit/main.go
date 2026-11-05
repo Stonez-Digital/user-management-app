@@ -175,7 +175,7 @@ func trimDNSLabel(value string) string {
 }
 
 func validSchoolDNSLabel(value string) bool {
-	if len(value) == 0 || len(value) > 63 || value[0] == '-' || value[len(value)-1] == '-' || reservedSchoolHosts[value] {
+	if len(value) == 0 || len(value) > 63 || value != strings.ToLower(value) || value[0] == '-' || value[len(value)-1] == '-' || reservedSchoolHosts[value] {
 		return false
 	}
 	for _, r := range value {

@@ -64,7 +64,7 @@ export default function CurriculumPage() {
     } catch (e) {
       const text = e instanceof Error ? e.message : "Unable to load curriculum";
       setError(text);
-      if (text === "Session expired") router.push("/");
+      if (text === "Session expired") router.push("/login");
     }
   }
 

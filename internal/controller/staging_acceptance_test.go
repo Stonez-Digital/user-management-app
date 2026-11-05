@@ -6,13 +6,11 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/onoja217/users-management-app/internal/auth"
 	"github.com/onoja217/users-management-app/internal/authz"
-	"github.com/onoja217/users-management-app/internal/middleware"
 	"github.com/onoja217/users-management-app/internal/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
@@ -209,6 +207,5 @@ func TestIsolatedStagingAcceptanceOnboardingRecoveryAndTenantIsolation(t *testin
 		t.Fatalf("new password should authenticate after reset, got %d: %s", newPassword.Code, newPassword.Body.String())
 	}
 
-	// Keep the test database self-contained; no production API, credentials or mail service used.
-	_ = time.Now()
+	// The disposable database is closed by stagingAcceptanceDB cleanup.
 }

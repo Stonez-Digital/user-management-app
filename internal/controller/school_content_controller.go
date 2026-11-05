@@ -3,6 +3,8 @@ package controller
 import (
  "errors"
  "fmt"
+ "net/mail"
+ "strconv"
  "strings"
  "time"
  "github.com/gin-gonic/gin"
@@ -54,3 +56,139 @@ func(ctrl *SchoolContentController)PublicAlbums(c *gin.Context){slug:=strings.Tr
 func(ctrl *SchoolContentController)PublicAlbum(c *gin.Context){slug:=strings.TrimSpace(c.Param("slug"));var school models.School;if e:=ctrl.db.Where("lower(slug)=lower(?)",slug).First(&school).Error;e!=nil{httpx.Error(c,404,"school_not_found","school not found");return};a,imgs,e:=ctrl.content.PublicAlbum(school.ID,c.Param("album"));if e!=nil{contentError(c,e);return};type publicImage struct{ID uuid.UUID `json:"id"`;ImageURL string `json:"image_url"`;Caption string `json:"caption"`;AltText string `json:"alt_text"`;DisplayOrder int `json:"display_order"`};out:=make([]publicImage,0,len(imgs));for _,i:=range imgs{out=append(out,publicImage{ID:i.ID,ImageURL:i.ImageURL,Caption:i.Caption,AltText:i.AltText,DisplayOrder:i.DisplayOrder})};c.JSON(200,gin.H{"album":gin.H{"id":a.ID,"title":a.Title,"slug":a.Slug,"description":a.Description,"cover_image_url":a.CoverImageURL},"images":out})}
 
 func(ctrl *SchoolContentController)UploadBlogImage(c *gin.Context){id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};if ctrl.storage==nil{httpx.Error(c,503,"media_storage_unavailable","media storage is not configured");return};pid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_post_id","invalid post id");return};var p models.BlogPost;if e=ctrl.db.Where("school_id=? AND id=?",id,pid).First(&p).Error;e!=nil{contentError(c,service.ErrContentNotFound);return};f,h,e:=c.Request.FormFile("image");if e!=nil{httpx.Error(c,400,"image_required","image file is required");return};defer f.Close();ct:=h.Header.Get("Content-Type");if ct==""{ct="application/octet-stream"};url,e:=ctrl.storage.Upload(id,"blog/"+pid.String(),h.Filename,ct,f,h.Size);if e!=nil{httpx.Error(c,400,"image_upload_failed",fmt.Sprintf("%v",e));return};p,e=ctrl.content.UpdateBlog(id,pid,map[string]interface{}{"featured_image_url":url});if e!=nil{contentError(c,e);return};c.JSON(200,p)}
+
+
+type publicSchoolEnquiryRequest struct {
+	FullName string `json:"full_name" binding:"required,min=2,max=120"`
+	Email string `json:"email" binding:"required,max=254"`
+	Phone string `json:"phone" binding:"omitempty,max=40"`
+	Subject string `json:"subject" binding:"required,oneof=Admissions General Fees Visit Other"`
+	Message string `json:"message" binding:"required,min=10,max=2000"`
+	Consent bool `json:"consent" binding:"required"`
+	Website string `json:"website"`
+}
+
+// CreatePublicEnquiry accepts only contact details and a message; it never creates
+// student, guardian, or user records. The honeypot returns the same response as a
+// successful submission without persisting automated submissions.
+func (ctrl *SchoolContentController) CreatePublicEnquiry(c *gin.Context) {
+	slug := strings.TrimSpace(c.Param("slug"))
+	var school models.School
+	if err := ctrl.db.Where("lower(slug)=lower(?)", slug).First(&school).Error; err != nil {
+		httpx.Error(c, 404, "school_not_found", "school not found")
+		return
+	}
+	if school.Status != models.SchoolStatusActive {
+		httpx.Error(c, 410, "school_inactive", "school account is currently inactive")
+		return
+	}
+	var request publicSchoolEnquiryRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		httpx.Validation(c, httpx.ValidationErrors(err))
+		return
+	}
+	if strings.TrimSpace(request.Website) != "" {
+		c.JSON(202, gin.H{"submitted": true, "message": "Thank you. Your enquiry has been received."})
+		return
+	}
+	address, err := mail.ParseAddress(strings.TrimSpace(request.Email))
+	if err != nil || !strings.EqualFold(address.Address, strings.TrimSpace(request.Email)) {
+		httpx.Error(c, 400, "invalid_email", "enter a valid email address")
+		return
+	}
+	if !request.Consent {
+		httpx.Error(c, 400, "privacy_consent_required", "please agree to the privacy notice before submitting")
+		return
+	}
+	enquiry := &models.SchoolEnquiry{
+		FullName: request.FullName,
+		Email: request.Email,
+		Phone: request.Phone,
+		Subject: request.Subject,
+		Message: request.Message,
+		ConsentAt: time.Now().UTC(),
+	}
+	if err := service.NewSchoolEnquiryService(ctrl.db).Create(school.ID, enquiry); err != nil {
+		httpx.Error(c, 400, "enquiry_invalid", "please review the enquiry details and try again")
+		return
+	}
+	c.JSON(202, gin.H{"submitted": true, "message": "Thank you. Your enquiry has been received."})
+}
+
+func (ctrl *SchoolContentController) ListEnquiries(c *gin.Context) {
+	schoolID, ok := contentSchoolID(c)
+	if !ok {
+		httpx.Error(c, 403, "school_context_required", "school context required")
+		return
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if limit < 1 || limit > 100 { limit = 50 }
+	if offset < 0 { offset = 0 }
+	items, total, err := service.NewSchoolEnquiryService(ctrl.db).List(schoolID, limit, offset)
+	if err != nil {
+		httpx.Error(c, 500, "enquiry_read_failed", "failed to load school enquiries")
+		return
+	}
+	c.JSON(200, gin.H{"enquiries": items, "total": total, "limit": limit, "offset": offset})
+}
+
+func (ctrl *SchoolContentController) UpdateEnquiryStatus(c *gin.Context) {
+	schoolID, ok := contentSchoolID(c)
+	if !ok {
+		httpx.Error(c, 403, "school_context_required", "school context required")
+		return
+	}
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		httpx.Error(c, 400, "invalid_enquiry_id", "invalid enquiry id")
+		return
+	}
+	var request struct {
+		Status string `json:"status" binding:"required,oneof=new in_progress responded closed"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		httpx.Validation(c, httpx.ValidationErrors(err))
+		return
+	}
+	item, err := service.NewSchoolEnquiryService(ctrl.db).UpdateStatus(schoolID, id, request.Status)
+	switch {
+	case errors.Is(err, service.ErrSchoolEnquiryNotFound):
+		httpx.Error(c, 404, "enquiry_not_found", "enquiry not found")
+	case errors.Is(err, service.ErrSchoolEnquiryInvalidStatus):
+		httpx.Error(c, 400, "enquiry_invalid_status", "invalid enquiry status")
+	case err != nil:
+		httpx.Error(c, 500, "enquiry_update_failed", "failed to update enquiry")
+	default:
+		c.JSON(200, item)
+	}
+}
+
+
+func (ctrl *SchoolContentController) DeleteEnquiry(c *gin.Context) {
+	schoolID, ok := contentSchoolID(c)
+	if !ok {
+		httpx.Error(c, 403, "school_context_required", "school context required")
+		return
+	}
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		httpx.Error(c, 400, "invalid_enquiry_id", "invalid enquiry id")
+		return
+	}
+	actor := actorID(c)
+	err = ctrl.db.Transaction(func(tx *gorm.DB) error {
+		if err := audit.Record(tx, c, &actor, "school.enquiry.delete", "school_enquiry", &id, map[string]interface{}{"school_id": schoolID.String()}); err != nil {
+			return err
+		}
+		return service.NewSchoolEnquiryService(tx).Delete(schoolID, id)
+	})
+	switch {
+	case errors.Is(err, service.ErrSchoolEnquiryNotFound):
+		httpx.Error(c, 404, "enquiry_not_found", "enquiry not found")
+	case err != nil:
+		httpx.Error(c, 500, "enquiry_delete_failed", "failed to delete enquiry")
+	default:
+		c.JSON(200, gin.H{"deleted": true})
+	}
+}

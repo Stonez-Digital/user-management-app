@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 
@@ -43,6 +44,9 @@ const styles = `
 .school-loading,.school-error{min-height:65vh;display:grid;place-items:center;padding:24px}.school-loading-card,.school-error-card{background:white;border:1px solid var(--line);border-radius:18px;padding:25px;max-width:460px;width:100%;text-align:center;box-shadow:0 12px 35px #172b4d0b}.school-loading-card p,.school-error-card p{color:var(--muted);font-size:13px;line-height:1.6}.school-retry{border:0;border-radius:999px;background:var(--blue);color:white;padding:12px 20px;font-weight:800;cursor:pointer}
 @media(max-width:820px){.school-feature-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.school-hero-inner{min-height:430px;padding:76px 0}.school-advert-copy{padding:28px}}
 @media(max-width:620px){.school-wrap{width:min(100% - 32px,1160px)}.school-header{height:72px}.school-logo,.school-logo-fallback{width:41px;height:41px}.school-name{font-size:14px}.school-menu{display:block}.school-nav{display:none;position:absolute;top:71px;left:0;right:0;padding:15px 20px 20px;background:white;border-bottom:1px solid var(--line);box-shadow:0 14px 20px #14213d12;align-items:stretch;gap:0;flex-direction:column}.school-nav.is-open{display:flex}.school-nav a{padding:13px 8px}.school-nav .school-login{text-align:center;margin-top:8px}.school-hero-inner{min-height:440px;padding:68px 0}.school-hero h1{font-size:clamp(40px,12vw,58px)}.school-hero p{font-size:15px}.school-main{padding:48px 0 58px}.school-section{margin-top:48px}.school-section-head{align-items:flex-start}.school-feature-grid{grid-template-columns:1fr}.school-card-image,.school-card-placeholder{height:205px}.school-advert{grid-template-columns:1fr}.school-advert img{min-height:190px;height:210px}.school-advert-copy{padding:25px}.school-community-cta{padding:27px 23px;align-items:flex-start;flex-direction:column;margin-top:55px}.school-footer-inner{align-items:flex-start;flex-direction:column}.school-footer span{line-height:1.6}}
+
+.school-contact{margin-top:68px;display:grid;grid-template-columns:.85fr 1.15fr;gap:35px;align-items:start}.school-contact-copy{padding:14px 0}.school-contact-copy h2{font-size:clamp(27px,3vw,38px);line-height:1.12;letter-spacing:-.05em;margin:0 0 13px}.school-contact-copy p{font-size:13px;line-height:1.85;color:var(--muted);margin:0}.school-contact-card{background:white;border:1px solid var(--line);border-radius:21px;padding:27px;box-shadow:0 12px 32px #172b4d0a}.school-contact-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}.school-contact-card label{display:flex;flex-direction:column;gap:7px;font-size:11px;font-weight:800;color:#43516a}.school-contact-card input,.school-contact-card select,.school-contact-card textarea{width:100%;border:1px solid #dce3ef;border-radius:10px;background:#fbfcfe;padding:12px 13px;font:inherit;font-size:13px;color:var(--ink);outline:none}.school-contact-card input:focus,.school-contact-card select:focus,.school-contact-card textarea:focus{border-color:#5578c3;box-shadow:0 0 0 3px #5578c31c}.school-contact-card textarea{resize:vertical;min-height:125px}.school-contact-wide{grid-column:1/-1}.school-contact-consent{display:flex!important;flex-direction:row!important;align-items:flex-start;gap:10px!important;font-weight:550!important;line-height:1.6}.school-contact-consent input{width:16px;height:16px;margin-top:2px;flex:0 0 auto}.school-contact-submit{border:0;cursor:pointer;background:var(--blue);color:white;border-radius:999px;min-height:47px;padding:0 21px;font-size:12px;font-weight:850}.school-contact-submit:disabled{opacity:.6;cursor:wait}.school-contact-feedback{font-size:12px;line-height:1.6;margin:0 0 15px;padding:11px 13px;border-radius:10px;background:#eef8f3;color:#176044}.school-contact-error{background:#fff1f0;color:#a52a25}.school-honeypot{position:absolute!important;left:-10000px!important;width:1px!important;height:1px!important;overflow:hidden!important}
+@media(max-width:720px){.school-contact{grid-template-columns:1fr;gap:20px;margin-top:54px}.school-contact-grid{grid-template-columns:1fr}.school-contact-card{padding:21px}.school-contact-wide{grid-column:auto}}
 @media(prefers-reduced-motion:reduce){.school-site *{scroll-behavior:auto!important;transition:none!important}}
 `;
 
@@ -52,6 +56,16 @@ export default function SchoolHome() {
   const [error, setError] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [enquiryName, setEnquiryName] = useState("");
+  const [enquiryEmail, setEnquiryEmail] = useState("");
+  const [enquiryPhone, setEnquiryPhone] = useState("");
+  const [enquirySubject, setEnquirySubject] = useState("Admissions");
+  const [enquiryMessage, setEnquiryMessage] = useState("");
+  const [enquiryConsent, setEnquiryConsent] = useState(false);
+  const [enquiryWebsite, setEnquiryWebsite] = useState("");
+  const [enquiryBusy, setEnquiryBusy] = useState(false);
+  const [enquiryFeedback, setEnquiryFeedback] = useState("");
+  const [enquiryError, setEnquiryError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -69,6 +83,27 @@ export default function SchoolHome() {
       });
     return () => { active = false; };
   }, [slug, attempt]);
+
+
+  async function submitEnquiry(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setEnquiryBusy(true);
+    setEnquiryFeedback("");
+    setEnquiryError("");
+    try {
+      const response = await fetch("/backend/public/schools/" + encodeURIComponent(String(slug)) + "/enquiries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ full_name: enquiryName, email: enquiryEmail, phone: enquiryPhone, subject: enquirySubject, message: enquiryMessage, consent: enquiryConsent, website: enquiryWebsite }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result?.error?.message || (typeof result?.error === "string" ? result.error : "") || result?.message || "We couldn't submit your enquiry. Please try again.");
+      setEnquiryName(""); setEnquiryEmail(""); setEnquiryPhone(""); setEnquirySubject("Admissions"); setEnquiryMessage(""); setEnquiryConsent(false); setEnquiryWebsite("");
+      setEnquiryFeedback(result?.message || "Thank you. Your enquiry has been received.");
+    } catch (reason) {
+      setEnquiryError(reason instanceof Error ? reason.message : "We couldn't submit your enquiry. Please try again.");
+    } finally { setEnquiryBusy(false); }
+  }
 
   const school = data?.school;
   const posts = data?.featured_blog ?? [];
@@ -173,6 +208,41 @@ export default function SchoolHome() {
           <Link className="school-button school-button-primary" href={homePath + "/login"}>Open school portal <span aria-hidden="true">↗</span></Link>
         </section>
       </div>
+
+
+        <section className="school-contact school-wrap" id="contact">
+          <div className="school-contact-copy">
+            <p className="school-section-label">Talk to our school</p>
+            <h2>How can we help you?</h2>
+            <p>Send a message to the school about admissions, fees, visits or general questions. The school team can follow up using the contact details you provide. Please do not include sensitive student records or confidential information in this form.</p>
+          </div>
+          <form className="school-contact-card" onSubmit={submitEnquiry}>
+            {enquiryFeedback && <p className="school-contact-feedback" role="status">{enquiryFeedback}</p>}
+            {enquiryError && <p className="school-contact-feedback school-contact-error" role="alert">{enquiryError}</p>}
+            <div className="school-contact-grid">
+              <label>Full name<input required minLength={2} maxLength={120} autoComplete="name" value={enquiryName} onChange={(event) => setEnquiryName(event.target.value)} placeholder="Your full name" /></label>
+              <label>Email address<input required type="email" maxLength={254} autoComplete="email" value={enquiryEmail} onChange={(event) => setEnquiryEmail(event.target.value)} placeholder="you@example.com" /></label>
+              <label>Phone number <span style={{fontWeight:500,color:"#8792a6"}}>(optional)</span><input type="tel" maxLength={40} autoComplete="tel" value={enquiryPhone} onChange={(event) => setEnquiryPhone(event.target.value)} placeholder="+234…" /></label>
+              <label>Enquiry type<select value={enquirySubject} onChange={(event) => setEnquirySubject(event.target.value)}><option>Admissions</option><option>General</option><option>Fees</option><option>Visit</option><option>Other</option></select></label>
+              <label className="school-contact-wide">Your message<textarea required minLength={10} maxLength={2000} value={enquiryMessage} onChange={(event) => setEnquiryMessage(event.target.value)} placeholder="How can the school help you?" /></label>
+              <div className="school-contact-wide" id="privacy-notice">
+                <details style={{border:"1px solid #dce3ef",borderRadius:12,padding:"13px 15px",background:"#fbfcfe"}}>
+                  <summary style={{cursor:"pointer",fontSize:12,fontWeight:800,color:"var(--blue)"}}>Read the school enquiry privacy notice</summary>
+                  <div style={{fontSize:12,lineHeight:1.75,color:"var(--muted)",paddingTop:12}}>
+                    <p><strong>Who handles your information?</strong> The school named on this website is responsible for handling this enquiry. The school management platform is used to securely store and display the message to authorised school administrators.</p>
+                    <p><strong>What is collected and why?</strong> Your name, email address, optional phone number, enquiry category, message and consent record are collected so the school can review and respond to your enquiry. Do not include student records, health details, identity documents or other sensitive information in this form.</p>
+                    <p><strong>Access and sharing.</strong> The enquiry is visible only to authorised users for this school. It is not a student admission application and does not create a student, parent or guardian account. The school should not use these details for unrelated marketing without a separate valid basis.</p>
+                    <p><strong>Retention and your choices.</strong> The school should keep the enquiry only for as long as needed to respond and meet its recordkeeping obligations, then securely delete it under its retention schedule. You may contact the school through its published official contact channels to ask about your information, request correction or request deletion. Some records may need to be retained where a legal or safeguarding obligation applies.</p>
+                    <p>Submitting this form confirms that you have read this notice and agree to the use described above. This notice should be reviewed and completed by the school before the form is enabled for public use.</p>
+                  </div>
+                </details>
+              </div>
+              <label className="school-contact-consent school-contact-wide"><input required type="checkbox" checked={enquiryConsent} onChange={(event) => setEnquiryConsent(event.target.checked)} /><span>I have read the privacy notice and agree that the school may use these details to respond to my enquiry. I understand this is not an admission application.</span></label>
+              <label className="school-honeypot" aria-hidden="true">Leave this field empty<input tabIndex={-1} autoComplete="off" value={enquiryWebsite} onChange={(event) => setEnquiryWebsite(event.target.value)} /></label>
+              <div className="school-contact-wide"><button className="school-contact-submit" type="submit" disabled={enquiryBusy}>{enquiryBusy ? "Sending enquiry…" : "Send enquiry →"}</button></div>
+            </div>
+          </form>
+        </section>
 
       <footer className="school-footer"><div className="school-wrap school-footer-inner"><strong>{school.name}</strong><span>School website powered by <Link href="https://stonezdigital.com.ng" target="_blank">Stonez Digital</Link></span></div></footer>
     </main>

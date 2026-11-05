@@ -120,3 +120,30 @@ func (r *byteReader) Read(p []byte) (int, error) {
 }
 
 func (r *byteReader) Close() error { return nil }
+
+
+func TestConfigurePublicSchoolEnquiryRateLimit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	Configure(r)
+	r.POST("/public/schools/:slug/enquiries", func(c *gin.Context) { c.Status(http.StatusAccepted) })
+	for i := 0; i < authRateLimit; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/public/schools/example-school/enquiries", nil)
+		req.RemoteAddr = "192.0.2.44:1234"
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusAccepted {
+			t.Fatalf("request %d: expected 202, got %d", i+1, rec.Code)
+		}
+	}
+	req := httptest.NewRequest(http.MethodPost, "/public/schools/example-school/enquiries", nil)
+	req.RemoteAddr = "192.0.2.44:1234"
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 after enquiry rate limit, got %d", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") != "60" {
+		t.Fatalf("expected Retry-After=60, got %q", rec.Header().Get("Retry-After"))
+	}
+}

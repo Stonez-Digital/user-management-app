@@ -13,10 +13,12 @@ func TestMigrateIsVersionedAndIdempotent(t *testing.T) {
     if err:=Migrate(db);err!=nil{t.Fatal(err)}
     var count int64
     if err:=db.Model(&Migration{}).Count(&count).Error;err!=nil{t.Fatal(err)}
-    if count!=40{t.Fatalf("expected forty applied migrations, got %d",count)}
+    if count!=42{t.Fatalf("expected forty-two applied migrations, got %d",count)}
 
     if !db.Migrator().HasTable(&models.User{}){t.Fatal("expected users table after migration")}
     if !db.Migrator().HasTable(&models.School{}){t.Fatal("expected schools table after migration")}
+    if !db.Migrator().HasTable(&models.SchoolEnquiry{}){t.Fatal("expected school enquiries table after migration")}
+    if !db.Migrator().HasColumn(&models.SchoolEnquiry{}, "PrivacyNoticeVersion"){t.Fatal("expected privacy notice version column after migration")}
     var schools int64
     if err:=db.Model(&models.School{}).Count(&schools).Error;err!=nil{t.Fatal(err)}
     if schools!=1{t.Fatalf("expected one default school, got %d",schools)}

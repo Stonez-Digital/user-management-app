@@ -28,7 +28,7 @@ export default function SchoolSettings(){
  const[saving,setSaving]=useState(false);
  const[uploading,setUploading]=useState(false);
 
- useEffect(()=>{api("/me").then(me=>{if(me?.role!=="school_admin"){router.replace(me?.role==="super_admin"?"/platform/schools":"/dashboard");return} return api("/admin/school")}).then(s=>{if(s){setSchool(s);setName(s.name);setDescription(s.description||"");setAddress(s.address||"");setContactEmail(s.contact_email||"");setContactPhone(s.contact_phone||"");setWebsiteURL(s.website_url||"");setPreviewURL(s.logo_url||"");setStatus(s.status)}}).catch(e=>{setError(e.message);if(e.message==="Session expired")router.replace("/")})},[router]);
+ useEffect(()=>{api("/me").then(me=>{if(me?.role!=="school_admin"){router.replace(me?.role==="super_admin"?"/platform/schools":"/dashboard");return} return api("/admin/school")}).then(s=>{if(s){setSchool(s);setName(s.name);setDescription(s.description||"");setAddress(s.address||"");setContactEmail(s.contact_email||"");setContactPhone(s.contact_phone||"");setWebsiteURL(s.website_url||"");setPreviewURL(s.logo_url||"");setStatus(s.status)}}).catch(e=>{setError(e.message);if(e.message==="Session expired")router.replace("/login")})},[router]);
 
  useEffect(()=>()=>{if(previewURL.startsWith("blob:"))URL.revokeObjectURL(previewURL)},[previewURL]);
 

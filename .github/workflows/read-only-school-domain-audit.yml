@@ -19,14 +19,14 @@ jobs:
     steps:
       - name: Validate required secrets
         env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         shell: bash
         run: |
           set -euo pipefail
           missing=()
-          [[ -n "$SUPABASE_DB_URL" ]] || missing+=("SUPABASE_DB_URL")
+          [[ -n "$PRODUCTION_DATABASE_URL" ]] || missing+=("PRODUCTION_DATABASE_URL")
           [[ -n "$CLOUDFLARE_API_TOKEN" ]] || missing+=("CLOUDFLARE_API_TOKEN")
           [[ -n "$CLOUDFLARE_ACCOUNT_ID" ]] || missing+=("CLOUDFLARE_ACCOUNT_ID")
           if (( ${#missing[@]} > 0 )); then
@@ -46,7 +46,7 @@ jobs:
       - name: Run read-only inventory
         env:
           DB_DRIVER: postgres
-          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_WORKER_NAME: stonez-school-management

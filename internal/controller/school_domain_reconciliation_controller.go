@@ -81,6 +81,7 @@ func (ctrl *SchoolDomainReconciliationController) Reconcile(c *gin.Context) {
 			return
 		}
 		oldHost = candidate
+		if oldHost == newHost { httpx.Error(c, http.StatusBadRequest, "invalid_previous_hostname", "previous_hostname must differ from the replacement hostname"); return }
 	} else if reconciliationSlugPattern.MatchString(oldSlug) && !reconciliationReservedSlugs[oldSlug] && slug != oldSlug {
 		oldHost = oldSlug + "." + baseDomain
 	}

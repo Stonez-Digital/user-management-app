@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";\nimport type { FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 
@@ -54,7 +55,17 @@ export default function SchoolHome() {
   const [data, setData] = useState<HomepageData | null>(null);
   const [error, setError] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [attempt, setAttempt] = useState(0);\n  const [enquiryName, setEnquiryName] = useState("");\n  const [enquiryEmail, setEnquiryEmail] = useState("");\n  const [enquiryPhone, setEnquiryPhone] = useState("");\n  const [enquirySubject, setEnquirySubject] = useState("Admissions");\n  const [enquiryMessage, setEnquiryMessage] = useState("");\n  const [enquiryConsent, setEnquiryConsent] = useState(false);\n  const [enquiryWebsite, setEnquiryWebsite] = useState("");\n  const [enquiryBusy, setEnquiryBusy] = useState(false);\n  const [enquiryFeedback, setEnquiryFeedback] = useState("");\n  const [enquiryError, setEnquiryError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const [enquiryName, setEnquiryName] = useState("");
+  const [enquiryEmail, setEnquiryEmail] = useState("");
+  const [enquiryPhone, setEnquiryPhone] = useState("");
+  const [enquirySubject, setEnquirySubject] = useState("Admissions");
+  const [enquiryMessage, setEnquiryMessage] = useState("");
+  const [enquiryConsent, setEnquiryConsent] = useState(false);
+  const [enquiryWebsite, setEnquiryWebsite] = useState("");
+  const [enquiryBusy, setEnquiryBusy] = useState(false);
+  const [enquiryFeedback, setEnquiryFeedback] = useState("");
+  const [enquiryError, setEnquiryError] = useState("");
 
   useEffect(() => {
     let active = true;

@@ -180,14 +180,14 @@ func configureWithClock(r *gin.Engine, now func() time.Time) {
 			return
 		}
 
-		if strings.HasPrefix(c.Request.URL.Path, "/auth/") {
+		if strings.HasPrefix(c.Request.URL.Path, "/auth/") || (strings.HasPrefix(c.Request.URL.Path, "/public/schools/") && strings.HasSuffix(c.Request.URL.Path, "/enquiries")) {
 			key := clientIPFromRequest(c.Request.RemoteAddr, c.Request.Header.Get("CF-Connecting-IP"))
 			allowedRequest, remaining := limiter.allow(key, now())
 			c.Header("X-RateLimit-Limit", fmt.Sprint(authRateLimit))
 			c.Header("X-RateLimit-Remaining", fmt.Sprint(remaining))
 			if !allowedRequest {
 				c.Header("Retry-After", "60")
-				c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many authentication requests; try again later"})
+				c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many requests; try again later"})
 				c.Abort()
 				return
 			}

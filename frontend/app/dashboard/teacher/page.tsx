@@ -36,12 +36,12 @@ export default function TeacherDashboard(){
       const [a,t]=await Promise.all([api("/teacher/assignments?academic_session_id="+selected+"&term_id="+activeTerm.id),api("/teacher/timetable?academic_session_id="+selected+"&term_id="+activeTerm.id)]);
       setAssignments(list(a,"assignments")); setTimetable(list(t,"timetable"));
     }
-  }catch(e){const msg=e instanceof Error?e.message:"Unable to load teacher workspace";setError(msg);if(msg==="Session expired")router.replace("/")}})()},[router]);
+  }catch(e){const msg=e instanceof Error?e.message:"Unable to load teacher workspace";setError(msg);if(msg==="Session expired")router.replace("/login")}})()},[router]);
   const today=new Date().getDay()||7;
   const todaySlots=useMemo(()=>timetable.filter(x=>x.active&&x.day_of_week===today).sort((a,b)=>a.start_time.localeCompare(b.start_time)),[timetable,today]);
   const activeSession=sessions.find(x=>x.status==="active")||sessions[0];
   const activeTerm=terms.find(x=>x.status==="active")||terms[0];
-  const logout=()=>{localStorage.clear();router.replace("/")};
+  const logout=()=>{localStorage.clear();router.replace("/login")};
   return <div className="app-shell"><aside className="sidebar"><div className="logo"><span>S</span><div><strong>Stonez</strong><small>School OS</small></div></div>
     <nav><Link className="active" href="/dashboard/teacher">My Workspace</Link><Link href="/dashboard/notifications">Notifications ({notifications.filter(x=>!x.read).length})</Link><Link href="/dashboard/teacher/attendance">Attendance</Link><Link href="/dashboard/teacher/assessments">Assessments</Link><Link href="/dashboard/teacher/results">Results</Link></nav>
     <div className="sidebar-bottom"><div className="mini-user"><div className="avatar">{me?.name?.[0]||"T"}</div><div><strong>{me?.name||"Teacher"}</strong><small>Teacher</small></div></div><button className="ghost" onClick={logout}>Sign out</button></div>

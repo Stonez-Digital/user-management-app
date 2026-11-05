@@ -2,7 +2,7 @@
 
 ## Purpose and scope
 
-This template applies to contact enquiries submitted through a school's public website. It covers the name, email address, optional phone number, enquiry category, message, consent timestamp and operational timestamps stored in the school's enquiry inbox.
+This template applies to contact enquiries submitted through a school's public website. It covers the name, email address, optional phone number, enquiry category, message, consent timestamp, privacy-notice version and operational timestamps stored in the school's enquiry inbox.
 
 Each school is the organisation deciding why it handles these enquiries. The platform provides the technical service used to store and display them to authorised school users. A school should review and adopt this notice, identify its own contact channel and confirm its retention schedule before enabling the public form.
 

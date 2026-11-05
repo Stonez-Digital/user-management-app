@@ -55,6 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           go run ./cmd/school-domain-audit > school-domain-audit.json
+          jq -e '.read_only == true and (.schools | type == "array")' school-domain-audit.json > /dev/null
           jq -r '
             "## Read-only school-domain audit",
             "",

@@ -28,7 +28,7 @@ func TestSchoolEnquiriesAreTenantScoped(t *testing.T) {
 
 	first := &models.SchoolEnquiry{FullName:"  Parent One ", Email:" PARENT@EXAMPLE.COM ", Subject:"Admissions", Message:"Please share admission details.", ConsentAt:time.Now().UTC()}
 	if err := svc.Create(a.ID, first); err != nil { t.Fatal(err) }
-	if first.SchoolID != a.ID || first.Status != models.SchoolEnquiryNew || first.Email != "parent@example.com" { t.Fatalf("enquiry normalization or ownership failed: %+v", first) }
+	if first.SchoolID != a.ID || first.Status != models.SchoolEnquiryNew || first.Email != "parent@example.com" || first.PrivacyNoticeVersion != models.SchoolEnquiryPrivacyNoticeVersion { t.Fatalf("enquiry normalization or ownership failed: %+v", first) }
 
 	items, total, err := svc.List(a.ID, 50, 0)
 	if err != nil || total != 1 || len(items) != 1 { t.Fatalf("expected one school A enquiry, got %d/%d (%v)", len(items), total, err) }

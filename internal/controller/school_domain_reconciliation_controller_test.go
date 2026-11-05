@@ -48,3 +48,15 @@ func TestSchoolDomainReconciliationRejectsSlugCollision(t *testing.T) {
 	r.ServeHTTP(w,req)
 	if w.Code != http.StatusConflict { t.Fatalf("expected 409, got %d: %s",w.Code,w.Body.String()) }
 }
+
+func TestSchoolDomainReconciliationRejectsUnrecordedPreviousHostname(t *testing.T) {
+	db, school := newDomainReconciliationTestDB(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.PUT("/platform/schools/:id/domain-reconciliation", NewSchoolDomainReconciliationController(db).Reconcile)
+	req := httptest.NewRequest(http.MethodPut, "/platform/schools/"+school.ID.String()+"/domain-reconciliation", strings.NewReader(`{"slug":"legacy-school","previous_hostname":"another-school.stonezdigital.com.ng","confirm":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusConflict { t.Fatalf("expected 409 for unrecorded previous hostname, got %d: %s", w.Code, w.Body.String()) }
+}

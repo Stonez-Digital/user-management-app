@@ -61,3 +61,16 @@ func TestAuditOnlyMarksEnabledAttachmentForConfiguredWorkerReady(t *testing.T) {
 		t.Fatalf("valid enabled Worker attachment was not recognized: %+v", report)
 	}
 }
+
+func TestDNSLabelValidationRejectsReservedAndNonCanonicalLabels(t *testing.T) {
+	for _, label := range []string{"app", "www", "APP", "Uppercase", "bad label", "-leading", "trailing-"} {
+		if validSchoolDNSLabel(label) {
+			t.Fatalf("expected %q to be rejected", label)
+		}
+	}
+	for _, label := range []string{"bedrock", "bedrock-international-001", "school7"} {
+		if !validSchoolDNSLabel(label) {
+			t.Fatalf("expected %q to be accepted", label)
+		}
+	}
+}

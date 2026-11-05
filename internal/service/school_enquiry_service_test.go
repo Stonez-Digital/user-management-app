@@ -39,6 +39,20 @@ func TestSchoolEnquiriesAreTenantScoped(t *testing.T) {
 	updated, err := svc.UpdateStatus(a.ID, first.ID, models.SchoolEnquiryInProgress)
 	if err != nil || updated.Status != models.SchoolEnquiryInProgress { t.Fatalf("expected status update, got %+v (%v)", updated, err) }
 	if _, err := svc.UpdateStatus(a.ID, first.ID, "approved"); err != ErrSchoolEnquiryInvalidStatus { t.Fatalf("expected invalid status error, got %v", err) }
+
+	if err := svc.Delete(b.ID, first.ID); err != ErrSchoolEnquiryNotFound {
+		t.Fatalf("cross-school delete should look not found, got %v", err)
+	}
+	if err := svc.Delete(a.ID, first.ID); err != nil {
+		t.Fatalf("school A should be able to delete its own enquiry: %v", err)
+	}
+	var remaining int64
+	if err := db.Model(&models.SchoolEnquiry{}).Where("id = ?", first.ID).Count(&remaining).Error; err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 0 {
+		t.Fatalf("expected enquiry to be deleted, found %d rows", remaining)
+	}
 }
 
 func TestSchoolEnquiryRequiresConsentAndMessage(t *testing.T) {

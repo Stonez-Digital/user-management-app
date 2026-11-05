@@ -268,12 +268,6 @@ async function bootstrapSchool(s){
   const teacherAuth=await login({email:teacherEmail,password,school_code:school});
   const parentAuth=await login({email:parentEmail,password,school_code:school});
   const studentMe=await me(studentAuth.access_token), teacherMe=await me(teacherAuth.access_token), parentMe=await me(parentAuth.access_token);
-  const refreshed=await request("/auth/refresh",{method:"POST",body:{refresh_token:studentAuth.refresh_token},expected:[200]});
-  const rotatedRefreshToken=refreshed.data?.refresh_token;
-  if(!rotatedRefreshToken) fail(`${school}: refresh did not return rotated refresh token`);
-  await request("/auth/logout",{method:"POST",body:{refresh_token:rotatedRefreshToken},expected:[200]});
-  const studentAuthAfterLogout=await login({email:studentEmail,password,school_code:school});
-  record("logout/session",school,"student","PASS","Refresh and logout cycle completed");
   for(const [role,x] of [["student",studentMe],["teacher",teacherMe],["parent",parentMe]]) {
     if(x.role!==role||!x.school_name) fail(`${school}: ${role} /me mismatch`);
     record("authentication",school,role,"PASS",x.school_name);
@@ -297,6 +291,12 @@ async function bootstrapSchool(s){
   record("role isolation",school,"teacher","PASS","Teacher denied school-admin and student-portal endpoints");
   record("role isolation",school,"student","PASS","Student denied school-admin and parent endpoints");
   record("role isolation",school,"parent","PASS","Parent denied school-admin and student-portal endpoints");
+  const refreshed=await request("/auth/refresh",{method:"POST",body:{refresh_token:studentAuth.refresh_token},expected:[200]});
+  const rotatedRefreshToken=refreshed.data?.refresh_token;
+  if(!rotatedRefreshToken) fail(`${school}: refresh did not return rotated refresh token`);
+  await request("/auth/logout",{method:"POST",body:{refresh_token:rotatedRefreshToken},expected:[200]});
+  const studentAuthAfterLogout=await login({email:studentEmail,password,school_code:school});
+  record("logout/session",school,"student","PASS","Refresh and logout cycle completed");
   // Promotion intentionally completes the source enrollment and creates the target enrollment.
   // The student portal exposes only the currently active enrollment, so after promotion
   // the target session is the valid student-portal context.
@@ -320,7 +320,7 @@ async function bootstrapSchool(s){
   await request(`/parent/children/${studentId}/attendance?academic_session_id=${academic.target.id}&term_id=${academic.targetTerm.id}`,{token:parentAuth.access_token});
   record("academic access",school,"parent","PASS","Parent child access respects selected academic context");
 
-  await request("/admin/users",{token:studentAuth.access_token,expected:[403]});
+  await request("/admin/users",{token:studentAuthAfterLogout.access_token,expected:[403]});
   await request("/me",{expected:[401]});
   record("role isolation",school,"student","PASS","Student denied school-admin endpoint");
   record("unauthorized API",school,"anonymous","PASS","Protected /me returned 401");

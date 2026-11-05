@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 15
     env:
       PRODUCTION_API_URL: https://stonez-digital-school-api.onrender.com
-      PRODUCTION_FRONTEND_URL: https://stonez-school-management.onojamondayojonugba.workers.dev
+      PRODUCTION_FRONTEND_URL: https://app.stonezdigital.com.ng
       PRODUCTION_QA_SUPER_ADMIN_EMAIL: ${{ secrets.PRODUCTION_QA_SUPER_ADMIN_EMAIL }}
       PRODUCTION_QA_SUPER_ADMIN_PASSWORD: ${{ secrets.PRODUCTION_QA_SUPER_ADMIN_PASSWORD }}
       PRODUCTION_QA_SCHOOLS_JSON: ${{ secrets.PRODUCTION_QA_SCHOOLS_JSON }}

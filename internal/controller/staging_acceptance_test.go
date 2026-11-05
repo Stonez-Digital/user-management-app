@@ -3,6 +3,7 @@ package controller
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -31,7 +32,55 @@ func stagingAcceptanceDB(t *testing.T) *gorm.DB {
 		err error
 	)
 	if dsn := strings.TrimSpace(os.Getenv("TEST_DATABASE_URL")); dsn != "" {
-		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		// Give this test its own schema so it cannot collide with other packages
+		// using the same disposable CI database.
+		schema := "staging_acceptance_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+		bootstrap, openErr := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		if err := bootstrap.Exec("CREATE SCHEMA " + schema).Error; err != nil {
+			t.Fatal(err)
+		}
+		bootstrapSQL, err := bootstrap.DB()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := bootstrapSQL.Close(); err != nil {
+			t.Fatal(err)
+		}
+		parsed, parseErr := url.Parse(dsn)
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		query := parsed.Query()
+		query.Set("search_path", schema)
+		parsed.RawQuery = query.Encode()
+		db, err = gorm.Open(postgres.Open(parsed.String()), &gorm.Config{})
+		if err != nil {
+			dropDB, dropErr := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+			if dropErr == nil {
+				_ = dropDB.Exec("DROP SCHEMA IF EXISTS " + schema + " CASCADE").Error
+				if dropSQL, e := dropDB.DB(); e == nil {
+					_ = dropSQL.Close()
+				}
+			}
+			t.Fatal(err)
+		}
+		sqlDB, sqlErr := db.DB()
+		if sqlErr != nil {
+			t.Fatal(sqlErr)
+		}
+		t.Cleanup(func() {
+			_ = sqlDB.Close()
+			dropDB, dropErr := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+			if dropErr == nil {
+				_ = dropDB.Exec("DROP SCHEMA IF EXISTS " + schema + " CASCADE").Error
+				if dropSQL, e := dropDB.DB(); e == nil {
+					_ = dropSQL.Close()
+				}
+			}
+		})
 	} else {
 		db, err = gorm.Open(sqlite.Open("file:"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{})
 	}
@@ -52,11 +101,13 @@ func stagingAcceptanceDB(t *testing.T) *gorm.DB {
 	); err != nil {
 		t.Fatal(err)
 	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatal(err)
+	if strings.TrimSpace(os.Getenv("TEST_DATABASE_URL")) == "" {
+		sqlDB, err := db.DB()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = sqlDB.Close() })
 	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
 	return db
 }
 

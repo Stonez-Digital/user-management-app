@@ -106,14 +106,21 @@ func (ac *AuthController) ResetPassword(c *gin.Context) {
 			return gorm.ErrRecordNotFound
 		}
 		if time.Now().After(reset.ExpiresAt) { return errResetExpired }
-		targetUserID = reset.UserID
 
+		// Claim the token atomically. A concurrent request may have passed the
+		// initial read, but only one transaction can change used=false to true.
+		claim := tx.Model(&models.PasswordResetToken{}).
+			Where("id = ? AND used = false AND expires_at > ?", reset.ID, time.Now()).
+			Update("used", true)
+		if claim.Error != nil { return claim.Error }
+		if claim.RowsAffected != 1 { return errResetExpired }
+
+		targetUserID = reset.UserID
 		hash, err := auth.HashPassword(req.NewPassword)
 		if err != nil { return err }
 		if err := tx.Model(&models.User{}).Where("id = ? AND active = true", reset.UserID).Update("password_hash", hash).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&reset).Update("used", true).Error; err != nil { return err }
 		if err := tx.Model(&models.RefreshToken{}).Where("user_id = ?", reset.UserID).Update("revoked", true).Error; err != nil { return err }
 		return tx.Model(&models.Session{}).Where("user_id = ?", reset.UserID).Update("revoked", true).Error
 	})

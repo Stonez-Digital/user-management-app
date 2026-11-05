@@ -770,6 +770,12 @@ func Migrate(db *gorm.DB) error {
             }
             return tx.AutoMigrate(&models.SchoolEnquiry{})
         }},
+        {Version:42,Name:"school_enquiry_privacy_notice_version",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()=="postgres" {
+                return tx.Exec("ALTER TABLE school_enquiries ADD COLUMN IF NOT EXISTS privacy_notice_version varchar(40) NOT NULL DEFAULT '2026-11-05-v1'").Error
+            }
+            return tx.AutoMigrate(&models.SchoolEnquiry{})
+        }},
     }
     for _,migration:=range migrations{
         var applied Migration

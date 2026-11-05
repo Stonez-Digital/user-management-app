@@ -176,6 +176,11 @@ func (ctrl *SchoolContentController) DeleteEnquiry(c *gin.Context) {
 		httpx.Error(c, 400, "invalid_enquiry_id", "invalid enquiry id")
 		return
 	}
+	actor := actorID(c)
+	if err := audit.Record(ctrl.db, c, &actor, "school.enquiry.delete", "school_enquiry", &id, map[string]interface{}{"school_id": schoolID.String()}); err != nil {
+		httpx.Error(c, 500, "enquiry_delete_audit_failed", "could not record deletion")
+		return
+	}
 	err = service.NewSchoolEnquiryService(ctrl.db).Delete(schoolID, id)
 	switch {
 	case errors.Is(err, service.ErrSchoolEnquiryNotFound):

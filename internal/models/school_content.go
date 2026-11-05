@@ -80,3 +80,25 @@ type SchoolAdvertisement struct {
  CreatedAt time.Time `json:"created_at"`
  UpdatedAt time.Time `json:"updated_at"`
 }
+
+
+const (
+	SchoolEnquiryNew = "new"
+	SchoolEnquiryInProgress = "in_progress"
+	SchoolEnquiryResponded = "responded"
+	SchoolEnquiryClosed = "closed"
+)
+
+type SchoolEnquiry struct {
+	ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+	SchoolID uuid.UUID `gorm:"type:uuid;not null;index" json:"school_id"`
+	FullName string `gorm:"size:120;not null" json:"full_name"`
+	Email string `gorm:"size:254;not null;index" json:"email"`
+	Phone string `gorm:"size:40" json:"phone,omitempty"`
+	Subject string `gorm:"size:80;not null" json:"subject"`
+	Message string `gorm:"size:2000;not null" json:"message"`
+	Status string `gorm:"size:20;not null;default:new;index" json:"status"`
+	ConsentAt time.Time `gorm:"not null" json:"consent_at"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}

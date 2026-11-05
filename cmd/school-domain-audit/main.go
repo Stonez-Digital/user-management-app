@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -176,7 +175,7 @@ func trimDNSLabel(value string) string {
 }
 
 func validSchoolDNSLabel(value string) bool {
-	if len(value) == 0 || len(value) > 63 || value[0] == '-' || value[len(value)-1] == '-' {
+	if len(value) == 0 || len(value) > 63 || value[0] == '-' || value[len(value)-1] == '-' || reservedSchoolHosts[value] {
 		return false
 	}
 	for _, r := range value {

@@ -191,11 +191,3 @@ func min(a, b int) int {
 	if a < b { return a }
 	return b
 }
-
-func init() {
-	// Keep the audit tool's assumptions explicit: the Worker must be supplied,
-	// rather than silently comparing against an unrelated deployment.
-	if strings.TrimSpace(os.Getenv("CLOUDFLARE_WORKER_NAME")) == "" {
-		return
-	}
-}

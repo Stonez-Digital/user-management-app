@@ -49,7 +49,7 @@ export default function AcademicPage() {
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to load academic data";
       setError(message);
-      if (message === "Session expired") router.push("/");
+      if (message === "Session expired") router.push("/login");
     }
   }
 

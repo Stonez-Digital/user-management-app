@@ -11,6 +11,7 @@ import (
 	"github.com/onoja217/users-management-app/internal/database"
 	"github.com/onoja217/users-management-app/internal/models"
 	"github.com/onoja217/users-management-app/internal/service"
+	"gorm.io/gorm/logger"
 )
 
 type schoolAuditEntry struct {
@@ -59,6 +60,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// Keep GORM SQL diagnostics out of stdout so this command emits pure JSON.
+	db.Logger = db.Logger.LogMode(logger.Silent)
+
 	var schools []models.School
 	if err := db.Select("id", "name", "code", "slug", "status").Order("created_at ASC").Find(&schools).Error; err != nil {
 		log.Fatalf("load school inventory: %v", err)

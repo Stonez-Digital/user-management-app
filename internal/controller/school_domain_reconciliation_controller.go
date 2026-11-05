@@ -2,6 +2,7 @@ package controller
 
 import (
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 
@@ -158,5 +159,5 @@ func (ctrl *SchoolDomainReconciliationController) Reconcile(c *gin.Context) {
 func configuredWorkerName() string {
 	// The provisioner validates ownership against its configured Worker. The
 	// value is surfaced here only for comparing lookup results, not for API calls.
-	return strings.TrimSpace(getenv("CLOUDFLARE_WORKER_NAME"))
+	return strings.TrimSpace(os.Getenv("CLOUDFLARE_WORKER_NAME"))
 }

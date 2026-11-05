@@ -4,13 +4,17 @@ import ThemeToggle from "../components/theme-toggle";
 import SchoolDomainRouter from "../components/school-domain-router";
 
 export const metadata: Metadata = {
-  title: "Stonez Digital School Management Platform",
+  metadataBase: new URL("https://app.stonezdigital.com.ng"),
+  title: {
+    default: "School Management Platform | Stonez Digital",
+    template: "%s | Stonez Digital",
+  },
   description:
-    "Access the Stonez Digital school management platform for secure school administration, teaching, student and parent workspaces.",
+    "A connected school management platform for administration, academics, finance, teachers, students and parents.",
   applicationName: "Stonez Digital",
   icons: {
-    icon: "https://raw.githubusercontent.com/Stonez-Digital/Stonez-Digital-Platform/main/public/School%20Management%20Platform%20Logo.png",
-    apple: "https://raw.githubusercontent.com/Stonez-Digital/Stonez-Digital-Platform/main/public/School%20Management%20Platform%20Logo.png",
+    icon: "/stonez-digital-logo.svg",
+    apple: "/stonez-digital-logo.svg",
   },
 };
 

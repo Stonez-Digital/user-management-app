@@ -1,57 +1,147 @@
-"use client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import type { Metadata } from "next";
 import Link from "next/link";
-import { landingPathForRole, normalizeAuthUser } from "../lib/auth-session";
 
-async function readResponse(response: Response) {
- const text = await response.text();
- if (!text) return {};
- try { return JSON.parse(text); }
- catch { return { error: response.ok ? "Invalid API response" : `API returned HTTP ${response.status}: ${text.slice(0,160)}` }; }
+export const metadata: Metadata = {
+  title: "School Management Software for Connected School Operations",
+  description:
+    "Bring school administration, academics, finance, teachers, students and parent engagement together with the Stonez Digital School Management Platform.",
+  alternates: { canonical: "https://app.stonezdigital.com.ng/" },
+  openGraph: {
+    type: "website",
+    url: "https://app.stonezdigital.com.ng/",
+    title: "One Platform. Every School Operation. | Stonez Digital",
+    description:
+      "A connected school management platform for administration, academics, finance and the people who make every school work.",
+    siteName: "Stonez Digital",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "One Platform. Every School Operation. | Stonez Digital",
+    description:
+      "Bring your school's people, academics and operations together in one connected platform.",
+  },
+};
+
+const features = [
+  { number: "01", title: "School administration", description: "Keep school records, people, permissions and day-to-day administration organised in one place.", icon: "⌂" },
+  { number: "02", title: "Student management", description: "Manage student profiles, enrolment and the information that supports each learner's school journey.", icon: "◎" },
+  { number: "03", title: "Academic operations", description: "Bring sessions, terms, classes, sections, subjects, assessments and report cards into one workflow.", icon: "▤" },
+  { number: "04", title: "Teacher workflows", description: "Connect teaching responsibilities with assigned classes, subjects and academic activities.", icon: "✳" },
+  { number: "05", title: "Parent engagement", description: "Give parents a dedicated way to access relevant information about their linked students.", icon: "♡" },
+  { number: "06", title: "Finance management", description: "Organise invoices, payment records and financial reporting with school-aware controls.", icon: "₦" },
+  { number: "07", title: "Communication", description: "Support school communication and notification workflows from a connected workspace.", icon: "↗" },
+  { number: "08", title: "Platform oversight", description: "Give platform administrators a separate operational view for school onboarding and platform management.", icon: "⌘" },
+];
+
+const roles = [
+  { title: "School leaders", detail: "Manage school operations, people, academic structures and administration." },
+  { title: "Teachers", detail: "Work with assigned classes, subjects and teaching responsibilities." },
+  { title: "Students", detail: "Access a dedicated space for relevant academic information." },
+  { title: "Parents & guardians", detail: "Stay connected to the school information available for linked students." },
+  { title: "Finance teams", detail: "Work with invoices, payments and school finance records." },
+];
+
+const steps = [
+  { number: "01", title: "Register your school", detail: "Submit your school and administrator details through the existing onboarding flow." },
+  { number: "02", title: "Complete platform review", detail: "Stonez Digital reviews the request before activating the school workspace." },
+  { number: "03", title: "Receive your school address", detail: "Your dedicated school address is provisioned as part of the onboarding process." },
+  { number: "04", title: "Set up and get started", detail: "After approval, sign in to configure your school and invite the right people." },
+];
+
+function Arrow() {
+  return <span aria-hidden="true" className="marketing-arrow">↗</span>;
 }
 
-export default function LoginPage() {
- const router=useRouter();
- const [email,setEmail]=useState("");
- const [password,setPassword]=useState("");
- const [error,setError]=useState("");
- const [loading,setLoading]=useState(false);
+function DashboardPreview() {
+  return (
+    <div className="preview-frame" aria-label="Illustrative preview of the school management workspace">
+      <div className="preview-topbar">
+        <div className="preview-brand"><span className="preview-brand-mark">S</span><span>School workspace</span></div>
+        <span className="preview-live"><i /> Connected workspace</span>
+      </div>
+      <div className="preview-body">
+        <aside className="preview-sidebar" aria-hidden="true">
+          <span className="preview-side-active">Overview</span><span>People</span><span>Academics</span><span>Finance</span><span>Communication</span>
+          <div className="preview-side-bottom"><span>Settings</span></div>
+        </aside>
+        <div className="preview-content">
+          <div className="preview-heading"><div><span className="preview-kicker">SCHOOL OPERATIONS</span><h2>Good morning, team.</h2><p>Your school, connected in one place.</p></div><span className="preview-date">Workspace overview</span></div>
+          <div className="preview-metrics">
+            <div><span>People</span><strong>Organised</strong><small>Students · Teachers · Parents</small></div>
+            <div><span>Academics</span><strong>Connected</strong><small>Sessions · Classes · Results</small></div>
+            <div><span>Finance</span><strong>Structured</strong><small>Invoices · Payments</small></div>
+          </div>
+          <div className="preview-lower">
+            <div className="preview-panel"><div className="preview-panel-head"><strong>Core school workflows</strong><span>Workspace</span></div><div className="preview-workflow"><b className="workflow-icon violet">01</b><span><strong>People & enrolment</strong><small>Profiles and school relationships</small></span><i>→</i></div><div className="preview-workflow"><b className="workflow-icon blue">02</b><span><strong>Academic operations</strong><small>Classes, teaching and assessment</small></span><i>→</i></div><div className="preview-workflow"><b className="workflow-icon amber">03</b><span><strong>Finance administration</strong><small>Invoices and payment records</small></span><i>→</i></div></div>
+            <div className="preview-panel preview-side-panel"><div className="preview-panel-head"><strong>One connected system</strong></div><div className="preview-orbit"><span>School</span><i className="orbit-dot dot-one" /><i className="orbit-dot dot-two" /><i className="orbit-dot dot-three" /></div><p>Purpose-built spaces for the people and processes behind every school.</p></div>
+          </div>
+          <p className="preview-disclaimer">Illustrative interface preview · Live data appears inside your authorised school workspace.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
- async function login(e:React.FormEvent){
-  e.preventDefault(); setLoading(true); setError("");
-  try {
-   const r=await fetch("/backend/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,password})});
-   const d=await readResponse(r);
-   if(!r.ok) throw Error(d?.error?.message||d?.error||"Login failed");
-   if(!d.access_token||!d.refresh_token) throw Error("Login response is missing authentication tokens");
-   localStorage.setItem("access_token",d.access_token);
-   localStorage.setItem("refresh_token",d.refresh_token);
-   const me=await fetch("/backend/me",{headers:{Authorization:"Bearer "+d.access_token}});
-   const payload=await readResponse(me);
-   const user=normalizeAuthUser(payload);
-   if(!me.ok || !user){
-    localStorage.removeItem("access_token"); localStorage.removeItem("refresh_token");
-    throw Error((payload as any)?.error?.message||(payload as any)?.error||`Unable to load your account after sign-in (HTTP ${me.status})`);
-   }
-   router.push(landingPathForRole(user.role));
-  } catch(e) { setError(e instanceof Error?e.message:"Login failed"); }
-  finally { setLoading(false); }
- }
- return <main className="auth-shell">
-  <section className="auth-card auth-card-wide">
-   <div className="auth-brand"><img className="auth-logo" src="/stonez-digital-logo.svg" alt="Stonez Digital" /><div><p className="eyebrow">STONEZ DIGITAL</p><span className="tenant-badge">Public platform access</span></div></div>
-   <h1>Stonez Digital</h1>
-   <p className="muted">Sign in to your Stonez Digital platform account.</p>
-   <div className="tenant-note"><strong>Schools have their own login page.</strong><span>Use your school’s branded login link to access your school workspace.</span></div>
-   <form onSubmit={login} className="form">
-    <label>Email<input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="admin@stonez.com" autoComplete="username" required/></label>
-    <label>Password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" autoComplete="current-password" required/></label>
-    {error&&<div className="error">{error}</div>}
-    <button disabled={loading}>{loading?"Signing in...":"Sign in"}</button>
-   </form>
-   <div className="auth-footer"><Link href="/forgot-password">Forgot password?</Link><span> · Want to register a school? </span><Link href="/school-signup">Register your school</Link></div>
-   <p className="hint">Public platform entry · School tenants use isolated branded login pages</p>
-  </section>
- </main>;
+export default function HomePage() {
+  return (
+    <main className="marketing-page">
+      <header className="marketing-nav">
+        <div className="marketing-container marketing-nav-inner">
+          <Link href="/" className="marketing-brand" aria-label="Stonez Digital home">
+            <img src="/stonez-digital-logo.svg" alt="Stonez Digital" />
+            <span><strong>STONEZ DIGITAL</strong><small>SCHOOL MANAGEMENT</small></span>
+          </Link>
+          <nav className="marketing-links" aria-label="Main navigation">
+            <a href="#platform">Platform</a><a href="#features">Features</a><a href="#solutions">Who it serves</a><a href="#security">Security</a>
+          </nav>
+          <div className="marketing-nav-actions"><Link className="marketing-signin" href="/login">Sign in</Link><Link className="marketing-button marketing-button-small" href="/school-signup">Get started <Arrow /></Link></div>
+          <details className="marketing-mobile-menu">
+            <summary aria-label="Open navigation menu"><span /><span /><span /></summary>
+            <div className="marketing-mobile-panel"><a href="#platform">Platform</a><a href="#features">Features</a><a href="#solutions">Who it serves</a><a href="#security">Security</a><Link href="/login">Sign in</Link><Link href="/school-signup">Register your school</Link></div>
+          </details>
+        </div>
+      </header>
+
+      <section className="marketing-hero" id="platform">
+        <div className="marketing-container marketing-hero-grid">
+          <div className="marketing-hero-copy">
+            <div className="marketing-eyebrow"><span /> A connected operating system for schools</div>
+            <h1>One platform.<br /><em>Every school</em><br />operation.</h1>
+            <p className="marketing-hero-lede">Bring your school administration, academics, finance and people together in one secure, connected workspace.</p>
+            <div className="marketing-hero-actions"><Link href="/school-signup" className="marketing-button">Register your school <Arrow /></Link><a href="#features" className="marketing-text-link">Explore the platform <span>↓</span></a></div>
+            <div className="marketing-hero-footnote"><span className="marketing-check">✓</span> Built for the people and processes that keep schools moving.</div>
+          </div>
+          <div className="marketing-hero-visual"><div className="marketing-visual-glow" /><DashboardPreview /><div className="marketing-visual-caption"><span className="caption-dot" /> A clearer view of your school operations</div></div>
+        </div>
+        <div className="marketing-container marketing-proofline"><span>ONE CONNECTED WORKSPACE</span><i /><span>ROLE-AWARE EXPERIENCES</span><i /><span>SCHOOL-SCOPED ACCESS</span><i /><span>BUILT BY STONEZ DIGITAL</span></div>
+      </section>
+
+      <section className="marketing-intro section-pad">
+        <div className="marketing-container marketing-intro-grid"><div><span className="marketing-section-label">THE PLATFORM</span><h2>Less fragmentation.<br /><em>More room to lead.</em></h2></div><div><p>Running a school means coordinating people, learning, records and resources every day. Stonez Digital brings those essential operations into one platform, so each role can focus on the work that matters.</p><a className="marketing-inline-link" href="#features">See what comes together <Arrow /></a></div></div>
+      </section>
+
+      <section className="marketing-features section-pad" id="features">
+        <div className="marketing-container">
+          <div className="marketing-section-heading"><div><span className="marketing-section-label">CAPABILITIES</span><h2>Everything has<br /><em>its place.</em></h2></div><p>A connected set of school workflows, designed to work together while keeping access appropriate to each role.</p></div>
+          <div className="marketing-feature-grid">{features.map((feature) => <article className="marketing-feature" key={feature.number}><div className="marketing-feature-top"><span>{feature.number}</span><b aria-hidden="true">{feature.icon}</b></div><h3>{feature.title}</h3><p>{feature.description}</p><span className="marketing-feature-line" /></article>)}</div>
+        </div>
+      </section>
+
+      <section className="marketing-roles section-pad" id="solutions">
+        <div className="marketing-container marketing-roles-grid"><div className="marketing-roles-intro"><span className="marketing-section-label">MADE FOR THE WHOLE SCHOOL</span><h2>Different roles.<br /><em>One shared direction.</em></h2><p>People should see the tools and information that belong to their responsibilities. The platform supports dedicated experiences for school teams, learners and families.</p></div><div className="marketing-role-list">{roles.map((role, index) => <article key={role.title} className="marketing-role"><span>0{index + 1}</span><div><h3>{role.title}</h3><p>{role.detail}</p></div><b aria-hidden="true">↗</b></article>)}</div></div>
+      </section>
+
+      <section className="marketing-onboarding section-pad">
+        <div className="marketing-container"><div className="marketing-section-heading"><div><span className="marketing-section-label">GETTING STARTED</span><h2>A clear path<br /><em>from day one.</em></h2></div><p>Your school gets its own dedicated workspace through a guided registration and approval process.</p></div><div className="marketing-steps">{steps.map((step) => <article className="marketing-step" key={step.number}><span>{step.number}</span><div><h3>{step.title}</h3><p>{step.detail}</p></div></article>)}</div><div className="marketing-onboarding-note"><span>School workspaces are activated after platform approval.</span><Link href="/school-signup">Start school registration <Arrow /></Link></div></div>
+      </section>
+
+      <section className="marketing-security section-pad" id="security">
+        <div className="marketing-container marketing-security-grid"><div><span className="marketing-section-label">SECURITY BY DESIGN</span><h2>Trust is built<br /><em>into the structure.</em></h2><p>Schools need confidence that their information and operations stay within the right boundaries. The platform is built around school-aware access and backend-enforced permissions.</p><Link href="/school-signup" className="marketing-security-link">Explore the platform <Arrow /></Link></div><div className="marketing-security-points"><article><span>01</span><div><h3>School-scoped data access</h3><p>School context is enforced across protected application workflows.</p></div></article><article><span>02</span><div><h3>Role-based permissions</h3><p>Platform and school roles receive distinct, authorised experiences.</p></div></article><article><span>03</span><div><h3>Secure account sessions</h3><p>Authentication and session protections support controlled access.</p></div></article><article><span>04</span><div><h3>Operational audit trails</h3><p>Audit logging supports visibility into important platform and school activity.</p></div></article></div></div>
+      </section>
+
+      <section className="marketing-cta"><div className="marketing-container marketing-cta-inner"><div><span className="marketing-section-label">YOUR SCHOOL, CONNECTED</span><h2>Give your school<br />a smarter way to <em>operate.</em></h2><p>Bring the people, processes and information behind your school into one connected platform.</p></div><div className="marketing-cta-actions"><Link href="/school-signup" className="marketing-button marketing-button-light">Register your school <Arrow /></Link><Link href="/login" className="marketing-cta-signin">Already have platform access? Sign in</Link></div></div></section>
+
+      <footer className="marketing-footer"><div className="marketing-container"><div className="marketing-footer-main"><Link href="/" className="marketing-brand marketing-footer-brand"><img src="/stonez-digital-logo.svg" alt="Stonez Digital" /><span><strong>STONEZ DIGITAL</strong><small>SCHOOL MANAGEMENT</small></span></Link><p>Technology for better-run schools.<br />One connected workspace for school operations.</p><div className="marketing-footer-links"><a href="#platform">Platform</a><a href="#features">Features</a><a href="#security">Security</a><Link href="/school-signup">Register</Link><Link href="/login">Sign in</Link><a href="mailto:info@stonezdigital.com.ng">Contact Stonez Digital</a></div></div><div className="marketing-footer-bottom"><span>© {new Date().getFullYear()} Stonez Digital. All rights reserved.</span><a href="https://stonezdigital.com.ng" target="_blank" rel="noreferrer">Built by Stonez Digital <Arrow /></a></div></div></footer>
+    </main>
+  );
 }

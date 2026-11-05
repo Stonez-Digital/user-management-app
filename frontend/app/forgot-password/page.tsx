@@ -47,7 +47,7 @@ export default function ForgotPasswordPage() {
           {message && <div className="tenant-note" role="status"><strong>Request received</strong><span>{message}</span></div>}
           <button disabled={loading}>{loading ? "Sending request..." : "Send reset link"}</button>
         </form>
-        <div className="auth-footer"><Link href="/">Back to sign in</Link></div>
+        <div className="auth-footer"><Link href="/login">Back to sign in</Link></div>
       </section>
     </main>
   );

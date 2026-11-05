@@ -95,3 +95,9 @@ func (p *CloudflareSchoolDomainProvisioner) DetachAttachment(ctx context.Context
 	if remaining != nil { return fmt.Errorf("Cloudflare still reports the hostname attached after detach") }
 	return nil
 }
+
+// WorkerName returns the configured Worker service name for ownership comparisons.
+func (p *CloudflareSchoolDomainProvisioner) WorkerName() string {
+	if p == nil { return "" }
+	return p.workerName
+}

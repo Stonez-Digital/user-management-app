@@ -31,8 +31,66 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --show-error --silent --location --max-time 30 "${PRODUCTION_FRONTEND_URL}/" -o /dev/null
-          curl --fail --show-error --silent --location --max-time 30 "${PRODUCTION_FRONTEND_URL}/backend/healthz" -o /dev/null
+
+          check_endpoint() {
+            local url="$1"
+            local attempt=1
+            local max_attempts=4
+            local delay=5
+            local body headers status curl_rc curl_output
+
+            body="$(mktemp)"
+            headers="$(mktemp)"
+            trap 'rm -f "$body" "$headers"' RETURN
+
+            while (( attempt <= max_attempts )); do
+              : >"$body"
+              : >"$headers"
+              curl_rc=0
+              if curl_output="$(curl --silent --show-error --location --max-time 30 \
+                --dump-header "$headers" --output "$body" \
+                --write-out '%{http_code}' "$url")"; then
+                status="$curl_output"
+              else
+                curl_rc=$?
+                status="${curl_output:-000}"
+              fi
+
+              if (( curl_rc == 0 )) && [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
+                echo "Smoke check passed: $url (HTTP $status)"
+                return 0
+              fi
+
+              local retryable=false
+              case "$status" in
+                429|502|503|504) retryable=true ;;
+              esac
+              case "$curl_rc" in
+                6|7|18|28|35|52|56) retryable=true ;;
+              esac
+
+              if [[ "$retryable" == true && $attempt -lt $max_attempts ]]; then
+                echo "Transient smoke-check failure for $url (HTTP $status, curl exit $curl_rc); retry $((attempt + 1))/$max_attempts in ${delay}s."
+                sleep "$delay"
+                delay=$((delay + 5))
+                attempt=$((attempt + 1))
+                continue
+              fi
+
+              echo "::error::Smoke check failed for $url after $attempt attempt(s): HTTP $status; curl exit $curl_rc."
+              echo "Relevant response headers:"
+              awk '/^HTTP\// || tolower($0) ~ /^(cf-ray|server|retry-after|content-type|cf-cache-status|location):/ { print }' "$headers" | tail -n 20
+              if [[ -s "$body" ]]; then
+                echo "Response body excerpt (first 800 bytes):"
+                head -c 800 "$body" | tr '\r\n' ' '
+                echo
+              fi
+              return 1
+            done
+          }
+
+          check_endpoint "${PRODUCTION_FRONTEND_URL}/"
+          check_endpoint "${PRODUCTION_FRONTEND_URL}/backend/healthz"
 
       - name: Run production acceptance
         shell: bash

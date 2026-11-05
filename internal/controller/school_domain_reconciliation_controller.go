@@ -2,7 +2,6 @@ package controller
 
 import (
 	"net/http"
-	"os"
 	"regexp"
 	"strings"
 
@@ -98,7 +97,7 @@ func (ctrl *SchoolDomainReconciliationController) Reconcile(c *gin.Context) {
 		httpx.Error(c, http.StatusBadGateway, "school_domain_lookup_failed", "unable to verify the requested hostname in Cloudflare")
 		return
 	}
-	if existingNew != nil && existingNew.Service != configuredWorkerName() {
+	if existingNew != nil && existingNew.Service != ctrl.Provisioner.WorkerName() {
 		httpx.Error(c, http.StatusConflict, "school_domain_owned_elsewhere", "requested hostname is attached to a different Worker; no changes were made")
 		return
 	}
@@ -116,7 +115,7 @@ func (ctrl *SchoolDomainReconciliationController) Reconcile(c *gin.Context) {
 			"current_slug":school.Slug, "requested_slug":slug,
 			"new_hostname":newHost, "new_hostname_already_attached":existingNew != nil,
 			"old_hostname":oldHost, "old_hostname_attached":oldAttachment != nil,
-			"old_hostname_owned_by_configured_worker":oldAttachment != nil && oldAttachment.Service == configuredWorkerName(),
+			"old_hostname_owned_by_configured_worker":oldAttachment != nil && oldAttachment.Service == ctrl.Provisioner.WorkerName(),
 			"changes_required":true, "confirm_required":true,
 		})
 		return
@@ -138,7 +137,7 @@ func (ctrl *SchoolDomainReconciliationController) Reconcile(c *gin.Context) {
 	}
 	if updateErr != nil {
 		if attachedByThisRequest {
-			if current, lookupErr := ctrl.Provisioner.LookupAttachment(c.Request.Context(), newHost); lookupErr == nil && current != nil && current.Service == configuredWorkerName() {
+			if current, lookupErr := ctrl.Provisioner.LookupAttachment(c.Request.Context(), newHost); lookupErr == nil && current != nil && current.Service == ctrl.Provisioner.WorkerName() {
 				_ = ctrl.Provisioner.DetachAttachment(c.Request.Context(), *current)
 			}
 		}
@@ -153,7 +152,7 @@ func (ctrl *SchoolDomainReconciliationController) Reconcile(c *gin.Context) {
 		} else {
 			cleanup = "old_hostname_not_attached"
 		}
-	} else if oldAttachment.Service != configuredWorkerName() {
+	} else if oldAttachment.Service != ctrl.Provisioner.WorkerName() {
 		cleanup = "blocked_ownership_mismatch"
 	} else if err := ctrl.Provisioner.DetachAttachment(c.Request.Context(), *oldAttachment); err != nil {
 		cleanup = "pending_retry"
@@ -171,8 +170,3 @@ func (ctrl *SchoolDomainReconciliationController) Reconcile(c *gin.Context) {
 	})
 }
 
-func configuredWorkerName() string {
-	// The provisioner validates ownership against its configured Worker. The
-	// value is surfaced here only for comparing lookup results, not for API calls.
-	return strings.TrimSpace(os.Getenv("CLOUDFLARE_WORKER_NAME"))
-}

@@ -79,7 +79,7 @@ jobs:
 
               echo "::error::Smoke check failed for $url after $attempt attempt(s): HTTP $status; curl exit $curl_rc."
               echo "Relevant response headers:"
-              awk 'BEGIN { IGNORECASE=1 } /^HTTP\// || /^(cf-ray|server|retry-after|content-type|cf-cache-status|location):/ { print }' "$headers" | tail -n 20
+              awk '/^HTTP\// || tolower($0) ~ /^(cf-ray|server|retry-after|content-type|cf-cache-status|location):/ { print }' "$headers" | tail -n 20
               if [[ -s "$body" ]]; then
                 echo "Response body excerpt (first 800 bytes):"
                 head -c 800 "$body" | tr '\r\n' ' '

@@ -163,3 +163,26 @@ func (ctrl *SchoolContentController) UpdateEnquiryStatus(c *gin.Context) {
 		c.JSON(200, item)
 	}
 }
+
+
+func (ctrl *SchoolContentController) DeleteEnquiry(c *gin.Context) {
+	schoolID, ok := contentSchoolID(c)
+	if !ok {
+		httpx.Error(c, 403, "school_context_required", "school context required")
+		return
+	}
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		httpx.Error(c, 400, "invalid_enquiry_id", "invalid enquiry id")
+		return
+	}
+	err = service.NewSchoolEnquiryService(ctrl.db).Delete(schoolID, id)
+	switch {
+	case errors.Is(err, service.ErrSchoolEnquiryNotFound):
+		httpx.Error(c, 404, "enquiry_not_found", "enquiry not found")
+	case err != nil:
+		httpx.Error(c, 500, "enquiry_delete_failed", "failed to delete enquiry")
+	default:
+		c.JSON(200, gin.H{"deleted": true})
+	}
+}

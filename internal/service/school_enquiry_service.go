@@ -58,3 +58,14 @@ func (s *SchoolEnquiryService) UpdateStatus(schoolID, enquiryID uuid.UUID, statu
 	if err := s.db.Model(&enquiry).Update("status", status).Error; err != nil { return enquiry, err }
 	return enquiry, s.db.Where("school_id = ? AND id = ?", schoolID, enquiryID).First(&enquiry).Error
 }
+
+func (s *SchoolEnquiryService) Delete(schoolID, enquiryID uuid.UUID) error {
+	result := s.db.Where("school_id = ? AND id = ?", schoolID, enquiryID).Delete(&models.SchoolEnquiry{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrSchoolEnquiryNotFound
+	}
+	return nil
+}

@@ -28,7 +28,7 @@ There is no automatic expiry or background purge for enquiries in this release. 
 4. retain a record beyond that period only where a documented legal, safeguarding, dispute or other legitimate hold applies; and
 5. securely delete enquiries when the approved period expires and no hold applies.
 
-Authorised school administrators can permanently delete an individual enquiry from the school dashboard. Deletion is tenant-scoped: an administrator cannot delete another school's enquiry. The action is irreversible. The school should confirm the request, check for any applicable hold and follow its approved schedule before deleting. This feature does not currently provide automated bulk expiry, anonymisation, export or a deletion audit trail.
+Authorised school administrators can permanently delete an individual enquiry from the school dashboard. Deletion is tenant-scoped: an administrator cannot delete another school's enquiry. The action is irreversible. The school should confirm the request, check for any applicable hold and follow its approved schedule before deleting. Successful school-admin deletions are recorded in the platform audit log with the actor, school, enquiry identifier and timestamp. The audit entry does not copy the enquiry message, name, email address or phone number. This feature does not currently provide automated bulk expiry, anonymisation or export.
 
 ## Access and security
 

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -123,4 +124,72 @@ func validCloudflareLabel(label string) bool {
 		}
 	}
 	return true
+}
+
+
+// CloudflareWorkerDomain is the read-only subset needed to audit Worker
+// custom-domain attachments.
+type CloudflareWorkerDomain struct {
+	Hostname string `json:"hostname"`
+	Service  string `json:"service"`
+	Enabled  bool   `json:"enabled"`
+}
+
+type cloudflareWorkerDomainListResponse struct {
+	Success bool                    `json:"success"`
+	Errors  []struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	} `json:"errors"`
+	Result     []CloudflareWorkerDomain `json:"result"`
+	ResultInfo struct {
+		TotalPages int `json:"total_pages"`
+	} `json:"result_info"`
+}
+
+// ListAttachedDomains returns Worker custom domains without changing Cloudflare
+// state. It is intentionally separate from Attach so audit tooling can remain
+// read-only.
+func (p *CloudflareSchoolDomainProvisioner) ListAttachedDomains(ctx context.Context) ([]CloudflareWorkerDomain, error) {
+	if p == nil || p.token == "" || p.accountID == "" || p.workerName == "" {
+		return nil, fmt.Errorf("Cloudflare school-domain provisioning is not configured")
+	}
+
+	const perPage = 100
+	var domains []CloudflareWorkerDomain
+	for page := 1; ; page++ {
+		endpoint := strings.TrimRight(p.apiBaseURL, "/") + "/accounts/" + p.accountID + "/workers/domains"
+		query := url.Values{}
+		query.Set("service", p.workerName)
+		query.Set("per_page", strconv.Itoa(perPage))
+		query.Set("page", strconv.Itoa(page))
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"?"+query.Encode(), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+p.token)
+		resp, err := p.client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("Cloudflare domain audit request failed: %w", err)
+		}
+
+		var result cloudflareWorkerDomainListResponse
+		decodeErr := json.NewDecoder(resp.Body).Decode(&result)
+		resp.Body.Close()
+		if decodeErr != nil {
+			return nil, fmt.Errorf("Cloudflare returned an unreadable domain audit response (HTTP %d)", resp.StatusCode)
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 || !result.Success {
+			if len(result.Errors) > 0 {
+				return nil, fmt.Errorf("Cloudflare domain audit failed (HTTP %d): %s", resp.StatusCode, result.Errors[0].Message)
+			}
+			return nil, fmt.Errorf("Cloudflare domain audit failed (HTTP %d)", resp.StatusCode)
+		}
+
+		domains = append(domains, result.Result...)
+		if result.ResultInfo.TotalPages == 0 || page >= result.ResultInfo.TotalPages {
+			break
+		}
+	}
+	return domains, nil
 }

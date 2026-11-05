@@ -27,6 +27,9 @@ func (s *SchoolEnquiryService) Create(schoolID uuid.UUID, enquiry *models.School
 	enquiry.Subject = strings.TrimSpace(enquiry.Subject)
 	enquiry.Message = strings.TrimSpace(enquiry.Message)
 	enquiry.Status = models.SchoolEnquiryNew
+	if enquiry.PrivacyNoticeVersion == "" {
+		enquiry.PrivacyNoticeVersion = models.SchoolEnquiryPrivacyNoticeVersion
+	}
 	if enquiry.FullName == "" || enquiry.Email == "" || enquiry.Subject == "" || enquiry.Message == "" || enquiry.ConsentAt.IsZero() {
 		return errors.New("required enquiry fields are missing")
 	}

@@ -45,7 +45,7 @@ Authorised school administrators can permanently delete an individual enquiry fr
 - [ ] Review the public notice against the school's actual practices and applicable law.
 - [ ] Approve a written retention period and any lawful exceptions.
 - [ ] Train authorised staff to review, close and delete enquiries appropriately.
-- [ ] Confirm backup and restoration arrangements, including how deletion requests interact with backup retention.
+- [ ] Confirm backup and restoration arrangements, including how deletion requests interact with backup retention. Live-database deletion does not immediately remove copies in retained backups. Define a backup expiry period and reconcile deletion events before restoring an older backup to service.
 - [ ] Obtain appropriate school approval before enabling the form for real prospective families.
 
 This document is an operational template, not legal advice. Each school should obtain appropriate review for its own circumstances.

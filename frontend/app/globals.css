@@ -212,12 +212,21 @@ button.module[aria-pressed]:disabled {
   button.module[aria-pressed] { transition: none; }
 }
 
-/* Persistent dashboard navigation, including the people onboarding workflow. */
-.dashboard-section-nav{display:flex;align-items:center;gap:4px;padding:10px 24px;background:#fff;border-bottom:1px solid #e2e8f0;overflow-x:auto;white-space:nowrap;scrollbar-width:thin}
-.dashboard-section-nav a{display:inline-flex;align-items:center;min-height:40px;padding:9px 12px;border-radius:8px;color:#334155;font-size:13px;font-weight:650;flex:0 0 auto}
-.dashboard-section-nav a:hover,.dashboard-section-nav a:focus-visible{background:#eef2ff;color:#162a72;outline:none}
-.dashboard-section-nav a[href="/dashboard/onboarding"]{color:#162a72;background:#eef2ff}
-@media(max-width:700px){.dashboard-section-nav{padding:8px 12px;gap:2px}.dashboard-section-nav a{padding:8px 10px;font-size:12px}.content{padding:20px 14px}}
+/* Grouped, role-aware workspace navigation. Native details keeps menus keyboard accessible. */
+.dashboard-section-nav{position:relative;z-index:14;display:flex;align-items:center;gap:6px;padding:10px 24px;background:#fff;border-bottom:1px solid #e2e8f0;overflow-x:auto;scrollbar-width:thin}
+.dashboard-section-nav a,.dashboard-nav-group>summary{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:9px 12px;border-radius:8px;color:#334155;font-size:12px;font-weight:700;white-space:nowrap;flex:0 0 auto}
+.dashboard-section-nav a:hover,.dashboard-section-nav a:focus-visible,.dashboard-nav-group>summary:hover,.dashboard-nav-group>summary:focus-visible{background:#eef2ff;color:#162a72;outline:none}
+.dashboard-nav-home[aria-current="page"],.dashboard-nav-group>summary[aria-current="location"]{background:#eef2ff;color:#162a72}
+.dashboard-nav-group{position:relative;flex:0 0 auto}
+.dashboard-nav-group>summary{cursor:pointer;list-style:none;gap:8px}
+.dashboard-nav-group>summary::-webkit-details-marker{display:none}
+.dashboard-nav-group>summary:after{content:"";width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg) translateY(-2px)}
+.dashboard-nav-group[open]>summary:after{transform:rotate(225deg) translate(-1px,-1px)}
+.dashboard-nav-menu{position:absolute;top:calc(100% + 7px);left:0;z-index:30;display:grid;gap:3px;min-width:220px;padding:7px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 14px 34px #1720331c}
+.dashboard-nav-menu a{justify-content:flex-start;min-height:38px;padding:9px 11px;font-size:12px}
+.dashboard-nav-menu a[aria-current="page"]{background:#eef2ff;color:#162a72}
+.dashboard-nav-external{margin-left:auto}
+@media(max-width:700px){.dashboard-section-nav{padding:8px 12px;gap:3px}.dashboard-section-nav a,.dashboard-nav-group>summary{min-height:42px;padding:8px 10px;font-size:11px}.dashboard-nav-menu{position:fixed;top:auto;left:12px;right:12px;min-width:0;max-height:min(55vh,420px);overflow-y:auto}.dashboard-nav-external{margin-left:0}}
 
 /* School admin dashboard: searchable actions and visible interaction states. */
 .quick-action-search{display:grid;gap:5px;min-width:min(340px,100%);font-size:11px;font-weight:700;color:#475569}

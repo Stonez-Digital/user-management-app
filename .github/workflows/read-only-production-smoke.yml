@@ -12,36 +12,46 @@ concurrency:
 
 jobs:
   smoke:
-    name: Check production frontend and API health
+    name: Check all production endpoints
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Check official frontend
+      - name: Check frontend and both API health endpoints
         shell: bash
         run: |
-          set -euo pipefail
-          curl --fail-with-body --silent --show-error --location \
-            --retry 3 --retry-all-errors --retry-delay 5 --max-time 30 \
-            --output /dev/null \
-            --write-out 'Frontend root: HTTP %{http_code}\n' \
-            https://app.stonezdigital.com.ng/
+          set -uo pipefail
 
-      - name: Check API through the frontend proxy
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl --fail-with-body --silent --show-error --location \
-            --retry 3 --retry-all-errors --retry-delay 5 --max-time 30 \
-            --output /dev/null \
-            --write-out 'Frontend-proxied API health: HTTP %{http_code}\n' \
-            https://app.stonezdigital.com.ng/backend/healthz
+          failures=0
 
-      - name: Check Render API directly
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl --fail-with-body --silent --show-error --location \
-            --retry 3 --retry-all-errors --retry-delay 5 --max-time 30 \
-            --output /dev/null \
-            --write-out 'Render API health: HTTP %{http_code}\n' \
-            https://stonez-digital-school-api.onrender.com/healthz
+          check_endpoint() {
+            local label="$1"
+            local url="$2"
+            local status
+            local curl_exit=0
+
+            echo "::group::${label}"
+            status="$(curl --silent --show-error --location \
+              --max-time 30 --output /dev/null \
+              --write-out '%{http_code}' "$url")" || curl_exit=$?
+
+            if [[ "$curl_exit" -eq 0 && "$status" =~ ^2[0-9][0-9]$ ]]; then
+              echo "${label}: HTTP ${status} (PASS)"
+            else
+              echo "::error::${label}: HTTP ${status:-000}, curl exit ${curl_exit} (FAIL)"
+              failures=$((failures + 1))
+            fi
+            echo "::endgroup::"
+          }
+
+          # Run every check even when an earlier endpoint fails. This is
+          # important when Cloudflare challenges the frontend but Render is healthy.
+          check_endpoint "Official frontend" "https://app.stonezdigital.com.ng/"
+          check_endpoint "Frontend-proxied API health" "https://app.stonezdigital.com.ng/backend/healthz"
+          check_endpoint "Render API health" "https://stonez-digital-school-api.onrender.com/healthz"
+
+          if [[ "$failures" -gt 0 ]]; then
+            echo "::error::Production smoke found ${failures} failing endpoint check(s)."
+            exit 1
+          fi
+
+          echo "All production endpoint checks passed."

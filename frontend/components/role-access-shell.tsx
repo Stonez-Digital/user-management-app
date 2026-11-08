@@ -7,53 +7,75 @@ import { landingPathForRole, normalizeAuthUser } from "../lib/auth-session";
 import { canRoleAccessPath } from "../lib/dashboard-access.mjs";
 
 type NavItem = { label: string; href: string };
+type NavGroup = { label: string; items: NavItem[] };
 
-const adminLinks: NavItem[] = [
-  { label: "Overview", href: "/dashboard" },
-  { label: "Curriculum", href: "/dashboard/curriculum" },
-  { label: "Academic", href: "/dashboard/academic" },
-  { label: "Students", href: "/dashboard/students" },
-  { label: "Enrollment", href: "/dashboard/enrollments" },
-  { label: "Teacher Assignments", href: "/dashboard/teacher-assignments" },
-  { label: "Attendance", href: "/dashboard/attendance" },
-  { label: "Assessments", href: "/dashboard/assessments" },
-  { label: "Results", href: "/dashboard/results" },
-  { label: "Timetable", href: "/dashboard/timetable" },
-  { label: "Operations", href: "/dashboard/operations" },
-  { label: "Blog & Gallery", href: "/dashboard/content" },
-  { label: "Users & Roles", href: "/dashboard/users" },
-  { label: "Onboarding", href: "/dashboard/onboarding" },
-  { label: "Audit Logs", href: "/dashboard/audit" },
-];
-
-const studentLinks: NavItem[] = [
-  { label: "My Dashboard", href: "/dashboard/student" },
-  { label: "CareerPath", href: "/dashboard/student/careerpath" },
-  { label: "Notifications", href: "/dashboard/notifications" },
-];
-
-const roleLinks: Record<string, NavItem[]> = {
-  student: studentLinks,
-  teacher: [
-    { label: "My Workspace", href: "/dashboard/teacher" },
-    { label: "Attendance", href: "/dashboard/attendance" },
+const adminGroups: NavGroup[] = [
+  { label: "People", items: [
+    { label: "Students", href: "/dashboard/students" },
+    { label: "Enrollment", href: "/dashboard/enrollments" },
+    { label: "Onboarding & Imports", href: "/dashboard/onboarding" },
+  ] },
+  { label: "Academics", items: [
+    { label: "Curriculum", href: "/dashboard/curriculum" },
+    { label: "Academic Setup", href: "/dashboard/academic" },
+    { label: "Teacher Assignments", href: "/dashboard/teacher-assignments" },
+  ] },
+  { label: "Examinations & Results", items: [
     { label: "Assessments", href: "/dashboard/assessments" },
-    { label: "Results", href: "/dashboard/results" },
+    { label: "Results & Report Cards", href: "/dashboard/results" },
+  ] },
+  { label: "Attendance & Operations", items: [
+    { label: "Attendance", href: "/dashboard/attendance" },
     { label: "Timetable", href: "/dashboard/timetable" },
+    { label: "Operations", href: "/dashboard/operations" },
+  ] },
+  { label: "Finance", items: [
+    { label: "Fees, Invoices & Payments", href: "/dashboard/finance" },
+  ] },
+  { label: "Communication", items: [
+    { label: "Blog & Gallery", href: "/dashboard/content" },
     { label: "Notifications", href: "/dashboard/notifications" },
+  ] },
+  { label: "Administration", items: [
+    { label: "Users & Roles", href: "/dashboard/users" },
+    { label: "Audit Logs", href: "/dashboard/audit" },
+  ] },
+];
+
+const roleGroups: Record<string, NavGroup[]> = {
+  student: [
+    { label: "My Learning", items: [
+      { label: "My Dashboard", href: "/dashboard/student" },
+      { label: "CareerPath", href: "/dashboard/student/careerpath" },
+    ] },
+    { label: "Updates", items: [{ label: "Notifications", href: "/dashboard/notifications" }] },
+  ],
+  teacher: [
+    { label: "Teaching Workspace", items: [
+      { label: "My Workspace", href: "/dashboard/teacher" },
+      { label: "Attendance", href: "/dashboard/attendance" },
+      { label: "Timetable", href: "/dashboard/timetable" },
+    ] },
+    { label: "Examinations & Results", items: [
+      { label: "Assessments", href: "/dashboard/assessments" },
+      { label: "Results", href: "/dashboard/results" },
+    ] },
+    { label: "Updates", items: [{ label: "Notifications", href: "/dashboard/notifications" }] },
   ],
   parent: [
-    { label: "My Family", href: "/dashboard/parent" },
-    { label: "Notifications", href: "/dashboard/notifications" },
+    { label: "Family", items: [{ label: "My Family", href: "/dashboard/parent" }] },
+    { label: "Updates", items: [{ label: "Notifications", href: "/dashboard/notifications" }] },
   ],
   accountant: [
-    { label: "Operations", href: "/dashboard/operations" },
-    { label: "Finance", href: "/dashboard/finance" },
-    { label: "Notifications", href: "/dashboard/notifications" },
+    { label: "Finance", items: [
+      { label: "Operations", href: "/dashboard/operations" },
+      { label: "Fees, Invoices & Payments", href: "/dashboard/finance" },
+    ] },
+    { label: "Updates", items: [{ label: "Notifications", href: "/dashboard/notifications" }] },
   ],
   staff: [
-    { label: "Operations", href: "/dashboard/operations" },
-    { label: "Notifications", href: "/dashboard/notifications" },
+    { label: "Operations", items: [{ label: "Operations Workspace", href: "/dashboard/operations" }] },
+    { label: "Updates", items: [{ label: "Notifications", href: "/dashboard/notifications" }] },
   ],
 };
 
@@ -61,6 +83,9 @@ function isPathWithin(pathname: string, base: string) {
   return pathname === base || pathname.startsWith(base + "/");
 }
 
+function isCurrentLink(pathname: string, href: string) {
+  return href === "/dashboard" ? pathname === href : isPathWithin(pathname, href);
+}
 
 export default function RoleAccessShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -105,23 +130,35 @@ export default function RoleAccessShell({ children }: { children: ReactNode }) {
   }, [pathname, ready, role, router]);
 
   if (!ready) return <main className="content"><section className="panel"><strong>Verifying access…</strong><p className="muted">Loading the workspace permitted for your account.</p></section></main>;
-  if (failure || !role) return <main className="content"><section className="panel" role="alert"><h1>Unable to verify access</h1><p>{failure || "Please sign in again to continue."}</p></section></main>;
+  if (failure || !role) return <main className="content" ><section className="panel" role="alert"><h1>Unable to verify access</h1><p>{failure || "Please sign in again to continue."}</p></section></main>;
   if (!canRoleAccessPath(role, pathname) || (pathname === "/dashboard" && landingPathForRole(role) !== pathname && ["student", "teacher", "parent", "accountant", "staff"].includes(role))) {
     return <main className="content"><section className="panel"><strong>Opening your workspace…</strong></section></main>;
   }
 
   const isSchoolAdmin = role === "school_admin";
-  const links = isSchoolAdmin || role === "super_admin"
-    ? adminLinks
-    : roleLinks[role] || [];
+  const groups = isSchoolAdmin || role === "super_admin" ? adminGroups : roleGroups[role] || [];
+
   return (
     <>
       <nav className="dashboard-section-nav" aria-label="Workspace navigation">
-        {links.map(({ label, href }) => (
-          <Link key={href} href={href} aria-current={isPathWithin(pathname, href) ? "page" : undefined}>{label}</Link>
-        ))}
+        <Link className="dashboard-nav-home" href={landingPathForRole(role)} aria-current={isCurrentLink(pathname, landingPathForRole(role)) ? "page" : undefined}>
+          {isSchoolAdmin || role === "super_admin" ? "Overview" : "My Workspace"}
+        </Link>
+        {groups.map((group) => {
+          const active = group.items.some((item) => isPathWithin(pathname, item.href));
+          return (
+            <details className="dashboard-nav-group" key={group.label} open={active}>
+              <summary aria-current={active ? "location" : undefined}>{group.label}</summary>
+              <div className="dashboard-nav-menu">
+                {group.items.map(({ label, href }) => (
+                  <Link key={href} href={href} aria-current={isCurrentLink(pathname, href) ? "page" : undefined}>{label}</Link>
+                ))}
+              </div>
+            </details>
+          );
+        })}
         {isSchoolAdmin && schoolSlug && (
-          <Link href={"/school/" + encodeURIComponent(schoolSlug)} target="_blank" rel="noreferrer">
+          <Link className="dashboard-nav-external" href={"/school/" + encodeURIComponent(schoolSlug)} target="_blank" rel="noreferrer">
             School Homepage ↗
           </Link>
         )}

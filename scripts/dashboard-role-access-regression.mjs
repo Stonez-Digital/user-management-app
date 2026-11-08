@@ -46,5 +46,18 @@ const shell = await readFile(new URL("../frontend/components/role-access-shell.t
 assert.ok(shell.includes('fetch("/backend/me"'));
 assert.ok(shell.includes("router.replace(landingPathForRole(role))"));
 assert.ok(shell.includes('label: "Blog & Gallery", href: "/dashboard/content"'));
+assert.ok(shell.includes("type NavGroup = { label: string; items: NavItem[] }"));
+assert.ok(shell.includes('label: "People"'));
+assert.ok(shell.includes('label: "Academics"'));
+assert.ok(shell.includes('label: "Examinations & Results"'));
+assert.ok(shell.includes('label: "Attendance & Operations"'));
+assert.ok(shell.includes('label: "Finance"'));
+assert.ok(shell.includes('label: "Communication"'));
+assert.ok(shell.includes('label: "Administration"'));
+assert.ok(shell.includes('className="dashboard-nav-group"'));
+assert.ok(shell.includes('aria-label="Workspace navigation"'));
+assert.ok(shell.includes('label: "Fees, Invoices & Payments", href: "/dashboard/finance"'));
+assert.ok(!shell.includes('href: "/dashboard/cbt"'));
+assert.ok(!shell.includes('href: "/dashboard/payroll"'));
 assert.ok(shell.includes("if (!ready)"));
 console.log("Role-aware dashboard access regression checks passed.");

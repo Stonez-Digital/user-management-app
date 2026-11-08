@@ -112,6 +112,10 @@ export default function OnboardingPage() {
   useEffect(() => {
     loadJobs();
     loadStudents();
+    const requestedRole = new URLSearchParams(window.location.search).get("role");
+    if (requestedRole === "student" || requestedRole === "teacher" || requestedRole === "parent") {
+      setPerson((current) => ({ ...current, role: requestedRole }));
+    }
   }, []);
 
   async function createPerson(e: FormEvent) {

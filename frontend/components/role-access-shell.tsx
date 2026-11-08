@@ -83,6 +83,10 @@ function isPathWithin(pathname: string, base: string) {
   return pathname === base || pathname.startsWith(base + "/");
 }
 
+function isCurrentLink(pathname: string, href: string) {
+  return href === "/dashboard" ? pathname === href : isPathWithin(pathname, href);
+}
+
 export default function RoleAccessShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -137,7 +141,7 @@ export default function RoleAccessShell({ children }: { children: ReactNode }) {
   return (
     <>
       <nav className="dashboard-section-nav" aria-label="Workspace navigation">
-        <Link className="dashboard-nav-home" href={landingPathForRole(role)} aria-current={isPathWithin(pathname, landingPathForRole(role)) ? "page" : undefined}>
+        <Link className="dashboard-nav-home" href={landingPathForRole(role)} aria-current={isCurrentLink(pathname, landingPathForRole(role)) ? "page" : undefined}>
           {isSchoolAdmin || role === "super_admin" ? "Overview" : "My Workspace"}
         </Link>
         {groups.map((group) => {
@@ -147,7 +151,7 @@ export default function RoleAccessShell({ children }: { children: ReactNode }) {
               <summary aria-current={active ? "location" : undefined}>{group.label}</summary>
               <div className="dashboard-nav-menu">
                 {group.items.map(({ label, href }) => (
-                  <Link key={href} href={href} aria-current={isPathWithin(pathname, href) ? "page" : undefined}>{label}</Link>
+                  <Link key={href} href={href} aria-current={isCurrentLink(pathname, href) ? "page" : undefined}>{label}</Link>
                 ))}
               </div>
             </details>

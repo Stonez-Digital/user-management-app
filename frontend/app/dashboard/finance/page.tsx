@@ -13,13 +13,15 @@ const money=(value:any)=>new Intl.NumberFormat("en-NG",{style:"currency",currenc
 function FinanceContent(){
  const { sessionId: selectedSessionId, termId: selectedTermId, terms: selectedTerms } = useAcademicContext();
  const[fees,setFees]=useState<RecordItem[]>([]),[invoices,setInvoices]=useState<RecordItem[]>([]),[terms,setTerms]=useState<RecordItem[]>([]),[enrollments,setEnrollments]=useState<RecordItem[]>([]),[error,setError]=useState(""),[busy,setBusy]=useState(false);
- const[receipt,setReceipt]=useState<RecordItem|null>(null),[ledgerSearch,setLedgerSearch]=useState(""),[ledgerStatus,setLedgerStatus]=useState("all");
+ const[receipt,setReceipt]=useState<RecordItem|null>(null),[ledgerSearch,setLedgerSearch]=useState(""),[ledgerStatus,setLedgerStatus]=useState("all"),[ledgerFrom,setLedgerFrom]=useState(""),[ledgerTo,setLedgerTo]=useState("");
  const[fee,setFee]=useState({term_id:"",name:"",description:"",amount:""});
  const[invoice,setInvoice]=useState({student_enrollment_id:"",term_id:"",due_date:"",fee_item_id:"",description:"",quantity:"1",unit_amount:""});
  const[payment,setPayment]=useState({invoice_id:"",amount:"",provider:"manual",reference:""});
  const selectedInvoice=useMemo(()=>invoices.find(x=>x.id===payment.invoice_id),[invoices,payment.invoice_id]);
- const ledger=useMemo(()=>invoices.flatMap((inv:RecordItem)=>(Array.isArray(inv.payments)?inv.payments:[]).map((p:RecordItem)=>({ ...p, invoice:inv, invoice_number:inv.invoice_number||inv.id, student_admission:inv.student_enrollment?.student?.admission_number||"—", term_name:inv.term?.name||"—" }))).sort((a:RecordItem,b:RecordItem)=>new Date(b.paid_at||b.created_at||0).getTime()-new Date(a.paid_at||a.created_at||0).getTime()),[invoices]);
- const visibleLedger=useMemo(()=>ledger.filter((p:RecordItem)=>{const q=ledgerSearch.trim().toLowerCase();const matches=!q||[p.receipt_number,p.reference,p.invoice_number,p.student_admission,p.provider].some(v=>String(v||"").toLowerCase().includes(q));return matches&&(ledgerStatus==="all"||p.status===ledgerStatus)}),[ledger,ledgerSearch,ledgerStatus]);
+ const ledger=useMemo(()=>invoices.flatMap((inv:RecordItem)=>(Array.isArray(inv.payments)?inv.payments:[]).map((p:RecordItem)=>{const enrollment=inv.student_enrollment||{},student=enrollment.student||{};return {...p,invoice:inv,invoice_number:inv.invoice_number||inv.id,student_admission:student.admission_number||"—",student_name:inv.student_name||student.name||"Student name unavailable",student_email:student.user?.email||"",class_name:inv.student_class_name||enrollment.class?.name||enrollment.school_class?.name||"—",term_name:inv.term?.name||"—"} as RecordItem})).sort((a:RecordItem,b:RecordItem)=>new Date(b.paid_at||b.created_at||0).getTime()-new Date(a.paid_at||a.created_at||0).getTime()),[invoices]);
+ const ledgerTotals=useMemo(()=>ledger.reduce((totals,p)=>{const amount=Number(p.amount||0);if(p.status==="succeeded")totals.collected+=amount;else if(p.status==="pending")totals.pending+=amount;else if(p.status==="refunded")totals.refunded+=amount;return totals},{collected:0,pending:0,refunded:0}),[ledger]);
+ const visibleLedger=useMemo(()=>ledger.filter((p:RecordItem)=>{const q=ledgerSearch.trim().toLowerCase(),date=new Date(p.paid_at||p.created_at||0).toISOString().slice(0,10);const matches=!q||[p.receipt_number,p.reference,p.invoice_number,p.student_admission,p.student_name,p.student_email,p.class_name,p.provider].some(v=>String(v||"").toLowerCase().includes(q));return matches&&(ledgerStatus==="all"||p.status===ledgerStatus)&&(!ledgerFrom||date>=ledgerFrom)&&(!ledgerTo||date<=ledgerTo)}),[ledger,ledgerSearch,ledgerStatus,ledgerFrom,ledgerTo]);
+ function exportLedger(){const columns=["receipt_number","date","student_name","student_admission","class_name","invoice_number","term_name","provider","reference","status","amount"];const rows=visibleLedger.map(p=>[p.receipt_number||"",p.paid_at||p.created_at||"",p.student_name,p.student_admission,p.class_name,p.invoice_number,p.term_name,p.provider,p.reference,p.status,p.amount]);const csv=[columns,...rows].map(row=>row.map(value=>`"${String(value??"").replace(/"/g,'""')}"`).join(",")).join("\r\n");const blob=new Blob(["\uFEFF",csv],{type:"text/csv;charset=utf-8;"});const url=URL.createObjectURL(blob);const anchor=document.createElement("a");anchor.href=url;anchor.download="school-payment-ledger.csv";anchor.click();URL.revokeObjectURL(url)}
 
  async function load(){
   if(!selectedSessionId||!selectedTermId)return;
@@ -59,7 +61,7 @@ function FinanceContent(){
    <div className="form-action"><button type="submit" disabled={busy||enrollments.length===0}>{busy?"Creating invoice…":"Create invoice"}</button></div>
   </form></Panel>
  </section>
- <section className="panel"><div className="panel-head"><div><h2>Record payment</h2><p>Payments are validated against the invoice balance and remain school-scoped.</p></div></div><div className="form-grid">
+ <section className="panel" id="record-payment"><div className="panel-head"><div><h2>Record payment</h2><p>Payments are validated against the invoice balance and remain school-scoped.</p></div></div><div className="form-grid">
   <label>Invoice<select value={payment.invoice_id}onChange={e=>{const id=e.target.value;const inv=invoices.find(x=>x.id===id);setPayment({...payment,invoice_id:id,amount:inv?.balance?String(inv.balance):""})}}><option value="">Select invoice</option>{invoices.filter(x=>Number(x.balance||0)>0).map(x=><option key={x.id}value={x.id}>{x.invoice_number||x.id} — balance {x.balance}</option>)}</select></label>
   <label>Amount<input type="number"min="0.01"step="0.01"value={payment.amount}onChange={e=>setPayment({...payment,amount:e.target.value})}/></label><label>Provider<input value={payment.provider}onChange={e=>setPayment({...payment,provider:e.target.value})}/></label><label>Reference<input value={payment.reference}onChange={e=>setPayment({...payment,reference:e.target.value})}placeholder="Receipt/reference"/></label>
   <div className="form-action"><button disabled={busy||!payment.invoice_id||!payment.amount||!payment.reference}onClick={()=>submit("/admin/invoices/"+payment.invoice_id+"/payments",{amount:Number(payment.amount),provider:payment.provider,reference:payment.reference,status:"succeeded"},()=>setPayment({invoice_id:"",amount:"",provider:"manual",reference:""}))}>{busy?"Saving...":"Record payment"}</button></div>
@@ -67,14 +69,16 @@ function FinanceContent(){
  <section className="panel"><div className="panel-head"><div><h2>Fee items</h2><p>Term-scoped school charges.</p></div></div><Table rows={fees}cols={["name","amount","term_id","active"]}/></section>
  <section className="panel"><div className="panel-head"><div><h2>Invoices</h2><p>Student billing and outstanding balances.</p></div></div><Table rows={invoices}cols={["invoice_number","total_amount","paid_amount","balance","status"]}/></section>
  <section className="panel">
-  <div className="panel-head"><div><h2>Payment ledger</h2><p>School-scoped payment records from the selected academic term. Only persisted payments are shown.</p></div><strong>{visibleLedger.length} records</strong></div>
+  <div className="panel-head"><div><h2>Payment ledger</h2><p>School-scoped payment records from the selected academic term. Only persisted payments are shown.</p></div><div className="ledger-tools"><strong>{visibleLedger.length} of {ledger.length} records</strong><button type="button" className="secondary" onClick={exportLedger} disabled={!visibleLedger.length}>Export CSV</button></div></div>
+  <div className="ledger-summary"><Stat label="Collected" value={money(ledgerTotals.collected)} detail="Succeeded payments"/><Stat label="Pending" value={money(ledgerTotals.pending)} detail="Awaiting confirmation"/><Stat label="Refunded" value={money(ledgerTotals.refunded)} detail="Recorded refunds"/></div>
   <div className="form-grid ledger-filters">
-   <label>Search payments<input value={ledgerSearch} onChange={e=>setLedgerSearch(e.target.value)} placeholder="Receipt, reference, invoice or admission no."/></label>
+   <label>Search payments<input value={ledgerSearch} onChange={e=>setLedgerSearch(e.target.value)} placeholder="Student, class, receipt, reference or invoice"/></label>
    <label>Payment status<select value={ledgerStatus} onChange={e=>setLedgerStatus(e.target.value)}><option value="all">All statuses</option><option value="succeeded">Succeeded</option><option value="pending">Pending</option><option value="failed">Failed</option><option value="refunded">Refunded</option></select></label>
+   <label>From date<input type="date" value={ledgerFrom} onChange={e=>setLedgerFrom(e.target.value)}/></label><label>To date<input type="date" min={ledgerFrom||undefined} value={ledgerTo} onChange={e=>setLedgerTo(e.target.value)}/></label>
   </div>
-  <div className="table-wrap"><table><thead><tr><th>Receipt</th><th>Date</th><th>Invoice</th><th>Admission no.</th><th>Reference</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead><tbody>
-   {visibleLedger.map((p:RecordItem)=><tr key={p.id}><td>{p.receipt_number||"—"}</td><td>{p.paid_at?new Date(p.paid_at).toLocaleDateString("en-NG"):new Date(p.created_at).toLocaleDateString("en-NG")}</td><td>{p.invoice_number}</td><td>{p.student_admission}</td><td>{p.reference}</td><td>{money(p.amount)}</td><td><span className={"payment-status status-"+p.status}>{p.status}</span></td><td><button type="button" className="secondary" onClick={()=>setReceipt(p)}>View receipt</button></td></tr>)}
-  </tbody></table>{visibleLedger.length===0&&<div className="empty">No payments match the current filters.</div>}</div>
+  <div className="table-wrap"><table><thead><tr><th>Receipt</th><th>Date</th><th>Student</th><th>Admission no.</th><th>Class</th><th>Invoice</th><th>Reference</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead><tbody>
+   {visibleLedger.map((p:RecordItem)=><tr key={p.id}><td>{p.receipt_number||"—"}</td><td>{p.paid_at?new Date(p.paid_at).toLocaleDateString("en-NG"):new Date(p.created_at).toLocaleDateString("en-NG")}</td><td>{p.student_name}</td><td>{p.student_admission}</td><td>{p.class_name}</td><td>{p.invoice_number}</td><td>{p.reference}</td><td>{money(p.amount)}</td><td><span className={"payment-status status-"+p.status}>{p.status}</span></td><td><button type="button" className="secondary" onClick={()=>setReceipt(p)}>View receipt</button></td></tr>)}
+  </tbody></table>{visibleLedger.length===0&&<div className="empty">{ledger.length===0?<>No payments have been recorded for this academic term yet. When the school records a real payment, it will appear here. <a href="#record-payment">Go to Record payment →</a></>:<>No payments match these filters. Try clearing the search, status or date range.</>}</div>}</div>
  </section>
  {receipt&&<section className="panel receipt-print">
   <div className="receipt-head"><div><p className="eyebrow">OFFICIAL PAYMENT RECEIPT</p><h2>Payment receipt</h2><p className="muted">Keep this receipt for your records.</p></div><strong>{receipt.receipt_number||"Receipt pending"}</strong></div>
@@ -82,7 +86,9 @@ function FinanceContent(){
    <div><span>Receipt number</span><strong>{receipt.receipt_number||"—"}</strong></div>
    <div><span>Payment date</span><strong>{receipt.paid_at?new Date(receipt.paid_at).toLocaleString("en-NG"):new Date(receipt.created_at).toLocaleString("en-NG")}</strong></div>
    <div><span>Invoice number</span><strong>{receipt.invoice_number}</strong></div>
+   <div><span>Student name</span><strong>{receipt.student_name}</strong></div>
    <div><span>Student admission number</span><strong>{receipt.student_admission}</strong></div>
+   <div><span>Class</span><strong>{receipt.class_name}</strong></div>
    <div><span>Academic term</span><strong>{receipt.term_name}</strong></div>
    <div><span>Payment method</span><strong>{receipt.provider||"—"}</strong></div>
    <div><span>Payment reference</span><strong>{receipt.reference||"—"}</strong></div>
@@ -103,6 +109,9 @@ function FinanceContent(){
    .receipt-print .receipt-grid span, .receipt-print .receipt-note, .receipt-print .receipt-head .muted { color: #444 !important; }
   }
   .ledger-filters { margin-bottom: 18px; }
+  .ledger-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .ledger-summary { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; margin: 16px 0 22px; }
+  @media (max-width: 640px) { .ledger-summary { grid-template-columns: 1fr; } }
   .payment-status { display: inline-block; text-transform: capitalize; border-radius: 999px; padding: 4px 9px; font-size: 12px; background: #eee; }
   .status-succeeded { background: #e6f5ec; color: #17663a; }
   .status-pending { background: #fff3d6; color: #805500; }

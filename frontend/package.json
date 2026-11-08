@@ -18,7 +18,8 @@
     "test:dashboard-context": "node ../scripts/dashboard-academic-context-regression.mjs",
     "test:role-access": "node ../scripts/dashboard-role-access-regression.mjs",
     "test:careerpath": "node ../scripts/careerpath-v2-regression.mjs",
-    "test:school-domains": "node --test ../scripts/school-domain-routing.test.mjs"
+    "test:school-domains": "node --test ../scripts/school-domain-routing.test.mjs",
+    "test:auth-refresh": "node ../scripts/auth-fetch-regression.mjs"
   },
   "dependencies": {
     "next": "16.4.1",

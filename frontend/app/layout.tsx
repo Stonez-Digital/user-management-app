@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import ThemeToggle from "../components/theme-toggle";
 import SchoolDomainRouter from "../components/school-domain-router";
+import AuthFetchBootstrap from "./auth-fetch-bootstrap";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://app.stonezdigital.com.ng"),
@@ -24,6 +25,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
+        <AuthFetchBootstrap />
         <SchoolDomainRouter />
         <ThemeToggle />
         {children}

@@ -126,6 +126,15 @@ type SchoolDashboardHealth struct {
     FinanceActivity    string `json:"finance_activity"`
 }
 
+func schoolCalendarDateUTC(now time.Time) time.Time {
+    location, err := time.LoadLocation("Africa/Lagos")
+    if err != nil {
+        location = time.FixedZone("WAT", time.Hour)
+    }
+    local := now.In(location)
+    return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
+}
+
 func (s *SchoolDashboardService) Get(schoolID, adminID, sessionID, termID uuid.UUID) (SchoolDashboard, error) {
     var school models.School
     if err := s.db.Where("id = ?", schoolID).First(&school).Error; err != nil { return SchoolDashboard{}, err }
@@ -167,7 +176,7 @@ func (s *SchoolDashboardService) Get(schoolID, adminID, sessionID, termID uuid.U
         s.db.Model(&models.StudentEnrollment{}).Where("school_id = ? AND academic_session_id = ? AND status = ?", schoolID, session.ID, models.EnrollmentStatusActive).Count(&attendance.ExpectedToday)
     }
     if termFound {
-        today := time.Now().UTC().Truncate(24 * time.Hour)
+        today := schoolCalendarDateUTC(time.Now())
         var records []models.AttendanceRecord
         s.db.Where("school_id = ? AND term_id = ? AND date = ?", schoolID, term.ID, today).Find(&records)
         attendance.Recorded = len(records) > 0
@@ -280,19 +289,51 @@ func (s *SchoolDashboardService) Get(schoolID, adminID, sessionID, termID uuid.U
         AssessmentActivity: "Not started",
         FinanceActivity: "Not started",
     }
-    if sessionFound && termFound { health.AcademicSetup = "Complete" } else if sessionFound { health.AcademicSetup = "Needs attention" }
+    if sessionFound && termFound {
+        var classesWithoutSections int64
+        s.db.Model(&models.SchoolClass{}).Where("school_id = ? AND NOT EXISTS (SELECT 1 FROM sections WHERE sections.school_id = school_classes.school_id AND sections.class_id = school_classes.id)", schoolID).Count(&classesWithoutSections)
+        if overview.Classes > 0 && overview.Sections > 0 && overview.Subjects > 0 && classesWithoutSections == 0 {
+            health.AcademicSetup = "Complete"
+        } else {
+            health.AcademicSetup = "Needs attention"
+        }
+    } else if sessionFound {
+        health.AcademicSetup = "Needs attention"
+    }
     var activeStudents int64
     s.db.Model(&models.Student{}).Where("school_id = ? AND enrollment_status = ?", schoolID, models.EnrollmentActive).Count(&activeStudents)
     if activeStudents > 0 && overview.ActiveEnrollments == activeStudents { health.Enrollment = "Complete" } else if activeStudents > 0 { health.Enrollment = "Needs attention" }
     if sessionFound && termFound {
         var assigned int64
         s.db.Model(&models.TeacherAssignment{}).Where("school_id = ? AND academic_session_id = ? AND term_id = ? AND active = ?", schoolID, session.ID, term.ID, true).Count(&assigned)
-        if overview.Subjects > 0 && assigned >= overview.Subjects { health.TeacherAllocation = "Complete" } else if assigned > 0 { health.TeacherAllocation = "Needs attention" }
-        if attendance.Recorded { health.AttendanceActivity = "Complete" }
-        var assessments int64
+        var unassignedSubjects, teachersWithoutAssignments int64
+        s.db.Model(&models.Subject{}).Where("school_id = ? AND active = ? AND NOT EXISTS (SELECT 1 FROM teacher_assignments WHERE teacher_assignments.school_id = subjects.school_id AND teacher_assignments.subject_id = subjects.id AND teacher_assignments.academic_session_id = ? AND teacher_assignments.term_id = ? AND teacher_assignments.active = ?)", schoolID, true, session.ID, term.ID, true).Count(&unassignedSubjects)
+        s.db.Model(&models.User{}).Where("school_id = ? AND role = ? AND active = ? AND NOT EXISTS (SELECT 1 FROM teacher_assignments WHERE teacher_assignments.school_id = users.school_id AND teacher_assignments.teacher_id = users.id AND teacher_assignments.academic_session_id = ? AND teacher_assignments.term_id = ? AND teacher_assignments.active = ?)", schoolID, "teacher", true, session.ID, term.ID, true).Count(&teachersWithoutAssignments)
+        if overview.Teachers > 0 && overview.Subjects > 0 && unassignedSubjects == 0 && teachersWithoutAssignments == 0 {
+            health.TeacherAllocation = "Complete"
+        } else if assigned > 0 {
+            health.TeacherAllocation = "Needs attention"
+        }
+        recordedToday := attendance.Present + attendance.Absent + attendance.Late + attendance.Excused
+        if recordedToday > 0 && recordedToday >= attendance.ExpectedToday {
+            health.AttendanceActivity = "Complete"
+        } else if recordedToday > 0 {
+            health.AttendanceActivity = "Needs attention"
+        }
+        var assessments, assessmentsWithoutResults int64
         s.db.Model(&models.Assessment{}).Joins("JOIN teacher_assignments ON teacher_assignments.id = assessments.teacher_assignment_id").Where("assessments.school_id = ? AND teacher_assignments.academic_session_id = ? AND teacher_assignments.term_id = ?", schoolID, session.ID, term.ID).Count(&assessments)
-        if assessments > 0 { health.AssessmentActivity = "Complete" }
-        if finance.TotalInvoiced > 0 { health.FinanceActivity = "Complete" }
+        s.db.Model(&models.Assessment{}).Joins("JOIN teacher_assignments ON teacher_assignments.id = assessments.teacher_assignment_id").Where("assessments.school_id = ? AND teacher_assignments.academic_session_id = ? AND teacher_assignments.term_id = ? AND NOT EXISTS (SELECT 1 FROM assessment_results WHERE assessment_results.school_id = assessments.school_id AND assessment_results.assessment_id = assessments.id)", schoolID, session.ID, term.ID).Count(&assessmentsWithoutResults)
+        if assessments > 0 && assessmentsWithoutResults == 0 {
+            health.AssessmentActivity = "Complete"
+        } else if assessments > 0 {
+            health.AssessmentActivity = "Needs attention"
+        }
+        if finance.TotalInvoiced > 0 {
+            health.FinanceActivity = "In progress"
+            if finance.OutstandingBalance <= 0 {
+                health.FinanceActivity = "Complete"
+            }
+        }
     }
 
     academic := SchoolDashboardAcademic{}

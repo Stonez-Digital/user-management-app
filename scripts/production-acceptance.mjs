@@ -11,6 +11,7 @@ const createdAssignments = [];
 const createdAttendance = [];
 const createdAssessments = [];
 const createdResults = [];
+const createdEnrollments = [];
 // Academic scaffolding created by this run is tracked explicitly. We retain it when
 // enrollment/history rows reference it, rather than claiming it was deleted.
 const createdAcademicRecords = [];
@@ -233,7 +234,9 @@ async function bootstrapSchool(s){
   await bulkImport(admin.access_token,"parents","parents-duplicate.csv","name,email,parent_identifier\nExisting Parent,"+parentEmail+","+parentEmail+"\n",{created:0,skipped:1,failed:0});
   record("bulk onboarding",school,"school_admin","PASS","Duplicate student/teacher/parent imports persisted skipped=1 and created=0");
   const enrollment=(await request("/admin/enrollments",{token:admin.access_token,method:"POST",body:{student_id:studentId,academic_session_id:academic.active.id,class_id:academic.cls.id,section_id:academic.sec.id,status:"active"},expected:[201]})).data;
-  const promoted=(await request(`/admin/enrollments/${enrollment.id}/place`,{token:admin.access_token,method:"POST",body:{target_session_id:academic.target.id,target_class_id:academic.cls.id,target_section_id:academic.sec.id,operation:"promote"},expected:[201]})).data;
+  if(enrollment?.id)createdEnrollments.push({id:enrollment.id,token:admin.access_token});else untrackedCleanupItems.push({kind:"enrollment",label:school+" source enrollment"});
+  const promoted=(await request("/admin/enrollments/"+enrollment.id+"/place",{token:admin.access_token,method:"POST",body:{target_session_id:academic.target.id,target_class_id:academic.cls.id,target_section_id:academic.sec.id,operation:"promote"},expected:[201]})).data;
+  if(promoted?.id)createdEnrollments.push({id:promoted.id,token:admin.access_token});else untrackedCleanupItems.push({kind:"enrollment",label:school+" promoted enrollment"});
   const history=list((await request(`/admin/enrollments/student/${studentId}`,{token:admin.access_token})).data,"enrollments");
   if(promoted.status!=="active"||history.length<2) fail(`${school}: promotion/history verification failed`);
   record("student lifecycle",school,"school_admin","PASS","Promotion created active target and preserved history");
@@ -325,7 +328,8 @@ async function cleanup(){
   for(const [items,path,label] of [
     [createdResults,"/admin/assessment-results","assessment result"],
     [createdAssessments,"/admin/assessments","assessment"],
-    [createdAttendance,"/admin/attendance","attendance record"]
+    [createdAttendance,"/admin/attendance","attendance record"],
+    [createdEnrollments,"/admin/enrollments","enrollment"]
   ]){
     for(const item of items){
       try { await request(`${path}/${item.id}`,{token:item.token,method:"DELETE",expected:[200,404]}); }
@@ -334,7 +338,7 @@ async function cleanup(){
   }
   for(const item of createdAssignments){
     try {
-      await request(`/admin/teacher-assignments/${item.id}`,{token:item.token,method:"PUT",body:item.body,expected:[200]});
+      await request(`/admin/teacher-assignments/${item.id}`,{token:item.token,method:"DELETE",expected:[200,404]});
     } catch(err) {
       errors.push(`teacher assignment ${item.id}: ${String(err?.message||err)}`);
     }

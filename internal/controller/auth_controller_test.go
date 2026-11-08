@@ -249,7 +249,7 @@ func TestLoginRejectsNonPlatformUserWithoutValidSchool(t *testing.T) {
             if err != nil { t.Fatal(err) }
             user := models.User{Name: "Unscoped Student", Email: "unscoped-"+strings.ToLower(strings.ReplaceAll(t.Name(), "/", "-"))+"@example.com", PasswordHash: hash, Role: authz.RoleStudent, Active: true, SchoolID: tc.schoolID}
             if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
-            rec := authJSONRequest(t, NewAuthController(db), http.MethodPost, "/login", "{\\"email\\":\\""+user.Email+"\\",\\"password\\":\\"password123\\"}")
+            rec := authJSONRequest(t, NewAuthController(db), http.MethodPost, "/login", "{\"email\":\""+user.Email+"\",\"password\":\"password123\"}")
             if rec.Code != http.StatusUnauthorized { t.Fatalf("expected unscoped user login to be rejected, got %d: %s", rec.Code, rec.Body.String()) }
             var sessions int64
             if err := db.Model(&models.Session{}).Where("user_id = ?", user.ID).Count(&sessions).Error; err != nil { t.Fatal(err) }
@@ -266,7 +266,7 @@ func TestRefreshRejectsUserWithoutValidSchool(t *testing.T) {
     familyID := uuid.New()
     if err := db.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: auth.HashRefreshToken(raw), ExpiresAt: time.Now().Add(time.Hour)}).Error; err != nil { t.Fatal(err) }
     if err := db.Create(&models.Session{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, RefreshTokenHash: auth.HashRefreshToken(raw), ExpiresAt: time.Now().Add(time.Hour)}).Error; err != nil { t.Fatal(err) }
-    rec := authJSONRequest(t, NewAuthController(db), http.MethodPost, "/refresh", "{\\"refresh_token\\":\\""+raw+"\\"}")
+    rec := authJSONRequest(t, NewAuthController(db), http.MethodPost, "/refresh", "{\"refresh_token\":\""+raw+"\"}")
     if rec.Code != http.StatusUnauthorized { t.Fatalf("expected unscoped refresh to be rejected, got %d: %s", rec.Code, rec.Body.String()) }
     var tokens int64
     if err := db.Model(&models.RefreshToken{}).Where("user_id = ? AND revoked = false", user.ID).Count(&tokens).Error; err != nil { t.Fatal(err) }

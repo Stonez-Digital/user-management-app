@@ -73,14 +73,24 @@ func (s *TeacherAssignmentService) Create(schoolID uuid.UUID, v models.TeacherAs
 }
 
 func (s *TeacherAssignmentService) List(schoolID uuid.UUID) ([]models.TeacherAssignment, error) { return s.repo.List(schoolID) }
+func (s *TeacherAssignmentService) listFiltered(schoolID, teacherID, sessionID, termID uuid.UUID) ([]models.TeacherAssignment, error) {
+ q := s.db.Where("school_id = ?", schoolID)
+ if teacherID != uuid.Nil { q = q.Where("teacher_id = ?", teacherID) }
+ if sessionID != uuid.Nil { q = q.Where("academic_session_id = ?", sessionID) }
+ if termID != uuid.Nil { q = q.Where("term_id = ?", termID) }
+ var items []models.TeacherAssignment
+ err := q.
+  Preload("Teacher", "school_id = ?", schoolID).
+  Preload("Subject", "school_id = ?", schoolID).
+  Preload("Class", "school_id = ?", schoolID).
+  Preload("Section", "school_id = ?", schoolID).
+  Order("created_at DESC").
+  Find(&items).Error
+ return items, err
+}
+
 func (s *TeacherAssignmentService) ListForTeacher(schoolID, teacherID, sessionID, termID uuid.UUID) ([]models.TeacherAssignment, error) {
-    items, err := s.repo.List(schoolID)
-    if err != nil { return nil, err }
-    filtered := make([]models.TeacherAssignment, 0)
-    for _, item := range items {
-        if item.TeacherID == teacherID && item.AcademicSessionID == sessionID && item.TermID == termID { filtered = append(filtered, item) }
-    }
-    return filtered, nil
+ return s.listFiltered(schoolID, teacherID, sessionID, termID)
 }
 func (s *TeacherAssignmentService) Get(schoolID, id uuid.UUID) (models.TeacherAssignment, error) { v,err:=s.repo.Get(schoolID,id); if errors.Is(err,gorm.ErrRecordNotFound){return v,ErrAssignmentNotFound}; return v,err }
 func (s *TeacherAssignmentService) Update(schoolID uuid.UUID, v models.TeacherAssignment) error {
@@ -111,15 +121,7 @@ func (s *TeacherAssignmentService) Delete(schoolID,id uuid.UUID) error {
 
 
 func (s *TeacherAssignmentService) Coverage(schoolID, sessionID, termID uuid.UUID) ([]models.TeacherAssignment, error) {
-	items, err := s.repo.List(schoolID)
-	if err != nil { return nil, err }
-	out := make([]models.TeacherAssignment, 0, len(items))
-	for _, item := range items {
-		if sessionID != uuid.Nil && item.AcademicSessionID != sessionID { continue }
-		if termID != uuid.Nil && item.TermID != termID { continue }
-		out = append(out, item)
-	}
-	return out, nil
+ return s.listFiltered(schoolID, uuid.Nil, sessionID, termID)
 }
 
 func isPostgresAssignmentUniqueViolation(err error,constraint string) bool {

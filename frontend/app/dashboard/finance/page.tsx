@@ -8,14 +8,18 @@ import AcademicSelector from "../../../components/academic-selector";
 type RecordItem=Record<string,any>;
 async function api(path:string,options:RequestInit={}){const token=localStorage.getItem("access_token");const r=await fetch("/backend"+path,{...options,headers:{...options.headers,Authorization:"Bearer "+token,"Content-Type":"application/json"}});const d=await r.json().catch(()=>({}));if(r.status===401)throw Error("Session expired");if(!r.ok)throw Error(d?.error?.message||"Request failed");return d}
 const arr=(d:any,key:string)=>Array.isArray(d)?d:d?.[key]||d?.data||[];
+const money=(value:any)=>new Intl.NumberFormat("en-NG",{style:"currency",currency:"NGN",maximumFractionDigits:2}).format(Number(value||0));
 
 function FinanceContent(){
  const { sessionId: selectedSessionId, termId: selectedTermId, terms: selectedTerms } = useAcademicContext();
  const[fees,setFees]=useState<RecordItem[]>([]),[invoices,setInvoices]=useState<RecordItem[]>([]),[terms,setTerms]=useState<RecordItem[]>([]),[enrollments,setEnrollments]=useState<RecordItem[]>([]),[error,setError]=useState(""),[busy,setBusy]=useState(false);
+ const[receipt,setReceipt]=useState<RecordItem|null>(null),[ledgerSearch,setLedgerSearch]=useState(""),[ledgerStatus,setLedgerStatus]=useState("all");
  const[fee,setFee]=useState({term_id:"",name:"",description:"",amount:""});
  const[invoice,setInvoice]=useState({student_enrollment_id:"",term_id:"",due_date:"",fee_item_id:"",description:"",quantity:"1",unit_amount:""});
  const[payment,setPayment]=useState({invoice_id:"",amount:"",provider:"manual",reference:""});
  const selectedInvoice=useMemo(()=>invoices.find(x=>x.id===payment.invoice_id),[invoices,payment.invoice_id]);
+ const ledger=useMemo(()=>invoices.flatMap((inv:RecordItem)=>(Array.isArray(inv.payments)?inv.payments:[]).map((p:RecordItem)=>({ ...p, invoice:inv, invoice_number:inv.invoice_number||inv.id, student_admission:inv.student_enrollment?.student?.admission_number||"—", term_name:inv.term?.name||"—" }))).sort((a:RecordItem,b:RecordItem)=>new Date(b.paid_at||b.created_at||0).getTime()-new Date(a.paid_at||a.created_at||0).getTime()),[invoices]);
+ const visibleLedger=useMemo(()=>ledger.filter((p:RecordItem)=>{const q=ledgerSearch.trim().toLowerCase();const matches=!q||[p.receipt_number,p.reference,p.invoice_number,p.student_admission,p.provider].some(v=>String(v||"").toLowerCase().includes(q));return matches&&(ledgerStatus==="all"||p.status===ledgerStatus)}),[ledger,ledgerSearch,ledgerStatus]);
 
  async function load(){
   if(!selectedSessionId||!selectedTermId)return;
@@ -62,6 +66,59 @@ function FinanceContent(){
  </div>{selectedInvoice&&<div className="empty">Selected invoice balance: {selectedInvoice.balance}</div>}</section>
  <section className="panel"><div className="panel-head"><div><h2>Fee items</h2><p>Term-scoped school charges.</p></div></div><Table rows={fees}cols={["name","amount","term_id","active"]}/></section>
  <section className="panel"><div className="panel-head"><div><h2>Invoices</h2><p>Student billing and outstanding balances.</p></div></div><Table rows={invoices}cols={["invoice_number","total_amount","paid_amount","balance","status"]}/></section>
+ <section className="panel">
+  <div className="panel-head"><div><h2>Payment ledger</h2><p>School-scoped payment records from the selected academic term. Only persisted payments are shown.</p></div><strong>{visibleLedger.length} records</strong></div>
+  <div className="form-grid ledger-filters">
+   <label>Search payments<input value={ledgerSearch} onChange={e=>setLedgerSearch(e.target.value)} placeholder="Receipt, reference, invoice or admission no."/></label>
+   <label>Payment status<select value={ledgerStatus} onChange={e=>setLedgerStatus(e.target.value)}><option value="all">All statuses</option><option value="succeeded">Succeeded</option><option value="pending">Pending</option><option value="failed">Failed</option><option value="refunded">Refunded</option></select></label>
+  </div>
+  <div className="table-wrap"><table><thead><tr><th>Receipt</th><th>Date</th><th>Invoice</th><th>Admission no.</th><th>Reference</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead><tbody>
+   {visibleLedger.map((p:RecordItem)=><tr key={p.id}><td>{p.receipt_number||"—"}</td><td>{p.paid_at?new Date(p.paid_at).toLocaleDateString("en-NG"):new Date(p.created_at).toLocaleDateString("en-NG")}</td><td>{p.invoice_number}</td><td>{p.student_admission}</td><td>{p.reference}</td><td>{money(p.amount)}</td><td><span className={"payment-status status-"+p.status}>{p.status}</span></td><td><button type="button" className="secondary" onClick={()=>setReceipt(p)}>View receipt</button></td></tr>)}
+  </tbody></table>{visibleLedger.length===0&&<div className="empty">No payments match the current filters.</div>}</div>
+ </section>
+ {receipt&&<section className="panel receipt-print">
+  <div className="receipt-head"><div><p className="eyebrow">OFFICIAL PAYMENT RECEIPT</p><h2>Payment receipt</h2><p className="muted">Keep this receipt for your records.</p></div><strong>{receipt.receipt_number||"Receipt pending"}</strong></div>
+  <div className="receipt-grid">
+   <div><span>Receipt number</span><strong>{receipt.receipt_number||"—"}</strong></div>
+   <div><span>Payment date</span><strong>{receipt.paid_at?new Date(receipt.paid_at).toLocaleString("en-NG"):new Date(receipt.created_at).toLocaleString("en-NG")}</strong></div>
+   <div><span>Invoice number</span><strong>{receipt.invoice_number}</strong></div>
+   <div><span>Student admission number</span><strong>{receipt.student_admission}</strong></div>
+   <div><span>Academic term</span><strong>{receipt.term_name}</strong></div>
+   <div><span>Payment method</span><strong>{receipt.provider||"—"}</strong></div>
+   <div><span>Payment reference</span><strong>{receipt.reference||"—"}</strong></div>
+   <div><span>Payment status</span><strong>{receipt.status}</strong></div>
+  </div>
+  <div className="receipt-total"><span>Amount received</span><strong>{money(receipt.amount)}</strong></div>
+  <p className="receipt-note">This receipt reflects a payment record stored by the school management system. It is not a bank or payment-provider settlement confirmation.</p>
+  <div className="receipt-actions"><button type="button" onClick={()=>window.print()}>Print receipt</button><button type="button" className="secondary" onClick={()=>setReceipt(null)}>Close receipt</button></div>
+ </section>}
+ <style jsx global>{`
+  @media print {
+   @page { size: A4; margin: 18mm; }
+   body * { visibility: hidden !important; }
+   .receipt-print, .receipt-print * { visibility: visible !important; }
+   .receipt-print { position: absolute !important; inset: 0 auto auto 0 !important; width: 100% !important; margin: 0 !important; border: 0 !important; box-shadow: none !important; background: #fff !important; color: #111 !important; }
+   .receipt-actions { display: none !important; }
+   .receipt-print .receipt-grid { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 18px !important; }
+   .receipt-print .receipt-grid span, .receipt-print .receipt-note, .receipt-print .receipt-head .muted { color: #444 !important; }
+  }
+  .ledger-filters { margin-bottom: 18px; }
+  .payment-status { display: inline-block; text-transform: capitalize; border-radius: 999px; padding: 4px 9px; font-size: 12px; background: #eee; }
+  .status-succeeded { background: #e6f5ec; color: #17663a; }
+  .status-pending { background: #fff3d6; color: #805500; }
+  .status-failed, .status-refunded { background: #fde8e8; color: #8c2525; }
+  .receipt-print { max-width: 820px; margin: 24px auto; padding: 28px; }
+  .receipt-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; border-bottom: 1px solid #ddd; padding-bottom: 20px; }
+  .receipt-head h2 { margin: 4px 0; }
+  .receipt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 24px 0; }
+  .receipt-grid div { display: flex; flex-direction: column; gap: 5px; }
+  .receipt-grid span, .receipt-total span { color: #666; font-size: 13px; }
+  .receipt-total { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #ddd; border-bottom: 1px solid #ddd; padding: 18px 0; }
+  .receipt-total strong { font-size: 24px; }
+  .receipt-note { color: #666; font-size: 12px; margin-top: 20px; }
+  .receipt-actions { display: flex; gap: 10px; margin-top: 22px; }
+  @media (max-width: 640px) { .receipt-print { padding: 18px; } .receipt-head { flex-direction: column; } .receipt-grid { grid-template-columns: 1fr; } }
+ `}</style>
  </div>
 }
 function Stat({label,value,detail}:{label:string;value:string|number;detail:string}){return <div className="stat"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>}

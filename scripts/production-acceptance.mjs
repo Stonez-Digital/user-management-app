@@ -18,20 +18,13 @@ function fail(message){throw new Error(message)}
 async function request(path,{token,method="GET",body,expected=[200],retries=3}={}) {
   let last;
   for(let attempt=0;attempt<=retries;attempt++){
-    try{
-      const r=await fetch(BASE_URL+path,{method,headers:{"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})},body:body===undefined?undefined:JSON.stringify(body)});
-      const text=await r.text(); let data={}; try{data=text?JSON.parse(text):{}}catch{data={raw:text}};
-      if((r.status===429||r.status===502||r.status===503||r.status===504)&&attempt<retries){
-        await new Promise(resolve=>setTimeout(resolve,1000*(attempt+1)));
-        continue;
-      }
-      if(!expected.includes(r.status)) fail(method+" "+path+" expected "+expected.join("/")+" got "+r.status+": "+JSON.stringify(data));
-      return {status:r.status,data};
-    }catch(err){
-      last=err;
-      if(attempt<retries){await new Promise(resolve=>setTimeout(resolve,1000*(attempt+1)));continue}
-      throw err;
-    }
+    let r;
+    try { r=await fetch(BASE_URL+path,{method,headers:{"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})},body:body===undefined?undefined:JSON.stringify(body)}); }
+    catch(err){last=err;if(attempt<retries){await new Promise(resolve=>setTimeout(resolve,1000*(attempt+1)));continue}throw err}
+    const text=await r.text();let data={};try{data=text?JSON.parse(text):{}}catch{data={raw:text}}
+    if([429,502,503,504].includes(r.status)&&attempt<retries){await new Promise(resolve=>setTimeout(resolve,1000*(attempt+1)));continue}
+    if(!expected.includes(r.status))fail(method+" "+path+" expected "+expected.join("/")+" got "+r.status+": "+JSON.stringify(data));
+    return {status:r.status,data};
   }
   throw last;
 }
@@ -365,8 +358,18 @@ async function cleanup(){
 }
 
 try {
-  if(!superAdmin.email||!superAdmin.password) fail("Missing super-admin QA credentials");
-  if(schools.length!==2) fail("PRODUCTION_QA_SCHOOLS_JSON must contain exactly two active school-admin credential objects");
+  if(process.env.PRODUCTION_QA_ALLOW_MUTATIONS!=="yes")fail("Production acceptance writes are disabled. Dispatch with confirm_production_writes=yes only after verifying the two dedicated QA schools.");
+  const apiUrl=new URL(BASE_URL);
+  if(apiUrl.protocol!=="https:"||apiUrl.hostname!=="stonez-digital-school-api.onrender.com")fail("Production acceptance is restricted to the HTTPS production Render API host.");
+  if(!/^[A-Za-z0-9._-]{1,40}$/.test(runId))fail("QA_RUN_ID must contain only 1-40 letters, numbers, dots, underscores or hyphens.");
+  if(!superAdmin.email||!superAdmin.password)fail("Missing super-admin QA credentials");
+  if(schools.length!==2)fail("PRODUCTION_QA_SCHOOLS_JSON must contain exactly two active school-admin credential objects");
+  const schoolCodes=schools.map(s=>String(s.school_code||"").trim().toLowerCase());
+  const adminEmails=schools.map(s=>String(s.admin_email||"").trim().toLowerCase());
+  if(schoolCodes.some(x=>!x)||new Set(schoolCodes).size!==2)fail("QA schools must have two distinct non-empty school_code values.");
+  if(adminEmails.some(x=>!x)||new Set(adminEmails).size!==2)fail("QA schools must have two distinct non-empty admin_email values.");
+  if(adminEmails.includes(String(superAdmin.email).trim().toLowerCase()))fail("The super-admin account must be separate from both school-admin QA accounts.");
+  if(schools.some(s=>!s.admin_password))fail("Both school-admin QA credentials must include passwords.");
   const superAuth=await login(superAdmin);
   const superMe=await me(superAuth.access_token);
   if(superMe.role!=="super_admin") fail("Super Admin QA account is not super_admin");

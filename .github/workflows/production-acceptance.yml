@@ -27,70 +27,82 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Cloudflare frontend smoke
+      - name: Cloudflare and API preflight
         shell: bash
         run: |
           set -euo pipefail
+          challenged=0
+          failed=0
 
-          check_endpoint() {
+          check_edge() {
             local url="$1"
-            local attempt=1
-            local max_attempts=4
-            local delay=5
             local body headers status curl_rc curl_output
-
             body="$(mktemp)"
             headers="$(mktemp)"
-            trap 'rm -f "$body" "$headers"' RETURN
+            : >"$body"
+            : >"$headers"
+            curl_rc=0
 
-            while (( attempt <= max_attempts )); do
-              : >"$body"
-              : >"$headers"
-              curl_rc=0
-              if curl_output="$(curl --silent --show-error --location --max-time 30 \
-                --dump-header "$headers" --output "$body" \
-                --write-out '%{http_code}' "$url")"; then
-                status="$curl_output"
-              else
-                curl_rc=$?
-                status="${curl_output:-000}"
-              fi
+            if curl_output="$(curl --silent --show-error --location --max-time 30 \
+              --dump-header "$headers" --output "$body" \
+              --write-out '%{http_code}' "$url")"; then
+              status="$curl_output"
+            else
+              curl_rc=$?
+              status="${curl_output:-000}"
+            fi
 
-              if (( curl_rc == 0 )) && [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
-                echo "Smoke check passed: $url (HTTP $status)"
-                return 0
-              fi
-
-              local retryable=false
-              case "$status" in
-                429|502|503|504) retryable=true ;;
-              esac
-              case "$curl_rc" in
-                6|7|18|28|35|52|56) retryable=true ;;
-              esac
-
-              if [[ "$retryable" == true && $attempt -lt $max_attempts ]]; then
-                echo "Transient smoke-check failure for $url (HTTP $status, curl exit $curl_rc); retry $((attempt + 1))/$max_attempts in ${delay}s."
-                sleep "$delay"
-                delay=$((delay + 5))
-                attempt=$((attempt + 1))
-                continue
-              fi
-
-              echo "::error::Smoke check failed for $url after $attempt attempt(s): HTTP $status; curl exit $curl_rc."
-              echo "Relevant response headers:"
-              awk '/^HTTP\// || tolower($0) ~ /^(cf-ray|server|retry-after|content-type|cf-cache-status|location):/ { print }' "$headers" | tail -n 20
+            if (( curl_rc == 0 )) && [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
+              echo "PASS — $url (HTTP $status)"
+            elif grep -Eiq '^cf-mitigated:[[:space:]]*challenge([[:space:]]|$)' "$headers"; then
+              echo "::warning::INCONCLUSIVE — Cloudflare challenge blocked non-browser probe: $url (HTTP $status)"
+              challenged=$((challenged + 1))
+            else
+              echo "::error::FAIL — $url (HTTP $status; curl exit $curl_rc)"
+              awk '/^HTTP\\// || tolower($0) ~ /^(cf-ray|server|retry-after|content-type|location):/ { print }' "$headers" | tail -n 20
               if [[ -s "$body" ]]; then
-                echo "Response body excerpt (first 800 bytes):"
-                head -c 800 "$body" | tr '\r\n' ' '
+                echo "Response excerpt:"
+                head -c 500 "$body" | tr '\\r\\n' ' '
                 echo
               fi
-              return 1
-            done
+              failed=$((failed + 1))
+            fi
+            rm -f "$body" "$headers"
           }
 
-          check_endpoint "${PRODUCTION_FRONTEND_URL}/"
-          check_endpoint "${PRODUCTION_FRONTEND_URL}/backend/healthz"
+          check_api() {
+            local url="$1"
+            local status curl_rc curl_output
+            curl_rc=0
+            if curl_output="$(curl --silent --show-error --location --max-time 30 --output /dev/null --write-out '%{http_code}' "$url")"; then
+              status="$curl_output"
+            else
+              curl_rc=$?
+              status="${curl_output:-000}"
+            fi
+            if (( curl_rc == 0 )) && [[ "$status" == "200" ]]; then
+              echo "PASS — direct Render API health: $url (HTTP 200)"
+            else
+              echo "::error::FAIL — direct Render API health: $url (HTTP $status; curl exit $curl_rc)"
+              failed=$((failed + 1))
+            fi
+          }
+
+          check_edge "${PRODUCTION_FRONTEND_URL}/"
+          check_edge "${PRODUCTION_FRONTEND_URL}/backend/healthz"
+          check_api "${PRODUCTION_API_URL}/healthz"
+
+          {
+            echo "### Production preflight"
+            echo "- Cloudflare edge checks challenged/inconclusive: $challenged"
+            echo "- Genuine endpoint failures: $failed"
+            echo "- Direct Render /healthz must return HTTP 200."
+            echo "- A Cloudflare challenge is not counted as an application pass or failure."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if (( failed > 0 )); then
+            exit 1
+          fi
 
       - name: Run production acceptance
         shell: bash

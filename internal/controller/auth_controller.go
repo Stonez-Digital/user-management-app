@@ -52,6 +52,34 @@ func NewAuthController(db *gorm.DB) *AuthController {
 
 func validPassword(password string) bool { return len(password) >= minPasswordLength }
 
+// validateSchoolAccess fails closed for every non-platform account. A missing
+// or dangling school association must never bypass school approval checks.
+func validateSchoolAccess(db *gorm.DB, user models.User, schoolCode, schoolSlug string) error {
+	if user.Role == authz.RoleSuperAdmin {
+		if strings.TrimSpace(schoolSlug) != "" {
+			return errors.New("platform administrators must use the platform login")
+		}
+		return nil
+	}
+	if user.SchoolID == nil || *user.SchoolID == uuid.Nil {
+		return errors.New("school association required")
+	}
+	var school models.School
+	if err := db.First(&school, "id = ?", *user.SchoolID).Error; err != nil {
+		return errors.New("school association is invalid")
+	}
+	if school.Status != models.SchoolStatusActive {
+		return errors.New("school onboarding is pending platform approval")
+	}
+	if code := strings.TrimSpace(schoolCode); code != "" && !strings.EqualFold(code, school.Code) {
+		return errors.New("school code does not match your account")
+	}
+	if slug := strings.TrimSpace(schoolSlug); slug != "" && !strings.EqualFold(slug, school.Slug) {
+		return errors.New("school login does not match your account")
+	}
+	return nil
+}
+
 func newResetToken() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil { return "", err }
@@ -201,24 +229,8 @@ func (ac *AuthController) Login(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
-	if user.Role != authz.RoleSuperAdmin && user.SchoolID != nil {
-		var school models.School
-		if err := ac.DB.First(&school, "id = ?", *user.SchoolID).Error; err == nil {
-			if school.Status != models.SchoolStatusActive {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "school onboarding is pending platform approval"})
-				return
-			}
-			if code := strings.TrimSpace(req.SchoolCode); code != "" && !strings.EqualFold(code, school.Code) {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "school code does not match your account"})
-				return
-			}
-			if slug := strings.TrimSpace(req.SchoolSlug); slug != "" && !strings.EqualFold(slug, school.Slug) {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "school login does not match your account"})
-				return
-			}
-		}
-	} else if user.Role == authz.RoleSuperAdmin && strings.TrimSpace(req.SchoolSlug) != "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "platform administrators must use the platform login"})
+	if err := validateSchoolAccess(ac.DB, user, req.SchoolCode, req.SchoolSlug); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 	sessionID := uuid.New()
@@ -266,6 +278,11 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 	}
 	var user models.User
 	if err := ac.DB.First(&user, "id = ?", stored.UserID).Error; err != nil || !user.Active {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
+		return
+	}
+
+	if err := validateSchoolAccess(ac.DB, user, "", ""); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
 		return
 	}

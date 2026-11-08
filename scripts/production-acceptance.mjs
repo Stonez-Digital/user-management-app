@@ -431,10 +431,10 @@ try {
   },retained_academic_scaffolding:{
     count:createdAcademicRecords.length,
     records:createdAcademicRecords.map(({kind,id,name,parent_session_id,parent_class_id})=>({kind,id,name,parent_session_id,parent_class_id})),
-    cleanup:"retained intentionally; academic sessions, terms, classes, sections, or subjects created by this run may be referenced by retained enrollment/history records"
+    cleanup:"retained intentionally for QA audit; removal is not attempted by this workflow"
   },retained_qa_history:{
     bulk_import_jobs:"retained for audit",
-    student_enrollments:"retained for lifecycle/history verification"
+    student_enrollments:"removed during cleanup when the API permits"
   }};
   console.log(JSON.stringify(report,null,2));
   if(cleanupErrors.length) process.exitCode=1;

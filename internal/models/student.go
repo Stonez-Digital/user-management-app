@@ -19,7 +19,7 @@ type Student struct {
     SchoolID uuid.UUID `gorm:"type:uuid;not null;index;uniqueIndex:uq_school_student_admission,priority:1" json:"school_id"`
     School School `gorm:"foreignKey:SchoolID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
     UserID uuid.UUID `gorm:"type:uuid;not null;uniqueIndex" json:"user_id"`
-    User User `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
+    User User `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"user,omitempty"`
     AdmissionNumber string `gorm:"not null;uniqueIndex:uq_school_student_admission,priority:2" json:"admission_number"`
     DateOfBirth *time.Time `json:"date_of_birth,omitempty"`
     Gender string `gorm:"size:30" json:"gender,omitempty"`

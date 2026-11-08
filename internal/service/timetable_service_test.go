@@ -18,3 +18,34 @@ func TestTimetableConflictValidationAndSchoolIsolation(t *testing.T){
  if e=svc.Update(b.ID,models.TimetableEntry{ID:first.ID,AcademicSessionID:sess.ID,TermID:term.ID,TeacherAssignmentID:assignment.ID,ClassID:class.ID,SectionID:&section.ID,DayOfWeek:models.TimetableMonday,StartTime:"10:00",EndTime:"11:00",Active:true});!errors.Is(e,ErrTimetableNotFound){t.Fatalf("expected cross-school update to fail, got %v",e)}
  list,e:=svc.List(b.ID, sess.ID, term.ID);if e!=nil||len(list)!=0{t.Fatalf("expected empty school B list, len=%d err=%v",len(list),e)}
 }
+
+func TestTimetableListFiltersByAcademicContext(t *testing.T) {
+ db := timetableDB(t)
+ school := models.School{Name: "Timetable List School", Code: "TL-"+uuid.NewString()[:6], Status: models.SchoolStatusActive}
+ if err := db.Create(&school).Error; err != nil { t.Fatal(err) }
+ teacher := models.User{SchoolID: &school.ID, Name: "Timetable Teacher", Email: "tt-"+uuid.NewString()+"@example.com", Role: "teacher", Active: true}
+ if err := db.Create(&teacher).Error; err != nil { t.Fatal(err) }
+ subject := models.Subject{SchoolID: school.ID, Code: "TL-"+uuid.NewString()[:6], Name: "Timetable Subject", Active: true}
+ if err := db.Create(&subject).Error; err != nil { t.Fatal(err) }
+ session := models.AcademicSession{SchoolID: school.ID, Name: "2026/2027", StartDate: time.Date(2026,9,1,0,0,0,0,time.UTC), EndDate: time.Date(2027,7,31,0,0,0,0,time.UTC)}
+ if err := db.Create(&session).Error; err != nil { t.Fatal(err) }
+ termA := models.Term{SchoolID: school.ID, AcademicSessionID: session.ID, Name: "First Term", StartDate: session.StartDate, EndDate: time.Date(2026,12,15,0,0,0,0,time.UTC)}
+ termB := models.Term{SchoolID: school.ID, AcademicSessionID: session.ID, Name: "Second Term", StartDate: time.Date(2027,1,1,0,0,0,0,time.UTC), EndDate: time.Date(2027,4,15,0,0,0,0,time.UTC)}
+ if err := db.Create(&termA).Error; err != nil { t.Fatal(err) }
+ if err := db.Create(&termB).Error; err != nil { t.Fatal(err) }
+ class := models.SchoolClass{SchoolID: school.ID, Name: "Timetable List Class", Level: 1}
+ if err := db.Create(&class).Error; err != nil { t.Fatal(err) }
+ assignment := models.TeacherAssignment{SchoolID: school.ID, TeacherID: teacher.ID, SubjectID: subject.ID, AcademicSessionID: session.ID, TermID: termA.ID, ClassID: class.ID, Active: true}
+ if err := db.Create(&assignment).Error; err != nil { t.Fatal(err) }
+ rows := []models.TimetableEntry{
+  {SchoolID: school.ID, AcademicSessionID: session.ID, TermID: termA.ID, TeacherAssignmentID: assignment.ID, ClassID: class.ID, DayOfWeek: models.TimetableMonday, StartTime: "08:00", EndTime: "09:00", Active: true},
+  {SchoolID: school.ID, AcademicSessionID: session.ID, TermID: termB.ID, TeacherAssignmentID: assignment.ID, ClassID: class.ID, DayOfWeek: models.TimetableTuesday, StartTime: "09:00", EndTime: "10:00", Active: true},
+ }
+ if err := db.Create(&rows).Error; err != nil { t.Fatal(err) }
+ svc := NewTimetableService(repository.NewTimetableRepository(db), db)
+ got, err := svc.List(school.ID, session.ID, termA.ID)
+ if err != nil { t.Fatal(err) }
+ if len(got) != 1 || got[0].TermID != termA.ID {
+  t.Fatalf("expected only first-term timetable entries, got %#v", got)
+ }
+}

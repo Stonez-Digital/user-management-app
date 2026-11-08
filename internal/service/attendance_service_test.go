@@ -21,8 +21,10 @@ func TestAttendanceListFiltersBySchoolSessionAndTermInDatabase(t *testing.T) {
  if err := db.Create(&termB).Error; err != nil { t.Fatal(err) }
  class := models.SchoolClass{SchoolID: schoolID, Name: "List Class", Level: 1}
  if err := db.Create(&class).Error; err != nil { t.Fatal(err) }
- enrollmentA := models.StudentEnrollment{SchoolID: schoolID, StudentID: student.ID, AcademicSessionID: sessionA.ID, ClassID: class.ID, Status: models.EnrollmentStatusActive}
- enrollmentB := models.StudentEnrollment{SchoolID: schoolID, StudentID: student.ID, AcademicSessionID: sessionB.ID, ClassID: class.ID, Status: models.EnrollmentStatusActive}
+ section := models.Section{SchoolID: schoolID, ClassID: class.ID, Name: "A"}
+ if err := db.Create(&section).Error; err != nil { t.Fatal(err) }
+ enrollmentA := models.StudentEnrollment{SchoolID: schoolID, StudentID: student.ID, AcademicSessionID: sessionA.ID, ClassID: class.ID, SectionID: section.ID, Status: models.EnrollmentStatusActive}
+ enrollmentB := models.StudentEnrollment{SchoolID: schoolID, StudentID: student.ID, AcademicSessionID: sessionB.ID, ClassID: class.ID, SectionID: section.ID, Status: models.EnrollmentStatusActive}
  if err := db.Create(&enrollmentA).Error; err != nil { t.Fatal(err) }
  if err := db.Create(&enrollmentB).Error; err != nil { t.Fatal(err) }
  dateA := time.Date(2026,9,10,0,0,0,0,time.UTC)

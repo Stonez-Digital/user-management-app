@@ -331,7 +331,7 @@ async function cleanup(){
     [createdAttendance,"/admin/attendance","attendance record"],
     [createdEnrollments,"/admin/enrollments","enrollment"]
   ]){
-    for(const item of items){
+    for(const item of (items===createdEnrollments?[...items].reverse():items)){
       try { await request(`${path}/${item.id}`,{token:item.token,method:"DELETE",expected:[200,404]}); }
       catch(err) { errors.push(`${label} ${item.id}: ${String(err?.message||err)}`); }
     }

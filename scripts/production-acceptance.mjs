@@ -320,7 +320,7 @@ async function bootstrapSchool(s){
   await request("/me",{expected:[401]});
   record("role isolation",school,"student","PASS","Student denied school-admin endpoint");
   record("unauthorized API",school,"anonymous","PASS","Protected /me returned 401");
-  return {school,admin,studentId,teacherId,parentId,assignment,academic};
+  return {school,admin,studentId,teacherId,parentId,assignment,targetEnrollmentId:promoted.id,academic};
 }
 async function cleanup(){
   const seen=new Set();
@@ -388,7 +388,21 @@ try {
   if(bStudents[0]) await request(`/admin/students/${bStudents[0].id}`,{token:a.admin.access_token,expected:[404]});
   const bSessions=list((await request("/admin/academic-sessions",{token:b.admin.access_token})).data,"sessions");
   if(bSessions[0]) await request(`/admin/academic-sessions/${bSessions[0].id}`,{token:a.admin.access_token,expected:[404]});
-  record("tenant isolation",a.school,"school_admin","PASS",`Cross-school ${foreignUserId?"user, ":""}student and session IDs rejected`);
+  // Same-value mutation probes target only QA records created in school B by this run.
+  const cb=b.academic.cls,sb=b.academic.sec,sub=b.academic.subject,ss=b.academic.active;
+  await request(`/admin/classes/${cb.id}`,{token:a.admin.access_token,method:"PUT",body:{name:cb.name,level:cb.level},expected:[404]});
+  await request(`/admin/sections/${sb.id}`,{token:a.admin.access_token,method:"PUT",body:{name:sb.name},expected:[404]});
+  await request(`/admin/subjects/${sub.id}`,{token:a.admin.access_token,method:"PUT",body:{code:sub.code,name:sub.name,description:sub.description||"",active:sub.active},expected:[404]});
+  await request(`/admin/academic-sessions/${ss.id}`,{token:a.admin.access_token,method:"PUT",body:{name:ss.name,start_date:ss.start_date,end_date:ss.end_date,status:ss.status},expected:[404]});
+  await request(`/admin/teacher-assignments/${b.assignment.id}`,{token:a.admin.access_token,method:"PUT",body:{teacher_id:b.teacherId,subject_id:sub.id,academic_session_id:ss.id,term_id:b.academic.activeTerm.id,class_id:cb.id,section_id:sb.id,allocation_type:"subject_teacher",active:true},expected:[404]});
+  await request(`/admin/enrollments/${b.targetEnrollmentId}`,{token:a.admin.access_token,method:"PUT",body:{status:"active"},expected:[404]});
+  await request(`/admin/students/${b.studentId}`,{token:a.admin.access_token,method:"PUT",body:{enrollment_status:"active"},expected:[404]});
+  const cbAfter=unwrap((await request(`/admin/classes/${cb.id}`,{token:b.admin.access_token})).data);
+  const sbAfter=unwrap((await request(`/admin/sections/${sb.id}`,{token:b.admin.access_token})).data);
+  const subAfter=unwrap((await request(`/admin/subjects/${sub.id}`,{token:b.admin.access_token})).data);
+  const ssAfter=unwrap((await request(`/admin/academic-sessions/${ss.id}`,{token:b.admin.access_token})).data);
+  if(cbAfter.name!==cb.name||Number(cbAfter.level)!==Number(cb.level)||sbAfter.name!==sb.name||subAfter.code!==sub.code||subAfter.name!==sub.name||ssAfter.name!==ss.name||ssAfter.status!==ss.status)fail("School-B QA data changed during cross-school mutation probes.");
+  record("tenant isolation",a.school,"school_admin","PASS","Cross-school reads and same-value update attempts rejected for QA students, sessions, classes, sections, subjects, assignments and enrollments.");
   // Report and cleanup are finalized in finally so the artifact reflects cleanup success.
 } catch(err) {
   console.error(`Production acceptance failed: ${String(err?.message||err)}`);

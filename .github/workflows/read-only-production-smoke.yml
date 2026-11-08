@@ -12,16 +12,20 @@ concurrency:
 
 jobs:
   smoke:
-    name: Check all production endpoints
+    name: Check production API and edge endpoints
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Check frontend and both API health endpoints
+      - name: Check frontend edge and API health
         shell: bash
         run: |
           set -uo pipefail
 
           failures=0
+          challenged=0
+          passed=0
+          headers_file="$(mktemp)"
+          trap 'rm -f "$headers_file"' EXIT
 
           check_endpoint() {
             local label="$1"
@@ -29,13 +33,18 @@ jobs:
             local status
             local curl_exit=0
 
+            : > "$headers_file"
             echo "::group::${label}"
             status="$(curl --silent --show-error --location \
-              --max-time 30 --output /dev/null \
+              --max-time 30 --dump-header "$headers_file" --output /dev/null \
               --write-out '%{http_code}' "$url")" || curl_exit=$?
 
             if [[ "$curl_exit" -eq 0 && "$status" =~ ^2[0-9][0-9]$ ]]; then
               echo "${label}: HTTP ${status} (PASS)"
+              passed=$((passed + 1))
+            elif [[ "$curl_exit" -eq 0 ]] && grep -Eqi '^cf-mitigated:[[:space:]]*challenge' "$headers_file"; then
+              echo "::warning::${label}: HTTP ${status} (INCONCLUSIVE — Cloudflare challenge; browser access not tested)"
+              challenged=$((challenged + 1))
             else
               echo "::error::${label}: HTTP ${status:-000}, curl exit ${curl_exit} (FAIL)"
               failures=$((failures + 1))
@@ -43,15 +52,34 @@ jobs:
             echo "::endgroup::"
           }
 
-          # Run every check even when an earlier endpoint fails. This is
-          # important when Cloudflare challenges the frontend but Render is healthy.
-          check_endpoint "Official frontend" "https://app.stonezdigital.com.ng/"
-          check_endpoint "Frontend-proxied API health" "https://app.stonezdigital.com.ng/backend/healthz"
-          check_endpoint "Render API health" "https://stonez-digital-school-api.onrender.com/healthz"
+          # Edge requests are diagnostic: Cloudflare Bot Fight Mode may
+          # challenge non-browser clients. The direct Render health endpoint
+          # is the required application-health signal.
+          check_endpoint "Official frontend edge" "https://app.stonezdigital.com.ng/"
+          check_endpoint "Frontend-proxied API edge" "https://app.stonezdigital.com.ng/backend/healthz"
+          check_endpoint "Direct Render API health (required)" "https://stonez-digital-school-api.onrender.com/healthz"
+
+          {
+            echo "## Read-only production smoke"
+            echo ""
+            echo "| Result | Count |"
+            echo "|---|---:|"
+            echo "| Passed | ${passed} |"
+            echo "| Cloudflare-challenged / inconclusive | ${challenged} |"
+            echo "| Failed | ${failures} |"
+            echo ""
+            if [[ "$challenged" -gt 0 ]]; then
+              echo "> Cloudflare challenged automated edge requests. This is not counted as an application pass or failure; verify the site in a normal browser."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
           if [[ "$failures" -gt 0 ]]; then
-            echo "::error::Production smoke found ${failures} failing endpoint check(s)."
+            echo "::error::Production smoke found ${failures} genuine endpoint failure(s)."
             exit 1
           fi
 
-          echo "All production endpoint checks passed."
+          if [[ "$challenged" -gt 0 ]]; then
+            echo "::notice::Application health checks passed where directly testable; ${challenged} edge check(s) were inconclusive due to Cloudflare challenges."
+          else
+            echo "All production endpoint checks passed."
+          fi

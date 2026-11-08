@@ -7,6 +7,13 @@ on:
         description: "Optional QA run identifier"
         required: false
         type: string
+      confirm_production_writes:
+        description: "Explicitly authorize temporary QA writes to the two dedicated production QA schools"
+        required: true
+        type: choice
+        options:
+          - "no"
+          - "yes"
 
 permissions:
   contents: read
@@ -23,6 +30,7 @@ jobs:
       PRODUCTION_QA_SUPER_ADMIN_PASSWORD: ${{ secrets.PRODUCTION_QA_SUPER_ADMIN_PASSWORD }}
       PRODUCTION_QA_SCHOOLS_JSON: ${{ secrets.PRODUCTION_QA_SCHOOLS_JSON }}
       QA_RUN_ID: ${{ inputs.run_id }}
+      PRODUCTION_QA_ALLOW_MUTATIONS: ${{ inputs.confirm_production_writes }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

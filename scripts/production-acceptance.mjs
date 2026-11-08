@@ -11,6 +11,7 @@ const createdAssignments = [];
 const createdAttendance = [];
 const createdAssessments = [];
 const createdResults = [];
+const createdEnrollments = [];
 // Academic scaffolding created by this run is tracked explicitly. We retain it when
 // enrollment/history rows reference it, rather than claiming it was deleted.
 const createdAcademicRecords = [];
@@ -18,20 +19,13 @@ function fail(message){throw new Error(message)}
 async function request(path,{token,method="GET",body,expected=[200],retries=3}={}) {
   let last;
   for(let attempt=0;attempt<=retries;attempt++){
-    try{
-      const r=await fetch(BASE_URL+path,{method,headers:{"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})},body:body===undefined?undefined:JSON.stringify(body)});
-      const text=await r.text(); let data={}; try{data=text?JSON.parse(text):{}}catch{data={raw:text}};
-      if((r.status===429||r.status===502||r.status===503||r.status===504)&&attempt<retries){
-        await new Promise(resolve=>setTimeout(resolve,1000*(attempt+1)));
-        continue;
-      }
-      if(!expected.includes(r.status)) fail(method+" "+path+" expected "+expected.join("/")+" got "+r.status+": "+JSON.stringify(data));
-      return {status:r.status,data};
-    }catch(err){
-      last=err;
-      if(attempt<retries){await new Promise(resolve=>setTimeout(resolve,1000*(attempt+1)));continue}
-      throw err;
-    }
+    let r;
+    try { r=await fetch(BASE_URL+path,{method,headers:{"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})},body:body===undefined?undefined:JSON.stringify(body)}); }
+    catch(err){last=err;if(attempt<retries){await new Promise(resolve=>setTimeout(resolve,1000*(attempt+1)));continue}throw err}
+    const text=await r.text();let data={};try{data=text?JSON.parse(text):{}}catch{data={raw:text}}
+    if([429,502,503,504].includes(r.status)&&attempt<retries){await new Promise(resolve=>setTimeout(resolve,1000*(attempt+1)));continue}
+    if(!expected.includes(r.status))fail(method+" "+path+" expected "+expected.join("/")+" got "+r.status+": "+JSON.stringify(data));
+    return {status:r.status,data};
   }
   throw last;
 }
@@ -240,7 +234,9 @@ async function bootstrapSchool(s){
   await bulkImport(admin.access_token,"parents","parents-duplicate.csv","name,email,parent_identifier\nExisting Parent,"+parentEmail+","+parentEmail+"\n",{created:0,skipped:1,failed:0});
   record("bulk onboarding",school,"school_admin","PASS","Duplicate student/teacher/parent imports persisted skipped=1 and created=0");
   const enrollment=(await request("/admin/enrollments",{token:admin.access_token,method:"POST",body:{student_id:studentId,academic_session_id:academic.active.id,class_id:academic.cls.id,section_id:academic.sec.id,status:"active"},expected:[201]})).data;
-  const promoted=(await request(`/admin/enrollments/${enrollment.id}/place`,{token:admin.access_token,method:"POST",body:{target_session_id:academic.target.id,target_class_id:academic.cls.id,target_section_id:academic.sec.id,operation:"promote"},expected:[201]})).data;
+  if(enrollment?.id)createdEnrollments.push({id:enrollment.id,token:admin.access_token});else untrackedCleanupItems.push({kind:"enrollment",label:school+" source enrollment"});
+  const promoted=(await request("/admin/enrollments/"+enrollment.id+"/place",{token:admin.access_token,method:"POST",body:{target_session_id:academic.target.id,target_class_id:academic.cls.id,target_section_id:academic.sec.id,operation:"promote"},expected:[201]})).data;
+  if(promoted?.id)createdEnrollments.push({id:promoted.id,token:admin.access_token});else untrackedCleanupItems.push({kind:"enrollment",label:school+" promoted enrollment"});
   const history=list((await request(`/admin/enrollments/student/${studentId}`,{token:admin.access_token})).data,"enrollments");
   if(promoted.status!=="active"||history.length<2) fail(`${school}: promotion/history verification failed`);
   record("student lifecycle",school,"school_admin","PASS","Promotion created active target and preserved history");
@@ -324,7 +320,7 @@ async function bootstrapSchool(s){
   await request("/me",{expected:[401]});
   record("role isolation",school,"student","PASS","Student denied school-admin endpoint");
   record("unauthorized API",school,"anonymous","PASS","Protected /me returned 401");
-  return {school,admin,studentId,teacherId,parentId,assignment,academic};
+  return {school,admin,studentId,teacherId,parentId,assignment,targetEnrollmentId:promoted.id,academic};
 }
 async function cleanup(){
   const seen=new Set();
@@ -332,16 +328,17 @@ async function cleanup(){
   for(const [items,path,label] of [
     [createdResults,"/admin/assessment-results","assessment result"],
     [createdAssessments,"/admin/assessments","assessment"],
-    [createdAttendance,"/admin/attendance","attendance record"]
+    [createdAttendance,"/admin/attendance","attendance record"],
+    [createdEnrollments,"/admin/enrollments","enrollment"]
   ]){
-    for(const item of items){
+    for(const item of (items===createdEnrollments?[...items].reverse():items)){
       try { await request(`${path}/${item.id}`,{token:item.token,method:"DELETE",expected:[200,404]}); }
       catch(err) { errors.push(`${label} ${item.id}: ${String(err?.message||err)}`); }
     }
   }
   for(const item of createdAssignments){
     try {
-      await request(`/admin/teacher-assignments/${item.id}`,{token:item.token,method:"PUT",body:item.body,expected:[200]});
+      await request(`/admin/teacher-assignments/${item.id}`,{token:item.token,method:"DELETE",expected:[200,404]});
     } catch(err) {
       errors.push(`teacher assignment ${item.id}: ${String(err?.message||err)}`);
     }
@@ -365,8 +362,18 @@ async function cleanup(){
 }
 
 try {
-  if(!superAdmin.email||!superAdmin.password) fail("Missing super-admin QA credentials");
-  if(schools.length!==2) fail("PRODUCTION_QA_SCHOOLS_JSON must contain exactly two active school-admin credential objects");
+  if(process.env.PRODUCTION_QA_ALLOW_MUTATIONS!=="yes")fail("Production acceptance writes are disabled. Dispatch with confirm_production_writes=yes only after verifying the two dedicated QA schools.");
+  const apiUrl=new URL(BASE_URL);
+  if(apiUrl.protocol!=="https:"||apiUrl.hostname!=="stonez-digital-school-api.onrender.com")fail("Production acceptance is restricted to the HTTPS production Render API host.");
+  if(!/^[A-Za-z0-9._-]{1,40}$/.test(runId))fail("QA_RUN_ID must contain only 1-40 letters, numbers, dots, underscores or hyphens.");
+  if(!superAdmin.email||!superAdmin.password)fail("Missing super-admin QA credentials");
+  if(schools.length!==2)fail("PRODUCTION_QA_SCHOOLS_JSON must contain exactly two active school-admin credential objects");
+  const schoolCodes=schools.map(s=>String(s.school_code||"").trim().toLowerCase());
+  const adminEmails=schools.map(s=>String(s.admin_email||"").trim().toLowerCase());
+  if(schoolCodes.some(x=>!x)||new Set(schoolCodes).size!==2)fail("QA schools must have two distinct non-empty school_code values.");
+  if(adminEmails.some(x=>!x)||new Set(adminEmails).size!==2)fail("QA schools must have two distinct non-empty admin_email values.");
+  if(adminEmails.includes(String(superAdmin.email).trim().toLowerCase()))fail("The super-admin account must be separate from both school-admin QA accounts.");
+  if(schools.some(s=>!s.admin_password))fail("Both school-admin QA credentials must include passwords.");
   const superAuth=await login(superAdmin);
   const superMe=await me(superAuth.access_token);
   if(superMe.role!=="super_admin") fail("Super Admin QA account is not super_admin");
@@ -381,7 +388,21 @@ try {
   if(bStudents[0]) await request(`/admin/students/${bStudents[0].id}`,{token:a.admin.access_token,expected:[404]});
   const bSessions=list((await request("/admin/academic-sessions",{token:b.admin.access_token})).data,"sessions");
   if(bSessions[0]) await request(`/admin/academic-sessions/${bSessions[0].id}`,{token:a.admin.access_token,expected:[404]});
-  record("tenant isolation",a.school,"school_admin","PASS",`Cross-school ${foreignUserId?"user, ":""}student and session IDs rejected`);
+  // Same-value mutation probes target only QA records created in school B by this run.
+  const cb=b.academic.cls,sb=b.academic.sec,sub=b.academic.subject,ss=b.academic.active;
+  await request(`/admin/classes/${cb.id}`,{token:a.admin.access_token,method:"PUT",body:{name:cb.name,level:cb.level},expected:[404]});
+  await request(`/admin/sections/${sb.id}`,{token:a.admin.access_token,method:"PUT",body:{name:sb.name},expected:[404]});
+  await request(`/admin/subjects/${sub.id}`,{token:a.admin.access_token,method:"PUT",body:{code:sub.code,name:sub.name,description:sub.description||"",active:sub.active},expected:[404]});
+  await request(`/admin/academic-sessions/${ss.id}`,{token:a.admin.access_token,method:"PUT",body:{name:ss.name,start_date:ss.start_date,end_date:ss.end_date,status:ss.status},expected:[404]});
+  await request(`/admin/teacher-assignments/${b.assignment.id}`,{token:a.admin.access_token,method:"PUT",body:{teacher_id:b.teacherId,subject_id:sub.id,academic_session_id:ss.id,term_id:b.academic.activeTerm.id,class_id:cb.id,section_id:sb.id,allocation_type:"subject_teacher",active:true},expected:[404]});
+  await request(`/admin/enrollments/${b.targetEnrollmentId}`,{token:a.admin.access_token,method:"PUT",body:{status:"active"},expected:[404]});
+  await request(`/admin/students/${b.studentId}`,{token:a.admin.access_token,method:"PUT",body:{enrollment_status:"active"},expected:[404]});
+  const cbAfter=unwrap((await request(`/admin/classes/${cb.id}`,{token:b.admin.access_token})).data);
+  const sbAfter=unwrap((await request(`/admin/sections/${sb.id}`,{token:b.admin.access_token})).data);
+  const subAfter=unwrap((await request(`/admin/subjects/${sub.id}`,{token:b.admin.access_token})).data);
+  const ssAfter=unwrap((await request(`/admin/academic-sessions/${ss.id}`,{token:b.admin.access_token})).data);
+  if(cbAfter.name!==cb.name||Number(cbAfter.level)!==Number(cb.level)||sbAfter.name!==sb.name||subAfter.code!==sub.code||subAfter.name!==sub.name||ssAfter.name!==ss.name||ssAfter.status!==ss.status)fail("School-B QA data changed during cross-school mutation probes.");
+  record("tenant isolation",a.school,"school_admin","PASS","Cross-school reads and same-value update attempts rejected for QA students, sessions, classes, sections, subjects, assignments and enrollments.");
   // Report and cleanup are finalized in finally so the artifact reflects cleanup success.
 } catch(err) {
   console.error(`Production acceptance failed: ${String(err?.message||err)}`);
@@ -410,10 +431,10 @@ try {
   },retained_academic_scaffolding:{
     count:createdAcademicRecords.length,
     records:createdAcademicRecords.map(({kind,id,name,parent_session_id,parent_class_id})=>({kind,id,name,parent_session_id,parent_class_id})),
-    cleanup:"retained intentionally; academic sessions, terms, classes, sections, or subjects created by this run may be referenced by retained enrollment/history records"
+    cleanup:"retained intentionally for QA audit; removal is not attempted by this workflow"
   },retained_qa_history:{
     bulk_import_jobs:"retained for audit",
-    student_enrollments:"retained for lifecycle/history verification"
+    student_enrollments:"removed during cleanup when the API permits"
   }};
   console.log(JSON.stringify(report,null,2));
   if(cleanupErrors.length) process.exitCode=1;

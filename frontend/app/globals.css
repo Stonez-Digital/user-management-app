@@ -227,6 +227,7 @@ button.module[aria-pressed]:disabled {
 .dashboard-nav-menu a[aria-current="page"]{background:#eef2ff;color:#162a72}
 .dashboard-nav-external{margin-left:auto}
 @media(max-width:700px){.dashboard-section-nav{padding:8px 12px;gap:3px}.dashboard-section-nav a,.dashboard-nav-group>summary{min-height:42px;padding:8px 10px;font-size:11px}.dashboard-nav-menu{position:fixed;top:auto;left:12px;right:12px;min-width:0;max-height:min(55vh,420px);overflow-y:auto}.dashboard-nav-external{margin-left:0}}
+html[data-theme="dark"] .dashboard-section-nav{background:#101a35;border-color:#334155}html[data-theme="dark"] .dashboard-section-nav a,html[data-theme="dark"] .dashboard-nav-group>summary{color:#cbd5e1}html[data-theme="dark"] .dashboard-nav-home[aria-current="page"],html[data-theme="dark"] .dashboard-nav-group>summary[aria-current="location"],html[data-theme="dark"] .dashboard-nav-menu a[aria-current="page"]{background:#263b70;color:#fff}html[data-theme="dark"] .dashboard-nav-menu{background:#101a35;border-color:#334155;box-shadow:0 14px 34px #0006}html[data-theme="dark"] .dashboard-nav-menu a:hover,html[data-theme="dark"] .dashboard-nav-menu a:focus-visible{background:#263b70;color:#fff}
 
 /* School admin dashboard: searchable actions and visible interaction states. */
 .quick-action-search{display:grid;gap:5px;min-width:min(340px,100%);font-size:11px;font-weight:700;color:#475569}

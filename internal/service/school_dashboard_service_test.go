@@ -10,6 +10,15 @@ import (
     "gorm.io/gorm"
 )
 
+func TestSchoolDashboardCalendarDateUsesNigeriaLocalDay(t *testing.T) {
+    // 23:30 UTC on Nov 8 is already 00:30 on Nov 9 in Nigeria.
+    got := schoolCalendarDateUTC(time.Date(2026, 11, 8, 23, 30, 0, 0, time.UTC))
+    want := time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC)
+    if !got.Equal(want) {
+        t.Fatalf("expected Nigeria calendar day %s, got %s", want, got)
+    }
+}
+
 func TestSchoolDashboardSchoolIsolationAndSummary(t *testing.T) {
     db, err := gorm.Open(sqlite.Open("file:school_dashboard_test?mode=memory&cache=shared"), &gorm.Config{})
     if err != nil { t.Fatal(err) }

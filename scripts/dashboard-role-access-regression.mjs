@@ -43,6 +43,17 @@ assert.equal(canRoleAccessPath("school_admin", "/dashboard/content"), true);
 assert.equal(canRoleAccessPath("super_admin", "/dashboard/audit"), true);
 
 const shell = await readFile(new URL("../frontend/components/role-access-shell.tsx", import.meta.url), "utf8");
+const dashboard = await readFile(new URL("../frontend/app/dashboard/page.tsx", import.meta.url), "utf8");
+const onboarding = await readFile(new URL("../frontend/app/dashboard/onboarding/page.tsx", import.meta.url), "utf8");
+const finance = await readFile(new URL("../frontend/app/dashboard/finance/page.tsx", import.meta.url), "utf8");
+
+assert.ok(dashboard.includes('["Add Student", "/dashboard/onboarding?role=student"'));
+assert.ok(dashboard.includes('["Add Teacher", "/dashboard/onboarding?role=teacher"'));
+assert.ok(dashboard.includes('["Add Parent", "/dashboard/onboarding?role=parent"'));
+assert.ok(onboarding.includes('new URLSearchParams(window.location.search).get("role")'));
+assert.ok(onboarding.includes('setPerson((current) => ({ ...current, role: requestedRole }))'));
+assert.ok(finance.includes("x.student?.user?.name"));
+assert.ok(!finance.includes("x.student?.last_name||x.student_id||x.id"));
 assert.ok(shell.includes('fetch("/backend/me"'));
 assert.ok(shell.includes("router.replace(landingPathForRole(role))"));
 assert.ok(shell.includes('label: "Blog & Gallery", href: "/dashboard/content"'));

@@ -61,7 +61,9 @@ func TestRefreshRotatesTokenAndRejectsOldToken(t *testing.T) {
     db := authControllerTestDB(t)
     hash, err := auth.HashPassword("password123")
     if err != nil { t.Fatal(err) }
-    user := models.User{Name: "Refresh Test", Email: "refresh-" + strings.ToLower(t.Name()) + "@example.com", PasswordHash: hash, Role: authz.RoleStudent, Active: true}
+    school := models.School{ID: uuid.New(), Name: "Refresh Test School", Code: "REFRESH-"+strings.ToUpper(strings.ReplaceAll(t.Name(), "/", "-")), Status: models.SchoolStatusActive}
+    if err := db.Create(&school).Error; err != nil { t.Fatal(err) }
+    user := models.User{Name: "Refresh Test", Email: "refresh-" + strings.ToLower(t.Name()) + "@example.com", PasswordHash: hash, Role: authz.RoleStudent, Active: true, SchoolID: &school.ID}
     if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
     ac := NewAuthController(db)
     _, refresh := decodeAuthTokens(t, authJSONRequest(t, ac, http.MethodPost, "/login", "{\"email\":\""+user.Email+"\",\"password\":\"password123\"}"))
@@ -84,7 +86,9 @@ func TestLogoutRevokesRefreshTokenAndSession(t *testing.T) {
     db := authControllerTestDB(t)
     hash, err := auth.HashPassword("password123")
     if err != nil { t.Fatal(err) }
-    user := models.User{Name: "Logout Test", Email: "logout-" + strings.ToLower(t.Name()) + "@example.com", PasswordHash: hash, Role: authz.RoleStudent, Active: true}
+    school := models.School{ID: uuid.New(), Name: "Logout Test School", Code: "LOGOUT-"+strings.ToUpper(strings.ReplaceAll(t.Name(), "/", "-")), Status: models.SchoolStatusActive}
+    if err := db.Create(&school).Error; err != nil { t.Fatal(err) }
+    user := models.User{Name: "Logout Test", Email: "logout-" + strings.ToLower(t.Name()) + "@example.com", PasswordHash: hash, Role: authz.RoleStudent, Active: true, SchoolID: &school.ID}
     if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
     ac := NewAuthController(db)
     _, refresh := decodeAuthTokens(t, authJSONRequest(t, ac, http.MethodPost, "/login", "{\"email\":\""+user.Email+"\",\"password\":\"password123\"}"))
@@ -232,6 +236,41 @@ func TestSchoolSignupCreatesPendingTenantAndAdmin(t *testing.T) {
     if admin.SchoolID == nil || *admin.SchoolID != school.ID { t.Fatal("expected admin to belong to new school tenant") }
     if admin.Role != authz.RoleSchoolAdmin { t.Fatalf("expected school admin role, got %q", admin.Role) }
     if !auth.CheckPassword(admin.PasswordHash, "password123") { t.Fatal("expected password to be securely hashed") }
+}
+
+func TestLoginRejectsNonPlatformUserWithoutValidSchool(t *testing.T) {
+    for _, tc := range []struct{name string; schoolID *uuid.UUID}{
+        {name: "missing association"},
+        {name: "dangling association", schoolID: func() *uuid.UUID { id:=uuid.New(); return &id }()},
+    } {
+        t.Run(tc.name, func(t *testing.T) {
+            db := authControllerTestDB(t)
+            hash, err := auth.HashPassword("password123")
+            if err != nil { t.Fatal(err) }
+            user := models.User{Name: "Unscoped Student", Email: "unscoped-"+strings.ToLower(strings.ReplaceAll(t.Name(), "/", "-"))+"@example.com", PasswordHash: hash, Role: authz.RoleStudent, Active: true, SchoolID: tc.schoolID}
+            if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
+            rec := authJSONRequest(t, NewAuthController(db), http.MethodPost, "/login", "{\"email\":\""+user.Email+"\",\"password\":\"password123\"}")
+            if rec.Code != http.StatusUnauthorized { t.Fatalf("expected unscoped user login to be rejected, got %d: %s", rec.Code, rec.Body.String()) }
+            var sessions int64
+            if err := db.Model(&models.Session{}).Where("user_id = ?", user.ID).Count(&sessions).Error; err != nil { t.Fatal(err) }
+            if sessions != 0 { t.Fatalf("expected no session for unscoped user, got %d", sessions) }
+        })
+    }
+}
+
+func TestRefreshRejectsUserWithoutValidSchool(t *testing.T) {
+    db := authControllerTestDB(t)
+    user := models.User{Name: "Unscoped Refresh", Email: "unscoped-refresh@example.com", Role: authz.RoleStudent, Active: true}
+    if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
+    raw := strings.Repeat("unscoped-refresh-token-", 3)
+    familyID := uuid.New()
+    if err := db.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: auth.HashRefreshToken(raw), ExpiresAt: time.Now().Add(time.Hour)}).Error; err != nil { t.Fatal(err) }
+    if err := db.Create(&models.Session{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, RefreshTokenHash: auth.HashRefreshToken(raw), ExpiresAt: time.Now().Add(time.Hour)}).Error; err != nil { t.Fatal(err) }
+    rec := authJSONRequest(t, NewAuthController(db), http.MethodPost, "/refresh", "{\"refresh_token\":\""+raw+"\"}")
+    if rec.Code != http.StatusUnauthorized { t.Fatalf("expected unscoped refresh to be rejected, got %d: %s", rec.Code, rec.Body.String()) }
+    var tokens int64
+    if err := db.Model(&models.RefreshToken{}).Where("user_id = ? AND revoked = false", user.ID).Count(&tokens).Error; err != nil { t.Fatal(err) }
+    if tokens != 1 { t.Fatalf("expected original refresh token to remain unrotated, got %d active tokens", tokens) }
 }
 
 func TestPendingSchoolCannotLoginUntilApproved(t *testing.T) {

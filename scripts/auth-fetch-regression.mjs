@@ -12,7 +12,7 @@ globalThis.localStorage = {
 };
 
 let lockTail = Promise.resolve();
-globalThis.navigator = {
+Object.defineProperty(globalThis, "navigator", { configurable: true, value: {
   locks: {
     request(_name, _options, callback) {
       const run = lockTail.then(callback);
@@ -20,7 +20,7 @@ globalThis.navigator = {
       return run;
     },
   },
-};
+} });
 
 const expiredEvents = [];
 globalThis.window = globalThis;
@@ -38,7 +38,7 @@ let refreshCalls = 0;
 let rejectRefresh = false;
 let rejectRetriedRequests = false;
 globalThis.fetch = async (input, init) => {
-  const request = input instanceof Request ? input : new Request(input, init);
+  const request = input instanceof Request ? input : new Request(new URL(input, "https://school.example"), init);
   const url = new URL(request.url);
   if (url.pathname === "/backend/auth/refresh") {
     refreshCalls += 1;

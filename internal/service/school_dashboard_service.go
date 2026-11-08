@@ -129,7 +129,7 @@ type SchoolDashboardHealth struct {
 func schoolCalendarDateUTC(now time.Time) time.Time {
     location, err := time.LoadLocation("Africa/Lagos")
     if err != nil {
-        location = time.FixedZone("WAT", time.Hour)
+        location = time.FixedZone("WAT", 60*60)
     }
     local := now.In(location)
     return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)

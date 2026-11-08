@@ -66,8 +66,15 @@ func TestTeacherAssignmentListForTeacherIsScoped(t *testing.T) {
     svc:=NewTeacherAssignmentService(repository.NewTeacherAssignmentRepository(db),db)
     a,err:=svc.Create(schoolID,models.TeacherAssignment{TeacherID:teacherA.ID,SubjectID:subject.ID,AcademicSessionID:session.ID,TermID:term.ID,ClassID:class.ID,Active:true});if err!=nil{t.Fatal(err)}
     if _,err=svc.Create(schoolID,models.TeacherAssignment{TeacherID:teacherB.ID,SubjectID:subject.ID,AcademicSessionID:session.ID,TermID:term.ID,ClassID:class.ID,Active:true});err!=nil{t.Fatal(err)}
+    session2:=models.AcademicSession{SchoolID:schoolID,Name:"2027/2028",StartDate:time.Date(2027,9,1,0,0,0,0,time.UTC),EndDate:time.Date(2028,7,31,0,0,0,0,time.UTC)}
+    if err:=db.Create(&session2).Error;err!=nil{t.Fatal(err)}
+    term2:=models.Term{SchoolID:schoolID,AcademicSessionID:session2.ID,Name:models.TermFirst,StartDate:session2.StartDate,EndDate:time.Date(2027,12,15,0,0,0,0,time.UTC)}
+    if err:=db.Create(&term2).Error;err!=nil{t.Fatal(err)}
+    if _,err=svc.Create(schoolID,models.TeacherAssignment{TeacherID:teacherA.ID,SubjectID:subject.ID,AcademicSessionID:session2.ID,TermID:term2.ID,ClassID:class.ID,Active:true});err!=nil{t.Fatal(err)}
     got,err:=svc.ListForTeacher(schoolID,teacherA.ID,session.ID,term.ID);if err!=nil{t.Fatal(err)}
     if len(got)!=1||got[0].ID!=a.ID||got[0].TeacherID!=teacherA.ID{t.Fatalf("teacher A received wrong assignments: %#v",got)}
+    coverage,err:=svc.Coverage(schoolID,session.ID,term.ID);if err!=nil{t.Fatal(err)}
+    if len(coverage)!=2{t.Fatalf("expected two assignments in selected academic context, got %d",len(coverage))}
 }
 
 

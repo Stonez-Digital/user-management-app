@@ -116,9 +116,9 @@ function SchoolAdminDashboard({ me }: { me: AuthUser }) {
     ["Finance activity", data.health.finance_activity],
   ];
   const quickActions = [
-    ["Add Student", "/dashboard/onboarding", "Create a student account"],
-    ["Add Teacher", "/dashboard/onboarding", "Create a teacher account"],
-    ["Add Parent", "/dashboard/onboarding", "Create a parent account"],
+    ["Add Student", "/dashboard/onboarding?role=student", "Create a student account"],
+    ["Add Teacher", "/dashboard/onboarding?role=teacher", "Create a teacher account"],
+    ["Add Parent", "/dashboard/onboarding?role=parent", "Create a parent account"],
     ["Bulk Import", "/dashboard/onboarding", "Import people in bulk"],
     ["Manage Enrollment", "/dashboard/enrollments", "Review student placement"],
     ["Manage Classes", "/dashboard/academic", "Manage classes and sections"],

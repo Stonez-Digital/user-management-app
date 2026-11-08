@@ -59,10 +59,10 @@ jobs:
               challenged=$((challenged + 1))
             else
               echo "::error::FAIL — $url (HTTP $status; curl exit $curl_rc)"
-              awk '/^HTTP\\// || tolower($0) ~ /^(cf-ray|server|retry-after|content-type|location):/ { print }' "$headers" | tail -n 20
+              awk '/^HTTP\// || tolower($0) ~ /^(cf-ray|server|retry-after|content-type|location):/ { print }' "$headers" | tail -n 20
               if [[ -s "$body" ]]; then
                 echo "Response excerpt:"
-                head -c 500 "$body" | tr '\\r\\n' ' '
+                head -c 500 "$body" | tr '\r\n' ' '
                 echo
               fi
               failed=$((failed + 1))

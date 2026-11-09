@@ -65,8 +65,20 @@ export function PlatformExperience() {
                 id={`experience-tab-${index}`}
                 aria-selected={active === index}
                 aria-controls="experience-panel"
+                tabIndex={active === index ? 0 : -1}
                 className={active === index ? "experience-tab is-active" : "experience-tab"}
                 onClick={() => setActive(index)}
+                onKeyDown={(event) => {
+                  let next = active;
+                  if (event.key === "ArrowRight") next = (active + 1) % experiences.length;
+                  else if (event.key === "ArrowLeft") next = (active - 1 + experiences.length) % experiences.length;
+                  else if (event.key === "Home") next = 0;
+                  else if (event.key === "End") next = experiences.length - 1;
+                  else return;
+                  event.preventDefault();
+                  setActive(next);
+                  event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+                }}
               >
                 <span>0{index + 1}</span>{experience.label}
               </button>
@@ -102,7 +114,7 @@ export function PlatformExperience() {
                       <span>{item.question}</span><b aria-hidden="true">{isOpen ? "−" : "+"}</b>
                     </button>
                   </h3>
-                  {isOpen && <p id={`faq-answer-${index}`}>{item.answer}</p>}
+                  <p id={`faq-answer-${index}`} hidden={!isOpen}>{item.answer}</p>
                 </article>
               );
             })}
@@ -120,7 +132,7 @@ export function SupportWidget() {
       {open && (
         <section className="support-card" aria-label="Customer support options">
           <div className="support-card-head">
-            <span className="support-online-dot" />
+            <span className="support-mark" aria-hidden="true">?</span>
             <div><strong>Stonez Digital support</strong><small>How can our team help?</small></div>
             <button type="button" className="support-close" aria-label="Close support panel" onClick={() => setOpen(false)}>×</button>
           </div>

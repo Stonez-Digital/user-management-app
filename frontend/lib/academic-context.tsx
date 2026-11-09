@@ -86,7 +86,10 @@ export function AcademicContextProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    refresh();
+    void refresh();
+    const handleAcademicContextRefresh = () => { void refresh(); };
+    window.addEventListener("stonez:academic-context-refresh", handleAcademicContextRefresh);
+    return () => window.removeEventListener("stonez:academic-context-refresh", handleAcademicContextRefresh);
   }, []);
 
   useEffect(() => {

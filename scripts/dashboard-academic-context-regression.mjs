@@ -101,10 +101,10 @@ for (const handler of ["createSession", "createClass", "createSubject", "createS
   const start = academicPageForForms.indexOf(`async function ${handler}`);
   const end = academicPageForForms.indexOf("\n  async function ", start + 1);
   const body = academicPageForForms.slice(start, end < 0 ? undefined : end);
-  assert.match(body, /const formElement = event\\.currentTarget/);
-  assert.match(body, /new FormData\\(formElement\\)/);
-  assert.match(body, /formElement\\.reset\\(\\)/);
-  assert.doesNotMatch(body, /event\\.currentTarget\\.reset\\(\\)/);
+  assert.match(body, /const formElement = event\.currentTarget/);
+  assert.match(body, /new FormData\(formElement\)/);
+  assert.match(body, /formElement\.reset\(\)/);
+  assert.doesNotMatch(body, /event\.currentTarget\.reset\(\)/);
 }
 assert.match(academicPageForForms, /stonez:academic-context-refresh/);
 const academicContextForRefresh = await read("lib/academic-context.tsx");

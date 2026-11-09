@@ -1,6 +1,7 @@
 package models
 
 import (
+    "encoding/json"
     "time"
 
     "github.com/google/uuid"
@@ -29,6 +30,27 @@ type Student struct {
     EnrollmentStatus string `gorm:"not null;default:active;size:20" json:"enrollment_status"`
     CreatedAt time.Time `json:"created_at"`
     UpdatedAt time.Time `json:"updated_at"`
+}
+
+type studentJSON Student
+
+// MarshalJSON exposes only the linked account identity required by school
+// workflows. The full User relation remains hidden to prevent accidental
+// disclosure of account and tenant metadata.
+func (s Student) MarshalJSON() ([]byte, error) {
+	type userSummary struct {
+		ID    uuid.UUID `json:"id"`
+		Name  string    `json:"name"`
+		Email string    `json:"email"`
+	}
+	payload := struct {
+		studentJSON
+		User *userSummary `json:"user,omitempty"`
+	}{studentJSON: studentJSON(s)}
+	if s.User.ID != uuid.Nil {
+		payload.User = &userSummary{ID: s.User.ID, Name: s.User.Name, Email: s.User.Email}
+	}
+	return json.Marshal(payload)
 }
 
 func (s *Student) BeforeCreate(tx *gorm.DB) error {

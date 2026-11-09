@@ -3,14 +3,13 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { apiRequest as api } from "../../../lib/api-client";
 
 type Session = { id: string; name: string; start_date: string; end_date: string; status: string };
 type Term = { id: string; academic_session_id: string; name: string; start_date: string; end_date: string; status: string };
 type SchoolClass = { id: string; name: string; level: number };
 type Section = { id: string; class_id: string; name: string };
 type Subject = { id: string; code: string; name: string; description?: string; active: boolean };
-
-import { apiRequest as api } from "../../../lib/api-client";
 
 function dateValue(value: string) {
   return value ? new Date(value).toISOString().slice(0, 10) : "";

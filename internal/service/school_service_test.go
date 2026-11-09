@@ -51,3 +51,27 @@ func TestSchoolServiceRejectsInvalidName(t *testing.T) {
         t.Fatalf("expected invalid school name, got %v", err)
     }
 }
+
+func TestSchoolServiceUpdatesOnlyRequestedSchoolLogo(t *testing.T) {
+    s := schoolTestService(t)
+    first := models.School{ID: uuid.New(), Name: "First School", Code: "FIRST", LogoURL: "old-first.png"}
+    second := models.School{ID: uuid.New(), Name: "Second School", Code: "SECOND", LogoURL: "second.png"}
+    if err := s.DB().Create(&first).Error; err != nil { t.Fatal(err) }
+    if err := s.DB().Create(&second).Error; err != nil { t.Fatal(err) }
+
+    if err := s.UpdateSchoolLogo(first.ID, " https://cdn.example.test/first.png "); err != nil { t.Fatal(err) }
+    updatedFirst, err := s.GetSchool(first.ID); if err != nil { t.Fatal(err) }
+    updatedSecond, err := s.GetSchool(second.ID); if err != nil { t.Fatal(err) }
+    if updatedFirst.LogoURL != "https://cdn.example.test/first.png" { t.Fatalf("logo URL was not trimmed/persisted: %q", updatedFirst.LogoURL) }
+    if updatedFirst.Name != first.Name { t.Fatalf("school profile changed unexpectedly: %q", updatedFirst.Name) }
+    if updatedSecond.LogoURL != second.LogoURL { t.Fatalf("another school's logo changed: %q", updatedSecond.LogoURL) }
+}
+
+func TestSchoolServiceRejectsInvalidLogoURL(t *testing.T) {
+    s := schoolTestService(t)
+    school := models.School{ID: uuid.New(), Name: "School", Code: "SCHOOL"}
+    if err := s.DB().Create(&school).Error; err != nil { t.Fatal(err) }
+    if err := s.UpdateSchoolLogo(school.ID, " "); err != ErrInvalidSchoolLogo {
+        t.Fatalf("expected invalid logo URL, got %v", err)
+    }
+}

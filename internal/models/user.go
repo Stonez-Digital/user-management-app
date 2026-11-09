@@ -6,7 +6,7 @@ import (
 )
 
 type User struct {
-    ID uuid.UUID `gorm:"type:uuid;primaryKey"`
+    ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
     SchoolID *uuid.UUID `gorm:"type:uuid;index" json:"school_id,omitempty"`
     School *School `gorm:"foreignKey:SchoolID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
     Name string `json:"name"`

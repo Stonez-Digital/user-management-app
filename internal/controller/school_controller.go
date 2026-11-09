@@ -106,7 +106,15 @@ func (ctrl *SchoolController) UploadLogo(c *gin.Context) {
         return
     }
 
-    if err := ctrl.service.UpdateSchool(schoolID, models.School{LogoURL: logoURL}); err != nil {
+    if err := ctrl.service.UpdateSchoolLogo(schoolID, logoURL); err != nil {
+        if errors.Is(err, service.ErrInvalidSchoolLogo) {
+            httpx.Error(c, http.StatusBadRequest, "school_logo_invalid", "school logo URL is invalid")
+            return
+        }
+        if errors.Is(err, service.ErrSchoolNotFound) {
+            httpx.Error(c, http.StatusNotFound, "school_not_found", "school not found")
+            return
+        }
         httpx.Error(c, http.StatusInternalServerError, "school_logo_save_failed", "school logo uploaded but could not be saved")
         return
     }

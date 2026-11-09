@@ -18,13 +18,20 @@ export default function EnrollmentPage(){
   const [sectionsByClass,setSectionsByClass]=useState<Record<string,Section[]>>({});
   const sections=useMemo(()=>sectionsByClass[classId]||[],[sectionsByClass,classId]);
   async function loadSections(classList:SchoolClass[]){
+    const failedClasses:string[]=[];
     const entries=await Promise.all(classList.map(async cl=>{
       try{
         const d=await api("/admin/classes/"+cl.id+"/sections");
         return [cl.id,Array.isArray(d)?d:d?.sections||[]] as const;
-      }catch{return [cl.id,[]] as const}
+      }catch{
+        failedClasses.push(cl.name);
+        return [cl.id,[]] as const;
+      }
     }));
     setSectionsByClass(Object.fromEntries(entries));
+    if(failedClasses.length){
+      setError("Could not load sections for "+failedClasses.join(", ")+". Refresh the page and try again.");
+    }
   }
   async function load(){
     try{const [s,a,c,e]=await Promise.all([api("/admin/students"),api("/admin/academic-sessions"),api("/admin/classes"),api("/admin/enrollments")]);

@@ -187,3 +187,13 @@ html[data-theme="dark"] .dashboard-welcome-actions a{background:#152238;border-c
 .dashboard-welcome{padding:17px}.dashboard-welcome-actions{display:grid;grid-template-columns:1fr 1fr}.dashboard-welcome-actions a{justify-content:space-between}
 }
 @media(prefers-reduced-motion:reduce){.marketing-feature,.marketing-button,.experience-tab{transition:none!important}.marketing-feature:hover,.marketing-button:hover{transform:none}}
+
+/* Keep marketing controls independent from the authenticated form-button defaults. */
+.marketing-page button.experience-tab{border:1px solid rgba(255,255,255,.18);border-radius:8px;background:transparent;box-shadow:none;transform:none}
+.marketing-page button.experience-tab.is-active{background:#fff;border-color:#fff;color:#1d376a}
+.marketing-page button.experience-tab:hover{filter:none;box-shadow:none;transform:translateY(-1px)}
+.marketing-page .faq-item h3 button{border:0;border-radius:0;background:transparent;box-shadow:none;transform:none}
+.marketing-page .faq-item h3 button:hover{background:transparent;box-shadow:none;transform:none;filter:none}
+.support-widget button.support-launcher{border-radius:999px}
+.support-card button.support-close{border:0;border-radius:50%;background:#f1f4f8;color:#52617a;box-shadow:none;transform:none}
+.support-card button.support-close:hover{background:#e8edf5;box-shadow:none;transform:none;filter:none}

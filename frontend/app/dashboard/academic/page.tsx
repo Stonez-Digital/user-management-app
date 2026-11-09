@@ -10,17 +10,7 @@ type SchoolClass = { id: string; name: string; level: number };
 type Section = { id: string; class_id: string; name: string };
 type Subject = { id: string; code: string; name: string; description?: string; active: boolean };
 
-async function api(path: string, options: RequestInit = {}) {
-  const token = localStorage.getItem("access_token");
-  const response = await fetch("/backend" + path, {
-    ...options,
-    headers: { "Content-Type": "application/json", Authorization: "Bearer " + token, ...(options.headers || {}) },
-  });
-  if (response.status === 401) throw new Error("Session expired");
-  const data = await response.json();
-  if (!response.ok) throw new Error(data?.error?.message || data?.error || "Request failed");
-  return data;
-}
+import { apiRequest as api } from "../../../lib/api-client";
 
 function dateValue(value: string) {
   return value ? new Date(value).toISOString().slice(0, 10) : "";

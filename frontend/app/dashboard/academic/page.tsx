@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -38,6 +38,8 @@ export default function AcademicPage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const submitLock = useRef(false);
+  const [notice, setNotice] = useState("");
 
   async function load() {
     try {
@@ -56,35 +58,44 @@ export default function AcademicPage() {
   useEffect(() => { load(); }, [router]);
 
   async function createSession(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true);
+    event.preventDefault();
+    if (submitLock.current) return;
+    submitLock.current = true;
+    setBusy(true); setError(""); setNotice("");
     const form = new FormData(event.currentTarget);
     try {
       await api("/admin/academic-sessions", { method: "POST", body: JSON.stringify({
         name: form.get("name"), start_date: datePayload(String(form.get("start_date"))), end_date: datePayload(String(form.get("end_date"))), status: form.get("status"),
       })});
-      event.currentTarget.reset(); await load();
+      event.currentTarget.reset(); await load(); setNotice("Academic session created successfully.");
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to create session"); }
-    finally { setBusy(false); }
+    finally { submitLock.current = false; setBusy(false); }
   }
 
   async function createClass(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true);
+    event.preventDefault();
+    if (submitLock.current) return;
+    submitLock.current = true;
+    setBusy(true); setError(""); setNotice("");
     const form = new FormData(event.currentTarget);
     try {
       await api("/admin/classes", { method: "POST", body: JSON.stringify({ name: form.get("name"), level: Number(form.get("level") || 0) })});
-      event.currentTarget.reset(); await load();
+      event.currentTarget.reset(); await load(); setNotice("Class created successfully.");
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to create class"); }
-    finally { setBusy(false); }
+    finally { submitLock.current = false; setBusy(false); }
   }
 
   async function createSubject(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true);
+    event.preventDefault();
+    if (submitLock.current) return;
+    submitLock.current = true;
+    setBusy(true); setError(""); setNotice("");
     const form = new FormData(event.currentTarget);
     try {
       await api("/admin/subjects", { method: "POST", body: JSON.stringify({ code: form.get("code"), name: form.get("name"), description: form.get("description") })});
-      event.currentTarget.reset(); await load();
+      event.currentTarget.reset(); await load(); setNotice("Subject created successfully.");
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to create subject"); }
-    finally { setBusy(false); }
+    finally { submitLock.current = false; setBusy(false); }
   }
 
   async function loadTerms(sessionId: string) {
@@ -137,7 +148,8 @@ export default function AcademicPage() {
       </aside>
       <main className="content">
         <header className="topbar"><div><p className="eyebrow">ACADEMIC MANAGEMENT</p><h1>Academic structure</h1><p className="muted">Manage sessions, terms, classes, sections and subjects for your school.</p></div></header>
-        {error && <div className="error banner">{error}</div>}
+        {error && <div className="error banner" role="alert">{error}</div>}
+        {notice && <div className="success banner" role="status">{notice}</div>}
 
         <section className="panel">
           <div className="panel-head"><div><h2>Academic sessions & terms</h2><p>Define the school calendar and term boundaries.</p></div></div>

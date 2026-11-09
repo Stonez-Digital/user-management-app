@@ -78,7 +78,7 @@ export default function Dashboard() {
 
 function SchoolAdminDashboard({ me }: { me: AuthUser }) {
   const router = useRouter();
-  const { sessionId, termId } = useAcademicContext();
+  const { sessionId, termId, loading: contextLoading } = useAcademicContext();
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -100,7 +100,7 @@ function SchoolAdminDashboard({ me }: { me: AuthUser }) {
     }
   }
 
-  useEffect(() => { if (sessionId || termId) load(); }, [sessionId, termId]);
+  useEffect(() => { if (!contextLoading) load(); }, [contextLoading, sessionId, termId]);
 
   if (loading && !data) return <main className="content"><div className="panel"><strong>Loading school command center…</strong><p className="muted">Loading live school operations.</p></div></main>;
   if (error && !data) return <main className="content"><div className="error banner">{error}</div><button onClick={load}>Retry</button></main>;
@@ -142,6 +142,21 @@ function SchoolAdminDashboard({ me }: { me: AuthUser }) {
     </header>
 
     {error && <div className="error banner">{error}</div>}
+
+    {(!data.academic_context.session_id || !data.academic_context.term_id) && <section className="panel first-run-setup" aria-labelledby="first-run-setup-title">
+      <div className="panel-head"><div>
+        <p className="eyebrow">FIRST-TIME SCHOOL SETUP</p>
+        <h2 id="first-run-setup-title">{!data.academic_context.session_id ? "Let’s get your school ready" : "Finish setting up your academic calendar"}</h2>
+        <p>{!data.academic_context.session_id
+          ? "Your school workspace is ready. Create an academic session and its terms to begin configuring classes, enrollment, attendance, assessments and fees."
+          : "Your academic session exists, but no term is configured yet. Add the term dates before starting term-based school workflows."}</p>
+      </div></div>
+      <div className="quick-actions">
+        <Link className="quick-action" href="/dashboard/academic"><strong>{!data.academic_context.session_id ? "Create academic session" : "Add academic term"}</strong><span>Set the school year and term dates</span><b>Start setup →</b></Link>
+        <Link className="quick-action" href="/dashboard/school"><strong>Complete school profile</strong><span>Add the school address, contact details and logo</span><b>Review profile →</b></Link>
+      </div>
+      <p className="muted">You can return to this dashboard at any time. No school records or payments will be created automatically.</p>
+    </section>}
 
     <section className="command-identity">
       <div className="command-school">

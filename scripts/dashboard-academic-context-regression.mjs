@@ -55,3 +55,10 @@ assert.match(academicSelector, /href="\/dashboard\/academic"/);
 assert.match(academicSelector, /Create academic session/);
 
 console.log("Dashboard academic-context and first-run school setup checks passed.");
+
+
+const workspaceStyles = await read("app/premium-workspace.css");
+assert.match(workspaceStyles, /\.app-shell > \.sidebar\s*\{\s*display:\s*none;/);
+assert.match(workspaceStyles, /\.app-shell > \.content\s*\{[^}]*margin-left:\s*0/);
+
+console.log("Legacy module sidebar overlap regression checks passed.");

@@ -44,9 +44,15 @@ export default function AcademicPage() {
   async function load() {
     try {
       const [s, c, sub] = await Promise.all([api("/admin/academic-sessions"), api("/admin/classes"), api("/admin/subjects")]);
-      setSessions(Array.isArray(s) ? s : s?.sessions || []);
+      const sessionList: Session[] = Array.isArray(s) ? s : s?.sessions || [];
+      setSessions(sessionList);
       setClasses(Array.isArray(c) ? c : c?.classes || []);
       setSubjects(Array.isArray(sub) ? sub : sub?.subjects || []);
+      const termEntries = await Promise.all(sessionList.map(async session => {
+        const result = await api("/admin/academic-sessions/" + session.id + "/terms");
+        return [session.id, Array.isArray(result) ? result : result?.terms || []] as const;
+      }));
+      setTerms(Object.fromEntries(termEntries));
       setError("");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to load academic data";
@@ -106,15 +112,22 @@ export default function AcademicPage() {
   }
 
   async function createTerm(sessionId: string, event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true);
-    const form = new FormData(event.currentTarget);
+    event.preventDefault();
+    if (submitLock.current) return;
+    submitLock.current = true;
+    setBusy(true); setError(""); setNotice("");
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     try {
       await api("/admin/academic-sessions/" + sessionId + "/terms", { method: "POST", body: JSON.stringify({
         name: form.get("name"), start_date: datePayload(String(form.get("start_date"))), end_date: datePayload(String(form.get("end_date"))), status: form.get("status"),
       })});
-      event.currentTarget.reset(); await loadTerms(sessionId);
+      formElement.reset();
+      await loadTerms(sessionId);
+      window.dispatchEvent(new CustomEvent("stonez:academic-context-refresh"));
+      setNotice("Academic term created successfully. It is now available in the term selector.");
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to create term"); }
-    finally { setBusy(false); }
+    finally { submitLock.current = false; setBusy(false); }
   }
 
   async function loadSections(classId: string) {
@@ -159,7 +172,7 @@ export default function AcademicPage() {
             <button disabled={busy}>Add session</button>
           </form>
           <div className="table-wrap"><table><thead><tr><th>Session</th><th>Dates</th><th>Status</th><th>Terms</th></tr></thead><tbody>
-            {sessions.map(s => <tr key={s.id}><td><strong>{s.name}</strong></td><td>{dateValue(s.start_date)} → {dateValue(s.end_date)}</td><td><span className={"pill "+s.status}>{s.status}</span></td><td><button className="ghost" onClick={() => loadTerms(s.id)}>View terms</button>{terms[s.id] && <div className="nested-list">{terms[s.id].map(t => <div key={t.id}><strong>{t.name}</strong> · {dateValue(t.start_date)} → {dateValue(t.end_date)} · {t.status}</div>)}<form onSubmit={e => createTerm(s.id, e)} className="inline-form"><input name="name" required placeholder="e.g. First Term" /><input name="start_date" type="date" required/><input name="end_date" type="date" required/><select name="status" defaultValue="planned"><option>planned</option><option>active</option><option>closed</option></select><button disabled={busy}>Add term</button></form></div>}</td></tr>)}
+            {sessions.map(s => <tr key={s.id}><td><strong>{s.name}</strong></td><td>{dateValue(s.start_date)} → {dateValue(s.end_date)}</td><td><span className={"pill "+s.status}>{s.status}</span></td><td><button className="ghost" type="button" onClick={() => loadTerms(s.id)}>Refresh terms</button><div className="nested-list">{(terms[s.id] || []).map(t => <div key={t.id}><strong>{t.name}</strong> · {dateValue(t.start_date)} → {dateValue(t.end_date)} · {t.status}</div>)}{!(terms[s.id] || []).length && <p className="muted">No terms yet. Add the first term for this session.</p>}<form onSubmit={e => createTerm(s.id, e)} className="inline-form"><input name="name" required placeholder="e.g. First Term" /><input name="start_date" type="date" required/><input name="end_date" type="date" required/><select name="status" defaultValue="planned"><option value="planned">Planned</option><option value="active">Active</option><option value="closed">Closed</option></select><button disabled={busy}>{busy ? "Saving…" : "Add term"}</button></form></div></td></tr>)}
           </tbody></table>{!sessions.length && <div className="empty">No academic sessions yet.</div>}</div>
         </section>
 

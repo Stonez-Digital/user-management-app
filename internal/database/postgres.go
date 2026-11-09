@@ -776,6 +776,15 @@ func Migrate(db *gorm.DB) error {
             }
             return tx.AutoMigrate(&models.SchoolEnquiry{})
         }},
+        {Version:43,Name:"scope_academic_session_name_uniqueness_by_school",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+            // The original single-column unique constraint predates school tenancy.
+            // Keep the school-scoped unique index created by migration 17, and remove
+            // the legacy global constraint so different schools can use the same year.
+            if err:=tx.Exec("ALTER TABLE academic_sessions DROP CONSTRAINT IF EXISTS academic_sessions_name_key").Error;err!=nil{return err}
+            if err:=tx.Exec("DROP INDEX IF EXISTS academic_sessions_name_key").Error;err!=nil{return err}
+            return nil
+        }},
     }
     for _,migration:=range migrations{
         var applied Migration

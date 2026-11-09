@@ -183,3 +183,68 @@ html[data-theme="dark"] .form select, html[data-theme="dark"] .form textarea {
 .app-shell { display: block; min-height: 0; }
 .app-shell > .sidebar { display: none; }
 .app-shell > .content { margin-left: 0; width: 100%; max-width: 1600px; min-width: 0; }
+
+
+/* Subtle school-building atmosphere on the school administrator home. */
+.school-home-surface {
+  position: relative;
+  isolation: isolate;
+}
+.school-home-surface::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: min(460px, 48vw);
+  min-height: 300px;
+  pointer-events: none;
+  border-radius: 0 0 30px 30px;
+  background-image:
+    linear-gradient(90deg, rgba(244,246,251,.97) 0%, rgba(244,246,251,.88) 44%, rgba(244,246,251,.66) 100%),
+    linear-gradient(180deg, rgba(244,246,251,.12) 0%, rgba(244,246,251,.72) 72%, #f4f6fb 100%),
+    url("/school%20building.jpg");
+  background-size: cover;
+  background-position: center 34%;
+  animation: schoolHomeReveal .9s ease-out both;
+}
+.school-home-surface > .topbar {
+  padding: 18px 20px;
+  margin: -8px -8px 24px;
+  border-radius: 18px;
+  background: rgba(255,255,255,.52);
+  border: 1px solid rgba(255,255,255,.58);
+  box-shadow: 0 14px 40px rgba(28,45,78,.055);
+  backdrop-filter: blur(12px);
+}
+@keyframes schoolHomeReveal {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+html[data-theme="dark"] .school-home-surface::before {
+  background-image:
+    linear-gradient(90deg, rgba(11,18,32,.96) 0%, rgba(11,18,32,.88) 48%, rgba(11,18,32,.72) 100%),
+    linear-gradient(180deg, rgba(11,18,32,.18) 0%, rgba(11,18,32,.74) 72%, #0b1220 100%),
+    url("/school%20building.jpg");
+}
+html[data-theme="dark"] .school-home-surface > .topbar {
+  background: rgba(17,27,45,.56);
+  border-color: rgba(148,163,184,.16);
+}
+@media (max-width:700px) {
+  .school-home-surface::before {
+    min-height: 250px;
+    height: 340px;
+    background-position: 58% center;
+  }
+  .school-home-surface > .topbar {
+    margin: -4px 0 20px;
+    padding: 14px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .marketing-hero-grid, .marketing-hero-visual, .school-home-surface::before {
+    animation: none !important;
+  }
+}

@@ -12,7 +12,7 @@ import (
 
 func schoolTestService(t *testing.T) *SchoolService {
     t.Helper()
-    db, err := gorm.Open(sqlite.Open("file:school_service_test?mode=memory&cache=shared"), &gorm.Config{})
+    db, err := gorm.Open(sqlite.Open("file:school_service_test_" + uuid.NewString() + "?mode=memory&cache=shared"), &gorm.Config{})
     if err != nil { t.Fatal(err) }
     if err := db.AutoMigrate(&models.School{}); err != nil { t.Fatal(err) }
     return NewSchoolService(repository.NewSchoolRepository(db), db)

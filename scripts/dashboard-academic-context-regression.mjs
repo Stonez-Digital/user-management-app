@@ -42,5 +42,16 @@ assert.ok(platformDashboard.includes('role === "super_admin"'));
 assert.ok(platformDashboard.includes("AcademicContextProvider"));
 assert.ok(platformDashboard.includes("AcademicSelector"));
 assert.ok(platformDashboard.includes("/admin/dashboard"));
+assert.match(platformDashboard, /loading: contextLoading/);
+assert.match(platformDashboard, /if \(!contextLoading\) load\(\)/);
+assert.match(platformDashboard, /first-run-setup/);
+assert.match(platformDashboard, /Create academic session/);
+assert.match(platformDashboard, /Add academic term/);
 
-console.log("Dashboard academic-context scoping checks passed.");
+const academicSelector = await read("components/academic-selector.tsx");
+assert.match(academicSelector, /sessions\.length === 0/);
+assert.match(academicSelector, /terms\.length/);
+assert.match(academicSelector, /href="\/dashboard\/academic"/);
+assert.match(academicSelector, /Create academic session/);
+
+console.log("Dashboard academic-context and first-run school setup checks passed.");

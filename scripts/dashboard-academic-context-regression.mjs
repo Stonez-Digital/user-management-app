@@ -62,3 +62,25 @@ assert.match(workspaceStyles, /\.app-shell > \.sidebar\s*\{\s*display:\s*none;/)
 assert.match(workspaceStyles, /\.app-shell > \.content\s*\{[^}]*margin-left:\s*0/);
 
 console.log("Legacy module sidebar overlap regression checks passed.");
+
+const academicPage = await read("app/dashboard/academic/page.tsx");
+assert.match(academicPage, /const submitLock = useRef\(false\)/);
+for (const handler of ["createSession", "createClass", "createSubject"]) {
+  const start = academicPage.indexOf(`async function ${handler}`);
+  const end = academicPage.indexOf("\n  async function ", start + 1);
+  const body = academicPage.slice(start, end < 0 ? undefined : end);
+  assert.match(body, /if \(submitLock\.current\) return/);
+  assert.match(body, /submitLock\.current = true/);
+  assert.match(body, /submitLock\.current = false/);
+}
+assert.match(academicPage, /Academic session created successfully/);
+assert.match(academicPage, /Class created successfully/);
+assert.match(academicPage, /Subject created successfully/);
+
+const databaseMigrations = await readFile(path.join(root, "internal", "database", "postgres.go"), "utf8");
+assert.match(databaseMigrations, /Version:43,Name:"scope_academic_session_name_uniqueness_by_school"/);
+assert.match(databaseMigrations, /DROP CONSTRAINT IF EXISTS academic_sessions_name_key/);
+assert.match(databaseMigrations, /uq_school_session_name/);
+
+console.log("Academic create idempotency and tenant-scoped session uniqueness checks passed.");
+

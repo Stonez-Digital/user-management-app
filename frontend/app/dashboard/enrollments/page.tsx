@@ -34,6 +34,7 @@ export default function EnrollmentPage(){
     }
   }
   async function load(){
+    setError("");
     try{const [s,a,c,e]=await Promise.all([api("/admin/students"),api("/admin/academic-sessions"),api("/admin/classes"),api("/admin/enrollments")]);
       const classList=Array.isArray(c)?c:c?.classes||[];
       setStudents(Array.isArray(s)?s:s?.students||[]);setSessions(Array.isArray(a)?a:a?.sessions||[]);setClasses(classList);setItems(Array.isArray(e)?e:e?.enrollments||[]);

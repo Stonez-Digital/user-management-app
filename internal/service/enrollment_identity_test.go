@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/onoja217/users-management-app/internal/models"
+	"github.com/onoja217/users-management-app/internal/repository"
 )
 
 func TestEnrollmentListAndHistorySerializeStudentName(t *testing.T) {

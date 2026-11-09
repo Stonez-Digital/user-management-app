@@ -12,6 +12,7 @@ import (
 
 var ErrSchoolNotFound = errors.New("school not found")
 var ErrInvalidSchoolName = errors.New("invalid school name")
+var ErrInvalidSchoolLogo = errors.New("invalid school logo URL")
 
 type SchoolService struct {
     repo repository.SchoolRepository
@@ -44,3 +45,15 @@ func (s *SchoolService) UpdateSchool(id uuid.UUID, school models.School) error {
     if _, err := s.GetSchool(id); err != nil { return err }
     return s.repo.Update(id, school)
 }
+
+ // UpdateSchoolLogo persists only the logo field so logo uploads do not need to
+ // resubmit (or accidentally overwrite) the rest of the school profile.
+ func (s *SchoolService) UpdateSchoolLogo(id uuid.UUID, logoURL string) error {
+     logoURL = strings.TrimSpace(logoURL)
+     if logoURL == "" || len(logoURL) > 1000 { return ErrInvalidSchoolLogo }
+     if _, err := s.GetSchool(id); err != nil { return err }
+     result := s.db.Model(&models.School{}).Where("id = ?", id).Update("logo_url", logoURL)
+     if result.Error != nil { return result.Error }
+     if result.RowsAffected != 1 { return ErrSchoolNotFound }
+     return nil
+ }

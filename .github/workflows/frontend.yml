@@ -7,6 +7,7 @@ on:
       - "frontend/**"
       - "scripts/school-domain-routing.test.mjs"
       - "scripts/auth-fetch-regression.mjs"
+      - "scripts/api-client-regression.test.mjs"
       - ".github/workflows/frontend.yml"
       - ".github/workflows/cloudflare-deploy.yml"
   push:

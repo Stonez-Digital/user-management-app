@@ -84,3 +84,12 @@ assert.match(databaseMigrations, /uq_school_session_name/);
 
 console.log("Academic create idempotency and tenant-scoped session uniqueness checks passed.");
 
+
+assert.match(academicPage, /const termEntries = await Promise\.all/);
+assert.match(academicPage, /No terms yet\. Add the first term for this session/);
+assert.match(academicPage, /const formElement = event\.currentTarget/);
+assert.match(academicPage, /formElement\.reset\(\)/);
+assert.match(academicPage, /stonez:academic-context-refresh/);
+assert.match(academicPage, /Academic term created successfully/);
+const academicContext = await read("lib/academic-context.tsx");
+assert.match(academicContext, /stonez:academic-context-refresh/);

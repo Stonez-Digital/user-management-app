@@ -19,7 +19,8 @@
     "test:role-access": "node ../scripts/dashboard-role-access-regression.mjs",
     "test:careerpath": "node ../scripts/careerpath-v2-regression.mjs",
     "test:school-domains": "node --test ../scripts/school-domain-routing.test.mjs",
-    "test:auth-refresh": "node ../scripts/auth-fetch-regression.mjs"
+    "test:auth-refresh": "node ../scripts/auth-fetch-regression.mjs",
+    "test:api-client": "node --test ../scripts/api-client-regression.test.mjs"
   },
   "dependencies": {
     "next": "16.4.1",

@@ -3,24 +3,13 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { apiRequest as api } from "../../../lib/api-client.mjs";
 
 type Session = { id: string; name: string; start_date: string; end_date: string; status: string };
 type Term = { id: string; academic_session_id: string; name: string; start_date: string; end_date: string; status: string };
 type SchoolClass = { id: string; name: string; level: number };
 type Section = { id: string; class_id: string; name: string };
 type Subject = { id: string; code: string; name: string; description?: string; active: boolean };
-
-async function api(path: string, options: RequestInit = {}) {
-  const token = localStorage.getItem("access_token");
-  const response = await fetch("/backend" + path, {
-    ...options,
-    headers: { "Content-Type": "application/json", Authorization: "Bearer " + token, ...(options.headers || {}) },
-  });
-  if (response.status === 401) throw new Error("Session expired");
-  const data = await response.json();
-  if (!response.ok) throw new Error(data?.error?.message || data?.error || "Request failed");
-  return data;
-}
 
 function dateValue(value: string) {
   return value ? new Date(value).toISOString().slice(0, 10) : "";
@@ -47,18 +36,22 @@ export default function AcademicPage() {
       const nextSessions: Session[] = Array.isArray(s) ? s : s?.sessions || [];
       setSessions(nextSessions);
       // Fetch terms for every session on entry so administrators can add the first term immediately.
+      const failedTermSessions: string[] = [];
       const termEntries = await Promise.all(nextSessions.map(async session => {
         try {
           const value = await api("/admin/academic-sessions/" + session.id + "/terms");
           return [session.id, Array.isArray(value) ? value : value?.terms || []] as const;
         } catch {
+          failedTermSessions.push(session.name);
           return [session.id, []] as const;
         }
       }));
       setTerms(Object.fromEntries(termEntries));
       setClasses(Array.isArray(c) ? c : c?.classes || []);
       setSubjects(Array.isArray(sub) ? sub : sub?.subjects || []);
-      setError("");
+      setError(failedTermSessions.length
+        ? "Could not load academic terms for " + failedTermSessions.join(", ") + ". Refresh the page and try again."
+        : "");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to load academic data";
       setError(message);

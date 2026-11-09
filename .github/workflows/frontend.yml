@@ -7,6 +7,7 @@ on:
       - "frontend/**"
       - "scripts/school-domain-routing.test.mjs"
       - "scripts/auth-fetch-regression.mjs"
+      - "scripts/api-client-regression.test.mjs"
       - ".github/workflows/frontend.yml"
       - ".github/workflows/cloudflare-deploy.yml"
   push:
@@ -15,6 +16,7 @@ on:
       - "frontend/**"
       - "scripts/school-domain-routing.test.mjs"
       - "scripts/auth-fetch-regression.mjs"
+      - "scripts/api-client-regression.test.mjs"
       - ".github/workflows/frontend.yml"
       - ".github/workflows/cloudflare-deploy.yml"
 
@@ -47,6 +49,8 @@ jobs:
         run: npm run test:role-access
       - name: Race-safe authentication refresh regression checks
         run: npm run test:auth-refresh
+      - name: Shared API client regression checks
+        run: npm run test:api-client
       - name: Production build
         run: npm run build
       - name: Cloudflare compatibility build

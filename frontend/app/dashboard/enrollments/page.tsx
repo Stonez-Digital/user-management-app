@@ -1,21 +1,13 @@
 "use client";
 import {useEffect,useMemo,useState} from "react";
 import Link from "next/link";
+import { apiRequest as api } from "../../../lib/api-client.mjs";
 
 type Student={id:string;admission_number:string;user?:{name:string;email:string}};
 type Session={id:string;name:string;status:string};
 type SchoolClass={id:string;name:string;level:number;sections?:Section[]};
 type Section={id:string;class_id:string;name:string};
 type Enrollment={id:string;status:string;enrolled_at?:string;student?:Student;academic_session?:Session;class?:SchoolClass;section?:Section};
-
-async function api(path:string, options:RequestInit={}) {
-  const token=localStorage.getItem("access_token");
-  const r=await fetch("/backend"+path,{...options,headers:{...options.headers,Authorization:"Bearer "+token,"Content-Type":"application/json"}});
-  const text=await r.text(); let d:any={}; try{d=text?JSON.parse(text):{}}catch{d={error:text}}
-  if(r.status===401) throw Error("Session expired");
-  if(!r.ok) throw Error(d?.error?.message||d?.error||"Request failed");
-  return d;
-}
 
 export default function EnrollmentPage(){
   const [students,setStudents]=useState<Student[]>([]),[sessions,setSessions]=useState<Session[]>([]),[classes,setClasses]=useState<SchoolClass[]>([]);
@@ -26,15 +18,23 @@ export default function EnrollmentPage(){
   const [sectionsByClass,setSectionsByClass]=useState<Record<string,Section[]>>({});
   const sections=useMemo(()=>sectionsByClass[classId]||[],[sectionsByClass,classId]);
   async function loadSections(classList:SchoolClass[]){
+    const failedClasses:string[]=[];
     const entries=await Promise.all(classList.map(async cl=>{
       try{
         const d=await api("/admin/classes/"+cl.id+"/sections");
         return [cl.id,Array.isArray(d)?d:d?.sections||[]] as const;
-      }catch{return [cl.id,[]] as const}
+      }catch{
+        failedClasses.push(cl.name);
+        return [cl.id,[]] as const;
+      }
     }));
     setSectionsByClass(Object.fromEntries(entries));
+    if(failedClasses.length){
+      setError("Could not load sections for "+failedClasses.join(", ")+". Refresh the page and try again.");
+    }
   }
   async function load(){
+    setError("");
     try{const [s,a,c,e]=await Promise.all([api("/admin/students"),api("/admin/academic-sessions"),api("/admin/classes"),api("/admin/enrollments")]);
       const classList=Array.isArray(c)?c:c?.classes||[];
       setStudents(Array.isArray(s)?s:s?.students||[]);setSessions(Array.isArray(a)?a:a?.sessions||[]);setClasses(classList);setItems(Array.isArray(e)?e:e?.enrollments||[]);

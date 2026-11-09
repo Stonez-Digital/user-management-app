@@ -25,7 +25,13 @@ async function api(path: string, options: RequestInit = {}) {
   const text = await response.text();
   let data: any = {};
   try { data = text ? JSON.parse(text) : {}; } catch { data = { error: text }; }
-  if (!response.ok) throw new Error(data?.error?.message || data?.error || "Request failed");
+  if (!response.ok) {
+    const validationDetails = Array.isArray(data?.error?.details)
+      ? data.error.details.map((item: any) => [item?.field, item?.rule].filter(Boolean).join(" ")).filter(Boolean).join(", ")
+      : "";
+    const message = data?.error?.message || data?.error || "Request failed";
+    throw new Error(validationDetails ? `${message}: ${validationDetails}` : message);
+  }
   return data;
 }
 

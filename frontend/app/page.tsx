@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { PlatformExperience, SupportWidget } from "../components/platform-experience";
 
 export const metadata: Metadata = {
   title: "School Management Software for Connected School Operations",
@@ -139,9 +140,12 @@ export default function HomePage() {
         <div className="marketing-container marketing-security-grid"><div><span className="marketing-section-label">SECURITY BY DESIGN</span><h2>Trust is built<br /><em>into the structure.</em></h2><p>Schools need confidence that their information and operations stay within the right boundaries. The platform is built around school-aware access and backend-enforced permissions.</p><Link href="/school-signup" className="marketing-security-link">Explore the platform <Arrow /></Link></div><div className="marketing-security-points"><article><span>01</span><div><h3>School-scoped data access</h3><p>School context is enforced across protected application workflows.</p></div></article><article><span>02</span><div><h3>Role-based permissions</h3><p>Platform and school roles receive distinct, authorised experiences.</p></div></article><article><span>03</span><div><h3>Secure account sessions</h3><p>Authentication and session protections support controlled access.</p></div></article><article><span>04</span><div><h3>Operational audit trails</h3><p>Audit logging supports visibility into important platform and school activity.</p></div></article></div></div>
       </section>
 
+      <PlatformExperience />
+
       <section className="marketing-cta"><div className="marketing-container marketing-cta-inner"><div><span className="marketing-section-label">YOUR SCHOOL, CONNECTED</span><h2>Give your school<br />a smarter way to <em>operate.</em></h2><p>Bring the people, processes and information behind your school into one connected platform.</p></div><div className="marketing-cta-actions"><Link href="/school-signup" className="marketing-button marketing-button-light">Register your school <Arrow /></Link><Link href="/login" className="marketing-cta-signin">Already have platform access? Sign in</Link></div></div></section>
 
       <footer className="marketing-footer"><div className="marketing-container"><div className="marketing-footer-main"><Link href="/" className="marketing-brand marketing-footer-brand"><img src="/stonez-digital-logo.svg" alt="Stonez Digital" /><span><strong>STONEZ DIGITAL</strong><small>SCHOOL MANAGEMENT</small></span></Link><p>Technology for better-run schools.<br />One connected workspace for school operations.</p><div className="marketing-footer-links"><a href="#platform">Platform</a><a href="#features">Features</a><a href="#security">Security</a><Link href="/school-signup">Register</Link><Link href="/login">Sign in</Link><a href="mailto:info@stonezdigital.com.ng">Contact Stonez Digital</a></div></div><div className="marketing-footer-bottom"><span>© {new Date().getFullYear()} Stonez Digital. All rights reserved.</span><a href="https://stonezdigital.com.ng" target="_blank" rel="noreferrer">Built by Stonez Digital <Arrow /></a></div></div></footer>
+      <SupportWidget />
     </main>
   );
 }

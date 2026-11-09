@@ -171,3 +171,7 @@ html[data-theme="dark"] .toolbar input, html[data-theme="dark"] .form input,
 html[data-theme="dark"] .form select, html[data-theme="dark"] .form textarea {
   background: #0e192a; color: #e7edf8; border-color: #30415c;
 }
+
+/* The current authenticated shell is top-navigation based, not the legacy fixed sidebar. */
+.content, .standalone { margin-left: 0; }
+.school-brand-bar { position: relative; top: auto; }

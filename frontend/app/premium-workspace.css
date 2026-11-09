@@ -175,3 +175,11 @@ html[data-theme="dark"] .form select, html[data-theme="dark"] .form textarea {
 /* The current authenticated shell is top-navigation based, not the legacy fixed sidebar. */
 .content, .standalone { margin-left: 0; }
 .school-brand-bar { position: relative; top: auto; }
+
+
+/* Legacy module pages still render their own sidebar. The authenticated
+   workspace already provides the shared top navigation, so suppress the
+   duplicate rail and let these pages use the full content width. */
+.app-shell { display: block; min-height: 0; }
+.app-shell > .sidebar { display: none; }
+.app-shell > .content { margin-left: 0; width: 100%; max-width: 1600px; min-width: 0; }

@@ -23,7 +23,9 @@ func TestEnrollmentListAndHistorySerializeStudentName(t *testing.T) {
 	if err := db.Create(&section).Error; err != nil { t.Fatal(err) }
 
 	svc := NewEnrollmentService(repository.NewEnrollmentRepository(db), db)
-	if _, err := svc.Create(schoolID, models.StudentEnrollment{StudentID: student.ID, AcademicSessionID: session.ID, ClassID: class.ID, SectionID: section.ID}); err != nil { t.Fatal(err) }
+	enrollment, err := svc.Create(schoolID, models.StudentEnrollment{StudentID: student.ID, AcademicSessionID: session.ID, ClassID: class.ID, SectionID: section.ID})
+	if err != nil { t.Fatal(err) }
+	if enrollment.Student.User.Name != "Jane Doe" { t.Fatalf("expected create response to include student name, got %#v", enrollment.Student.User) }
 
 	for _, read := range []struct{name string; fn func() ([]models.StudentEnrollment, error)}{
 		{name: "list", fn: func() ([]models.StudentEnrollment, error) { return svc.List(schoolID) }},

@@ -141,6 +141,11 @@ function SchoolAdminDashboard({ me }: { me: AuthUser }) {
       <div className="status"><span /> {me.name || data.school.administrator.name || "Administrator"}</div>
     </header>
 
+    <section className="dashboard-welcome" aria-label="Dashboard shortcuts">
+      <div><span className="dashboard-welcome-kicker">YOUR SCHOOL WORKSPACE</span><h2>Welcome back, {me.name || "school administrator"}.</h2><p>Pick up where your school team left off, or jump straight into a key workflow.</p></div>
+      <div className="dashboard-welcome-actions"><Link href="/dashboard/onboarding">Add a person <span aria-hidden="true">↗</span></Link><Link href="/dashboard/academic">Academic setup <span aria-hidden="true">↗</span></Link><Link href="/dashboard/finance">Finance <span aria-hidden="true">↗</span></Link></div>
+    </section>
+
     {error && <div className="error banner">{error}</div>}
 
     {(!data.academic_context.session_id || !data.academic_context.term_id) && <section className="panel first-run-setup" aria-labelledby="first-run-setup-title">

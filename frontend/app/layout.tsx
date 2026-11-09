@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import "./premium-workspace.css";
+import "./premium-public.css";
 import ThemeToggle from "../components/theme-toggle";
 import SchoolDomainRouter from "../components/school-domain-router";
 import AuthFetchBootstrap from "./auth-fetch-bootstrap";

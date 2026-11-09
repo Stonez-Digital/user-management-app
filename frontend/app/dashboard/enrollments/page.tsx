@@ -1,14 +1,13 @@
 "use client";
 import {useEffect,useMemo,useState} from "react";
 import Link from "next/link";
+import { apiRequest as api } from "../../../lib/api-client";
 
 type Student={id:string;admission_number:string;user?:{name:string;email:string}};
 type Session={id:string;name:string;status:string};
 type SchoolClass={id:string;name:string;level:number;sections?:Section[]};
 type Section={id:string;class_id:string;name:string};
 type Enrollment={id:string;status:string;enrolled_at?:string;student?:Student;academic_session?:Session;class?:SchoolClass;section?:Section};
-
-import { apiRequest as api } from "../../../lib/api-client";
 
 export default function EnrollmentPage(){
   const [students,setStudents]=useState<Student[]>([]),[sessions,setSessions]=useState<Session[]>([]),[classes,setClasses]=useState<SchoolClass[]>([]);

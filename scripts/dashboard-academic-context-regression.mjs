@@ -93,3 +93,20 @@ assert.match(databaseMigrations, /uq_school_session_name/);
 
 console.log("Academic create idempotency and tenant-scoped session uniqueness checks passed.");
 
+
+
+// Regression coverage for async form reset and academic selector refresh.
+const academicPageForForms = await read("app/dashboard/academic/page.tsx");
+for (const handler of ["createSession", "createClass", "createSubject", "createSection"]) {
+  const start = academicPageForForms.indexOf(`async function ${handler}`);
+  const end = academicPageForForms.indexOf("\n  async function ", start + 1);
+  const body = academicPageForForms.slice(start, end < 0 ? undefined : end);
+  assert.match(body, /const formElement = event\\.currentTarget/);
+  assert.match(body, /new FormData\\(formElement\\)/);
+  assert.match(body, /formElement\\.reset\\(\\)/);
+  assert.doesNotMatch(body, /event\\.currentTarget\\.reset\\(\\)/);
+}
+assert.match(academicPageForForms, /stonez:academic-context-refresh/);
+const academicContextForRefresh = await read("lib/academic-context.tsx");
+assert.match(academicContextForRefresh, /stonez:academic-context-refresh/);
+console.log("Async academic form reset and selector refresh regression checks passed.");

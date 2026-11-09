@@ -70,41 +70,44 @@ export default function AcademicPage() {
 
   async function createSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     if (submitLock.current) return;
     submitLock.current = true;
     setBusy(true); setError(""); setNotice("");
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(formElement);
     try {
       await api("/admin/academic-sessions", { method: "POST", body: JSON.stringify({
         name: form.get("name"), start_date: datePayload(String(form.get("start_date"))), end_date: datePayload(String(form.get("end_date"))), status: form.get("status"),
       })});
-      event.currentTarget.reset(); await load(); setNotice("Academic session created successfully.");
+      formElement.reset(); await load(); setNotice("Academic session created successfully.");
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to create session"); }
     finally { submitLock.current = false; setBusy(false); }
   }
 
   async function createClass(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     if (submitLock.current) return;
     submitLock.current = true;
     setBusy(true); setError(""); setNotice("");
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(formElement);
     try {
       await api("/admin/classes", { method: "POST", body: JSON.stringify({ name: form.get("name"), level: Number(form.get("level") || 0) })});
-      event.currentTarget.reset(); await load(); setNotice("Class created successfully.");
+      formElement.reset(); await load(); setNotice("Class created successfully.");
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to create class"); }
     finally { submitLock.current = false; setBusy(false); }
   }
 
   async function createSubject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     if (submitLock.current) return;
     submitLock.current = true;
     setBusy(true); setError(""); setNotice("");
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(formElement);
     try {
       await api("/admin/subjects", { method: "POST", body: JSON.stringify({ code: form.get("code"), name: form.get("name"), description: form.get("description") })});
-      event.currentTarget.reset(); await load(); setNotice("Subject created successfully.");
+      formElement.reset(); await load(); setNotice("Subject created successfully.");
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to create subject"); }
     finally { submitLock.current = false; setBusy(false); }
   }
@@ -130,6 +133,7 @@ export default function AcademicPage() {
       formElement.reset();
       const value = await api("/admin/academic-sessions/" + sessionId + "/terms");
       setTerms(v => ({ ...v, [sessionId]: Array.isArray(value) ? value : value?.terms || [] }));
+      window.dispatchEvent(new CustomEvent("stonez:academic-context-refresh"));
       setNotice("Academic term created successfully. Return to the dashboard and select it in Academic context.");
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to create term"); }
     finally { submitLock.current = false; setBusy(false); }
@@ -143,13 +147,17 @@ export default function AcademicPage() {
   }
 
   async function createSection(classId: string, event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true);
-    const form = new FormData(event.currentTarget);
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    if (submitLock.current) return;
+    submitLock.current = true;
+    setBusy(true); setError("");
+    const form = new FormData(formElement);
     try {
       await api("/admin/classes/" + classId + "/sections", { method: "POST", body: JSON.stringify({ name: form.get("name") })});
-      event.currentTarget.reset(); await loadSections(classId);
+      formElement.reset(); await loadSections(classId);
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to create section"); }
-    finally { setBusy(false); }
+    finally { submitLock.current = false; setBusy(false); }
   }
 
   return (

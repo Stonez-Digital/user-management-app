@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/onoja217/users-management-app/internal/audit"
@@ -15,14 +16,48 @@ type TeacherAssignmentController struct{ service *service.TeacherAssignmentServi
 func NewTeacherAssignmentController(s *service.TeacherAssignmentService) *TeacherAssignmentController { return &TeacherAssignmentController{s} }
 
 type teacherAssignmentRequest struct {
-	TeacherID *uuid.UUID `json:"teacher_id" binding:"required"`
-	SubjectID *uuid.UUID `json:"subject_id" binding:"required"`
-	AcademicSessionID *uuid.UUID `json:"academic_session_id" binding:"required"`
-	TermID *uuid.UUID `json:"term_id" binding:"required"`
-	ClassID *uuid.UUID `json:"class_id" binding:"required"`
-	SectionID *uuid.UUID `json:"section_id"`
+	TeacherID string `json:"teacher_id"`
+	SubjectID string `json:"subject_id"`
+	AcademicSessionID string `json:"academic_session_id"`
+	TermID string `json:"term_id"`
+	ClassID string `json:"class_id"`
+	SectionID *string `json:"section_id"`
 	AllocationType string `json:"allocation_type"`
 	Active *bool `json:"active"`
+}
+
+func (r teacherAssignmentRequest) toModel() (models.TeacherAssignment, []httpx.FieldError) {
+	values := []struct { name, value string }{
+		{"teacher_id", r.TeacherID}, {"subject_id", r.SubjectID},
+		{"academic_session_id", r.AcademicSessionID}, {"term_id", r.TermID},
+		{"class_id", r.ClassID},
+	}
+	ids := make([]uuid.UUID, len(values))
+	var problems []httpx.FieldError
+	for i, item := range values {
+		id, err := uuid.Parse(item.value)
+		if err != nil {
+			rule := "invalid_uuid"
+			if strings.TrimSpace(item.value) == "" { rule = "required" }
+			problems = append(problems, httpx.FieldError{Field:item.name, Rule:rule})
+			continue
+		}
+		ids[i] = id
+	}
+	var sectionID *uuid.UUID
+	if r.SectionID != nil && strings.TrimSpace(*r.SectionID) != "" {
+		id, err := uuid.Parse(*r.SectionID)
+		if err != nil { problems = append(problems, httpx.FieldError{Field:"section_id", Rule:"invalid_uuid"}) } else { sectionID = &id }
+	}
+	if len(problems) > 0 { return models.TeacherAssignment{}, problems }
+	allocationType := r.AllocationType
+	if allocationType == "" { allocationType = models.TeacherAllocationSubject }
+	active := true
+	if r.Active != nil { active = *r.Active }
+	return models.TeacherAssignment{
+		TeacherID:ids[0], SubjectID:ids[1], AcademicSessionID:ids[2], TermID:ids[3],
+		ClassID:ids[4], SectionID:sectionID, AllocationType:allocationType, Active:active,
+	}, nil
 }
 
 func assignmentError(c *gin.Context, e error) {
@@ -43,8 +78,34 @@ func (ctrl *TeacherAssignmentController) TeacherList(c *gin.Context) {
 }
 func (ctrl *TeacherAssignmentController) List(c *gin.Context) { schoolID,ok:=requireSchoolID(c);if !ok{return};v,e:=ctrl.service.List(schoolID);if e!=nil{assignmentError(c,e);return};c.JSON(http.StatusOK,v) }
 func (ctrl *TeacherAssignmentController) Get(c *gin.Context) { schoolID,ok:=requireSchoolID(c);if !ok{return};id,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_assignment_id","invalid assignment id");return};v,e:=ctrl.service.Get(schoolID,id);if e!=nil{assignmentError(c,e);return};c.JSON(http.StatusOK,v) }
-func (ctrl *TeacherAssignmentController) Create(c *gin.Context) { schoolID,ok:=requireSchoolID(c);if !ok{return};var r teacherAssignmentRequest;if e:=c.ShouldBindJSON(&r);e!=nil{httpx.Validation(c,httpx.ValidationErrors(e));return};active:=true;if r.Active!=nil{active=*r.Active};allocationType:=r.AllocationType;if allocationType==""{allocationType=models.TeacherAllocationSubject};v,e:=ctrl.service.Create(schoolID,models.TeacherAssignment{TeacherID:*r.TeacherID,SubjectID:*r.SubjectID,AcademicSessionID:*r.AcademicSessionID,TermID:*r.TermID,ClassID:*r.ClassID,SectionID:r.SectionID,AllocationType:allocationType,Active:active});if e!=nil{assignmentError(c,e);return};actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(ctrl.service.DB(),c,&actor,"teacher_assignment.create","teacher_assignment",&v.ID,nil);c.JSON(http.StatusCreated,v) }
-func (ctrl *TeacherAssignmentController) Update(c *gin.Context) { schoolID,ok:=requireSchoolID(c);if !ok{return};id,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_assignment_id","invalid assignment id");return};var r teacherAssignmentRequest;if e=c.ShouldBindJSON(&r);e!=nil{httpx.Validation(c,httpx.ValidationErrors(e));return};v,e:=ctrl.service.Get(schoolID,id);if e!=nil{assignmentError(c,e);return};v.TeacherID,v.SubjectID,v.AcademicSessionID,v.TermID,v.ClassID,v.SectionID=*r.TeacherID,*r.SubjectID,*r.AcademicSessionID,*r.TermID,*r.ClassID,r.SectionID;if r.AllocationType!=""{v.AllocationType=r.AllocationType};if r.Active!=nil{v.Active=*r.Active};if e=ctrl.service.Update(schoolID,v);e!=nil{assignmentError(c,e);return};actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(ctrl.service.DB(),c,&actor,"teacher_assignment.update","teacher_assignment",&v.ID,nil);c.JSON(http.StatusOK,v) }
+func (ctrl *TeacherAssignmentController) Create(c *gin.Context) {
+	schoolID, ok := requireSchoolID(c); if !ok { return }
+	var r teacherAssignmentRequest
+	if err := c.ShouldBindJSON(&r); err != nil { httpx.Validation(c, httpx.ValidationErrors(err)); return }
+	assignment, problems := r.toModel()
+	if len(problems) > 0 { httpx.Validation(c, problems); return }
+	v, err := ctrl.service.Create(schoolID, assignment)
+	if err != nil { assignmentError(c, err); return }
+	actor, _ := uuid.Parse(c.GetString("user_id"))
+	_ = audit.Record(ctrl.service.DB(), c, &actor, "teacher_assignment.create", "teacher_assignment", &v.ID, nil)
+	c.JSON(http.StatusCreated, v)
+}
+func (ctrl *TeacherAssignmentController) Update(c *gin.Context) {
+	schoolID, ok := requireSchoolID(c); if !ok { return }
+	id, err := uuid.Parse(c.Param("id")); if err != nil { httpx.Error(c, 400, "invalid_assignment_id", "invalid assignment id"); return }
+	var r teacherAssignmentRequest
+	if err = c.ShouldBindJSON(&r); err != nil { httpx.Validation(c, httpx.ValidationErrors(err)); return }
+	assignment, problems := r.toModel()
+	if len(problems) > 0 { httpx.Validation(c, problems); return }
+	v, err := ctrl.service.Get(schoolID, id); if err != nil { assignmentError(c, err); return }
+	v.TeacherID, v.SubjectID, v.AcademicSessionID, v.TermID, v.ClassID, v.SectionID = assignment.TeacherID, assignment.SubjectID, assignment.AcademicSessionID, assignment.TermID, assignment.ClassID, assignment.SectionID
+	if r.AllocationType != "" { v.AllocationType = r.AllocationType }
+	if r.Active != nil { v.Active = *r.Active }
+	if err = ctrl.service.Update(schoolID, v); err != nil { assignmentError(c, err); return }
+	actor, _ := uuid.Parse(c.GetString("user_id"))
+	_ = audit.Record(ctrl.service.DB(), c, &actor, "teacher_assignment.update", "teacher_assignment", &v.ID, nil)
+	c.JSON(http.StatusOK, v)
+}
 func (ctrl *TeacherAssignmentController) Delete(c *gin.Context) { schoolID,ok:=requireSchoolID(c);if !ok{return};id,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_assignment_id","invalid assignment id");return};if e=ctrl.service.Delete(schoolID,id);e!=nil{assignmentError(c,e);return};actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(ctrl.service.DB(),c,&actor,"teacher_assignment.delete","teacher_assignment",&id,nil);c.JSON(http.StatusOK,gin.H{"message":"teacher assignment deleted"}) }
 
 func (ctrl *TeacherAssignmentController) Coverage(c *gin.Context) {

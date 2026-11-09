@@ -13,12 +13,12 @@ export default function AcademicSelector() {
     {!loading && sessions.length === 0 && <div className="empty academic-context-empty">
       <strong>Your school calendar has not been created yet.</strong>
       <p>Create an academic session first. You can then add First, Second and Third Term with their dates.</p>
-      <Link className="primary" href="/dashboard/academic">Create academic session →</Link>
+      <div className="quick-actions"><Link className="quick-action" href="/dashboard/academic"><strong>Create academic session</strong><span>Set up your school year and term dates</span><b>Start setup →</b></Link></div>
     </div>}
     {!loading && sessions.length > 0 && !terms.length && <div className="empty academic-context-empty">
       <strong>No terms are configured for this session.</strong>
       <p>Add at least one term to enable term-based school workflows.</p>
-      <Link className="primary" href="/dashboard/academic">Add academic term →</Link>
+      <div className="quick-actions"><Link className="quick-action" href="/dashboard/academic"><strong>Add academic term</strong><span>Configure the term calendar</span><b>Continue setup →</b></Link></div>
     </div>}
   </div>;
 }

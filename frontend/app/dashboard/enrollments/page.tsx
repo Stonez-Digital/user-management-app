@@ -8,14 +8,7 @@ type SchoolClass={id:string;name:string;level:number;sections?:Section[]};
 type Section={id:string;class_id:string;name:string};
 type Enrollment={id:string;status:string;enrolled_at?:string;student?:Student;academic_session?:Session;class?:SchoolClass;section?:Section};
 
-async function api(path:string, options:RequestInit={}) {
-  const token=localStorage.getItem("access_token");
-  const r=await fetch("/backend"+path,{...options,headers:{...options.headers,Authorization:"Bearer "+token,"Content-Type":"application/json"}});
-  const text=await r.text(); let d:any={}; try{d=text?JSON.parse(text):{}}catch{d={error:text}}
-  if(r.status===401) throw Error("Session expired");
-  if(!r.ok) throw Error(d?.error?.message||d?.error||"Request failed");
-  return d;
-}
+import { apiRequest as api } from "../../../lib/api-client";
 
 export default function EnrollmentPage(){
   const [students,setStudents]=useState<Student[]>([]),[sessions,setSessions]=useState<Session[]>([]),[classes,setClasses]=useState<SchoolClass[]>([]);

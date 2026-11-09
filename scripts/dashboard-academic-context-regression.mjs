@@ -76,6 +76,15 @@ for (const handler of ["createSession", "createClass", "createSubject"]) {
 assert.match(academicPage, /Academic session created successfully/);
 assert.match(academicPage, /Class created successfully/);
 assert.match(academicPage, /Subject created successfully/);
+assert.match(academicPage, /nextSessions\.map\(async session/);
+assert.match(academicPage, /\/admin\/academic-sessions\/\" \+ session\.id \+ \"\/terms/);
+assert.match(academicPage, /Configured terms/);
+assert.match(academicPage, /No terms yet\. Add the first term below/);
+assert.match(academicPage, /Academic term created successfully/);
+assert.match(academicPage, /submitLock\.current = true/);
+assert.match(academicPage, /min=\{dateValue\(s\.start_date\)\}/);
+assert.doesNotMatch(academicPage, /View terms/);
+
 
 const databaseMigrations = await readFile(path.join(root, "internal", "database", "postgres.go"), "utf8");
 assert.match(databaseMigrations, /Version:43,Name:"scope_academic_session_name_uniqueness_by_school"/);

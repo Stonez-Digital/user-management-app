@@ -1,0 +1,177 @@
+/* Premium workspace foundation — shared by every authenticated school module. */
+:root {
+  --workspace-bg: #f4f6fb;
+  --workspace-surface: #ffffff;
+  --workspace-surface-muted: #f8f9fc;
+  --workspace-ink: #17233d;
+  --workspace-muted: #68758c;
+  --workspace-line: #e5e9f1;
+  --workspace-brand: #24458f;
+  --workspace-brand-strong: #172f68;
+  --workspace-brand-soft: #edf2ff;
+  --workspace-radius: 16px;
+  --workspace-shadow: 0 10px 30px rgba(24, 39, 75, .045);
+  color-scheme: light;
+}
+html, body { background: var(--workspace-bg); color: var(--workspace-ink); }
+body { font-feature-settings: "ss01" on, "cv11" on; letter-spacing: -.008em; }
+button, input, select, textarea { font-family: inherit; }
+button, a, input, select, textarea, summary { -webkit-tap-highlight-color: transparent; }
+:where(a,button,input,select,textarea,summary):focus-visible {
+  outline: 3px solid rgba(67, 104, 190, .32);
+  outline-offset: 2px;
+}
+.content, .standalone { max-width: 1600px; padding: clamp(20px, 2.7vw, 42px); }
+.topbar { align-items: center; margin-bottom: 26px; }
+.topbar h1 { color: #14213b; font-size: clamp(25px, 2.2vw, 34px); font-weight: 780; letter-spacing: -.045em; line-height: 1.15; }
+.topbar .eyebrow { color: #526a9c; font-size: 10px; letter-spacing: .16em; }
+.muted { color: var(--workspace-muted); }
+.panel, .stat {
+  background: var(--workspace-surface);
+  border: 1px solid var(--workspace-line);
+  border-radius: var(--workspace-radius);
+  box-shadow: var(--workspace-shadow);
+}
+.panel { padding: clamp(17px, 1.8vw, 25px); }
+.panel-head { margin-bottom: 20px; }
+.panel-head h2 { color: #1c2b49; font-size: 16px; font-weight: 760; letter-spacing: -.025em; }
+.panel-head p { color: var(--workspace-muted); font-size: 12px; line-height: 1.55; }
+.stat { padding: 19px 20px; transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease; }
+.stat:hover { border-color: #d2daeb; box-shadow: 0 14px 32px rgba(24,39,75,.075); transform: translateY(-1px); }
+.stat span { color: #68758c; font-size: 11px; font-weight: 650; letter-spacing: .01em; }
+.stat strong { color: #182744; font-size: clamp(25px, 2.4vw, 33px); font-weight: 780; letter-spacing: -.055em; }
+.stat small { color: #8993a6; font-size: 10px; }
+.table-wrap { border: 1px solid var(--workspace-line); border-radius: 12px; }
+table { font-size: 12px; }
+th { background: #f8f9fc; color: #718099; font-size: 10px; letter-spacing: .075em; }
+th:first-child { border-radius: 10px 0 0 0; }
+th:last-child { border-radius: 0 10px 0 0; }
+th, td { border-bottom-color: #edf0f5; padding: 13px 14px; }
+tbody tr:hover { background: #fafbfe; }
+.form-grid label, .form label { color: #3c4a63; font-size: 12px; font-weight: 700; }
+.form-grid input, .form-grid select, .form-grid textarea,
+.inline-form input, .inline-form select, .search-inline, .toolbar input,
+.form input, .form select, .form textarea {
+  min-height: 43px; border: 1px solid #dce2ed; border-radius: 10px;
+  background: #fff; color: #1d2b45; padding: 10px 12px;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.form-grid input:focus, .form-grid select:focus, .form-grid textarea:focus,
+.inline-form input:focus, .inline-form select:focus, .search-inline:focus,
+.toolbar input:focus, .form input:focus, .form select:focus, .form textarea:focus {
+  border-color: #7891ca; box-shadow: 0 0 0 3px rgba(73,105,177,.12); outline: none;
+}
+button:not(.ghost):not(.link-button) {
+  background: linear-gradient(135deg, #294b98, #1d397c);
+  border: 1px solid #244287; border-radius: 10px;
+  box-shadow: 0 4px 10px rgba(32,65,139,.12);
+  font-size: 12px; font-weight: 750;
+  transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
+}
+button:not(:disabled):not(.ghost):not(.link-button):hover {
+  filter: brightness(1.06); box-shadow: 0 7px 16px rgba(32,65,139,.18); transform: translateY(-1px);
+}
+button.ghost, .ghost { border-radius: 10px; }
+.back { color: var(--workspace-brand); font-weight: 700; }
+.pill { letter-spacing: .015em; }
+.empty { border: 1px dashed #dce2ed; border-radius: 12px; background: #fafbfe; color: #7b879c; line-height: 1.6; }
+.banner, .error { border-radius: 11px; }
+.school-brand-bar {
+  margin-left: 0; padding: 12px clamp(20px, 2.7vw, 42px);
+  background: rgba(255,255,255,.94); border-bottom: 1px solid #e6eaf1;
+  box-shadow: 0 3px 16px rgba(23,35,61,.035); backdrop-filter: blur(14px);
+}
+.school-brand-logo, .school-brand-placeholder { width: 44px; height: 44px; border-radius: 12px; }
+.school-brand-copy strong { color: #1b2b49; font-size: 13px; font-weight: 780; letter-spacing: -.015em; }
+.school-brand-copy span { color: #77839a; font-size: 10px; }
+.dashboard-section-nav {
+  position: sticky; top: 0; z-index: 14; display: flex; align-items: center;
+  gap: 5px; min-height: 58px; padding: 8px clamp(16px, 2.7vw, 42px);
+  margin: 0; overflow-x: auto; overscroll-behavior-x: contain;
+  background: rgba(255,255,255,.96); border-bottom: 1px solid #e7ebf2;
+  box-shadow: 0 5px 18px rgba(23,35,61,.035); backdrop-filter: blur(16px);
+  scrollbar-width: thin;
+}
+.dashboard-section-nav a, .dashboard-nav-group > summary {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 38px; padding: 0 12px; border: 1px solid transparent;
+  border-radius: 9px; color: #586780; font-size: 11px; font-weight: 700;
+  white-space: nowrap; cursor: pointer; list-style: none;
+}
+.dashboard-nav-group > summary::-webkit-details-marker { display: none; }
+.dashboard-nav-group > summary:after { content: "⌄"; color: #8a96aa; font-size: 12px; }
+.dashboard-section-nav .dashboard-nav-home[aria-current="page"],
+.dashboard-nav-group[open] > summary, .dashboard-section-nav a[aria-current="page"] {
+  background: #edf2ff; border-color: #e0e8fb; color: #24458f;
+}
+.dashboard-section-nav a:hover, .dashboard-nav-group > summary:hover {
+  background: #f4f6fb; color: #24458f;
+}
+.dashboard-nav-group { position: relative; flex: 0 0 auto; }
+.dashboard-nav-menu {
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 30;
+  display: grid; min-width: 220px; gap: 3px; padding: 7px;
+  background: #fff; border: 1px solid #e5e9f1; border-radius: 12px;
+  box-shadow: 0 18px 44px rgba(20,35,67,.14);
+}
+.dashboard-nav-menu a { justify-content: flex-start; min-height: 38px; border-radius: 8px; }
+.dashboard-section-nav .dashboard-nav-external { margin-left: auto; color: #24458f; }
+.command-center .command-identity, .command-center .command-context { border-radius: 15px; }
+.command-center .command-school, .command-center .command-admin,
+.command-center .command-context { border-color: var(--workspace-line); box-shadow: var(--workspace-shadow); }
+.command-center .command-context { padding: 15px 18px; }
+.command-center .command-context span { color: #8792a6; font-size: 9px; font-weight: 750; letter-spacing: .09em; }
+.command-center .command-context strong { color: #243451; font-size: 13px; }
+.command-center .command-alert { border-color: #e8ecf3; border-radius: 11px; padding: 12px 13px; }
+.command-center .quick-action { border-color: #e7ebf2; border-radius: 11px; transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
+.command-center .quick-action:hover { border-color: #cbd6eb; box-shadow: 0 8px 20px rgba(23,35,61,.06); transform: translateY(-1px); }
+.command-center .metric { background: #f8f9fc; border-color: #e9edf4; border-radius: 10px; }
+@media (max-width: 900px) {
+  .school-brand-bar { margin-left: 0; padding-inline: 20px; }
+  .dashboard-section-nav { top: 0; }
+}
+@media (max-width: 700px) {
+  .content, .standalone { padding: 18px 14px; }
+  .dashboard-section-nav { min-height: 52px; padding: 6px 12px; gap: 3px; }
+  .dashboard-section-nav a, .dashboard-nav-group > summary { min-height: 36px; padding-inline: 10px; font-size: 10px; }
+  .dashboard-nav-menu { position: fixed; top: 118px; left: 12px; right: 12px; min-width: 0; max-height: min(60vh, 420px); overflow-y: auto; }
+  .panel { padding: 16px; }
+  .topbar { align-items: flex-start; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}
+html[data-theme="dark"] {
+  --workspace-bg: #0b1220; --workspace-surface: #111c2e; --workspace-surface-muted: #152238;
+  --workspace-ink: #e7edf8; --workspace-muted: #aab6ca; --workspace-line: #263750;
+  --workspace-brand-soft: #1b2c4b; color-scheme: dark;
+}
+html[data-theme="dark"] body { background: var(--workspace-bg); color: var(--workspace-ink); }
+html[data-theme="dark"] .topbar h1, html[data-theme="dark"] .panel-head h2,
+html[data-theme="dark"] .stat strong, html[data-theme="dark"] .command-context strong,
+html[data-theme="dark"] .school-brand-copy strong { color: #f0f4fc; }
+html[data-theme="dark"] .panel, html[data-theme="dark"] .stat, html[data-theme="dark"] .school-brand-bar,
+html[data-theme="dark"] .dashboard-section-nav, html[data-theme="dark"] .command-school,
+html[data-theme="dark"] .command-admin, html[data-theme="dark"] .command-context,
+html[data-theme="dark"] .command-alert, html[data-theme="dark"] .quick-action {
+  background: var(--workspace-surface); border-color: var(--workspace-line); color: var(--workspace-ink);
+}
+html[data-theme="dark"] .dashboard-nav-menu { background: #111c2e; border-color: #2a3a55; }
+html[data-theme="dark"] .dashboard-section-nav a, html[data-theme="dark"] .dashboard-nav-group > summary { color: #c0cbe0; }
+html[data-theme="dark"] .dashboard-section-nav a[aria-current="page"],
+html[data-theme="dark"] .dashboard-nav-group[open] > summary { background: #1b2c4b; border-color: #30466e; color: #c8d8ff; }
+html[data-theme="dark"] th, html[data-theme="dark"] .command-center .metric,
+html[data-theme="dark"] .empty { background: #152238; border-color: var(--workspace-line); color: #b6c2d6; }
+html[data-theme="dark"] td, html[data-theme="dark"] th { border-bottom-color: #263750; }
+html[data-theme="dark"] tbody tr:hover { background: #17263d; }
+html[data-theme="dark"] .form-grid input, html[data-theme="dark"] .form-grid select,
+html[data-theme="dark"] .form-grid textarea, html[data-theme="dark"] .inline-form input,
+html[data-theme="dark"] .inline-form select, html[data-theme="dark"] .search-inline,
+html[data-theme="dark"] .toolbar input, html[data-theme="dark"] .form input,
+html[data-theme="dark"] .form select, html[data-theme="dark"] .form textarea {
+  background: #0e192a; color: #e7edf8; border-color: #30415c;
+}
+
+/* The current authenticated shell is top-navigation based, not the legacy fixed sidebar. */
+.content, .standalone { margin-left: 0; }
+.school-brand-bar { position: relative; top: auto; }

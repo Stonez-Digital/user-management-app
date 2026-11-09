@@ -417,3 +417,30 @@ html[data-theme="dark"] .marketing-footer{background:#070d1a}
 @media(max-width:760px){.marketing-container{width:min(100% - 40px,600px)}.marketing-nav-inner{height:70px;gap:15px}.marketing-links,.marketing-nav-actions{display:none}.marketing-mobile-menu{display:block;position:relative;margin-left:auto}.marketing-mobile-menu summary{display:grid;gap:4px;place-content:center;width:42px;height:42px;border:1px solid #e2e8f0;border-radius:8px;list-style:none;cursor:pointer}.marketing-mobile-menu summary::-webkit-details-marker{display:none}.marketing-mobile-menu summary span{width:17px;height:2px;border-radius:2px;background:#26375e}.marketing-mobile-menu[open] .marketing-mobile-panel{display:grid;position:absolute;right:0;top:51px;width:min(280px,calc(100vw - 40px));gap:0;padding:9px;background:#fff;border:1px solid #e3e8f0;border-radius:12px;box-shadow:0 18px 50px #101a3526}.marketing-mobile-panel a{padding:13px 12px;color:#243250;font-size:13px;font-weight:700;border-radius:7px}.marketing-mobile-panel a:hover{background:#f1f4fb}.marketing-hero{padding:55px 0 0}.marketing-hero-grid{grid-template-columns:1fr;gap:34px;padding-bottom:45px}.marketing-hero-copy{padding:0}.marketing-hero h1{font-size:clamp(48px,12vw,68px);margin:22px 0 18px}.marketing-hero-lede{font-size:14px;max-width:520px}.marketing-hero-footnote{margin-top:27px}.marketing-hero-visual{padding:0}.preview-frame{transform:none}.preview-body{min-height:320px}.marketing-proofline{flex-wrap:wrap;justify-content:center;gap:11px 14px;padding:17px 0}.marketing-proofline span{font-size:7px}.marketing-proofline i{display:none}.section-pad{padding:72px 0}.marketing-intro-grid,.marketing-roles-grid,.marketing-security-grid{grid-template-columns:1fr;gap:25px}.marketing-intro h2,.marketing-section-heading h2,.marketing-roles h2,.marketing-security h2{font-size:42px}.marketing-section-heading{display:block;margin-bottom:32px}.marketing-section-heading>p{margin-top:17px;max-width:500px}.marketing-feature-grid{grid-template-columns:repeat(2,1fr)}.marketing-feature{min-height:205px}.marketing-roles-grid{gap:38px}.marketing-steps{grid-template-columns:repeat(2,1fr)}.marketing-step{padding:20px 18px 22px 0}.marketing-step:nth-child(2):after{display:none}.marketing-step>span{margin-bottom:20px}.marketing-cta{padding:62px 0}.marketing-cta-inner{display:grid;gap:28px}.marketing-footer-main{grid-template-columns:1fr 1fr;gap:25px}.marketing-footer-main>p{grid-column:1/-1;grid-row:2}.marketing-footer-links{grid-column:1/-1;justify-content:flex-start}.marketing-footer-bottom{align-items:flex-start;flex-direction:column}}
 @media(max-width:460px){.marketing-container{width:calc(100% - 32px)}.marketing-hero{padding-top:43px}.marketing-hero h1{font-size:47px}.marketing-hero-actions{gap:17px}.marketing-button{min-height:50px;padding:0 16px;font-size:12px}.marketing-hero-visual{margin:0 -5px}.preview-body{grid-template-columns:78px 1fr;min-height:290px}.preview-sidebar{padding:14px 6px;font-size:7px;gap:5px}.preview-sidebar span{padding:8px 6px}.preview-content{padding:15px 10px 9px}.preview-heading h2{font-size:15px}.preview-date{display:none}.preview-metrics{gap:5px;margin:13px 0 8px}.preview-metrics>div{padding:8px 6px;gap:4px}.preview-metrics strong{font-size:9px}.preview-metrics small{font-size:6px}.preview-lower{grid-template-columns:1fr}.preview-side-panel{display:none}.preview-panel{padding:9px}.preview-workflow{gap:6px}.marketing-visual-caption{font-size:8px}.marketing-proofline{gap:9px 12px}.marketing-intro h2,.marketing-section-heading h2,.marketing-roles h2,.marketing-security h2{font-size:37px}.marketing-feature-grid{grid-template-columns:1fr}.marketing-feature{min-height:170px;padding:20px}.marketing-feature h3{margin-top:20px}.marketing-steps{grid-template-columns:1fr}.marketing-step{padding:18px 0}.marketing-step:after{display:none!important}.marketing-step>span{margin-bottom:13px}.marketing-onboarding-note{align-items:flex-start;flex-direction:column}.marketing-cta h2{font-size:38px}.marketing-footer-main{grid-template-columns:1fr}.marketing-footer-main>p,.marketing-footer-links{grid-column:auto;grid-row:auto}.marketing-footer-links{gap:14px}.marketing-footer-bottom{font-size:9px}}
 @media(prefers-reduced-motion:reduce){.marketing-page *{scroll-behavior:auto!important;transition:none!important;animation:none!important}.preview-frame{transform:none}}
+
+
+/* School building visual identity — public landing hero */
+.marketing-hero {
+  isolation: isolate;
+  background-image:
+    radial-gradient(ellipse at 83% 48%, rgba(73,104,194,.22), transparent 42%),
+    linear-gradient(112deg, rgba(8,17,39,.96) 0%, rgba(13,27,59,.86) 49%, rgba(16,34,72,.68) 100%),
+    url("/school%20building.jpg");
+  background-size: cover;
+  background-position: center 38%;
+  background-repeat: no-repeat;
+}
+.marketing-hero::before { z-index: 0; }
+.marketing-hero-grid, .marketing-proofline { z-index: 1; }
+.marketing-hero-grid { animation: schoolHeroReveal .85s cubic-bezier(.2,.7,.2,1) both; }
+.marketing-hero-visual { animation: schoolHeroReveal 1s .12s cubic-bezier(.2,.7,.2,1) both; }
+@keyframes schoolHeroReveal {
+  from { opacity: 0; transform: translate3d(0,18px,0); }
+  to { opacity: 1; transform: translate3d(0,0,0); }
+}
+@media (max-width:760px) {
+  .marketing-hero { background-position: 58% center; }
+  .marketing-hero { background-image:
+    linear-gradient(180deg, rgba(8,17,39,.83), rgba(10,22,48,.94) 74%, #101f45),
+    url("/school%20building.jpg"); }
+}

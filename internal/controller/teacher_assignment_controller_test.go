@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"

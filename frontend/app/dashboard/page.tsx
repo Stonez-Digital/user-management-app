@@ -131,7 +131,7 @@ function SchoolAdminDashboard({ me }: { me: AuthUser }) {
     ["View Payments", "/dashboard/finance", "Review payment records"],
   ];
 
-  return <main className="content command-center">
+  return <main className="content command-center school-home-surface">
     <header className="topbar">
       <div>
         <p className="eyebrow">SCHOOL OPERATIONS</p>

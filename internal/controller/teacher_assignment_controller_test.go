@@ -21,7 +21,7 @@ func bindTeacherAssignmentRequest(body string) (teacherAssignmentRequest, error)
 }
 
 func validTeacherAssignmentBody() string {
-	return `{"teacher_id":"` + uuid.NewString() + `","subject_id":"` + uuid.NewString() + `","academic_session_id":"` + uuid.NewString() + `","term_id":"` + uuid.NewString() + `","class_id":"` + uuid.NewString() + `","section_id":null,"allocation_type":"subject_teacher","active":true}`
+	return `{"teacher_id":"11111111-1111-4111-8111-111111111111","subject_id":"22222222-2222-4222-8222-222222222222","academic_session_id":"33333333-3333-4333-8333-333333333333","term_id":"44444444-4444-4444-8444-444444444444","class_id":"55555555-5555-4555-8555-555555555555","section_id":null,"allocation_type":"subject_teacher","active":true}`
 }
 
 func TestTeacherAssignmentRequestParsesSelectedUUIDs(t *testing.T) {
@@ -53,8 +53,4 @@ func TestTeacherAssignmentRequestReportsMalformedUUIDByField(t *testing.T) {
 	}
 }
 
-func jsonUUIDPlaceholder() string {
-	// The first UUID in the fixture is the teacher ID.
-	start := strings.Index(validTeacherAssignmentBody(), `"teacher_id":"`) + len(`"teacher_id":"`)
-	return validTeacherAssignmentBody()[start : start+36]
-}
+func jsonUUIDPlaceholder() string { return "11111111-1111-4111-8111-111111111111" }

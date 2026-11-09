@@ -36,18 +36,22 @@ export default function AcademicPage() {
       const nextSessions: Session[] = Array.isArray(s) ? s : s?.sessions || [];
       setSessions(nextSessions);
       // Fetch terms for every session on entry so administrators can add the first term immediately.
+      const failedTermSessions: string[] = [];
       const termEntries = await Promise.all(nextSessions.map(async session => {
         try {
           const value = await api("/admin/academic-sessions/" + session.id + "/terms");
           return [session.id, Array.isArray(value) ? value : value?.terms || []] as const;
         } catch {
+          failedTermSessions.push(session.name);
           return [session.id, []] as const;
         }
       }));
       setTerms(Object.fromEntries(termEntries));
       setClasses(Array.isArray(c) ? c : c?.classes || []);
       setSubjects(Array.isArray(sub) ? sub : sub?.subjects || []);
-      setError("");
+      setError(failedTermSessions.length
+        ? "Could not load academic terms for " + failedTermSessions.join(", ") + ". Refresh the page and try again."
+        : "");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Unable to load academic data";
       setError(message);

@@ -44,7 +44,18 @@ export default function AcademicPage() {
   async function load() {
     try {
       const [s, c, sub] = await Promise.all([api("/admin/academic-sessions"), api("/admin/classes"), api("/admin/subjects")]);
-      setSessions(Array.isArray(s) ? s : s?.sessions || []);
+      const nextSessions: Session[] = Array.isArray(s) ? s : s?.sessions || [];
+      setSessions(nextSessions);
+      // Fetch terms for every session on entry so administrators can add the first term immediately.
+      const termEntries = await Promise.all(nextSessions.map(async session => {
+        try {
+          const value = await api("/admin/academic-sessions/" + session.id + "/terms");
+          return [session.id, Array.isArray(value) ? value : value?.terms || []] as const;
+        } catch {
+          return [session.id, []] as const;
+        }
+      }));
+      setTerms(Object.fromEntries(termEntries));
       setClasses(Array.isArray(c) ? c : c?.classes || []);
       setSubjects(Array.isArray(sub) ? sub : sub?.subjects || []);
       setError("");
@@ -106,15 +117,22 @@ export default function AcademicPage() {
   }
 
   async function createTerm(sessionId: string, event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true);
-    const form = new FormData(event.currentTarget);
+    event.preventDefault();
+    if (submitLock.current) return;
+    submitLock.current = true;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    setBusy(true); setError(""); setNotice("");
     try {
       await api("/admin/academic-sessions/" + sessionId + "/terms", { method: "POST", body: JSON.stringify({
         name: form.get("name"), start_date: datePayload(String(form.get("start_date"))), end_date: datePayload(String(form.get("end_date"))), status: form.get("status"),
       })});
-      event.currentTarget.reset(); await loadTerms(sessionId);
+      formElement.reset();
+      const value = await api("/admin/academic-sessions/" + sessionId + "/terms");
+      setTerms(v => ({ ...v, [sessionId]: Array.isArray(value) ? value : value?.terms || [] }));
+      setNotice("Academic term created successfully. Return to the dashboard and select it in Academic context.");
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to create term"); }
-    finally { setBusy(false); }
+    finally { submitLock.current = false; setBusy(false); }
   }
 
   async function loadSections(classId: string) {
@@ -159,7 +177,7 @@ export default function AcademicPage() {
             <button disabled={busy}>Add session</button>
           </form>
           <div className="table-wrap"><table><thead><tr><th>Session</th><th>Dates</th><th>Status</th><th>Terms</th></tr></thead><tbody>
-            {sessions.map(s => <tr key={s.id}><td><strong>{s.name}</strong></td><td>{dateValue(s.start_date)} → {dateValue(s.end_date)}</td><td><span className={"pill "+s.status}>{s.status}</span></td><td><button className="ghost" onClick={() => loadTerms(s.id)}>View terms</button>{terms[s.id] && <div className="nested-list">{terms[s.id].map(t => <div key={t.id}><strong>{t.name}</strong> · {dateValue(t.start_date)} → {dateValue(t.end_date)} · {t.status}</div>)}<form onSubmit={e => createTerm(s.id, e)} className="inline-form"><input name="name" required placeholder="e.g. First Term" /><input name="start_date" type="date" required/><input name="end_date" type="date" required/><select name="status" defaultValue="planned"><option>planned</option><option>active</option><option>closed</option></select><button disabled={busy}>Add term</button></form></div>}</td></tr>)}
+            {sessions.map(s => <tr key={s.id}><td><strong>{s.name}</strong></td><td>{dateValue(s.start_date)} → {dateValue(s.end_date)}</td><td><span className={"pill "+s.status}>{s.status}</span></td><td><div className="nested-list"><div className="row-between"><strong>Configured terms ({(terms[s.id] || []).length})</strong><button type="button" className="ghost" onClick={() => loadTerms(s.id)}>Refresh</button></div>{(terms[s.id] || []).map(t => <div key={t.id}><strong>{t.name}</strong> · {dateValue(t.start_date)} → {dateValue(t.end_date)} · {t.status}</div>)}{terms[s.id]?.length === 0 && <p className="muted">No terms yet. Add the first term below using dates within this academic session.</p>}<form onSubmit={e => createTerm(s.id, e)} className="inline-form"><input name="name" required maxLength={100} placeholder="e.g. First Term" aria-label={"Term name for " + s.name}/><input name="start_date" type="date" min={dateValue(s.start_date)} max={dateValue(s.end_date)} required aria-label="Term start date"/><input name="end_date" type="date" min={dateValue(s.start_date)} max={dateValue(s.end_date)} required aria-label="Term end date"/><select name="status" defaultValue="planned" aria-label="Term status"><option value="planned">Planned</option><option value="active">Active</option><option value="closed">Closed</option></select><button disabled={busy}>{busy ? "Saving…" : "Add term"}</button></form></div></td></tr>)}
           </tbody></table>{!sessions.length && <div className="empty">No academic sessions yet.</div>}</div>
         </section>
 

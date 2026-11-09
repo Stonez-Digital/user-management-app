@@ -1,7 +1,9 @@
 package httpx
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 
 	"github.com/go-playground/validator/v10"
 )
@@ -19,6 +21,19 @@ func ValidationErrors(err error) []FieldError {
 			out = append(out, FieldError{Field: e.Field(), Rule: e.Tag()})
 		}
 		return out
+	}
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) {
+		field := typeErr.Field
+		if field == "" { field = "body" }
+		return []FieldError{{Field: field, Rule: "invalid_type"}}
+	}
+	var syntaxErr *json.SyntaxError
+	if errors.As(err, &syntaxErr) {
+		return []FieldError{{Field: "body", Rule: "malformed_json"}}
+	}
+	if errors.Is(err, io.EOF) {
+		return []FieldError{{Field: "body", Rule: "required"}}
 	}
 	return []FieldError{{Field: "body", Rule: "invalid"}}
 }

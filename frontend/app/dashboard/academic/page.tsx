@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { apiRequest as api } from "../../../lib/api-client";
+import { apiRequest as api } from "../../../lib/api-client.mjs";
 
 type Session = { id: string; name: string; start_date: string; end_date: string; status: string };
 type Term = { id: string; academic_session_id: string; name: string; start_date: string; end_date: string; status: string };

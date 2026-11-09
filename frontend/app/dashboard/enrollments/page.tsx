@@ -1,7 +1,7 @@
 "use client";
 import {useEffect,useMemo,useState} from "react";
 import Link from "next/link";
-import { apiRequest as api } from "../../../lib/api-client";
+import { apiRequest as api } from "../../../lib/api-client.mjs";
 
 type Student={id:string;admission_number:string;user?:{name:string;email:string}};
 type Session={id:string;name:string;status:string};

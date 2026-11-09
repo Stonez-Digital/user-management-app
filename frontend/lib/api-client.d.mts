@@ -11,4 +11,6 @@ export class ApiError extends Error {
   constructor(message: string, options?: ApiErrorOptions);
 }
 
-export function apiRequest<T = unknown>(path: string, options?: RequestInit): Promise<T>;
+// Endpoint payloads are currently heterogeneous; keep the migration-compatible
+// response shape until each API route has an explicit response interface.
+export function apiRequest(path: string, options?: RequestInit): Promise<any>;

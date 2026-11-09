@@ -76,7 +76,7 @@ function ResultsContent(){
       </div>}
     </section>
 
-    <section className="panel"><div className="panel-head"><div><h2>Result ledger</h2><p>{results.length} recorded result{results.length===1?"":"s"}</p></div></div><div className="table-wrap"><table><thead><tr><th>Score</th><th>Assessment</th><th>Enrollment</th></tr></thead><tbody>{results.map(x=><tr key={x.id}><td><strong>{x.score}</strong></td><td>{x.assessment?.title||x.assessment_id}</td><td>{x.student_enrollment?.student?.user?.name||x.student_enrollment_id}</td></tr>)}</tbody></table>{!results.length&&<div className="empty">No results recorded.</div>}</div></section>
+    <section className="panel"><div className="panel-head"><div><h2>Result ledger</h2><p>{results.length} recorded result{results.length===1?"":"s"}</p></div></div><div className="table-wrap"><table><thead><tr><th>Score</th><th>Assessment</th><th>Enrollment</th></tr></thead><tbody>{results.map(x=><tr key={x.id}><td><strong>{x.score}</strong></td><td>{x.assessment?.title||x.assessment_id}</td><td>{x.student_enrollment?.student?.user?.name||x.student_enrollment?.student?.admission_number||"Name unavailable"}</td></tr>)}</tbody></table>{!results.length&&<div className="empty">No results recorded.</div>}</div></section>
   </div>;
 }
 

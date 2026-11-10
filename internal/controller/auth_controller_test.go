@@ -9,6 +9,7 @@ import (
     "strings"
     "sync"
     "testing"
+    "net/textproto"
     "time"
 
     "github.com/gin-gonic/gin"
@@ -373,7 +374,10 @@ func TestSchoolSignupAcceptsLogoMultipartAndPersistsTenantLogo(t *testing.T) {
     for key, value := range fields {
         if err := writer.WriteField(key, value); err != nil { t.Fatal(err) }
     }
-    logo, err := writer.CreateFormFile("logo", "school-logo.png")
+    logoPartHeader := make(textproto.MIMEHeader)
+    logoPartHeader.Set("Content-Disposition", `form-data; name="logo"; filename="school-logo.png"`)
+    logoPartHeader.Set("Content-Type", "image/png")
+    logo, err := writer.CreatePart(logoPartHeader)
     if err != nil { t.Fatal(err) }
     if _, err := logo.Write([]byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}); err != nil { t.Fatal(err) }
     if err := writer.Close(); err != nil { t.Fatal(err) }

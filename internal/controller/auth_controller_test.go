@@ -2,7 +2,8 @@ package controller
 
 import (
     "bytes"
-    "encoding/json"\n    "mime/multipart"
+    "encoding/json"
+    "mime/multipart"
     "net/http"
     "net/http/httptest"
     "strings"

@@ -5,7 +5,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
-	"log"\n\t"mime/multipart"
+	"log"
+	"mime/multipart"
 	"strings"
 	"time"
 
@@ -44,6 +45,7 @@ type PasswordResetMailer interface {
 type AuthController struct {
 	DB *gorm.DB
 	Mailer PasswordResetMailer
+	LogoStorage *service.SchoolLogoStorage
 }
 
 func NewAuthController(db *gorm.DB) *AuthController {

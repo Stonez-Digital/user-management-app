@@ -109,9 +109,10 @@ func (s *SchoolLogoStorage) ensureBucket() error {
     }
     defer resp.Body.Close()
     if resp.StatusCode == http.StatusConflict {
-        resp.Body.Close()
+        // A bucket may already exist from an earlier deployment. Supabase's
+        // Storage API updates bucket configuration with PUT, not PATCH.
         updatePayload := []byte(`{"public":true,"file_size_limit":2097152,"allowed_mime_types":["image/png","image/jpeg","image/webp"]}`)
-        updateReq, updateErr := http.NewRequest(http.MethodPatch, s.baseURL+"/storage/v1/bucket/"+schoolLogoBucket, bytes.NewReader(updatePayload))
+        updateReq, updateErr := http.NewRequest(http.MethodPut, s.baseURL+"/storage/v1/bucket/"+schoolLogoBucket, bytes.NewReader(updatePayload))
         if updateErr != nil {
             return fmt.Errorf("school logo storage setup failed: %w", updateErr)
         }

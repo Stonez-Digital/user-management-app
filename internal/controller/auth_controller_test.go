@@ -1,12 +1,15 @@
 package controller
 
 import (
+    "bytes"
     "encoding/json"
+    "mime/multipart"
     "net/http"
     "net/http/httptest"
     "strings"
     "sync"
     "testing"
+    "net/textproto"
     "time"
 
     "github.com/gin-gonic/gin"
@@ -338,4 +341,59 @@ func TestPasswordResetTokenClaimAllowsOnlyOneConcurrentConsumer(t *testing.T) {
     }
     if attempts != 2 { t.Fatalf("expected two competing claims, got %d", attempts) }
     if successes != 1 { t.Fatalf("expected exactly one successful token claim, got %d", successes) }
+}
+
+
+func TestSchoolSignupAcceptsLogoMultipartAndPersistsTenantLogo(t *testing.T) {
+    db := authControllerTestDB(t)
+    storageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        switch {
+        case r.Method == http.MethodPost && r.URL.Path == "/storage/v1/bucket":
+            http.Error(w, "bucket already exists", http.StatusConflict)
+        case r.Method == http.MethodPut && r.URL.Path == "/storage/v1/bucket/school-logos":
+            w.WriteHeader(http.StatusOK)
+        case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/storage/v1/object/school-logos/"):
+            w.WriteHeader(http.StatusOK)
+        default:
+            http.Error(w, "unexpected storage request", http.StatusNotFound)
+        }
+    }))
+    defer storageServer.Close()
+    t.Setenv("SUPABASE_URL", storageServer.URL)
+    t.Setenv("SUPABASE_SECRET_KEY", "test-storage-secret")
+
+    var body bytes.Buffer
+    writer := multipart.NewWriter(&body)
+    fields := map[string]string{
+        "school_name": "Logo Academy",
+        "school_code": "LOGOACADEMY",
+        "admin_name": "Logo Admin",
+        "admin_email": "logo-admin@example.test",
+        "admin_password": "password123",
+    }
+    for key, value := range fields {
+        if err := writer.WriteField(key, value); err != nil { t.Fatal(err) }
+    }
+    logoPartHeader := make(textproto.MIMEHeader)
+    logoPartHeader.Set("Content-Disposition", `form-data; name="logo"; filename="school-logo.png"`)
+    logoPartHeader.Set("Content-Type", "image/png")
+    logo, err := writer.CreatePart(logoPartHeader)
+    if err != nil { t.Fatal(err) }
+    if _, err := logo.Write([]byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}); err != nil { t.Fatal(err) }
+    if err := writer.Close(); err != nil { t.Fatal(err) }
+
+    gin.SetMode(gin.TestMode)
+    router := gin.New()
+    router.POST("/school-signup", NewAuthController(db).SchoolSignup)
+    req := httptest.NewRequest(http.MethodPost, "/school-signup", &body)
+    req.Header.Set("Content-Type", writer.FormDataContentType())
+    rec := httptest.NewRecorder()
+    router.ServeHTTP(rec, req)
+    if rec.Code != http.StatusCreated { t.Fatalf("expected multipart signup 201, got %d: %s", rec.Code, rec.Body.String()) }
+
+    var school models.School
+    if err := db.Where("code = ?", "LOGOACADEMY").First(&school).Error; err != nil { t.Fatal(err) }
+    if !strings.HasPrefix(school.LogoURL, storageServer.URL+"/storage/v1/object/public/school-logos/") {
+        t.Fatalf("expected uploaded logo URL to be persisted, got %q", school.LogoURL)
+    }
 }

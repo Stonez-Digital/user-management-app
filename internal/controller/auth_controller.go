@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
-	"log"
+	"log"\n\t"mime/multipart"
 	"strings"
 	"time"
 
@@ -191,10 +191,14 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
   return
  }
 
- logoHeader, logoErr := c.FormFile("logo")
- if logoErr != nil && !errors.Is(logoErr, http.ErrMissingFile) {
-  httpx.Error(c, http.StatusBadRequest, "school_logo_invalid", "unable to read school logo")
-  return
+ var logoHeader *multipart.FileHeader
+ if strings.HasPrefix(strings.ToLower(c.GetHeader("Content-Type")), "multipart/form-data") {
+  var logoErr error
+  logoHeader, logoErr = c.FormFile("logo")
+  if logoErr != nil && !errors.Is(logoErr, http.ErrMissingFile) {
+   httpx.Error(c, http.StatusBadRequest, "school_logo_invalid", "unable to read school logo")
+   return
+  }
  }
  if logoHeader != nil && ac.LogoStorage == nil {
   httpx.Error(c, http.StatusServiceUnavailable, "school_logo_storage_unavailable", "school logo storage is not configured")

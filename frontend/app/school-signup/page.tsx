@@ -1,9 +1,9 @@
 "use client";
 
-import {useState} from "react";
+import {useEffect,useState} from "react";
 
 type SignupForm = {
- school_name:string; school_code:string; school_slug:string; school_type:string;
+ school_name:string; school_code:string; school_slug:string; school_type:string; requested_plan:string;
  phone:string; address:string; city:string; state:string;
  admin_name:string; admin_email:string; admin_password:string; confirm_password:string;
 };
@@ -23,12 +23,17 @@ function slugFromName(name:string){
 
 export default function SchoolSignup(){
  const [step,setStep]=useState<1|2>(1);
- const [form,setForm]=useState<SignupForm>({school_name:"",school_code:"",school_slug:"",school_type:"",phone:"",address:"",city:"",state:"",admin_name:"",admin_email:"",admin_password:"",confirm_password:""});
+ const [form,setForm]=useState<SignupForm>({school_name:"",school_code:"",school_slug:"",school_type:"",requested_plan:"trial",phone:"",address:"",city:"",state:"",admin_name:"",admin_email:"",admin_password:"",confirm_password:""});
  const [logo,setLogo]=useState<File|null>(null);
  const [error,setError]=useState("");
  const [success,setSuccess]=useState("");
  const [assignedDomain,setAssignedDomain]=useState("");
  const [loading,setLoading]=useState(false);
+
+ useEffect(()=>{
+  const requested=new URLSearchParams(window.location.search).get("plan");
+  if(requested&&["trial","basic","professional","premium","enterprise"].includes(requested)){update("requested_plan",requested);}
+ },[]);
 
  function update(key:keyof SignupForm,value:string){
   setForm(current=>({...current,[key]:value}));
@@ -66,7 +71,7 @@ export default function SchoolSignup(){
   setLoading(true);
   try{
    const payload=new FormData();
-   for(const key of ["school_name","school_code","school_slug","school_type","phone","address","city","state","admin_name","admin_email","admin_password"] as const){
+   for(const key of ["school_name","school_code","school_slug","school_type","requested_plan","phone","address","city","state","admin_name","admin_email","admin_password"] as const){
     const value=form[key].trim();
     payload.append(key,value);
    }
@@ -98,6 +103,7 @@ export default function SchoolSignup(){
     <label>School code<input value={form.school_code} onChange={event=>update("school_code",event.target.value.toUpperCase().replace(/[^A-Z0-9-]/g,""))} placeholder="GREENFIELD" minLength={2} maxLength={50} pattern="[A-Z0-9-]{2,50}" required/><span className="muted">A unique internal identifier for your school.</span></label>
     <label>Choose your school subdomain<input value={form.school_slug} onChange={event=>update("school_slug",event.target.value.toLowerCase().replace(/[^a-z0-9-]/g,"").slice(0,63))} placeholder="greenfield" minLength={3} maxLength={63} pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]" required/><span className="muted">{form.school_slug||"your-school"}.stonezdigital.com.ng</span><span className="muted">Your requested address is checked for availability. It becomes active only after platform approval.</span></label>
     <label>School type<select value={form.school_type} onChange={event=>update("school_type",event.target.value)} required><option value="">Select school type</option><option value="primary">Primary only</option><option value="secondary">Secondary only</option><option value="both">Primary and secondary</option></select></label>
+    <label>Choose a plan<select value={form.requested_plan} onChange={event=>update("requested_plan",event.target.value)} required><option value="trial">Free Trial · 1 term</option><option value="basic">Basic · ₦65,000 per term</option><option value="professional">Professional · ₦100,000 per term</option><option value="premium">Premium · ₦150,000 per term</option><option value="enterprise">Enterprise · Contact sales</option></select><span className="muted">This records your requested plan only. Billing and plan activation are handled after review.</span></label>
     <label>Phone number <span className="muted">Optional</span><input type="tel" value={form.phone} onChange={event=>update("phone",event.target.value)} placeholder="+234..." maxLength={80} autoComplete="tel"/></label>
     <label>Address <span className="muted">Optional</span><input value={form.address} onChange={event=>update("address",event.target.value)} placeholder="Street address" maxLength={300} autoComplete="street-address"/></label>
     <div className="form-row"><label>City <span className="muted">Optional</span><input value={form.city} onChange={event=>update("city",event.target.value)} placeholder="Makurdi" maxLength={100} autoComplete="address-level2"/></label><label>State <span className="muted">Optional</span><input value={form.state} onChange={event=>update("state",event.target.value)} placeholder="Benue" maxLength={100} autoComplete="address-level1"/></label></div>
@@ -107,7 +113,7 @@ export default function SchoolSignup(){
    </form>}
 
    {!success&&step===2&&<form onSubmit={submit} className="form">
-    <div className="tenant-note"><strong>{form.school_name}</strong><span>{form.school_slug}.stonezdigital.com.ng · {form.school_type}</span><span>Now create the first school administrator account.</span></div>
+    <div className="tenant-note"><strong>{form.school_name}</strong><span>{form.school_slug}.stonezdigital.com.ng · {form.school_type} · Requested plan: {form.requested_plan}</span><span>Now create the first school administrator account.</span></div>
     <label>Administrator full name<input value={form.admin_name} onChange={event=>update("admin_name",event.target.value)} placeholder="Jane Doe" minLength={2} maxLength={100} autoComplete="name" required/></label>
     <label>Administrator email<input type="email" value={form.admin_email} onChange={event=>update("admin_email",event.target.value)} placeholder="admin@school.com" maxLength={255} autoComplete="email" required/></label>
     <label>Password<input type="password" value={form.admin_password} onChange={event=>update("admin_password",event.target.value)} minLength={8} maxLength={128} autoComplete="new-password" required/></label>

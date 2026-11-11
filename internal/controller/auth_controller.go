@@ -33,7 +33,19 @@ type ChangePasswordRequest struct { CurrentPassword string `json:"current_passwo
 type RefreshRequest struct { RefreshToken string `json:"refresh_token" binding:"required"` }
 type LogoutRequest struct { RefreshToken string `json:"refresh_token" binding:"required"` }
 type RegisterRequest struct { Name string `json:"name" binding:"required,min=2,max=100"`; Email string `json:"email" binding:"required,email,max=255"`; Password string `json:"password" binding:"required,min=8,max=128"` }
-type SchoolSignupRequest struct { SchoolName string `json:"school_name" form:"school_name" binding:"required,min=2,max=160"`; SchoolCode string `json:"school_code" form:"school_code" binding:"required,min=2,max=50"`; AdminName string `json:"admin_name" form:"admin_name" binding:"required,min=2,max=100"`; AdminEmail string `json:"admin_email" form:"admin_email" binding:"required,email,max=255"`; AdminPassword string `json:"admin_password" form:"admin_password" binding:"required,min=8,max=128"` }
+type SchoolSignupRequest struct {
+ SchoolName string `json:"school_name" form:"school_name" binding:"required,min=2,max=160"`
+ SchoolCode string `json:"school_code" form:"school_code" binding:"required,min=2,max=50"`
+ SchoolSlug string `json:"school_slug" form:"school_slug" binding:"required,min=3,max=63"`
+ SchoolType string `json:"school_type" form:"school_type" binding:"required,oneof=primary secondary both"`
+ Address string `json:"address" form:"address" binding:"omitempty,max=300"`
+ City string `json:"city" form:"city" binding:"omitempty,max=100"`
+ State string `json:"state" form:"state" binding:"omitempty,max=100"`
+ ContactPhone string `json:"phone" form:"phone" binding:"omitempty,max=80"`
+ AdminName string `json:"admin_name" form:"admin_name" binding:"required,min=2,max=100"`
+ AdminEmail string `json:"admin_email" form:"admin_email" binding:"required,email,max=255"`
+ AdminPassword string `json:"admin_password" form:"admin_password" binding:"required,min=8,max=128"`
+}
 type LoginRequest struct { Email string `json:"email" binding:"required,email,max=255"`; Password string `json:"password" binding:"required"`; SchoolCode string `json:"school_code" binding:"omitempty,max=50"`; SchoolSlug string `json:"school_slug" binding:"omitempty,max=180"` }
 type AssignRoleRequest struct { Role string `json:"role" binding:"required"` }
 
@@ -209,14 +221,25 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
 
  name := strings.TrimSpace(req.SchoolName)
  code := strings.ToUpper(strings.TrimSpace(req.SchoolCode))
+ slug := strings.ToLower(strings.TrimSpace(req.SchoolSlug))
  email := strings.ToLower(strings.TrimSpace(req.AdminEmail))
+ if err := validateRequestedSchoolSlug(slug); err != nil {
+  httpx.Error(c, http.StatusBadRequest, "school_subdomain_invalid", err.Error())
+  return
+ }
  hash, err := auth.HashPassword(req.AdminPassword)
  if err != nil {
   httpx.Error(c, http.StatusInternalServerError, "password_hash_failed", "failed to secure administrator password")
   return
  }
 
- school := models.School{ID: uuid.New(), Name: name, Code: code, Status: models.SchoolStatusPending}
+ school := models.School{
+  ID: uuid.New(), Name: name, Code: code, Slug: slug,
+  SchoolType: req.SchoolType, Address: strings.TrimSpace(req.Address),
+  City: strings.TrimSpace(req.City), State: strings.TrimSpace(req.State),
+  ContactPhone: strings.TrimSpace(req.ContactPhone), ContactEmail: email,
+  Status: models.SchoolStatusPending,
+ }
  admin := models.User{ID: uuid.New(), Name: strings.TrimSpace(req.AdminName), Email: email, PasswordHash: hash, Role: authz.RoleSchoolAdmin, Active: true}
  var logoUploadErr error
 
@@ -233,9 +256,9 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
   } else if !errors.Is(e, gorm.ErrRecordNotFound) {
    return e
   }
-  slug, e := uniqueSchoolSlug(tx, name, code, uuid.Nil)
+  available, e := requestedSchoolSlugAvailable(tx, slug)
   if e != nil { return e }
-  school.Slug = slug
+  if !available { return gorm.ErrDuplicatedKey }
   if e := tx.Create(&school).Error; e != nil { return e }
 
   admin.SchoolID = &school.ID
@@ -276,7 +299,7 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
  c.JSON(http.StatusCreated, gin.H{
   "message": "school onboarding submitted",
   "status": school.Status,
-  "school": gin.H{"id": school.ID, "name": school.Name, "code": school.Code, "slug": school.Slug, "domain": domain, "domain_status": "pending_approval", "logo_url": school.LogoURL},
+  "school": gin.H{"id": school.ID, "name": school.Name, "code": school.Code, "slug": school.Slug, "domain": domain, "domain_status": "pending_approval", "logo_url": school.LogoURL, "school_type": school.SchoolType, "address": school.Address, "city": school.City, "state": school.State, "phone": school.ContactPhone},
   "administrator": gin.H{"name": admin.Name, "email": admin.Email},
  })
 }

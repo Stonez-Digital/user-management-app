@@ -67,3 +67,29 @@ func uniqueSchoolSlug(tx *gorm.DB, name, code string, excludeID uuid.UUID) (stri
 	}
 	return candidate, nil
 }
+
+func validateRequestedSchoolSlug(slug string) error {
+	if len(slug) < 3 || len(slug) > 63 {
+		return fmt.Errorf("subdomain must be between 3 and 63 characters")
+	}
+	if slug[0] == '-' || slug[len(slug)-1] == '-' {
+		return fmt.Errorf("subdomain must start and end with a letter or number")
+	}
+	for _, ch := range slug {
+		if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
+			return fmt.Errorf("subdomain may contain only lowercase letters, numbers, and hyphens")
+		}
+	}
+	if reservedSchoolSlugs[slug] {
+		return fmt.Errorf("that subdomain is reserved")
+	}
+	return nil
+}
+
+func requestedSchoolSlugAvailable(tx *gorm.DB, slug string) (bool, error) {
+	var count int64
+	if err := tx.Model(&models.School{}).Where("lower(slug) = ?", strings.ToLower(slug)).Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count == 0, nil
+}

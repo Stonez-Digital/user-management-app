@@ -15,9 +15,13 @@ func TestSchoolLogoUploadUpdatesExistingBucketWithPut(t *testing.T) {
     server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         switch {
         case r.Method == http.MethodPost && r.URL.Path == "/storage/v1/bucket":
+            payload, _ := io.ReadAll(r.Body)
+            if !strings.Contains(string(payload), `"file_size_limit":5242880`) { t.Errorf("expected 5 MB bucket limit, got %s", payload) }
             w.WriteHeader(http.StatusConflict)
         case r.Method == http.MethodPut && r.URL.Path == "/storage/v1/bucket/school-logos":
             sawBucketPut = true
+            payload, _ := io.ReadAll(r.Body)
+            if !strings.Contains(string(payload), `"file_size_limit":5242880`) { t.Errorf("expected existing bucket to be raised to 5 MB, got %s", payload) }
             w.WriteHeader(http.StatusOK)
         case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/storage/v1/object/school-logos/"):
             sawObjectUpload = true

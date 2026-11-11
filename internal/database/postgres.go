@@ -785,6 +785,24 @@ func Migrate(db *gorm.DB) error {
             if err:=tx.Exec("DROP INDEX IF EXISTS academic_sessions_name_key").Error;err!=nil{return err}
             return nil
         }},
+        {Version:44,Name:"school_signup_profile_fields",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()=="postgres" {
+                statements:=[]string{
+                    "ALTER TABLE schools ADD COLUMN IF NOT EXISTS city varchar(100)",
+                    "ALTER TABLE schools ADD COLUMN IF NOT EXISTS state varchar(100)",
+                    "ALTER TABLE schools ADD COLUMN IF NOT EXISTS school_type varchar(30)",
+                }
+                for _,statement:=range statements { if err:=tx.Exec(statement).Error;err!=nil{return err} }
+                return nil
+            }
+            return tx.AutoMigrate(&models.School{})
+        }},
+        {Version:45,Name:"school_signup_requested_plan",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()=="postgres" {
+                return tx.Exec("ALTER TABLE schools ADD COLUMN IF NOT EXISTS requested_plan varchar(30)").Error
+            }
+            return tx.AutoMigrate(&models.School{})
+        }},
     }
     for _,migration:=range migrations{
         var applied Migration

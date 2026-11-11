@@ -229,12 +229,12 @@ func TestPasswordChangeRevokesAllSessionsAndRefreshTokens(t *testing.T) {
 func TestSchoolSignupCreatesPendingTenantAndAdmin(t *testing.T) {
     db := authControllerTestDB(t)
     ac := NewAuthController(db)
-    rec := authJSONRequest(t, ac, http.MethodPost, "/school-signup", `{"school_name":"Greenfield Academy","school_code":"GREENFIELD","school_slug":"greenfield-academy","school_type":"both","requested_plan":"professional","phone":"+2348012345678","address":"12 School Road","city":"Makurdi","state":"Benue","admin_name":"Jane Doe","admin_email":"ADMIN@greenfield.test","admin_password":"password123"}`)
+    rec := authJSONRequest(t, ac, http.MethodPost, "/school-signup", `{"school_name":"Greenfield Academy","school_email":"office@greenfield.test","school_slug":"greenfield-academy","school_type":"both","requested_plan":"professional","phone":"+2348012345678","address":"12 School Road","city":"Makurdi","state":"Benue","admin_name":"Jane Doe","admin_email":"ADMIN@greenfield.test","admin_password":"password123"}`)
     if rec.Code != http.StatusCreated { t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String()) }
     var school models.School
     if err := db.Where("code = ?", "GREENFIELD").First(&school).Error; err != nil { t.Fatal(err) }
     if school.Status != models.SchoolStatusPending { t.Fatalf("expected pending school, got %q", school.Status) }
-    if school.Slug != "greenfield-academy" || school.SchoolType != "both" || school.RequestedPlan != "professional" || school.City != "Makurdi" || school.State != "Benue" || school.Address != "12 School Road" || school.ContactPhone != "+2348012345678" || school.ContactEmail != "admin@greenfield.test" {
+    if school.Slug != "greenfield-academy" || school.SchoolType != "both" || school.RequestedPlan != "professional" || school.City != "Makurdi" || school.State != "Benue" || school.Address != "12 School Road" || school.ContactPhone != "+2348012345678" || school.ContactEmail != "office@greenfield.test" {
         t.Fatalf("school signup profile was not persisted: %+v", school)
     }
     var admin models.User
@@ -369,7 +369,7 @@ func TestSchoolSignupAcceptsLogoMultipartAndPersistsTenantLogo(t *testing.T) {
     writer := multipart.NewWriter(&body)
     fields := map[string]string{
         "school_name": "Logo Academy",
-        "school_code": "LOGOACADEMY",
+        "school_email": "office@logoacademy.test",
         "school_slug": "logo-academy",
         "school_type": "both",
         "requested_plan": "trial",

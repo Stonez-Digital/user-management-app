@@ -35,7 +35,6 @@ type LogoutRequest struct { RefreshToken string `json:"refresh_token" binding:"r
 type RegisterRequest struct { Name string `json:"name" binding:"required,min=2,max=100"`; Email string `json:"email" binding:"required,email,max=255"`; Password string `json:"password" binding:"required,min=8,max=128"` }
 type SchoolSignupRequest struct {
  SchoolName string `json:"school_name" form:"school_name" binding:"required,min=2,max=160"`
- SchoolCode string `json:"school_code" form:"school_code" binding:"omitempty,min=2,max=50"`
  SchoolSlug string `json:"school_slug" form:"school_slug" binding:"required,min=3,max=63"`
  SchoolEmail string `json:"school_email" form:"school_email" binding:"required,email,max=255"`
  SchoolType string `json:"school_type" form:"school_type" binding:"required,oneof=primary secondary both"`
@@ -223,12 +222,9 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
 
  name := strings.TrimSpace(req.SchoolName)
  slug := strings.ToLower(strings.TrimSpace(req.SchoolSlug))
- code := strings.ToUpper(strings.TrimSpace(req.SchoolCode))
- if code == "" {
-  code = strings.ToUpper(strings.ReplaceAll(slug, "-", ""))
-  if len(code) > 40 { code = code[:40] }
-  code += "-" + strings.ToUpper(strings.ReplaceAll(uuid.NewString()[:8], "-", ""))
- }
+ code := strings.ToUpper(strings.ReplaceAll(slug, "-", ""))
+ if len(code) > 40 { code = code[:40] }
+ code += "-" + strings.ToUpper(strings.ReplaceAll(uuid.NewString()[:8], "-", ""))
  email := strings.ToLower(strings.TrimSpace(req.AdminEmail))
  schoolEmail := strings.ToLower(strings.TrimSpace(req.SchoolEmail))
  if err := validateRequestedSchoolSlug(slug); err != nil {

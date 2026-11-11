@@ -26,6 +26,7 @@ type School struct {
     City string `gorm:"size:100" json:"city,omitempty"`
     State string `gorm:"size:100" json:"state,omitempty"`
     SchoolType string `gorm:"size:30" json:"school_type,omitempty"`
+    RequestedPlan string `gorm:"size:30" json:"requested_plan,omitempty"`
     ContactEmail string `gorm:"size:255" json:"contact_email,omitempty"`
     ContactPhone string `gorm:"size:80" json:"contact_phone,omitempty"`
     WebsiteURL string `gorm:"size:500" json:"website_url,omitempty"`

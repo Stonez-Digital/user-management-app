@@ -80,3 +80,25 @@ func TestPlatformSchoolActivationFailsClosedWhenProvisioningFails(t *testing.T) 
 	if err := db.First(&school,"id = ?",school.ID).Error; err != nil { t.Fatal(err) }
 	if school.Status != models.SchoolStatusPending { t.Fatalf("school must remain pending after provisioning failure, got %q",school.Status) }
 }
+
+func TestValidateRequestedSchoolSlug(t *testing.T) {
+	for _, slug := range []string{"greenfield-academy", "school123", "abc"} {
+		if err := validateRequestedSchoolSlug(slug); err != nil { t.Errorf("expected %q to be valid: %v", slug, err) }
+	}
+	for _, slug := range []string{"", "ab", "-greenfield", "greenfield-", "Greenfield", "greenfield.academy", "app", "admin"} {
+		if err := validateRequestedSchoolSlug(slug); err == nil { t.Errorf("expected %q to be rejected", slug) }
+	}
+}
+
+func TestRequestedSchoolSlugAvailability(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil { t.Fatal(err) }
+	if err := db.AutoMigrate(&models.School{}); err != nil { t.Fatal(err) }
+	if err := db.Create(&models.School{Name:"Greenfield Academy", Code:"GREENFIELD", Slug:"greenfield-academy", Status:models.SchoolStatusPending}).Error; err != nil { t.Fatal(err) }
+	available, err := requestedSchoolSlugAvailable(db, "greenfield-academy")
+	if err != nil { t.Fatal(err) }
+	if available { t.Fatal("expected an already-registered subdomain to be unavailable") }
+	available, err = requestedSchoolSlugAvailable(db, "another-school")
+	if err != nil { t.Fatal(err) }
+	if !available { t.Fatal("expected an unused subdomain to be available") }
+}

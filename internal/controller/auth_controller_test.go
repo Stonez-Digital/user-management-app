@@ -398,7 +398,7 @@ func TestSchoolSignupAcceptsLogoMultipartAndPersistsTenantLogo(t *testing.T) {
     if rec.Code != http.StatusCreated { t.Fatalf("expected multipart signup 201, got %d: %s", rec.Code, rec.Body.String()) }
 
     var school models.School
-    if err := db.Where("code = ?", "LOGOACADEMY").First(&school).Error; err != nil { t.Fatal(err) }
+    if err := db.Where("slug = ?", "logo-academy").First(&school).Error; err != nil { t.Fatal(err) }
     if !strings.HasPrefix(school.LogoURL, storageServer.URL+"/storage/v1/object/public/school-logos/") {
         t.Fatalf("expected uploaded logo URL to be persisted, got %q", school.LogoURL)
     }

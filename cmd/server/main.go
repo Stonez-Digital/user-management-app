@@ -18,6 +18,15 @@ func main() {
     if err:=server.ValidateEnvironment();err!=nil{log.Fatal(err)}
     if err:=auth.ConfigureSecret(os.Getenv("JWT_SECRET"));err!=nil{log.Fatal(err)}
     db,err:=database.Connect();if err!=nil{log.Fatal(err)}
+    if roleStatus,diagnosticErr:=database.InspectPostgresRole(db);diagnosticErr!=nil {
+        log.Printf("database role security diagnostic unavailable: %v",diagnosticErr)
+    } else if roleStatus!=nil {
+        log.Printf("database role security diagnostic: current_role=%q session_role=%q current_superuser=%t current_bypass_rls=%t session_superuser=%t session_bypass_rls=%t",
+            roleStatus.CurrentRole,roleStatus.SessionRole,roleStatus.CurrentSuperuser,roleStatus.CurrentBypassRLS,roleStatus.SessionSuperuser,roleStatus.SessionBypassRLS)
+        if roleStatus.CurrentSuperuser || roleStatus.CurrentBypassRLS || roleStatus.SessionSuperuser || roleStatus.SessionBypassRLS {
+            log.Printf("SECURITY WARNING: PostgreSQL connection uses a superuser or BYPASSRLS role; database row-level security will not constrain that role")
+        }
+    }
     if err:=database.Migrate(db);err!=nil{log.Fatal(err)}
     if err:=bootstrap.EnsureInitialAdmin(db);err!=nil{log.Fatal(err)}
     r:=gin.Default();r.SetTrustedProxies(nil);server.Configure(r)

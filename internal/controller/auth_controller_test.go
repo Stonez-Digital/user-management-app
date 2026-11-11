@@ -229,11 +229,14 @@ func TestPasswordChangeRevokesAllSessionsAndRefreshTokens(t *testing.T) {
 func TestSchoolSignupCreatesPendingTenantAndAdmin(t *testing.T) {
     db := authControllerTestDB(t)
     ac := NewAuthController(db)
-    rec := authJSONRequest(t, ac, http.MethodPost, "/school-signup", `{"school_name":"Greenfield Academy","school_code":"GREENFIELD","admin_name":"Jane Doe","admin_email":"ADMIN@greenfield.test","admin_password":"password123"}`)
+    rec := authJSONRequest(t, ac, http.MethodPost, "/school-signup", `{"school_name":"Greenfield Academy","school_code":"GREENFIELD","school_slug":"greenfield-academy","school_type":"both","phone":"+2348012345678","address":"12 School Road","city":"Makurdi","state":"Benue","admin_name":"Jane Doe","admin_email":"ADMIN@greenfield.test","admin_password":"password123"}`)
     if rec.Code != http.StatusCreated { t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String()) }
     var school models.School
     if err := db.Where("code = ?", "GREENFIELD").First(&school).Error; err != nil { t.Fatal(err) }
     if school.Status != models.SchoolStatusPending { t.Fatalf("expected pending school, got %q", school.Status) }
+    if school.Slug != "greenfield-academy" || school.SchoolType != "both" || school.City != "Makurdi" || school.State != "Benue" || school.Address != "12 School Road" || school.ContactPhone != "+2348012345678" || school.ContactEmail != "admin@greenfield.test" {
+        t.Fatalf("school signup profile was not persisted: %+v", school)
+    }
     var admin models.User
     if err := db.Where("email = ?", "admin@greenfield.test").First(&admin).Error; err != nil { t.Fatal(err) }
     if admin.SchoolID == nil || *admin.SchoolID != school.ID { t.Fatal("expected admin to belong to new school tenant") }

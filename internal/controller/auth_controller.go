@@ -35,8 +35,9 @@ type LogoutRequest struct { RefreshToken string `json:"refresh_token" binding:"r
 type RegisterRequest struct { Name string `json:"name" binding:"required,min=2,max=100"`; Email string `json:"email" binding:"required,email,max=255"`; Password string `json:"password" binding:"required,min=8,max=128"` }
 type SchoolSignupRequest struct {
  SchoolName string `json:"school_name" form:"school_name" binding:"required,min=2,max=160"`
- SchoolCode string `json:"school_code" form:"school_code" binding:"required,min=2,max=50"`
+ SchoolCode string `json:"school_code" form:"school_code" binding:"omitempty,min=2,max=50"`
  SchoolSlug string `json:"school_slug" form:"school_slug" binding:"required,min=3,max=63"`
+ SchoolEmail string `json:"school_email" form:"school_email" binding:"required,email,max=255"`
  SchoolType string `json:"school_type" form:"school_type" binding:"required,oneof=primary secondary both"`
  RequestedPlan string `json:"requested_plan" form:"requested_plan" binding:"required,oneof=trial basic professional premium enterprise"`
  Address string `json:"address" form:"address" binding:"omitempty,max=300"`
@@ -200,7 +201,7 @@ func (ac *AuthController) Register(c *gin.Context) {
 
 func (ac *AuthController) SchoolSignup(c *gin.Context) {
  var req SchoolSignupRequest
- c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 3*1024*1024)
+ c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 6*1024*1024)
  if err := c.ShouldBind(&req); err != nil {
   httpx.Validation(c, httpx.ValidationErrors(err))
   return
@@ -222,8 +223,14 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
 
  name := strings.TrimSpace(req.SchoolName)
  code := strings.ToUpper(strings.TrimSpace(req.SchoolCode))
+ if code == "" {
+  code = strings.ToUpper(strings.ReplaceAll(slug, "-", ""))
+  if len(code) > 40 { code = code[:40] }
+  code += "-" + strings.ToUpper(strings.ReplaceAll(uuid.NewString()[:8], "-", ""))
+ }
  slug := strings.ToLower(strings.TrimSpace(req.SchoolSlug))
  email := strings.ToLower(strings.TrimSpace(req.AdminEmail))
+ schoolEmail := strings.ToLower(strings.TrimSpace(req.SchoolEmail))
  if err := validateRequestedSchoolSlug(slug); err != nil {
   httpx.Error(c, http.StatusBadRequest, "school_subdomain_invalid", err.Error())
   return
@@ -238,7 +245,7 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
   ID: uuid.New(), Name: name, Code: code, Slug: slug,
   SchoolType: req.SchoolType, RequestedPlan: req.RequestedPlan, Address: strings.TrimSpace(req.Address),
   City: strings.TrimSpace(req.City), State: strings.TrimSpace(req.State),
-  ContactPhone: strings.TrimSpace(req.ContactPhone), ContactEmail: email,
+  ContactPhone: strings.TrimSpace(req.ContactPhone), ContactEmail: schoolEmail,
   Status: models.SchoolStatusPending,
  }
  admin := models.User{ID: uuid.New(), Name: strings.TrimSpace(req.AdminName), Email: email, PasswordHash: hash, Role: authz.RoleSchoolAdmin, Active: true}
@@ -288,7 +295,7 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
   if errors.Is(err, gorm.ErrDuplicatedKey) {
    httpx.Error(c, http.StatusConflict, "school_or_email_exists", "school code, subdomain, or administrator email already exists")
   } else if logoUploadErr != nil {
-   httpx.Error(c, http.StatusBadRequest, "school_logo_upload_failed", "school logo could not be uploaded; check that it is a PNG, JPEG, or WebP image no larger than 2 MB")
+   httpx.Error(c, http.StatusBadRequest, "school_logo_upload_failed", "school logo could not be uploaded; check that it is a PNG, JPEG, or WebP image no larger than 5 MB")
   } else {
    httpx.Error(c, http.StatusInternalServerError, "school_signup_failed", "failed to submit school onboarding")
   }
@@ -300,7 +307,7 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
  c.JSON(http.StatusCreated, gin.H{
   "message": "school onboarding submitted",
   "status": school.Status,
-  "school": gin.H{"id": school.ID, "name": school.Name, "code": school.Code, "slug": school.Slug, "domain": domain, "domain_status": "pending_approval", "logo_url": school.LogoURL, "school_type": school.SchoolType, "address": school.Address, "city": school.City, "state": school.State, "phone": school.ContactPhone, "requested_plan": school.RequestedPlan},
+  "school": gin.H{"id": school.ID, "name": school.Name, "code": school.Code, "slug": school.Slug, "domain": domain, "domain_status": "pending_approval", "logo_url": school.LogoURL, "school_type": school.SchoolType, "address": school.Address, "city": school.City, "state": school.State, "phone": school.ContactPhone, "email": school.ContactEmail, "requested_plan": school.RequestedPlan},
   "administrator": gin.H{"name": admin.Name, "email": admin.Email},
  })
 }

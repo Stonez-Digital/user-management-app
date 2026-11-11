@@ -44,7 +44,7 @@ function SchoolSignupForm(){
  }
 
  function updateSchoolName(value:string){
-  setForm(current=>({...current,school_name:value,school_slug:current.school_slug||slugFromName(value),school_email:current.school_email}));
+  setForm(current=>({...current,school_name:value,school_slug:current.school_slug||slugFromName(value)}));
  }
 
  function selectLogo(file:File|null){

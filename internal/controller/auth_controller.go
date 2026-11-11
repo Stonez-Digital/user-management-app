@@ -38,6 +38,7 @@ type SchoolSignupRequest struct {
  SchoolCode string `json:"school_code" form:"school_code" binding:"required,min=2,max=50"`
  SchoolSlug string `json:"school_slug" form:"school_slug" binding:"required,min=3,max=63"`
  SchoolType string `json:"school_type" form:"school_type" binding:"required,oneof=primary secondary both"`
+ RequestedPlan string `json:"requested_plan" form:"requested_plan" binding:"required,oneof=trial basic professional premium enterprise"`
  Address string `json:"address" form:"address" binding:"omitempty,max=300"`
  City string `json:"city" form:"city" binding:"omitempty,max=100"`
  State string `json:"state" form:"state" binding:"omitempty,max=100"`
@@ -235,7 +236,7 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
 
  school := models.School{
   ID: uuid.New(), Name: name, Code: code, Slug: slug,
-  SchoolType: req.SchoolType, Address: strings.TrimSpace(req.Address),
+  SchoolType: req.SchoolType, RequestedPlan: req.RequestedPlan, Address: strings.TrimSpace(req.Address),
   City: strings.TrimSpace(req.City), State: strings.TrimSpace(req.State),
   ContactPhone: strings.TrimSpace(req.ContactPhone), ContactEmail: email,
   Status: models.SchoolStatusPending,
@@ -299,7 +300,7 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
  c.JSON(http.StatusCreated, gin.H{
   "message": "school onboarding submitted",
   "status": school.Status,
-  "school": gin.H{"id": school.ID, "name": school.Name, "code": school.Code, "slug": school.Slug, "domain": domain, "domain_status": "pending_approval", "logo_url": school.LogoURL, "school_type": school.SchoolType, "address": school.Address, "city": school.City, "state": school.State, "phone": school.ContactPhone},
+  "school": gin.H{"id": school.ID, "name": school.Name, "code": school.Code, "slug": school.Slug, "domain": domain, "domain_status": "pending_approval", "logo_url": school.LogoURL, "school_type": school.SchoolType, "address": school.Address, "city": school.City, "state": school.State, "phone": school.ContactPhone, "requested_plan": school.RequestedPlan},
   "administrator": gin.H{"name": admin.Name, "email": admin.Email},
  })
 }

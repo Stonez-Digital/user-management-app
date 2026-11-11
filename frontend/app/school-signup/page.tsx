@@ -32,7 +32,7 @@ export default function SchoolSignup(){
 
  useEffect(()=>{
   const requested=new URLSearchParams(window.location.search).get("plan");
-  if(requested&&["trial","basic","professional","premium","enterprise"].includes(requested)){update("requested_plan",requested);}
+  if(requested&&["trial","basic","professional","premium","enterprise"].includes(requested)){setForm(current=>({...current,requested_plan:requested}));}
  },[]);
 
  function update(key:keyof SignupForm,value:string){

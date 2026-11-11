@@ -102,3 +102,34 @@ Do not call this remediation complete until all are true:
 ## Scope of this change
 
 This plan intentionally makes no changes to production database roles, grants, policies, secrets, connection strings, or records. The current startup diagnostic remains the verification mechanism until the runtime-role migration is implemented and separately approved.
+
+
+## Phase A source audit — current implementation
+
+Reviewed at production merge commit `65eacc43e3885fdf4373e23dfc43da449b351b26`.
+
+### Confirmed request-path constraints
+
+- `cmd/server/main.go` constructs repositories, services, and controllers with a shared root `*gorm.DB`. This is not a request-scoped transaction handle.
+- `middleware.AuthMiddleware` queries sessions and users using that root handle before calling the next handler.
+- `middleware.RequireSchoolContext` separately loads the active user and school ID through the root handle, then stores only the school ID string in Gin context. It does not create a transaction or set a PostgreSQL tenant variable.
+- Services and repositories retain their own `*gorm.DB` fields. The code search found many direct service-level reads/writes and existing nested `Transaction` calls. A transaction started only in middleware would not protect these calls unless the transaction handle is explicitly propagated through every repository and service.
+- Some controllers access their own DB fields directly. The school-content controller, platform-school controller, and domain reconciliation paths are examples. They need separate tenant/global classifications and transaction propagation.
+- Public school/content/enquiry endpoints, login/refresh/password reset, profile routes, platform super-admin routes, and school-scoped routes have different access requirements. They must not all receive the same school RLS policy.
+- Startup executes `database.Migrate(db)` and `bootstrap.EnsureInitialAdmin(db)` before serving requests. The migration runner includes schema DDL and historical data backfills; it cannot run with the intended restricted runtime identity.
+
+### Consequence
+
+A middleware-only change that calls `Begin()` and sets `app.current_school_id` would create a false sense of protection: the current handlers would continue using the original root DB handle, outside that transaction. It could also produce connection-pool context leaks if implemented with session-level `SET`.
+
+The implementation must therefore be a deliberate dependency-injection refactor. The preferred design is a request DB accessor that returns a transaction-backed `*gorm.DB` to handlers, services, and repositories, with explicit non-tenant DB access for authentication and approved platform/public workflows. Existing service methods that open their own transactions must be changed to use the injected transaction as their parent so they retain atomicity and tenant context.
+
+### Implementation gates before enabling runtime RLS
+
+1. Inventory every controller route and label it `tenant`, `platform`, `public`, or `authentication`.
+2. Trace all DB access for each route, including goroutines/background jobs such as bulk-import resume workers. Background jobs must set their own trusted tenant context inside their own transactions.
+3. Refactor one vertical slice first (for example, school academic setup) and prove every query uses the request transaction.
+4. Add tests that deliberately attempt to bypass the request DB accessor and ensure tenant-scoped handlers cannot fall back to the root handle.
+5. Only after all routes and workers are migrated should the isolated PostgreSQL RLS policy and restricted-role tests be enabled.
+
+This audit is source-level evidence, not a claim that the current application has suffered a cross-tenant breach. It also does not authorize a production role or policy change.

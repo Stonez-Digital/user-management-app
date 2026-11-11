@@ -1,6 +1,7 @@
 "use client";
 
-import {useEffect,useState} from "react";
+import {Suspense,useState} from "react";
+import {useSearchParams} from "next/navigation";
 
 type SignupForm = {
  school_name:string; school_code:string; school_slug:string; school_type:string; requested_plan:string;
@@ -22,18 +23,21 @@ function slugFromName(name:string){
 }
 
 export default function SchoolSignup(){
+ return <Suspense fallback={<main className="auth-shell"><section className="auth-card">Loading school registration…</section></main>}><SchoolSignupForm/></Suspense>;
+}
+
+function SchoolSignupForm(){
+ const searchParams=useSearchParams();
+ const requested=searchParams.get("plan");
+ const initialPlan=requested&&["trial","basic","professional","premium","enterprise"].includes(requested)?requested:"trial";
  const [step,setStep]=useState<1|2>(1);
- const [form,setForm]=useState<SignupForm>({school_name:"",school_code:"",school_slug:"",school_type:"",requested_plan:"trial",phone:"",address:"",city:"",state:"",admin_name:"",admin_email:"",admin_password:"",confirm_password:""});
+ const [form,setForm]=useState<SignupForm>({school_name:"",school_code:"",school_slug:"",school_type:"",requested_plan:initialPlan,phone:"",address:"",city:"",state:"",admin_name:"",admin_email:"",admin_password:"",confirm_password:""});
  const [logo,setLogo]=useState<File|null>(null);
  const [error,setError]=useState("");
  const [success,setSuccess]=useState("");
  const [assignedDomain,setAssignedDomain]=useState("");
  const [loading,setLoading]=useState(false);
 
- useEffect(()=>{
-  const requested=new URLSearchParams(window.location.search).get("plan");
-  if(requested&&["trial","basic","professional","premium","enterprise"].includes(requested)){setForm(current=>({...current,requested_plan:requested}));}
- },[]);
 
  function update(key:keyof SignupForm,value:string){
   setForm(current=>({...current,[key]:value}));

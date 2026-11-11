@@ -131,7 +131,7 @@ func TestIsolatedStagingAcceptanceOnboardingRecoveryAndTenantIsolation(t *testin
 	for i := range tenants {
 		tenant := &tenants[i]
 		rec := authJSONRequest(t, ac, http.MethodPost, "/school-signup",
-			`{"school_name":"`+tenant.name+`","school_code":"`+tenant.code+`","admin_name":"`+tenant.adminName+`","admin_email":"`+tenant.email+`","admin_password":"`+password+`"}`)
+			`{"school_name":"`+tenant.name+`","school_code":"`+tenant.code+`","school_slug":"`+models.SchoolSlug(tenant.name, "")+`","school_type":"both","requested_plan":"trial","admin_name":"`+tenant.adminName+`","admin_email":"`+tenant.email+`","admin_password":"`+password+`"}`)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("%s onboarding expected 201, got %d: %s", tenant.code, rec.Code, rec.Body.String())
 		}

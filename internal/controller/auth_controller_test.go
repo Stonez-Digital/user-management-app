@@ -370,6 +370,9 @@ func TestSchoolSignupAcceptsLogoMultipartAndPersistsTenantLogo(t *testing.T) {
     fields := map[string]string{
         "school_name": "Logo Academy",
         "school_code": "LOGOACADEMY",
+        "school_slug": "logo-academy",
+        "school_type": "both",
+        "requested_plan": "trial",
         "admin_name": "Logo Admin",
         "admin_email": "logo-admin@example.test",
         "admin_password": "password123",

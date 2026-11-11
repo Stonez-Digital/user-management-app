@@ -286,7 +286,7 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
 
  if err != nil {
   if errors.Is(err, gorm.ErrDuplicatedKey) {
-   httpx.Error(c, http.StatusConflict, "school_or_email_exists", "school code or administrator email already exists")
+   httpx.Error(c, http.StatusConflict, "school_or_email_exists", "school code, subdomain, or administrator email already exists")
   } else if logoUploadErr != nil {
    httpx.Error(c, http.StatusBadRequest, "school_logo_upload_failed", "school logo could not be uploaded; check that it is a PNG, JPEG, or WebP image no larger than 2 MB")
   } else {
@@ -295,7 +295,7 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
   return
  }
 
- _ = audit.Record(ac.DB, c, nil, "school.signup", "school", &school.ID, map[string]interface{}{"code": school.Code, "admin_user_id": admin.ID, "logo_uploaded": school.LogoURL != ""})
+ _ = audit.Record(ac.DB, c, nil, "school.signup", "school", &school.ID, map[string]interface{}{"code": school.Code, "slug": school.Slug, "requested_plan": school.RequestedPlan, "admin_user_id": admin.ID, "logo_uploaded": school.LogoURL != ""})
  domain := school.Slug + ".stonezdigital.com.ng"
  c.JSON(http.StatusCreated, gin.H{
   "message": "school onboarding submitted",

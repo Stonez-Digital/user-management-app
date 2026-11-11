@@ -222,13 +222,13 @@ func (ac *AuthController) SchoolSignup(c *gin.Context) {
  }
 
  name := strings.TrimSpace(req.SchoolName)
+ slug := strings.ToLower(strings.TrimSpace(req.SchoolSlug))
  code := strings.ToUpper(strings.TrimSpace(req.SchoolCode))
  if code == "" {
   code = strings.ToUpper(strings.ReplaceAll(slug, "-", ""))
   if len(code) > 40 { code = code[:40] }
   code += "-" + strings.ToUpper(strings.ReplaceAll(uuid.NewString()[:8], "-", ""))
  }
- slug := strings.ToLower(strings.TrimSpace(req.SchoolSlug))
  email := strings.ToLower(strings.TrimSpace(req.AdminEmail))
  schoolEmail := strings.ToLower(strings.TrimSpace(req.SchoolEmail))
  if err := validateRequestedSchoolSlug(slug); err != nil {

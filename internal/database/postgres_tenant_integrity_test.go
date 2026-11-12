@@ -44,8 +44,42 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     if err := db.Model(&Migration{}).Count(&migrationCount).Error; err != nil {
         t.Fatal(err)
     }
-    if migrationCount != 45 {
-        t.Fatalf("expected 45 migrations, got %d", migrationCount)
+    if migrationCount != 46 {
+        t.Fatalf("expected 46 migrations, got %d", migrationCount)
+    }
+
+    // Public Data API roles must not retain table privileges. This specifically
+    // catches TRUNCATE, which is not constrained by row-level security.
+    applicationTables := []string{
+        "academic_sessions", "announcements", "assessment_results", "assessments",
+        "attendance_records", "audit_logs", "billing_plans", "blog_categories", "blog_posts",
+        "bulk_import_jobs", "career_path_attempts", "class_subjects", "fee_items",
+        "gallery_albums", "gallery_images", "guardian_relationships", "invoice_lines",
+        "invoices", "migrations", "national_curricula", "national_curriculum_classes",
+        "national_curriculum_levels", "national_curriculum_subjects", "notifications",
+        "parent_profiles", "password_reset_tokens", "payments", "refresh_tokens",
+        "role_change_audits", "school_advertisements", "school_classes", "school_enquiries",
+        "school_subscriptions", "schools", "sections", "sessions", "student_enrollments",
+        "students", "subjects", "subscription_events", "teacher_assignments",
+        "teacher_profiles", "terms", "timetable_entries", "users",
+    }
+    for _, role := range []string{"anon", "authenticated"} {
+        var roleExists bool
+        if err := db.Raw("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)", role).Scan(&roleExists).Error; err != nil {
+            t.Fatal(err)
+        }
+        if !roleExists { continue }
+        for _, table := range applicationTables {
+            for _, privilege := range []string{"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"} {
+                var hasPrivilege bool
+                if err := db.Raw("SELECT has_table_privilege(?, 'public.' || ?, ?)", role, table, privilege).Scan(&hasPrivilege).Error; err != nil {
+                    t.Fatalf("check %s %s privilege on %s: %v", role, privilege, table, err)
+                }
+                if hasPrivilege {
+                    t.Fatalf("expected %s to have no %s privilege on public.%s", role, privilege, table)
+                }
+            }
+        }
     }
     var slugIndexDef string
     if err := db.Raw("SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uq_schools_slug'").Scan(&slugIndexDef).Error; err != nil { t.Fatal(err) }

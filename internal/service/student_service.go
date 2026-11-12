@@ -6,6 +6,9 @@ var(ErrStudentNotFound=errors.New("student not found");ErrStudentUserNotFound=er
 type StudentService struct{repo repository.StudentRepository;db *gorm.DB}
 func NewStudentService(repo repository.StudentRepository,db *gorm.DB)*StudentService{return &StudentService{repo,db}}
 func(s *StudentService)DB()*gorm.DB{return s.db}
+
+// WithDB returns a request-scoped service whose repository and direct queries share the supplied transaction.
+func(s *StudentService)WithDB(db *gorm.DB)*StudentService{return NewStudentService(repository.NewStudentRepository(db),db)}
 func(s *StudentService)CreateStudent(schoolID uuid.UUID,student models.Student)(models.Student,error){student.AdmissionNumber=strings.TrimSpace(student.AdmissionNumber);var user models.User;if err:=s.db.Where("id = ? AND school_id = ?",student.UserID,schoolID).First(&user).Error;err!=nil{if errors.Is(err,gorm.ErrRecordNotFound){return student,ErrStudentUserNotFound};return student,err};if user.Role!=authz.RoleStudent{return student,ErrStudentUserRole};if _,err:=s.repo.GetByAdmissionNumber(schoolID,student.AdmissionNumber);err==nil{return student,ErrDuplicateAdmission}else if !errors.Is(err,gorm.ErrRecordNotFound){return student,err};if _,err:=s.repo.GetByUserID(schoolID,student.UserID);err==nil{return student,ErrDuplicateStudentUser}else if !errors.Is(err,gorm.ErrRecordNotFound){return student,err};return s.repo.Create(schoolID,student)}
 func(s *StudentService)GetStudents(schoolID uuid.UUID)([]models.Student,error){return s.repo.GetAll(schoolID)}
 func(s *StudentService)GetStudent(schoolID,id uuid.UUID)(models.Student,error){student,err:=s.repo.GetByID(schoolID,id);if errors.Is(err,gorm.ErrRecordNotFound){return student,ErrStudentNotFound};return student,err}

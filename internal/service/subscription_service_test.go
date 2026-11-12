@@ -103,3 +103,16 @@ func TestCheckQuotaUsesPlanLimit(t *testing.T) {
 		t.Fatalf("expected quota rejection at 50, got %v", err)
 	}
 }
+
+func TestStartTrialRequiresApprovedSchool(t *testing.T) {
+	db, schoolID, termID, _ := subscriptionTestDB(t)
+	if err := db.Model(&models.School{}).Where("id = ?", schoolID).Update("status", models.SchoolStatusPending).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := NewSubscriptionServiceWithClock(db, func() time.Time {
+		return time.Date(2026, 11, 12, 8, 0, 0, 0, time.UTC)
+	})
+	if _, err := svc.StartTrial(schoolID, termID); !errors.Is(err, ErrSubscriptionInvalid) {
+		t.Fatalf("expected pending school rejection, got %v", err)
+	}
+}

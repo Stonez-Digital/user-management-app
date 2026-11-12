@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -28,7 +29,7 @@ func TestPostgresTenantTransactionEnforcesRLSAndResetsPooledContext(t *testing.T
 	if err != nil { t.Fatal(err) }
 	adminSQL, err := admin.DB()
 	if err != nil { t.Fatal(err) }
-	defer adminSQL.Close()
+	t.Cleanup(func() { _ = adminSQL.Close() })
 
 	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
 	schema := "tenant_rls_" + suffix
@@ -94,15 +95,19 @@ func TestPostgresTenantTransactionEnforcesRLSAndResetsPooledContext(t *testing.T
 				response["cross_update"] = updated.RowsAffected
 				deleted := tx.Table(table).Where("school_id = ?", schoolB).Delete(&tenantRLSRecord{})
 				response["cross_delete"] = deleted.RowsAffected
-				crossInsert := tx.Table(table).Create(map[string]interface{}{"id": uuid.New(), "school_id": schoolB, "value": "cross-school-insert"})
-				response["cross_insert_denied"] = crossInsert.Error != nil
+				crossInsertErr := tx.Transaction(func(savepoint *gorm.DB) error {
+					return savepoint.Table(table).Create(map[string]interface{}{"id": uuid.New(), "school_id": schoolB, "value": "cross-school-insert"}).Error
+				})
+				response["cross_insert_denied"] = crossInsertErr != nil
 				sameInsert := tx.Table(table).Create(map[string]interface{}{"id": uuid.New(), "school_id": schoolA, "value": "same-school-insert"})
 				response["same_insert"] = sameInsert.Error == nil
 			}
-			if err := tx.Raw("SELECT current_setting('app.current_user_id', true)").Scan(&response["user_context"]).Error; err != nil {
+			var userContext string
+			if err := tx.Raw("SELECT current_setting('app.current_user_id', true)").Scan(&userContext).Error; err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "user context unavailable"})
 				return
 			}
+			response["user_context"] = userContext
 			c.JSON(http.StatusOK, response)
 		})
 		recorder := httptest.NewRecorder()

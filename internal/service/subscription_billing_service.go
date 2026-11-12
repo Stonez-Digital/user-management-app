@@ -128,11 +128,10 @@ func (s *SubscriptionBillingService) CreateCheckout(schoolID, termID uuid.UUID, 
 		Email:email, AmountMinor:result.Payment.AmountMinor, Reference:reference, CallbackURL:callbackURL, Metadata:metadata,
 	})
 	if err != nil {
-		_ = s.db.Transaction(func(tx *gorm.DB) error {
-			if e:=tx.Model(&models.SubscriptionPayment{}).Where("id = ? AND status = ?",result.Payment.ID,models.SubscriptionPaymentPending).Update("status",models.SubscriptionPaymentFailed).Error;e!=nil{return e}
-			return tx.Model(&models.SchoolSubscription{}).Where("id = ? AND status = ?",result.Subscription.ID,models.SubscriptionStatusPending).Update("status",models.SubscriptionStatusCancelled).Error
-		})
-		return SubscriptionCheckout{}, ErrSubscriptionPaymentUnavailable
+		// Initialization failures can be ambiguous (for example, a network
+		// timeout after Paystack created the transaction). Keep the local
+		// payment pending so a late successful payment can still be verified.
+		return SubscriptionCheckout{}, ErrSubscriptionPaymentRecoveryRequired
 	}
 	if checkout.Reference != reference || checkout.AuthorizationURL == "" || checkout.AccessCode == "" {
 		return SubscriptionCheckout{}, ErrSubscriptionPaymentUnavailable

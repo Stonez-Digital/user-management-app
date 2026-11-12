@@ -51,6 +51,17 @@ func (s *SubscriptionService) StartTrial(schoolID, termID uuid.UUID) (models.Sch
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var school models.School
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&school, "id = ?", schoolID).Error; err != nil { return err }
+		if school.Status != models.SchoolStatusActive { return ErrSubscriptionInvalid }
+
+		// Clear a stale active row before inserting the new trial. The school row
+		// lock serializes this transition against concurrent trial starts.
+		var stale []models.SchoolSubscription
+		if err := tx.Where("school_id = ? AND status = ? AND expires_at <= ?", schoolID, models.SubscriptionStatusActive, now).Find(&stale).Error; err != nil { return err }
+		for _, previous := range stale {
+			if err := tx.Model(&models.SchoolSubscription{}).Where("id = ? AND status = ?", previous.ID, models.SubscriptionStatusActive).Update("status", models.SubscriptionStatusExpired).Error; err != nil { return err }
+			event := models.SubscriptionEvent{SchoolID: schoolID, SubscriptionID: previous.ID, EventType: models.SubscriptionEventExpired, FromStatus: models.SubscriptionStatusActive, ToStatus: models.SubscriptionStatusExpired}
+			if err := tx.Create(&event).Error; err != nil { return err }
+		}
 
 		var term models.Term
 		if err := tx.Where("id = ? AND school_id = ?", termID, schoolID).First(&term).Error; err != nil {

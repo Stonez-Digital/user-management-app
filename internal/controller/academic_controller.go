@@ -27,6 +27,7 @@ func(ctrl *AcademicController)DeleteTerm(c *gin.Context){schoolID,ok:=requireSch
 // authenticated school role. Consumers select by UUID rather than hardcoded names.
 func(ctrl *AcademicController)GetContext(c *gin.Context){
 	schoolID,ok:=requireSchoolID(c);if !ok{return}
+	svc,ok:=ctrl.requestService(c);if !ok{return}
 	v,e:=svc.AcademicContext(schoolID);if e!=nil{academicError(c,e,"academic context");return}
 	c.JSON(200,gin.H{"sessions":v})
 }

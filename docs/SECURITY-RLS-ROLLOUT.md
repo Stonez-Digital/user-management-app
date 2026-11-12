@@ -11,13 +11,14 @@
 
 ## Request-scoped transaction foundation
 
-The request transaction middleware is being introduced in a staged manner:
+The request transaction middleware is integrated in a staged manner:
 
 - TenantTransaction(db) requires an authenticated user ID and server-derived school ID.
 - It opens one GORM transaction, sets app.current_school_id and app.current_user_id with parameterized set_config(..., true), and exposes the transaction through TenantDBFromContext(c).
 - Settings are transaction-local. They are never installed with session-level SET, so pooled connections cannot retain a prior request's tenant.
 - The middleware buffers the HTTP response until commit succeeds. Error/aborted responses roll back; a commit failure returns a server error instead of an already-sent success.
-- Important: the middleware is not yet installed on production tenant routes. Controllers and services still hold shared GORM handles. A route must not opt in until every repository/service/audit query it performs uses TenantDBFromContext(c). The next integration phase will migrate route/service dependency construction in bounded vertical slices.
+- The `/admin/students` create, list, get, update, and delete routes now opt in. Their controller resolves a request-scoped StudentService, whose direct user lookup, student repository queries, and audit writes all use the same transaction. The controller fails closed if the transaction middleware is missing.
+- Other tenant routes are not yet migrated and must not be treated as RLS-ready. Continue migrating them in bounded vertical slices; do not install the middleware on a route until every repository/service/audit query it performs uses TenantDBFromContext(c).
 
 ## PostgreSQL isolation test
 
@@ -39,7 +40,7 @@ A role with NOBYPASSRLS will be subject to applicable RLS policies. Simply chang
 ## Required implementation sequence
 
 1. Request-scoped database transaction
-   - Complete migration of every tenant route, controller, repository, service, and audit write to the transaction returned by TenantDBFromContext.
+   - Migrate every remaining tenant route, controller, repository, service, and audit write to the transaction returned by TenantDBFromContext. The student CRUD routes are the first integrated vertical slice.
    - Keep authentication/session lookups and platform-global operations on explicitly classified handles until their access model is defined.
    - Roll back on request failure and commit only after the response has been successfully prepared.
 2. Tenant policy inventory

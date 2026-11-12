@@ -116,6 +116,7 @@ func (s *SubscriptionService) CurrentSubscription(schoolID uuid.UUID) (models.Sc
 	if schoolID == uuid.Nil { return models.SchoolSubscription{}, ErrSubscriptionInvalid }
 	now := s.now().UTC()
 	var result models.SchoolSubscription
+	expired := false
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var current models.SchoolSubscription
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Preload("Plan").
@@ -137,12 +138,14 @@ func (s *SubscriptionService) CurrentSubscription(schoolID uuid.UUID) (models.Sc
 				}
 				if err := tx.Create(&event).Error; err != nil { return err }
 			}
-			return ErrSubscriptionNotFound
+			expired = true
+			return nil
 		}
 		result = current
 		return nil
 	})
 	if err != nil { return models.SchoolSubscription{}, err }
+	if expired { return models.SchoolSubscription{}, ErrSubscriptionNotFound }
 	return result, nil
 }
 

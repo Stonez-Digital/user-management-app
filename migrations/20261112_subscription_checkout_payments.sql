@@ -33,6 +33,8 @@ CREATE INDEX IF NOT EXISTS idx_subscription_payments_school_created
     ON public.subscription_payments(school_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_subscription_payments_subscription
     ON public.subscription_payments(subscription_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_subscription_payments_school_subscription
+    ON public.subscription_payments(school_id, subscription_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_subscription_payments_status
     ON public.subscription_payments(status, created_at);
 

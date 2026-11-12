@@ -80,7 +80,40 @@ test("rejects a streamed request over 6 MB without contacting the API", async ()
 
     assert.equal(response.status, 413);
     assert.equal(fetchCalled, false, "oversized body must be rejected before upstream fetch");
-    assert.match((await response.json()).error, /6 MB/);
+    assert.match((await response.json()).error, /configured upload limit/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
+test("keeps the default API proxy limit at 1 MiB", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalled = false;
+  globalThis.fetch = async () => {
+    fetchCalled = true;
+    return new Response(null, { status: 200 });
+  };
+
+  try {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(1 * 1024 * 1024));
+        controller.enqueue(new Uint8Array(1));
+        controller.close();
+      },
+    });
+    const request = new Request("https://portal.example/backend/admin/students", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: stream,
+      duplex: "half",
+    });
+    const response = await route.POST(request, {
+      params: Promise.resolve({ path: ["admin", "students"] }),
+    });
+    assert.equal(response.status, 413);
+    assert.equal(fetchCalled, false, "oversized non-signup request must not reach upstream");
   } finally {
     globalThis.fetch = originalFetch;
   }

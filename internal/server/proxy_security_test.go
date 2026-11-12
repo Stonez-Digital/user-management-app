@@ -89,7 +89,7 @@ func TestValidateEnvironmentRequiresSharedStoreForSecurityModes(t *testing.T) {
 		t.Fatal("expected missing proxy secret to fail validation")
 	}
 
-	t.Setenv("API_PROXY_HMAC_SECRET", "secret")
+	t.Setenv("API_PROXY_HMAC_SECRET", "0123456789abcdef0123456789abcdef")
 	if err := ValidateEnvironment(); err == nil {
 		t.Fatal("expected missing shared store to fail validation")
 	}

@@ -26,12 +26,14 @@ The migration is intentionally not part of GORM automatic migration. It must be 
 - Amounts come from active database plans and remain integer kobo.
 - Trial and custom Enterprise plans cannot be purchased through this Paystack endpoint.
 - Only an active term belonging to the authenticated school is eligible.
-- One pending checkout per school prevents duplicate concurrent checkout creation.
+- One pending checkout per school prevents duplicate concurrent checkout creation. A retry for the same plan and term returns the original saved authorization URL and reference instead of initializing a second Paystack transaction; changing plan or term is blocked while the first checkout remains pending.
 - The payment reference is generated server-side and unique in the database.
 - Payment verification runs server-to-server; client redirects are not proof of payment.
 - Amount mismatch, reference mismatch, non-NGN currency, non-success status, and cross-school references are rejected.
 - Activation and payment success are committed in one database transaction.
 - Repeated verification of an already successful payment returns the same active subscription without recording another activation event.
+- An initialization/network error is treated as ambiguous: the payment and subscription remain pending because Paystack may have created a transaction before the connection failed. The original reference remains verifiable, including after a late payment.
+- A pending record without a saved authorization URL is not silently replaced, expired, or cancelled. The API returns a recovery-required error; support/reconciliation must resolve it. Do not auto-expire pending records until signed webhook/reconciliation handling can safely account for late payments.
 - Existing student-fee invoices and payments are untouched.
 
 ## Environment and rollout

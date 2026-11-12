@@ -141,7 +141,7 @@ func (s *SubscriptionBillingService) VerifyCheckout(schoolID uuid.UUID, referenc
 	if payment.Status != models.SubscriptionPaymentPending { return result, ErrSubscriptionPaymentInvalid }
 
 	verified, err := s.provider.Verify(reference)
-	if err != nil || verified.Reference != reference || verified.AmountMinor != payment.AmountMinor ||
+	if err != nil || verified.Provider != s.provider.Name() || verified.Reference != reference || verified.AmountMinor != payment.AmountMinor ||
 		!strings.EqualFold(verified.Currency,"NGN") || verified.Status != "succeeded" || verified.PaidAt.IsZero() {
 		return result, ErrSubscriptionPaymentInvalid
 	}

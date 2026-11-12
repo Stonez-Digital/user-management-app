@@ -803,6 +803,36 @@ func Migrate(db *gorm.DB) error {
             }
             return tx.AutoMigrate(&models.School{})
         }},
+        {Version:46,Name:"revoke_public_api_access_to_application_tables",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+            // The Go API is the only application data access layer. Public Data API
+            // roles must not retain table privileges: RLS does not constrain
+            // TRUNCATE, and deny-all policies are not a replacement for REVOKE.
+            tables:=[]string{
+                "academic_sessions","announcements","assessment_results","assessments",
+                "attendance_records","audit_logs","billing_plans","blog_categories","blog_posts",
+                "bulk_import_jobs","career_path_attempts","class_subjects","fee_items",
+                "gallery_albums","gallery_images","guardian_relationships","invoice_lines",
+                "invoices","migrations","national_curricula","national_curriculum_classes",
+                "national_curriculum_levels","national_curriculum_subjects","notifications",
+                "parent_profiles","password_reset_tokens","payments","refresh_tokens",
+                "role_change_audits","school_advertisements","school_classes","school_enquiries",
+                "school_subscriptions","schools","sections","sessions","student_enrollments",
+                "students","subjects","subscription_events","teacher_assignments",
+                "teacher_profiles","terms","timetable_entries","users",
+            }
+            for _,table:=range tables {
+                if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM PUBLIC").Error;err!=nil{return err}
+                for _,role:=range []string{"anon","authenticated"} {
+                    var exists bool
+                    if err:=tx.Raw("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)",role).Scan(&exists).Error;err!=nil{return err}
+                    if exists {
+                        if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM "+role).Error;err!=nil{return err}
+                    }
+                }
+            }
+            return nil
+        }},
     }
     for _,migration:=range migrations{
         var applied Migration

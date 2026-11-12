@@ -62,6 +62,7 @@ Cloudflare's `CF-Connecting-IP` is used for visitor-level rate limiting only aft
 - The Valkey service must be reachable from the Render API over the private network.
 - Use an internal `redis://` URL where Render provides private networking; use `rediss://` only when the service URL requires TLS.
 - The limiter uses atomic Redis Lua operations and short-lived keys. It does not require a schema migration.
+- Valkey is coordination state, not a durable payment or audit store. A free/non-persistent instance can lose counters and nonce claims on restart; the 60-second signature window bounds the remaining replay window, but a persistent store provides stronger continuity.
 - A Redis outage causes protected requests to fail with HTTP 503 when shared rate limiting or signed proxy authentication is enabled. Alert on these errors.
 - Rotate the secret by deploying a coordinated Worker/API change. A rotation that leaves the two sides with different secrets will reject API requests.
 - `/healthz` is intentionally exempt from proxy authentication for platform health checks and must not expose application data.

@@ -28,7 +28,7 @@ var (
 )
 
 type PaymentProvider interface { Name() string; Verify(string)(PaymentVerification,error) }
-type PaymentVerification struct { Provider string; Reference string; Amount float64; Status string; PaidAt time.Time; Metadata map[string]interface{} }
+type PaymentVerification struct { Provider string; Reference string; Amount float64; AmountMinor int64; Currency string; Status string; PaidAt time.Time; Metadata map[string]interface{} }
 
 type FinanceService struct { fees repository.FeeItemRepository; invoices repository.InvoiceRepository; payments repository.PaymentRepository; db *gorm.DB }
 func NewFinanceService(f repository.FeeItemRepository,i repository.InvoiceRepository,p repository.PaymentRepository,db *gorm.DB)*FinanceService{return &FinanceService{fees:f,invoices:i,payments:p,db:db}}

@@ -86,7 +86,7 @@ func TestSubscriptionCheckoutAmbiguousInitializationPreservesPendingRecords(t *t
 	db,schoolID,termID:=subscriptionBillingTestDB(t)
 	provider:=&subscriptionBillingFakeProvider{initializeErr:errors.New("provider unavailable")}
 	svc:=NewSubscriptionBillingService(db,provider)
-	_,err:=svc.CreateCheckout(schoolID,termID,models.BillingPlanBasic,"admin@school.test","")
+	checkout,err:=svc.CreateCheckout(schoolID,termID,models.BillingPlanBasic,"admin@school.test","")
 	if !errors.Is(err,ErrSubscriptionPaymentRecoveryRequired){t.Fatalf("expected recoverable checkout state, got %v",err)}
 	if checkout.Payment.Reference == "" || checkout.Payment.Status != models.SubscriptionPaymentPending { t.Fatalf("recovery response must include the pending payment reference: %#v", checkout.Payment) }
 	var payment models.SubscriptionPayment

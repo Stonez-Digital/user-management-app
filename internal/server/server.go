@@ -121,7 +121,7 @@ func (l *rateLimiter) allowOverflow(now time.Time) (bool, int) {
 }
 
 func ValidateEnvironment() error {
-	proxyRequired := strings.EqualFold(strings.TrimSpace(os.Getenv("API_PROXY_AUTH_REQUIRED)), "true")
+	proxyRequired := strings.EqualFold(strings.TrimSpace(os.Getenv("API_PROXY_AUTH_REQUIRED")), "true")
 	sharedRateRequired := strings.EqualFold(strings.TrimSpace(os.Getenv("REQUIRE_SHARED_RATE_LIMIT")), "true")
 	proxySecret := strings.TrimSpace(os.Getenv("API_PROXY_HMAC_SECRET"))
 	redisURL := strings.TrimSpace(os.Getenv("REDIS_URL"))

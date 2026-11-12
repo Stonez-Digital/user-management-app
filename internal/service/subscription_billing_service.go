@@ -63,7 +63,7 @@ func (s *SubscriptionBillingService) CreateCheckout(schoolID, termID uuid.UUID, 
 			return err
 		}
 		if plan.Code == models.BillingPlanTrial || plan.Code == models.BillingPlanEnterprise || plan.AmountMinor <= 0 || plan.Currency != "NGN" {
-			return ErrSubscriptionPaymentUnavailable
+			return ErrSubscriptionPlanUnavailable
 		}
 
 		var term models.Term

@@ -18,6 +18,8 @@ The API should listen on the platform-provided port when one is supplied. Never 
 
 `MIGRATION_DATABASE_URL` is optional for backwards compatibility. When configured, startup runs the versioned application migrations using this separate PostgreSQL connection, then closes it before serving requests. The API continues to use `DATABASE_URL` for normal application queries. Until a dedicated migration credential is provisioned and tested, the application falls back to `DATABASE_URL`; this fallback does not provide credential separation.
 
+`REQUIRE_NOBYPASSRLS=true` is an opt-in fail-closed startup gate. It makes the API refuse to start if the current or session PostgreSQL role is a superuser, has `BYPASSRLS`, or cannot be inspected. Keep it `false` until the tenant-aware policy and request-transaction rollout is complete; enabling it against the current production `postgres` connection will intentionally stop the API from starting. This flag does not create roles, change grants, or make existing RLS policies tenant-aware.
+
 ## Container
 
 The repository root contains a production Dockerfile. Build locally with:

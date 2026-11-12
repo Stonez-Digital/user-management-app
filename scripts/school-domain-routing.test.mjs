@@ -38,3 +38,14 @@ test("pins explicit school routes to the hostname tenant", () => {
 test("does not rewrite a route already scoped to the same school", () => {
   assert.equal(schoolPathForHostname("bedrock.stonezdigital.com.ng", "/school/bedrock/login"), null);
 });
+
+
+test("keeps authenticated dashboard routes on the shared workspace route tree", () => {
+  assert.equal(schoolPathForHostname("bedrock.stonezdigital.com.ng", "/dashboard"), null);
+  assert.equal(schoolPathForHostname("bedrock.stonezdigital.com.ng", "/dashboard/teacher"), null);
+  assert.equal(schoolPathForHostname("bedrock.stonezdigital.com.ng", "/dashboard/parent/report-card"), null);
+});
+
+test("keeps the shared password recovery route available from school login", () => {
+  assert.equal(schoolPathForHostname("bedrock.stonezdigital.com.ng", "/forgot-password"), null);
+});

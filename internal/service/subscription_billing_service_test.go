@@ -77,3 +77,17 @@ func TestSubscriptionCheckoutRejectsAmountMismatch(t *testing.T){
 	if err:=db.First(&sub,"id = ?",checkout.Subscription.ID).Error;err!=nil{t.Fatal(err)}
 	if sub.Status!=models.SubscriptionStatusPending{t.Fatalf("mismatched amount must not activate subscription, got %q",sub.Status)}
 }
+
+func TestSubscriptionCheckoutInitializationFailureClosesPendingRecords(t *testing.T) {
+	db,schoolID,termID:=subscriptionBillingTestDB(t)
+	provider:=&subscriptionBillingFakeProvider{initializeErr:errors.New("provider unavailable")}
+	svc:=NewSubscriptionBillingService(db,provider)
+	_,err:=svc.CreateCheckout(schoolID,termID,models.BillingPlanBasic,"admin@school.test","")
+	if !errors.Is(err,ErrSubscriptionPaymentUnavailable){t.Fatalf("expected checkout failure, got %v",err)}
+	var payment models.SubscriptionPayment
+	if err:=db.First(&payment).Error;err!=nil{t.Fatal(err)}
+	if payment.Status!=models.SubscriptionPaymentFailed{t.Fatalf("expected failed payment, got %q",payment.Status)}
+	var sub models.SchoolSubscription
+	if err:=db.First(&sub,"id = ?",payment.SubscriptionID).Error;err!=nil{t.Fatal(err)}
+	if sub.Status!=models.SubscriptionStatusCancelled{t.Fatalf("expected cancelled pending subscription, got %q",sub.Status)}
+}

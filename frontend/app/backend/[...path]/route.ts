@@ -1,5 +1,5 @@
 const API_ORIGIN = "https://stonez-digital-school-api.onrender.com";
-const MAX_PROXY_BODY_BYTES = 10 * 1024 * 1024;
+const MAX_PROXY_BODY_BYTES = 6 * 1024 * 1024;
 
 type RouteContext = {
   params: Promise<{ path: string[] }>;
@@ -102,7 +102,7 @@ async function proxyBackendRequest(request: Request, context: RouteContext): Pro
   } catch (error) {
     if (error instanceof RequestBodyTooLargeError) {
       return Response.json(
-        { error: "Request body exceeds the 10 MB upload limit." },
+        { error: "Request body exceeds the 6 MB upload limit." },
         { status: 413, headers: { "Cache-Control": "no-store" } },
       );
     }

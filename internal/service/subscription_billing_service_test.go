@@ -82,7 +82,7 @@ func TestSubscriptionCheckoutRejectsAmountMismatch(t *testing.T){
 	if sub.Status!=models.SubscriptionStatusPending{t.Fatalf("mismatched amount must not activate subscription, got %q",sub.Status)}
 }
 
-func TestSubscriptionCheckoutInitializationFailureClosesPendingRecords(t *testing.T) {
+func TestSubscriptionCheckoutAmbiguousInitializationPreservesPendingRecords(t *testing.T) {
 	db,schoolID,termID:=subscriptionBillingTestDB(t)
 	provider:=&subscriptionBillingFakeProvider{initializeErr:errors.New("provider unavailable")}
 	svc:=NewSubscriptionBillingService(db,provider)

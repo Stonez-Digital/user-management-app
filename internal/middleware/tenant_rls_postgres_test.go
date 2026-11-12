@@ -132,4 +132,29 @@ func TestPostgresTenantTransactionEnforcesRLSAndResetsPooledContext(t *testing.T
 	var leaked int64
 	if err := restricted.Table(table).Count(&leaked).Error; err != nil { t.Fatal(err) }
 	if leaked != 0 { t.Fatalf("expected transaction-local tenant context to be cleared after commit, saw %d rows without context", leaked) }
+
+	// Verify both transaction-local settings are cleared on the reused pooled
+	// connection, not merely that the school policy happens to hide all rows.
+	var leakedContext struct {
+		SchoolID string
+		UserID   string
+	}
+	if err := restricted.Raw(`
+		SELECT
+			COALESCE(current_setting('app.current_school_id', true), '') AS school_id,
+			COALESCE(current_setting('app.current_user_id', true), '') AS user_id
+	`).Scan(&leakedContext).Error; err != nil {
+		t.Fatal(err)
+	}
+	if leakedContext.SchoolID != "" || leakedContext.UserID != "" {
+		t.Fatalf("tenant context leaked after transaction: school_id=%q user_id=%q", leakedContext.SchoolID, leakedContext.UserID)
+	}
+
+	// Missing tenant context must deny writes as well as reads.
+	noContextInsert := restricted.Table(table).Create(map[string]interface{}{
+		"id": uuid.New(), "school_id": schoolA, "value": "no-context-insert",
+	})
+	if noContextInsert.Error == nil {
+		t.Fatal("expected INSERT without tenant context to be rejected by RLS")
+	}
 }

@@ -27,7 +27,7 @@ const (
 	proxyNonceHeader     = "X-Stonez-Proxy-Nonce"
 	proxySignatureHeader = "X-Stonez-Proxy-Signature"
 	proxyClockSkew        = 60 * time.Second
-	proxyNonceTTL         = 2 * time.Minute
+	proxyNonceTTL         = 3 * time.Minute
 )
 
 type sharedStore struct {

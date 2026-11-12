@@ -34,8 +34,8 @@ func (s *SchoolLogoStorage) Upload(schoolID uuid.UUID, filename, contentType str
     if s.baseURL == "" || s.secretKey == "" {
         return "", fmt.Errorf("school logo storage is not configured")
     }
-    if size <= 0 || size > 5*1024*1024 {
-        return "", fmt.Errorf("school logo must be between 1 byte and 5 MB")
+    if size <= 0 || size > 2*1024*1024 {
+        return "", fmt.Errorf("school logo must be between 1 byte and 2 MB")
     }
 
     ext := strings.ToLower(path.Ext(filename))
@@ -53,12 +53,12 @@ func (s *SchoolLogoStorage) Upload(schoolID uuid.UUID, filename, contentType str
         return "", fmt.Errorf("school logo must be PNG, JPEG, or WebP")
     }
 
-    data, err := io.ReadAll(io.LimitReader(body, 5*1024*1024+1))
+    data, err := io.ReadAll(io.LimitReader(body, 2*1024*1024+1))
     if err != nil {
         return "", fmt.Errorf("failed to read school logo: %w", err)
     }
-    if int64(len(data)) > 5*1024*1024 {
-        return "", fmt.Errorf("school logo must not exceed 5 MB")
+    if int64(len(data)) > 2*1024*1024 {
+        return "", fmt.Errorf("school logo must not exceed 2 MB")
     }
     if http.DetectContentType(data) != contentType {
         return "", fmt.Errorf("uploaded file content does not match its declared image type")

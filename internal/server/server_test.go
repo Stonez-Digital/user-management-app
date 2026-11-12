@@ -1,8 +1,8 @@
 package server
 
 import (
-	"io"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"

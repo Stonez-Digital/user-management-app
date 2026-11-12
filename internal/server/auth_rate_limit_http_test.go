@@ -26,8 +26,9 @@ func TestAuthRateLimitHTTPEnforcementAndWindowReset(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/auth/probe", nil)
 		// Simulate the same Cloudflare-to-Render socket peer for every caller;
 		// only CF-Connecting-IP changes between independent clients.
-		req.RemoteAddr = "10.0.0.5:443"
-		req.Header.Set("CF-Connecting-IP", clientIP)
+		// Without an authenticated proxy secret, the socket peer is the only
+		// trusted client address; forwarded headers must not split buckets.
+		req.RemoteAddr = clientIP + ":443"
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, req)
 		return response

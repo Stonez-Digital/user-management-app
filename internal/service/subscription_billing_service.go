@@ -46,6 +46,7 @@ func NewSubscriptionBillingService(db *gorm.DB, provider SubscriptionPaymentProv
 
 func (s *SubscriptionBillingService) CreateCheckout(schoolID, termID uuid.UUID, planCode, email, callbackURL string) (SubscriptionCheckout, error) {
 	var result SubscriptionCheckout
+	reusedPending := false
 	planCode = strings.ToLower(strings.TrimSpace(planCode))
 	email = strings.TrimSpace(email)
 	if schoolID == uuid.Nil || termID == uuid.Nil || planCode == "" || email == "" || s.provider == nil {
@@ -101,6 +102,7 @@ func (s *SubscriptionBillingService) CreateCheckout(schoolID, termID uuid.UUID, 
 				return ErrSubscriptionPaymentRecoveryRequired
 			}
 			result.Subscription, result.Payment = pendingSub, pendingPayment
+			reusedPending = true
 			return nil
 		}
 		if !errors.Is(pendingErr, gorm.ErrRecordNotFound) { return pendingErr }
@@ -119,6 +121,7 @@ func (s *SubscriptionBillingService) CreateCheckout(schoolID, termID uuid.UUID, 
 		return nil
 	})
 	if err != nil { return SubscriptionCheckout{}, err }
+	if reusedPending { return result, nil }
 
 	metadata := map[string]interface{}{"school_id":schoolID.String(),"subscription_id":result.Subscription.ID.String(),"plan_code":planCode}
 	checkout, err := s.provider.Initialize(context.Background(), PaystackInitializeInput{

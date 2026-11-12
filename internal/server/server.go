@@ -2,8 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"net"
 	"net/http"
@@ -213,6 +211,7 @@ func configureWithClock(r *gin.Engine, now func() time.Time) {
 			if strings.HasPrefix(c.Request.URL.Path, "/public/schools/") { category = "public-enquiry" }
 			var allowedRequest bool
 			var remaining, retryAfter int
+			var err error
 			if shared != nil {
 				ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 				allowedRequest, remaining, retryAfter, err = shared.allowRate(ctx, sharedRateLimitKey(category, key), authRateLimit, authRateWindow)

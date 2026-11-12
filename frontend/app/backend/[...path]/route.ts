@@ -61,7 +61,7 @@ async function proxyBackendRequest(request: Request, context: RouteContext): Pro
     );
     let binary = "";
     for (const byte of signatureBytes) binary += String.fromCharCode(byte);
-    const signature = btoa(binary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/g, "");
+    const signature = btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
     headers.set("x-stonez-proxy-timestamp", timestamp);
     headers.set("x-stonez-proxy-nonce", nonce);
     headers.set("x-stonez-proxy-signature", signature);

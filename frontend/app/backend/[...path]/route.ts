@@ -48,7 +48,7 @@ async function proxyBackendRequest(request: Request, context: RouteContext): Pro
       timestamp,
       nonce,
       digestHex,
-    ].join("\\n");
+    ].join("\n");
     const key = await crypto.subtle.importKey(
       "raw",
       new TextEncoder().encode(proxySecret),

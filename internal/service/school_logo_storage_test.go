@@ -10,18 +10,17 @@ import (
     "github.com/google/uuid"
 )
 
-func TestSchoolLogoUploadUpdatesExistingBucketWithPut(t *testing.T) {
+func TestSchoolLogoUploadDoesNotMutateExistingBucket(t *testing.T) {
     var sawBucketPut, sawObjectUpload bool
     server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         switch {
         case r.Method == http.MethodPost && r.URL.Path == "/storage/v1/bucket":
             payload, _ := io.ReadAll(r.Body)
-            if !strings.Contains(string(payload), `"file_size_limit":5242880`) { t.Errorf("expected 5 MB bucket limit, got %s", payload) }
+            if !strings.Contains(string(payload), `"file_size_limit":2097152`) { t.Errorf("expected configured 2 MB bucket limit, got %s", payload) }
             w.WriteHeader(http.StatusConflict)
+            _, _ = w.Write([]byte(`{"message":"BucketAlreadyExists"}`))
         case r.Method == http.MethodPut && r.URL.Path == "/storage/v1/bucket/school-logos":
             sawBucketPut = true
-            payload, _ := io.ReadAll(r.Body)
-            if !strings.Contains(string(payload), `"file_size_limit":5242880`) { t.Errorf("expected existing bucket to be raised to 5 MB, got %s", payload) }
             w.WriteHeader(http.StatusOK)
         case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/storage/v1/object/school-logos/"):
             sawObjectUpload = true
@@ -36,9 +35,10 @@ func TestSchoolLogoUploadUpdatesExistingBucketWithPut(t *testing.T) {
     defer server.Close()
 
     storage := &SchoolLogoStorage{baseURL: server.URL, secretKey: "test-secret", client: server.Client()}
-    logoURL, err := storage.Upload(uuid.New(), "school.png", "image/png", strings.NewReader(string([]byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a})), 8)
+    schoolID := uuid.New()
+    logoURL, err := storage.Upload(schoolID, "school.png", "image/png", strings.NewReader(string([]byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a})), 8)
     if err != nil { t.Fatalf("expected upload to succeed: %v", err) }
-    if !sawBucketPut { t.Fatal("expected existing bucket configuration to be updated with PUT") }
+    if sawBucketPut { t.Fatal("must not mutate existing bucket configuration during upload") }
     if !sawObjectUpload { t.Fatal("expected logo object to be uploaded") }
-    if !strings.Contains(logoURL, "/storage/v1/object/public/school-logos/") { t.Fatalf("unexpected public logo URL: %s", logoURL) }
+    if !strings.Contains(logoURL, "/storage/v1/object/public/school-logos/"+schoolID.String()+"/") { t.Fatalf("unexpected public logo URL: %s", logoURL) }
 }

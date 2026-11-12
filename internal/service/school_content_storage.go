@@ -53,3 +53,22 @@ func(s *SchoolMediaStorage) ensureBucket()error{
  return nil
 }
 func extensionForContentMime(contentType string)string{exts,_:=mime.ExtensionsByType(contentType);if len(exts)>0{return exts[0]};return ""}
+
+func (s *SchoolMediaStorage) Delete(schoolID uuid.UUID, publicURL string) error {
+ prefix := s.baseURL + "/storage/v1/object/public/" + schoolMediaBucket + "/"
+ if !strings.HasPrefix(publicURL, prefix) { return fmt.Errorf("refusing to delete an object outside the school media bucket") }
+ objectPath := strings.TrimPrefix(publicURL, prefix)
+ if !strings.HasPrefix(objectPath, schoolID.String()+"/") { return fmt.Errorf("refusing to delete an object outside this school") }
+ req, err := http.NewRequest(http.MethodDelete, s.baseURL+"/storage/v1/object/"+schoolMediaBucket+"/"+objectPath, nil)
+ if err != nil { return err }
+ req.Header.Set("Authorization", "Bearer "+s.secretKey)
+ req.Header.Set("apikey", s.secretKey)
+ resp, err := s.client.Do(req)
+ if err != nil { return err }
+ defer resp.Body.Close()
+ if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+  detail, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+  return fmt.Errorf("school media cleanup failed: %s", strings.TrimSpace(string(detail)))
+ }
+ return nil
+}

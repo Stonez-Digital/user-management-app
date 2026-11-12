@@ -84,8 +84,13 @@ func (ctrl *SchoolController) UploadLogo(c *gin.Context) {
         return
     }
 
+    limitMultipartUpload(c, 3<<20) // 2 MB image plus bounded multipart overhead.
     file, header, err := c.Request.FormFile("logo")
     if err != nil {
+        if multipartUploadTooLarge(err) {
+            httpx.Error(c, http.StatusRequestEntityTooLarge, "school_logo_too_large", "school logo request exceeds the 2 MB upload limit")
+            return
+        }
         httpx.Error(c, http.StatusBadRequest, "school_logo_required", "school logo file is required")
         return
     }
@@ -107,6 +112,7 @@ func (ctrl *SchoolController) UploadLogo(c *gin.Context) {
     }
 
     if err := ctrl.service.UpdateSchoolLogo(schoolID, logoURL); err != nil {
+        _ = ctrl.logoStorage.Delete(schoolID, logoURL) // Best-effort cleanup of the unreferenced upload.
         if errors.Is(err, service.ErrInvalidSchoolLogo) {
             httpx.Error(c, http.StatusBadRequest, "school_logo_invalid", "school logo URL is invalid")
             return

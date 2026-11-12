@@ -34,8 +34,8 @@ func (s *SchoolLogoStorage) Upload(schoolID uuid.UUID, filename, contentType str
     if s.baseURL == "" || s.secretKey == "" {
         return "", fmt.Errorf("school logo storage is not configured")
     }
-    if size <= 0 || size > 5*1024*1024 {
-        return "", fmt.Errorf("school logo must be between 1 byte and 5 MB")
+    if size <= 0 || size > 2*1024*1024 {
+        return "", fmt.Errorf("school logo must be between 1 byte and 2 MB")
     }
 
     ext := strings.ToLower(path.Ext(filename))
@@ -53,12 +53,12 @@ func (s *SchoolLogoStorage) Upload(schoolID uuid.UUID, filename, contentType str
         return "", fmt.Errorf("school logo must be PNG, JPEG, or WebP")
     }
 
-    data, err := io.ReadAll(io.LimitReader(body, 5*1024*1024+1))
+    data, err := io.ReadAll(io.LimitReader(body, 2*1024*1024+1))
     if err != nil {
         return "", fmt.Errorf("failed to read school logo: %w", err)
     }
-    if int64(len(data)) > 5*1024*1024 {
-        return "", fmt.Errorf("school logo must not exceed 5 MB")
+    if int64(len(data)) > 2*1024*1024 {
+        return "", fmt.Errorf("school logo must not exceed 2 MB")
     }
     if http.DetectContentType(data) != contentType {
         return "", fmt.Errorf("uploaded file content does not match its declared image type")
@@ -94,45 +94,40 @@ func (s *SchoolLogoStorage) Upload(schoolID uuid.UUID, filename, contentType str
 
 func (s *SchoolLogoStorage) ensureBucket() error {
     bucketURL := s.baseURL + "/storage/v1/bucket"
-    payload := []byte(`{"id":"school-logos","name":"school-logos","public":true,"file_size_limit":5242880,"allowed_mime_types":["image/png","image/jpeg","image/webp"]}`)
+    payload := []byte(`{"id":"school-logos","name":"school-logos","public":true,"file_size_limit":2097152,"allowed_mime_types":["image/png","image/jpeg","image/webp"]}`)
     req, err := http.NewRequest(http.MethodPost, bucketURL, bytes.NewReader(payload))
-    if err != nil {
-        return fmt.Errorf("failed to create school logo bucket request: %w", err)
-    }
+    if err != nil { return fmt.Errorf("failed to create school logo bucket request: %w", err) }
     req.Header.Set("Authorization", "Bearer "+s.secretKey)
     req.Header.Set("apikey", s.secretKey)
     req.Header.Set("Content-Type", "application/json")
-
     resp, err := s.client.Do(req)
-    if err != nil {
-        return fmt.Errorf("school logo storage setup failed: %w", err)
-    }
+    if err != nil { return fmt.Errorf("school logo storage setup failed: %w", err) }
     defer resp.Body.Close()
-    if resp.StatusCode == http.StatusConflict {
-        // A bucket may already exist from an earlier deployment. Supabase's
-        // Storage API updates bucket configuration with PUT, not PATCH.
-        updatePayload := []byte(`{"public":true,"file_size_limit":5242880,"allowed_mime_types":["image/png","image/jpeg","image/webp"]}`)
-        updateReq, updateErr := http.NewRequest(http.MethodPut, s.baseURL+"/storage/v1/bucket/"+schoolLogoBucket, bytes.NewReader(updatePayload))
-        if updateErr != nil {
-            return fmt.Errorf("school logo storage setup failed: %w", updateErr)
-        }
-        updateReq.Header.Set("Authorization", "Bearer "+s.secretKey)
-        updateReq.Header.Set("apikey", s.secretKey)
-        updateReq.Header.Set("Content-Type", "application/json")
-        updateResp, updateErr := s.client.Do(updateReq)
-        if updateErr != nil {
-            return fmt.Errorf("school logo storage setup failed: %w", updateErr)
-        }
-        defer updateResp.Body.Close()
-        if updateResp.StatusCode < 200 || updateResp.StatusCode >= 300 {
-            detail, _ := io.ReadAll(io.LimitReader(updateResp.Body, 4096))
-            return fmt.Errorf("school logo storage setup failed: %s", strings.TrimSpace(string(detail)))
-        }
+    detail, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+    if resp.StatusCode >= 200 && resp.StatusCode < 300 { return nil }
+    body := string(detail)
+    if resp.StatusCode == http.StatusConflict || strings.Contains(body, "BucketAlreadyExists") || strings.Contains(strings.ToLower(body), "already exists") {
+        // Existing bucket settings are managed explicitly; uploads must never mutate them.
         return nil
     }
+    return fmt.Errorf("school logo storage setup failed: %s", strings.TrimSpace(body))
+}
+
+func (s *SchoolLogoStorage) Delete(schoolID uuid.UUID, publicURL string) error {
+    prefix := s.baseURL + "/storage/v1/object/public/" + schoolLogoBucket + "/"
+    if !strings.HasPrefix(publicURL, prefix) { return fmt.Errorf("refusing to delete an object outside the school logo bucket") }
+    objectPath := strings.TrimPrefix(publicURL, prefix)
+    if !strings.HasPrefix(objectPath, schoolID.String()+"/") { return fmt.Errorf("refusing to delete an object outside this school") }
+    req, err := http.NewRequest(http.MethodDelete, s.baseURL+"/storage/v1/object/"+schoolLogoBucket+"/"+objectPath, nil)
+    if err != nil { return err }
+    req.Header.Set("Authorization", "Bearer "+s.secretKey)
+    req.Header.Set("apikey", s.secretKey)
+    resp, err := s.client.Do(req)
+    if err != nil { return err }
+    defer resp.Body.Close()
     if resp.StatusCode < 200 || resp.StatusCode >= 300 {
         detail, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-        return fmt.Errorf("school logo storage setup failed: %s", strings.TrimSpace(string(detail)))
+        return fmt.Errorf("school logo cleanup failed: %s", strings.TrimSpace(string(detail)))
     }
     return nil
 }

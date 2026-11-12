@@ -178,7 +178,11 @@ func configureWithClock(r *gin.Engine, now func() time.Time) {
 			c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
 
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBodyBytes)
+		bodyLimit := int64(maxRequestBodyBytes)
+		if c.Request.Method == http.MethodPost && c.Request.URL.Path == "/auth/school-signup" {
+			bodyLimit = 6 << 20
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, bodyLimit)
 
 		origin := c.GetHeader("Origin")
 		if origin != "" && allowed[origin] {

@@ -13,7 +13,7 @@ The existing in-memory limiter remains available only when shared rate limiting 
 
 ## Required configuration
 
-Use the same high-entropy random secret in both environments. Generate it locally with a cryptographically secure generator; do not commit it or paste it into GitHub issues or chat.
+Use the same high-entropy random secret of at least 32 bytes in both environments. Generate it locally with a cryptographically secure generator; do not commit it or paste it into GitHub issues or chat.
 
 ### Render API service
 

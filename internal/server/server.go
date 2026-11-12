@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	maxRequestBodyBytes       = 1 << 20
-	maxSchoolSignupBodyBytes  = 6 << 20
+	maxRequestBodyBytes      int64 = 1 << 20
+	maxSchoolSignupBodyBytes int64 = 6 << 20
 	authRateLimit              = 10
 	authRateWindow      = time.Minute
 	maxRateLimitEntries = 10000

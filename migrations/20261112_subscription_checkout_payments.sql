@@ -55,6 +55,6 @@ BEGIN
         GRANT ALL ON TABLE public.subscription_events TO service_role;
         GRANT ALL ON TABLE public.subscription_payments TO service_role;
     END IF;
-END $;
+END $$;
 
 COMMIT;

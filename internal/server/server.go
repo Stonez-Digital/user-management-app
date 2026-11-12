@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	maxRequestBodyBytes = 1 << 20
-	authRateLimit       = 10
+	maxRequestBodyBytes       = 1 << 20
+	maxSchoolSignupBodyBytes  = 6 << 20
+	authRateLimit              = 10
 	authRateWindow      = time.Minute
 	maxRateLimitEntries = 10000
 	cleanupEvery       = 64
@@ -159,7 +160,13 @@ func configureWithClock(r *gin.Engine, now func() time.Time) {
 			c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
 
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBodyBytes)
+		requestBodyLimit := maxRequestBodyBytes
+		if c.Request.Method == http.MethodPost && c.Request.URL.Path == "/auth/school-signup" {
+			// School signup accepts an optional logo; keep the larger limit scoped
+			// to this endpoint rather than increasing the limit for every API route.
+			requestBodyLimit = maxSchoolSignupBodyBytes
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, requestBodyLimit)
 
 		origin := c.GetHeader("Origin")
 		if origin != "" && allowed[origin] {

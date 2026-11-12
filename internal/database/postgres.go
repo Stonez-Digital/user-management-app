@@ -821,14 +821,16 @@ func Migrate(db *gorm.DB) error {
                 "students","subjects","subscription_events","teacher_assignments",
                 "teacher_profiles","terms","timetable_entries","users",
             }
+            roles:=[]string{}
+            for _,role:=range []string{"anon","authenticated"} {
+                var exists bool
+                if err:=tx.Raw("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)",role).Scan(&exists).Error;err!=nil{return err}
+                if exists { roles=append(roles,role) }
+            }
             for _,table:=range tables {
                 if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM PUBLIC").Error;err!=nil{return err}
-                for _,role:=range []string{"anon","authenticated"} {
-                    var exists bool
-                    if err:=tx.Raw("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)",role).Scan(&exists).Error;err!=nil{return err}
-                    if exists {
-                        if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM "+role).Error;err!=nil{return err}
-                    }
+                for _,role:=range roles {
+                    if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM "+role).Error;err!=nil{return err}
                 }
             }
             return nil

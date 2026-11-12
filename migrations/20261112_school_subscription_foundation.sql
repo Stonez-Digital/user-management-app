@@ -36,11 +36,14 @@ VALUES
     ('enterprise', 'Enterprise', 0, 'NGN', 'term', NULL, NULL, NULL, true, 4)
 ON CONFLICT (code) DO NOTHING;
 
+-- Composite keys let PostgreSQL enforce that a subscription term belongs to its school.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_terms_school_id_id ON terms(school_id, id);
+
 CREATE TABLE IF NOT EXISTS school_subscriptions (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     school_id uuid NOT NULL REFERENCES schools(id) ON UPDATE CASCADE ON DELETE RESTRICT,
     plan_id uuid NOT NULL REFERENCES billing_plans(id) ON UPDATE CASCADE ON DELETE RESTRICT,
-    term_id uuid NOT NULL REFERENCES terms(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+    term_id uuid NOT NULL,
     status varchar(24) NOT NULL,
     is_trial boolean NOT NULL DEFAULT false,
     amount_minor bigint NOT NULL DEFAULT 0 CHECK (amount_minor >= 0),
@@ -52,9 +55,13 @@ CREATE TABLE IF NOT EXISTS school_subscriptions (
     updated_at timestamptz,
     CONSTRAINT school_subscriptions_status_check CHECK (status IN ('active','expired','cancelled','pending_payment')),
     CONSTRAINT school_subscriptions_dates_check CHECK (expires_at > starts_at),
-    CONSTRAINT school_subscriptions_trial_amount_check CHECK (NOT is_trial OR amount_minor = 0)
+    CONSTRAINT school_subscriptions_trial_amount_check CHECK (NOT is_trial OR amount_minor = 0),
+    CONSTRAINT school_subscriptions_school_term_fk FOREIGN KEY (school_id, term_id)
+        REFERENCES terms(school_id, id) ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS uq_school_subscriptions_school_id_id
+    ON school_subscriptions(school_id, id);
 CREATE INDEX IF NOT EXISTS idx_school_subscriptions_school_status
     ON school_subscriptions(school_id, status, expires_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_school_subscriptions_one_active
@@ -65,13 +72,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_school_subscriptions_one_trial
 CREATE TABLE IF NOT EXISTS subscription_events (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     school_id uuid NOT NULL REFERENCES schools(id) ON UPDATE CASCADE ON DELETE RESTRICT,
-    subscription_id uuid NOT NULL REFERENCES school_subscriptions(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+    subscription_id uuid NOT NULL,
     actor_id uuid REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL,
     event_type varchar(50) NOT NULL,
     from_status varchar(24),
     to_status varchar(24),
     metadata text,
-    created_at timestamptz
+    created_at timestamptz,
+    CONSTRAINT subscription_events_school_subscription_fk FOREIGN KEY (school_id, subscription_id)
+        REFERENCES school_subscriptions(school_id, id) ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS idx_subscription_events_school_created

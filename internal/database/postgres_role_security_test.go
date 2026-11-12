@@ -21,6 +21,7 @@ func TestValidatePostgresRoleSecurity(t *testing.T) {
         {name: "effective role bypass rejected", status: &PostgresRoleSecurityStatus{CurrentRole: "postgres", SessionRole: "postgres", CurrentBypassRLS: true}, required: true, wantErr: true},
         {name: "session role bypass rejected", status: &PostgresRoleSecurityStatus{CurrentRole: "stonez_api", SessionRole: "postgres", SessionBypassRLS: true}, required: true, wantErr: true},
         {name: "superuser rejected", status: &PostgresRoleSecurityStatus{CurrentRole: "root", SessionRole: "root", CurrentSuperuser: true}, required: true, wantErr: true},
+        {name: "privileged role membership rejected", status: &PostgresRoleSecurityStatus{CurrentRole: "stonez_api", SessionRole: "stonez_api", SessionCanAssumePrivilegedRole: true}, required: true, wantErr: true},
     }
 
     for _, tt := range tests {

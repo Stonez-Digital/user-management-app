@@ -27,7 +27,20 @@ func main() {
             log.Printf("SECURITY WARNING: PostgreSQL connection uses a superuser or BYPASSRLS role; database row-level security will not constrain that role")
         }
     }
-    if err:=database.Migrate(db);err!=nil{log.Fatal(err)}
+    migrationDB, migrationErr := database.ConnectMigration()
+    if migrationErr != nil { log.Fatalf("connect migration database: %v", migrationErr) }
+    if migrationDB == nil {
+        migrationDB = db
+        log.Printf("MIGRATION_DATABASE_URL is not configured; migrations will use the application database connection")
+    } else {
+        log.Printf("database migrations are using the separate migration database connection")
+    }
+    if err := database.Migrate(migrationDB); err != nil { log.Fatal(err) }
+    if migrationDB != db {
+        sqlDB, closeErr := migrationDB.DB()
+        if closeErr != nil { log.Fatalf("get migration database connection for close: %v", closeErr) }
+        if closeErr = sqlDB.Close(); closeErr != nil { log.Fatalf("close migration database connection: %v", closeErr) }
+    }
     if err:=bootstrap.EnsureInitialAdmin(db);err!=nil{log.Fatal(err)}
     r:=gin.Default();r.SetTrustedProxies(nil);server.Configure(r)
     repo:=repository.NewUserRepository(db);svc:=service.NewUserService(repo,db);ctrl:=controller.NewUserController(svc)

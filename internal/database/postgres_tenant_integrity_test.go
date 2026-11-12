@@ -70,12 +70,14 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
         }
         if !roleExists { continue }
         for _, table := range applicationTables {
-            var hasPrivileges bool
-            if err := db.Raw("SELECT has_table_privilege(?, 'public.' || ?, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')", role, table).Scan(&hasPrivileges).Error; err != nil {
-                t.Fatalf("check %s privileges on %s: %v", role, table, err)
-            }
-            if hasPrivileges {
-                t.Fatalf("expected %s to have no privileges on public.%s", role, table)
+            for _, privilege := range []string{"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"} {
+                var hasPrivilege bool
+                if err := db.Raw("SELECT has_table_privilege(?, 'public.' || ?, ?)", role, table, privilege).Scan(&hasPrivilege).Error; err != nil {
+                    t.Fatalf("check %s %s privilege on %s: %v", role, privilege, table, err)
+                }
+                if hasPrivilege {
+                    t.Fatalf("expected %s to have no %s privilege on public.%s", role, privilege, table)
+                }
             }
         }
     }

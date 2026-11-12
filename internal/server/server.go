@@ -128,6 +128,9 @@ func ValidateEnvironment() error {
 	if proxyRequired && proxySecret == "" {
 		return fmt.Errorf("API_PROXY_AUTH_REQUIRED requires API_PROXY_HMAC_SECRET")
 	}
+	if proxySecret != "" && len(proxySecret) < 32 {
+		return fmt.Errorf("API_PROXY_HMAC_SECRET must contain at least 32 bytes")
+	}
 	if (proxyRequired || proxySecret != "" || sharedRateRequired) && redisURL == "" {
 		return fmt.Errorf("signed proxy authentication and shared rate limiting require REDIS_URL for replay protection and shared counters")
 	}

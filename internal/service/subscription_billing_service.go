@@ -17,6 +17,7 @@ import (
 var (
 	ErrSubscriptionPaymentUnavailable = errors.New("subscription payment unavailable")
 	ErrSubscriptionPaymentPending = errors.New("a subscription checkout is already pending")
+	ErrSubscriptionPaymentRecoveryRequired = errors.New("pending checkout has no saved authorization URL; verify its reference or contact support")
 	ErrSubscriptionPaymentNotFound = errors.New("subscription payment not found")
 	ErrSubscriptionPaymentInvalid = errors.New("subscription payment verification is invalid")
 	ErrSubscriptionPaymentAlreadyActive = errors.New("school already has an active subscription")
@@ -82,9 +83,27 @@ func (s *SubscriptionBillingService) CreateCheckout(schoolID, termID uuid.UUID, 
 		var active int64
 		if err := tx.Model(&models.SchoolSubscription{}).Where("school_id = ? AND status = ? AND expires_at > ?", schoolID, models.SubscriptionStatusActive, now).Count(&active).Error; err != nil { return err }
 		if active > 0 { return ErrSubscriptionPaymentAlreadyActive }
-		var pending int64
-		if err := tx.Model(&models.SchoolSubscription{}).Where("school_id = ? AND status = ?", schoolID, models.SubscriptionStatusPending).Count(&pending).Error; err != nil { return err }
-		if pending > 0 { return ErrSubscriptionPaymentPending }
+		// A pending checkout is resumable when its authorization URL was saved.
+		// Never create a second reference while an earlier payment may still settle.
+		var pendingSub models.SchoolSubscription
+		pendingErr := tx.Clauses(clause.Locking{Strength:"UPDATE"}).
+			Where("school_id = ? AND status = ?", schoolID, models.SubscriptionStatusPending).
+			First(&pendingSub).Error
+		if pendingErr == nil {
+			if pendingSub.PlanID != plan.ID || pendingSub.TermID != term.ID {
+				return ErrSubscriptionPaymentPending
+			}
+			var pendingPayment models.SubscriptionPayment
+			if err := tx.Where("school_id = ? AND subscription_id = ? AND status = ?", schoolID, pendingSub.ID, models.SubscriptionPaymentPending).First(&pendingPayment).Error; err != nil {
+				return err
+			}
+			if pendingPayment.Provider != s.provider.Name() || pendingPayment.AuthorizationURL == "" {
+				return ErrSubscriptionPaymentRecoveryRequired
+			}
+			result.Subscription, result.Payment = pendingSub, pendingPayment
+			return nil
+		}
+		if !errors.Is(pendingErr, gorm.ErrRecordNotFound) { return pendingErr }
 
 		sub := models.SchoolSubscription{
 			SchoolID:schoolID, PlanID:plan.ID, TermID:term.ID, Status:models.SubscriptionStatusPending,

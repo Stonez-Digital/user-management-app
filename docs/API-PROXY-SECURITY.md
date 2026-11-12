@@ -6,7 +6,7 @@ The Cloudflare Worker signs each forwarded API request with HMAC-SHA256. The sig
 
 A shared Redis-compatible Valkey store provides:
 - Atomic, cross-instance fixed-window counters for authentication and public school-enquiry endpoints.
-- One-time nonce claims with a two-minute TTL, preventing a captured signed request from being replayed against another API instance.
+- One-time nonce claims with a three-minute TTL, preventing a captured signed request from being replayed against another API instance.
 - Fail-closed behavior when the shared store is unavailable while either security feature is enabled.
 
 The existing in-memory limiter remains available only when shared rate limiting is not required. It is not a production substitute for shared counters.
@@ -62,7 +62,7 @@ Cloudflare's `CF-Connecting-IP` is used for visitor-level rate limiting only aft
 - The Valkey service must be reachable from the Render API over the private network.
 - Use an internal `redis://` URL where Render provides private networking; use `rediss://` only when the service URL requires TLS.
 - The limiter uses atomic Redis Lua operations and short-lived keys. It does not require a schema migration.
-- Valkey is coordination state, not a durable payment or audit store. A free/non-persistent instance can lose counters and nonce claims on restart; the 60-second signature window bounds the remaining replay window, but a persistent store provides stronger continuity.
+- Valkey is coordination state, not a durable payment or audit store. A free/non-persistent instance can lose counters and nonce claims on restart. The API accepts signatures only within a 60-second clock-skew window; the three-minute nonce TTL prevents reuse of a nonce during its claim lifetime when the store retains state. A persistent store provides stronger continuity.
 - A Redis outage causes protected requests to fail with HTTP 503 when shared rate limiting or signed proxy authentication is enabled. Alert on these errors.
 - Rotate the secret by deploying a coordinated Worker/API change. A rotation that leaves the two sides with different secrets will reject API requests.
 - `/healthz` is intentionally exempt from proxy authentication for platform health checks and must not expose application data.

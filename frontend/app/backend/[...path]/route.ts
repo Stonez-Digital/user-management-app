@@ -27,10 +27,20 @@ async function proxyBackendRequest(request: Request, context: RouteContext): Pro
   headers.delete("connection");
 
   try {
+    // Buffer request bodies before forwarding. Cloudflare's Worker runtime can
+    // receive streaming multipart form bodies from the browser; passing that
+    // incoming stream directly to a second fetch is runtime-sensitive. School
+    // signup accepts a small form and an optional logo, so a bounded buffer is
+    // predictable and preserves the original multipart Content-Type/boundary.
+    const body =
+      request.method === "GET" || request.method === "HEAD" || !request.body
+        ? undefined
+        : await request.arrayBuffer();
+
     const upstream = await fetch(upstreamUrl, {
       method: request.method,
       headers,
-      body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
+      body,
       redirect: "manual",
       cache: "no-store",
     });
@@ -46,7 +56,15 @@ async function proxyBackendRequest(request: Request, context: RouteContext): Pro
       statusText: upstream.statusText,
       headers: responseHeaders,
     });
-  } catch {
+  } catch (error) {
+    // Keep the client response generic while retaining actionable details in
+    // Cloudflare Worker logs for diagnosing transport failures.
+    console.error("School portal API proxy request failed", {
+      path: upstreamPath,
+      method: request.method,
+      error: error instanceof Error ? error.message : String(error),
+    });
+
     return Response.json(
       { error: "The school portal API is temporarily unavailable. Please try again." },
       { status: 502, headers: { "Cache-Control": "no-store" } },

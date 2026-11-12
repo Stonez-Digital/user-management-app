@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -173,6 +174,11 @@ func proxySignature(secret, method, requestURI, timestamp, nonce string, body []
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
+func sharedRateLimitKey(category, clientIP string) string {
+	digest := sha256.Sum256([]byte(clientIP))
+	return "stonez:rate:v1:" + category + ":" + hex.EncodeToString(digest[:])
+}
+
 func proxyAuthMiddleware(secret string, store *sharedStore, now func() time.Time) gin.HandlerFunc {
 	if strings.TrimSpace(secret) == "" { return func(c *gin.Context) { c.Next() } }
 	if now == nil { now = time.Now }
@@ -185,7 +191,7 @@ func proxyAuthMiddleware(secret string, store *sharedStore, now func() time.Time
 		nonce := c.GetHeader(proxyNonceHeader)
 		signature := c.GetHeader(proxySignatureHeader)
 		unixSeconds, err := strconv.ParseInt(timestamp, 10, 64)
-		if err != nil || nonce == "" || len(nonce) < 16 || len(nonce) > 128 || signature == "" {
+		if err != nil || nonce == "" || len(nonce) < 16 || len(nonce) > 128 || strings.Trim(nonce, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != "" || signature == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized proxy request"})
 			return
 		}
@@ -195,12 +201,17 @@ func proxyAuthMiddleware(secret string, store *sharedStore, now func() time.Time
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "expired proxy request"})
 			return
 		}
+		bodyLimit := int64(1 << 20)
+		if c.Request.Method == http.MethodPost && c.Request.URL.Path == "/auth/school-signup" {
+			bodyLimit = 6 << 20
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, bodyLimit)
 		body, readErr := io.ReadAll(c.Request.Body)
 		if readErr != nil {
 			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body too large"})
 			return
 		}
-		c.Request.Body = io.NopCloser(strings.NewReader(string(body)))
+		c.Request.Body = io.NopCloser(bytes.NewReader(body))
 		expected := proxySignature(secret, c.Request.Method, c.Request.URL.RequestURI(), timestamp, nonce, body)
 		provided, decodeErr := base64.RawURLEncoding.DecodeString(signature)
 		expectedBytes, _ := base64.RawURLEncoding.DecodeString(expected)

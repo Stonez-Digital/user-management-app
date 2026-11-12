@@ -68,8 +68,14 @@ func (s *SubscriptionService) StartTrial(schoolID, termID uuid.UUID) (models.Sch
 			if errors.Is(err, gorm.ErrRecordNotFound) { return ErrSubscriptionTermUnavailable }
 			return err
 		}
-		if term.StartDate.After(now) || !term.EndDate.After(now) ||
-			term.Status == models.AcademicStatusClosed || term.Status == models.AcademicStatusArchived {
+		if term.StartDate.After(now) || !term.EndDate.After(now) || term.Status != models.AcademicStatusActive {
+			return ErrSubscriptionTermUnavailable
+		}
+		var session models.AcademicSession
+		if err := tx.Where("id = ? AND school_id = ?", term.AcademicSessionID, schoolID).First(&session).Error; err != nil {
+			return ErrSubscriptionTermUnavailable
+		}
+		if session.Status != models.AcademicStatusActive {
 			return ErrSubscriptionTermUnavailable
 		}
 

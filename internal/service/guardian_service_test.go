@@ -20,3 +20,42 @@ func TestGuardianRelationshipAccessAndSchoolIsolation(t *testing.T){
 func TestGuardianLinkLifecycleAndPrimarySemantics(t *testing.T){db,err:=gorm.Open(sqlite.Open("file:guardian_lifecycle?mode=memory&cache=shared"),&gorm.Config{});if err!=nil{t.Fatal(err)};if err=db.AutoMigrate(&models.School{},&models.User{},&models.Student{},&models.GuardianRelationship{});err!=nil{t.Fatal(err)};school:=models.School{Name:"School",Code:"GL"};if err=db.Create(&school).Error;err!=nil{t.Fatal(err)};p1:=models.User{Name:"P1",Email:"p1@test",Role:authz.RoleParent,Active:true,SchoolID:&school.ID};p2:=models.User{Name:"P2",Email:"p2@test",Role:authz.RoleParent,Active:true,SchoolID:&school.ID};su:=models.User{Name:"S",Email:"s@test",Role:authz.RoleStudent,Active:true,SchoolID:&school.ID};for _,u:=range []*models.User{&p1,&p2,&su}{if err=db.Create(u).Error;err!=nil{t.Fatal(err)}};st:=models.Student{SchoolID:school.ID,UserID:su.ID,AdmissionNumber:"ADM"};if err=db.Create(&st).Error;err!=nil{t.Fatal(err)};repo:=repository.NewGuardianRepository(db);svc:=NewGuardianService(repo,db);l1,e:=svc.CreateLink(school.ID,p1.ID,st.ID,"mother",true);if e!=nil{t.Fatal(e)};l2,e:=svc.CreateLink(school.ID,p2.ID,st.ID,"father",true);if e!=nil{t.Fatal(e)};var old models.GuardianRelationship;if err=db.First(&old,"id=?",l1.ID).Error;err!=nil{t.Fatal(err)};if old.Primary{t.Fatal("expected previous primary to be demoted")};if !l2.Primary{t.Fatal("expected new primary")};if e=svc.DeactivateLink(school.ID,l2.ID);e!=nil{t.Fatal(e)};if e=svc.authorize(school.ID,p2.ID,st.ID);e!=ErrGuardianForbidden{t.Fatalf("expected deactivated link forbidden, got %v",e)};if _,e=svc.ReactivateLink(school.ID,l2.ID,false);e!=nil{t.Fatal(e)};if e=svc.authorize(school.ID,p2.ID,st.ID);e!=nil{t.Fatalf("expected reactivated link authorized, got %v",e)};if _,e=svc.ReactivateLink(school.ID,l2.ID,true);e!=nil{t.Fatal(e)}}
 
 func TestGuardianInactiveUserCannotAccessActiveLink(t *testing.T){db,err:=gorm.Open(sqlite.Open("file:guardian_inactive_user?mode=memory&cache=shared"),&gorm.Config{});if err!=nil{t.Fatal(err)};if err=db.AutoMigrate(&models.School{},&models.User{},&models.Student{},&models.GuardianRelationship{});err!=nil{t.Fatal(err)};school:=models.School{Name:"School",Code:"GI"};if err=db.Create(&school).Error;err!=nil{t.Fatal(err)};p:=models.User{Name:"P",Email:"pi@test",Role:authz.RoleParent,Active:true,SchoolID:&school.ID};su:=models.User{Name:"S",Email:"si@test",Role:authz.RoleStudent,Active:true,SchoolID:&school.ID};for _,u:=range []*models.User{&p,&su}{if err=db.Create(u).Error;err!=nil{t.Fatal(err)}};st:=models.Student{SchoolID:school.ID,UserID:su.ID,AdmissionNumber:"ADM-I"};if err=db.Create(&st).Error;err!=nil{t.Fatal(err)};repo:=repository.NewGuardianRepository(db);if _,err=repo.Create(school.ID,models.GuardianRelationship{GuardianUserID:p.ID,StudentID:st.ID,Relationship:"mother",Active:true});err!=nil{t.Fatal(err)};if err=db.Model(&p).Update("active",false).Error;err!=nil{t.Fatal(err)};svc:=NewGuardianService(repo,db);if children,err:=svc.Children(school.ID,p.ID);err!=nil{t.Fatal(err)}else if len(children)!=0{t.Fatalf("expected inactive guardian to have no children, got %d",len(children))};if err=svc.authorize(school.ID,p.ID,st.ID);err!=ErrGuardianForbidden{t.Fatalf("expected inactive guardian to be forbidden, got %v",err)}}
+
+
+// TestGuardianServiceWithDBUsesRequestTransaction verifies that guardian-link
+// writes use the supplied request transaction and roll back with the request.
+func TestGuardianServiceWithDBUsesRequestTransaction(t *testing.T) {
+ db, err := gorm.Open(sqlite.Open("file:guardian_request_tx?mode=memory&cache=shared"), &gorm.Config{})
+ if err != nil { t.Fatal(err) }
+ if err = db.AutoMigrate(&models.School{}, &models.User{}, &models.Student{}, &models.GuardianRelationship{}); err != nil { t.Fatal(err) }
+ school := models.School{Name:"Request TX School", Code:"GRTX"}
+ if err = db.Create(&school).Error; err != nil { t.Fatal(err) }
+ parent := models.User{Name:"Parent", Email:"request-tx-parent@test", Role:authz.RoleParent, Active:true, SchoolID:&school.ID}
+ parent2 := models.User{Name:"Parent Two", Email:"request-tx-parent2@test", Role:authz.RoleParent, Active:true, SchoolID:&school.ID}
+ studentUser := models.User{Name:"Student", Email:"request-tx-student@test", Role:authz.RoleStudent, Active:true, SchoolID:&school.ID}
+ for _, user := range []*models.User{&parent, &parent2, &studentUser} { if err=db.Create(user).Error; err!=nil { t.Fatal(err) } }
+ student := models.Student{SchoolID:school.ID, UserID:studentUser.ID, AdmissionNumber:"GRTX-001"}
+ if err=db.Create(&student).Error; err!=nil { t.Fatal(err) }
+ base := NewGuardianService(repository.NewGuardianRepository(db), db)
+ err = db.Transaction(func(tx *gorm.DB) error {
+   requestService := base.WithDB(tx)
+   if requestService.DB() != tx { t.Fatal("service did not retain request transaction") }
+   _, createErr := requestService.CreateLink(school.ID, parent.ID, student.ID, "parent", true)
+   return createErr
+ })
+ if err != nil { t.Fatal(err) }
+ var count int64
+ if err=db.Model(&models.GuardianRelationship{}).Where("school_id = ?", school.ID).Count(&count).Error; err!=nil { t.Fatal(err) }
+ if count != 1 { t.Fatalf("expected committed request transaction to persist one link, got %d", count) }
+
+ rollbackErr := errors.New("simulate failed request after write")
+ err = db.Transaction(func(tx *gorm.DB) error {
+   requestService := base.WithDB(tx)
+   _, createErr := requestService.CreateLink(school.ID, parent2.ID, student.ID, "guardian", false)
+   if createErr != nil { return createErr }
+   return rollbackErr
+ })
+ if !errors.Is(err, rollbackErr) { t.Fatalf("expected request rollback marker, got %v", err) }
+ if err=db.Model(&models.GuardianRelationship{}).Where("school_id = ?", school.ID).Count(&count).Error;err!=nil { t.Fatal(err) }
+ if count != 1 { t.Fatalf("failed request must not add a guardian link, got %d", count) }
+}

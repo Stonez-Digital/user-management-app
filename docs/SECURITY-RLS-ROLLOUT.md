@@ -17,8 +17,8 @@ The request transaction middleware is integrated in a staged manner:
 - It opens one GORM transaction, sets app.current_school_id and app.current_user_id with parameterized set_config(..., true), and exposes the transaction through TenantDBFromContext(c).
 - Settings are transaction-local. They are never installed with session-level SET, so pooled connections cannot retain a prior request's tenant.
 - The middleware buffers the HTTP response until commit succeeds. Error/aborted responses roll back; a commit failure returns a server error instead of an already-sent success.
-- The `/admin/students` create, list, get, update, and delete routes now opt in. Their controller resolves a request-scoped StudentService, whose direct user lookup, student repository queries, and audit writes all use the same transaction. The controller fails closed if the transaction middleware is missing.
-- Other tenant routes are not yet migrated and must not be treated as RLS-ready. Continue migrating them in bounded vertical slices; do not install the middleware on a route until every repository/service/audit query it performs uses TenantDBFromContext(c).
+- The `/admin/students` create, list, get, update, and delete routes now opt in. The `/admin/guardian-links` create, deactivate, and reactivate mutations also use the request transaction; their GuardianService repository and direct queries share that handle, and audit writes participate in the same transaction. Their controller resolves a request-scoped StudentService, whose direct user lookup, student repository queries, and audit writes all use the same transaction. The controller fails closed if the transaction middleware is missing.
+- Guardian parent-portal read routes (`/parent/*`) and all other tenant routes are not yet migrated and must not be treated as RLS-ready. Continue migrating them in bounded vertical slices; do not install the middleware on a route until every repository/service/audit query it performs uses TenantDBFromContext(c).
 
 ## PostgreSQL isolation test
 

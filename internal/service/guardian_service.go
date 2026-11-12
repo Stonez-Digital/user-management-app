@@ -5,6 +5,8 @@ var(ErrGuardianInvalid=errors.New("invalid guardian relationship");ErrGuardianFo
 type GuardianService struct{repo repository.GuardianRepository;db *gorm.DB}
 func NewGuardianService(r repository.GuardianRepository,db *gorm.DB)*GuardianService{return &GuardianService{repo:r,db:db}}
 func(s *GuardianService)DB()*gorm.DB{return s.db}
+// WithDB returns a service whose repository and direct queries share the request transaction.
+func(s *GuardianService)WithDB(db *gorm.DB)*GuardianService{return NewGuardianService(repository.NewGuardianRepository(db),db)}
 type GuardianChild struct{StudentID uuid.UUID `json:"student_id"`;Name string `json:"name"`;AdmissionNumber string `json:"admission_number"`;Relationship string `json:"relationship"`;Primary bool `json:"primary"`}
 type GuardianTerm struct{ID uuid.UUID `json:"id"`;Name string `json:"name"`;AcademicSessionID uuid.UUID `json:"academic_session_id"`;StartDate string `json:"start_date"`;EndDate string `json:"end_date"`}
 func(s *GuardianService)authorize(schoolID,gid,sid uuid.UUID)error{_,e:=s.repo.Find(schoolID,gid,sid);if errors.Is(e,gorm.ErrRecordNotFound){return ErrGuardianForbidden};return e}

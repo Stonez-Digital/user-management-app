@@ -51,7 +51,7 @@ test("forwards multipart body and preserves its boundary through the proxy", asy
   }
 });
 
-test("rejects a streamed request over 10 MB without contacting the API", async () => {
+test("rejects a streamed request over 6 MB without contacting the API", async () => {
   const originalFetch = globalThis.fetch;
   let fetchCalled = false;
   globalThis.fetch = async () => {
@@ -62,7 +62,7 @@ test("rejects a streamed request over 10 MB without contacting the API", async (
   try {
     const stream = new ReadableStream({
       start(controller) {
-        controller.enqueue(new Uint8Array(10 * 1024 * 1024));
+        controller.enqueue(new Uint8Array(6 * 1024 * 1024));
         controller.enqueue(new Uint8Array(1));
         controller.close();
       },
@@ -80,7 +80,7 @@ test("rejects a streamed request over 10 MB without contacting the API", async (
 
     assert.equal(response.status, 413);
     assert.equal(fetchCalled, false, "oversized body must be rejected before upstream fetch");
-    assert.match((await response.json()).error, /10 MB/);
+    assert.match((await response.json()).error, /6 MB/);
   } finally {
     globalThis.fetch = originalFetch;
   }

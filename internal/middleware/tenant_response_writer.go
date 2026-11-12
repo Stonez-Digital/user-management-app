@@ -70,7 +70,7 @@ func (w *tenantResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 func (w *tenantResponseWriter) CloseNotify() <-chan bool { return w.ResponseWriter.CloseNotify() }
 func (w *tenantResponseWriter) Pusher() http.Pusher      { return w.ResponseWriter.Pusher() }
 func (w *tenantResponseWriter) Unwrap() http.ResponseWriter {
-	return w.ResponseWriter.Unwrap()
+	return w.ResponseWriter
 }
 
 func (w *tenantResponseWriter) flushTo(dst gin.ResponseWriter) {

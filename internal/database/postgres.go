@@ -828,6 +828,13 @@ func Migrate(db *gorm.DB) error {
                 if exists { roles=append(roles,role) }
             }
             for _,table:=range tables {
+                // Some billing tables are provisioned by a separately approved
+                // foundation migration and are intentionally absent from clean
+                // CI databases. Skip only missing tables; never suppress a
+                // privilege-revocation error for a table that does exist.
+                if !tx.Migrator().HasTable(table) {
+                    continue
+                }
                 if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM PUBLIC").Error;err!=nil{return err}
                 for _,role:=range roles {
                     if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM "+role).Error;err!=nil{return err}

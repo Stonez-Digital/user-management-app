@@ -47,6 +47,12 @@ BEGIN
             EXECUTE format('REVOKE ALL ON TABLE public.subscription_payments FROM %I', role_name);
         END IF;
     END LOOP;
-END $$;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+        GRANT ALL ON TABLE public.billing_plans TO service_role;
+        GRANT ALL ON TABLE public.school_subscriptions TO service_role;
+        GRANT ALL ON TABLE public.subscription_events TO service_role;
+        GRANT ALL ON TABLE public.subscription_payments TO service_role;
+    END IF;
+END $;
 
 COMMIT;

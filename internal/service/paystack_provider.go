@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -101,7 +100,8 @@ func (p *PaystackProvider) Initialize(ctx context.Context, in PaystackInitialize
 	if err := p.doJSON(ctx, http.MethodPost, "/transaction/initialize", payload, &envelope); err != nil {
 		return result, err
 	}
-	if !envelope.Status || envelope.Data.AuthorizationURL == "" || envelope.Data.Reference != in.Reference {
+	checkoutURL, urlErr := url.Parse(envelope.Data.AuthorizationURL)
+	if !envelope.Status || urlErr != nil || checkoutURL.Scheme != "https" || checkoutURL.Host != "checkout.paystack.com" || envelope.Data.AccessCode == "" || envelope.Data.Reference != in.Reference {
 		return result, ErrPaystackRequest
 	}
 	return envelope.Data, nil
@@ -171,6 +171,3 @@ func validPaystackReference(reference string) bool {
 
 var _ PaymentProvider = (*PaystackProvider)(nil)
 
-func (in PaystackInitializeInput) String() string {
-	return fmt.Sprintf("PaystackInitializeInput{amount_minor:%d, reference:%q}", in.AmountMinor, in.Reference)
-}

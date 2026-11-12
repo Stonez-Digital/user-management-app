@@ -12,5 +12,5 @@ WORKDIR /app
 COPY --from=builder /out/school-api /app/school-api
 USER app
 EXPOSE 8080
-ENV APP_PORT=8080
+ENV APP_PORT=8080 GIN_MODE=release
 ENTRYPOINT ["/app/school-api"]

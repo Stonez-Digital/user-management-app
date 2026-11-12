@@ -17,10 +17,12 @@ type subscriptionBillingFakeProvider struct {
 	verification PaymentVerification
 	initializeErr error
 	verifyErr error
+	initializeCalls int
 }
 func (p *subscriptionBillingFakeProvider) Name() string { return "paystack" }
 func (p *subscriptionBillingFakeProvider) Initialize(_ context.Context, in PaystackInitializeInput) (PaystackInitializeResult,error) {
 	p.initialized=in
+	p.initializeCalls++
 	if p.initializeErr!=nil{return PaystackInitializeResult{},p.initializeErr}
 	return PaystackInitializeResult{AuthorizationURL:"https://checkout.paystack.com/example",AccessCode:"access-example",Reference:in.Reference},nil
 }
@@ -90,4 +92,35 @@ func TestSubscriptionCheckoutInitializationFailureClosesPendingRecords(t *testin
 	var sub models.SchoolSubscription
 	if err:=db.First(&sub,"id = ?",payment.SubscriptionID).Error;err!=nil{t.Fatal(err)}
 	if sub.Status!=models.SubscriptionStatusCancelled{t.Fatalf("expected cancelled pending subscription, got %q",sub.Status)}
+}
+
+func TestSubscriptionCheckoutRetryReusesSavedAuthorizationURL(t *testing.T) {
+	db, schoolID, termID := subscriptionBillingTestDB(t)
+	provider := &subscriptionBillingFakeProvider{}
+	svc := NewSubscriptionBillingService(db, provider)
+	first, err := svc.CreateCheckout(schoolID, termID, models.BillingPlanBasic, "admin@school.test", "")
+	if err != nil { t.Fatal(err) }
+	second, err := svc.CreateCheckout(schoolID, termID, models.BillingPlanBasic, "admin@school.test", "")
+	if err != nil { t.Fatal(err) }
+	if second.Payment.ID != first.Payment.ID || second.Payment.Reference != first.Payment.Reference {
+		t.Fatalf("retry must return the original pending payment: first=%#v second=%#v", first.Payment, second.Payment)
+	}
+	if second.Payment.AuthorizationURL != first.Payment.AuthorizationURL {
+		t.Fatal("retry must return the original authorization URL")
+	}
+	if provider.initializeCalls != 1 {
+		t.Fatalf("retry must not initialize a second provider transaction; calls=%d", provider.initializeCalls)
+	}
+}
+
+func TestSubscriptionCheckoutRetryDoesNotReplaceDifferentPendingPlan(t *testing.T) {
+	db, schoolID, termID := subscriptionBillingTestDB(t)
+	provider := &subscriptionBillingFakeProvider{}
+	svc := NewSubscriptionBillingService(db, provider)
+	if _, err := svc.CreateCheckout(schoolID, termID, models.BillingPlanBasic, "admin@school.test", ""); err != nil { t.Fatal(err) }
+	_, err := svc.CreateCheckout(schoolID, termID, models.BillingPlanProfessional, "admin@school.test", "")
+	if !errors.Is(err, ErrSubscriptionPaymentPending) {
+		t.Fatalf("expected pending checkout conflict, got %v", err)
+	}
+	if provider.initializeCalls != 1 { t.Fatalf("must not create a second provider transaction; calls=%d", provider.initializeCalls) }
 }

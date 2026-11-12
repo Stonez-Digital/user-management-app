@@ -18,6 +18,10 @@ export function schoolPathForHostname(hostname, pathname, search = "", baseDomai
   if (!slug) return null;
 
   const path = String(pathname || "/");
+  // Authenticated workspaces use the shared /dashboard route tree. Rewriting
+  // these paths to /school/:slug/dashboard creates a route that does not exist.
+  if (path === "/dashboard" || path.startsWith("/dashboard/") || path === "/forgot-password") return null;
+
   let suffix = path;
   if (path === "/school") {
     suffix = "";

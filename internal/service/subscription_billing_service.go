@@ -131,7 +131,7 @@ func (s *SubscriptionBillingService) CreateCheckout(schoolID, termID uuid.UUID, 
 		// Initialization failures can be ambiguous (for example, a network
 		// timeout after Paystack created the transaction). Keep the local
 		// payment pending so a late successful payment can still be verified.
-		return SubscriptionCheckout{}, ErrSubscriptionPaymentRecoveryRequired
+		return result, ErrSubscriptionPaymentRecoveryRequired
 	}
 	if checkout.Reference != reference || checkout.AuthorizationURL == "" || checkout.AccessCode == "" {
 		return SubscriptionCheckout{}, ErrSubscriptionPaymentUnavailable

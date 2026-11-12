@@ -63,7 +63,7 @@ func (ctrl *SubscriptionBillingController) Checkout(c *gin.Context) {
 		case errors.Is(err,service.ErrSubscriptionTermUnavailable): httpx.Error(c,http.StatusConflict,"term_unavailable","select a current active term belonging to this school")
 		case errors.Is(err,service.ErrSubscriptionPlanUnavailable): httpx.Error(c,http.StatusBadRequest,"plan_unavailable","selected plan is unavailable")
 		case errors.Is(err,service.ErrSubscriptionPaymentPending): httpx.Error(c,http.StatusConflict,"checkout_pending","a subscription checkout is already pending")
-		case errors.Is(err,service.ErrSubscriptionPaymentRecoveryRequired): httpx.Error(c,http.StatusServiceUnavailable,"checkout_recovery_required","the existing checkout needs reconciliation; if payment was completed, verify using its original reference")
+		case errors.Is(err,service.ErrSubscriptionPaymentRecoveryRequired): c.JSON(http.StatusServiceUnavailable,gin.H{"error":"checkout_recovery_required","message":"the existing checkout needs reconciliation; if payment was completed, verify using its original reference","status":"pending","reference":result.Payment.Reference})
 		case errors.Is(err,service.ErrSubscriptionPaymentAlreadyActive): httpx.Error(c,http.StatusConflict,"subscription_active","the school already has an active subscription")
 		case errors.Is(err,service.ErrSubscriptionPaymentUnavailable): httpx.Error(c,http.StatusServiceUnavailable,"checkout_unavailable","subscription checkout is not available")
 		default: httpx.Error(c,http.StatusInternalServerError,"checkout_failed","could not initialize subscription checkout")

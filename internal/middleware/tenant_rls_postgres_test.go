@@ -93,8 +93,10 @@ func TestPostgresTenantTransactionEnforcesRLSAndResetsPooledContext(t *testing.T
 			if school == schoolA {
 				updated := tx.Table(table).Where("school_id = ?", schoolB).Update("value", "cross-school-modified")
 				response["cross_update"] = updated.RowsAffected
+				response["cross_update_error"] = updated.Error != nil
 				deleted := tx.Table(table).Where("school_id = ?", schoolB).Delete(&tenantRLSRecord{})
 				response["cross_delete"] = deleted.RowsAffected
+				response["cross_delete_error"] = deleted.Error != nil
 				crossInsertErr := tx.Transaction(func(savepoint *gorm.DB) error {
 					return savepoint.Table(table).Create(map[string]interface{}{"id": uuid.New(), "school_id": schoolB, "value": "cross-school-insert"}).Error
 				})
@@ -119,7 +121,7 @@ func TestPostgresTenantTransactionEnforcesRLSAndResetsPooledContext(t *testing.T
 
 	recorderA, responseA := runRequest(schoolA)
 	if recorderA.Code != http.StatusOK { t.Fatalf("school A request failed: %d %s", recorderA.Code, recorderA.Body.String()) }
-	if responseA["visible"] != float64(1) || responseA["cross_update"] != float64(0) || responseA["cross_delete"] != float64(0) || responseA["cross_insert_denied"] != true || responseA["same_insert"] != true {
+	if responseA["visible"] != float64(1) || responseA["cross_update"] != float64(0) || responseA["cross_update_error"] != false || responseA["cross_delete"] != float64(0) || responseA["cross_delete_error"] != false || responseA["cross_insert_denied"] != true || responseA["same_insert"] != true {
 		t.Fatalf("school A RLS checks failed: %+v", responseA)
 	}
 	if responseA["user_context"] != userID.String() { t.Fatalf("expected transaction-local user context %s, got %v", userID, responseA["user_context"]) }

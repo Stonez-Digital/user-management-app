@@ -1,8 +1,56 @@
 const API_ORIGIN = "https://stonez-digital-school-api.onrender.com";
+const MAX_PROXY_BODY_BYTES = 10 * 1024 * 1024;
 
 type RouteContext = {
   params: Promise<{ path: string[] }>;
 };
+
+class RequestBodyTooLargeError extends Error {
+  constructor() {
+    super("Request body exceeds the proxy limit");
+    this.name = "RequestBodyTooLargeError";
+  }
+}
+
+async function readBoundedBody(request: Request): Promise<ArrayBuffer | undefined> {
+  if (request.method === "GET" || request.method === "HEAD" || !request.body) {
+    return undefined;
+  }
+
+  const contentLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > MAX_PROXY_BODY_BYTES) {
+    throw new RequestBodyTooLargeError();
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_PROXY_BODY_BYTES) {
+        await reader.cancel();
+        throw new RequestBodyTooLargeError();
+      }
+
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body.buffer;
+}
 
 /**
  * Same-origin API gateway for the Cloudflare Worker.
@@ -27,15 +75,10 @@ async function proxyBackendRequest(request: Request, context: RouteContext): Pro
   headers.delete("connection");
 
   try {
-    // Buffer request bodies before forwarding. Cloudflare's Worker runtime can
-    // receive streaming multipart form bodies from the browser; passing that
-    // incoming stream directly to a second fetch is runtime-sensitive. School
-    // signup accepts a small form and an optional logo, so a bounded buffer is
-    // predictable and preserves the original multipart Content-Type/boundary.
-    const body =
-      request.method === "GET" || request.method === "HEAD" || !request.body
-        ? undefined
-        : await request.arrayBuffer();
+    // Enforce the limit while reading, not just from Content-Length (which
+    // may be absent or inaccurate). The original multipart Content-Type,
+    // including its boundary, remains untouched.
+    const body = await readBoundedBody(request);
 
     const upstream = await fetch(upstreamUrl, {
       method: request.method,
@@ -57,6 +100,13 @@ async function proxyBackendRequest(request: Request, context: RouteContext): Pro
       headers: responseHeaders,
     });
   } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return Response.json(
+        { error: "Request body exceeds the 10 MB upload limit." },
+        { status: 413, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     // Keep the client response generic while retaining actionable details in
     // Cloudflare Worker logs for diagnosing transport failures.
     console.error("School portal API proxy request failed", {

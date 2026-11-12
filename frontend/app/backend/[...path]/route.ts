@@ -1,5 +1,6 @@
 const API_ORIGIN = "https://stonez-digital-school-api.onrender.com";
-const MAX_PROXY_BODY_BYTES = 6 * 1024 * 1024;
+const MAX_REQUEST_BODY_BYTES = 1 * 1024 * 1024;
+const MAX_SCHOOL_SIGNUP_BODY_BYTES = 6 * 1024 * 1024;
 
 type RouteContext = {
   params: Promise<{ path: string[] }>;
@@ -12,13 +13,13 @@ class RequestBodyTooLargeError extends Error {
   }
 }
 
-async function readBoundedBody(request: Request): Promise<ArrayBuffer | undefined> {
+async function readBoundedBody(request: Request, maxBytes: number): Promise<ArrayBuffer | undefined> {
   if (request.method === "GET" || request.method === "HEAD" || !request.body) {
     return undefined;
   }
 
   const contentLength = Number(request.headers.get("content-length"));
-  if (Number.isFinite(contentLength) && contentLength > MAX_PROXY_BODY_BYTES) {
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
     throw new RequestBodyTooLargeError();
   }
 
@@ -32,7 +33,7 @@ async function readBoundedBody(request: Request): Promise<ArrayBuffer | undefine
       if (done) break;
 
       totalBytes += value.byteLength;
-      if (totalBytes > MAX_PROXY_BODY_BYTES) {
+      if (totalBytes > maxBytes) {
         await reader.cancel();
         throw new RequestBodyTooLargeError();
       }
@@ -78,7 +79,10 @@ async function proxyBackendRequest(request: Request, context: RouteContext): Pro
     // Enforce the limit while reading, not just from Content-Length (which
     // may be absent or inaccurate). The original multipart Content-Type,
     // including its boundary, remains untouched.
-    const body = await readBoundedBody(request);
+    const maxBodyBytes = request.method === "POST" && upstreamPath === "auth/school-signup"
+      ? MAX_SCHOOL_SIGNUP_BODY_BYTES
+      : MAX_REQUEST_BODY_BYTES;
+    const body = await readBoundedBody(request, maxBodyBytes);
 
     const upstream = await fetch(upstreamUrl, {
       method: request.method,
@@ -102,7 +106,7 @@ async function proxyBackendRequest(request: Request, context: RouteContext): Pro
   } catch (error) {
     if (error instanceof RequestBodyTooLargeError) {
       return Response.json(
-        { error: "Request body exceeds the 6 MB upload limit." },
+        { error: "Request body exceeds the configured upload limit." },
         { status: 413, headers: { "Cache-Control": "no-store" } },
       );
     }

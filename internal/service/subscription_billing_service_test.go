@@ -44,6 +44,8 @@ func subscriptionBillingTestDB(t *testing.T)(*gorm.DB,uuid.UUID,uuid.UUID){
 	if err:=db.Create(&term).Error;err!=nil{t.Fatal(err)}
 	plan:=models.BillingPlan{Code:models.BillingPlanBasic,Name:"Basic",AmountMinor:6500000,Currency:"NGN",BillingInterval:"term",Active:true}
 	if err:=db.Create(&plan).Error;err!=nil{t.Fatal(err)}
+	professional:=models.BillingPlan{Code:models.BillingPlanProfessional,Name:"Professional",AmountMinor:10000000,Currency:"NGN",BillingInterval:"term",Active:true}
+	if err:=db.Create(&professional).Error;err!=nil{t.Fatal(err)}
 	return db,school.ID,term.ID
 }
 

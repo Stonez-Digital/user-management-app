@@ -31,8 +31,9 @@ func TestGuardianServiceWithDBUsesRequestTransaction(t *testing.T) {
  school := models.School{Name:"Request TX School", Code:"GRTX"}
  if err = db.Create(&school).Error; err != nil { t.Fatal(err) }
  parent := models.User{Name:"Parent", Email:"request-tx-parent@test", Role:authz.RoleParent, Active:true, SchoolID:&school.ID}
+ parent2 := models.User{Name:"Parent Two", Email:"request-tx-parent2@test", Role:authz.RoleParent, Active:true, SchoolID:&school.ID}
  studentUser := models.User{Name:"Student", Email:"request-tx-student@test", Role:authz.RoleStudent, Active:true, SchoolID:&school.ID}
- for _, user := range []*models.User{&parent, &studentUser} { if err=db.Create(user).Error; err!=nil { t.Fatal(err) } }
+ for _, user := range []*models.User{&parent, &parent2, &studentUser} { if err=db.Create(user).Error; err!=nil { t.Fatal(err) } }
  student := models.Student{SchoolID:school.ID, UserID:studentUser.ID, AdmissionNumber:"GRTX-001"}
  if err=db.Create(&student).Error; err!=nil { t.Fatal(err) }
  base := NewGuardianService(repository.NewGuardianRepository(db), db)
@@ -47,13 +48,14 @@ func TestGuardianServiceWithDBUsesRequestTransaction(t *testing.T) {
  if err=db.Model(&models.GuardianRelationship{}).Where("school_id = ?", school.ID).Count(&count).Error; err!=nil { t.Fatal(err) }
  if count != 1 { t.Fatalf("expected committed request transaction to persist one link, got %d", count) }
 
+ rollbackErr := errors.New("simulate failed request after write")
  err = db.Transaction(func(tx *gorm.DB) error {
    requestService := base.WithDB(tx)
-   _, createErr := requestService.CreateLink(school.ID, parent.ID, uuid.New(), "guardian", false)
-   if createErr == nil { return errors.New("expected invalid student link to fail") }
-   return createErr
+   _, createErr := requestService.CreateLink(school.ID, parent2.ID, student.ID, "guardian", false)
+   if createErr != nil { return createErr }
+   return rollbackErr
  })
- if err == nil { t.Fatal("expected invalid guardian link to fail") }
+ if !errors.Is(err, rollbackErr) { t.Fatalf("expected request rollback marker, got %v", err) }
  if err=db.Model(&models.GuardianRelationship{}).Where("school_id = ?", school.ID).Count(&count).Error;err!=nil { t.Fatal(err) }
  if count != 1 { t.Fatalf("failed request must not add a guardian link, got %d", count) }
 }

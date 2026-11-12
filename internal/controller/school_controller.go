@@ -84,11 +84,11 @@ func (ctrl *SchoolController) UploadLogo(c *gin.Context) {
         return
     }
 
-    limitMultipartUpload(c, 6<<20) // 5 MB image plus bounded multipart overhead.
+    limitMultipartUpload(c, 3<<20) // 2 MB image plus bounded multipart overhead.
     file, header, err := c.Request.FormFile("logo")
     if err != nil {
         if multipartUploadTooLarge(err) {
-            httpx.Error(c, http.StatusRequestEntityTooLarge, "school_logo_too_large", "school logo request exceeds the 5 MB upload limit")
+            httpx.Error(c, http.StatusRequestEntityTooLarge, "school_logo_too_large", "school logo request exceeds the 2 MB upload limit")
             return
         }
         httpx.Error(c, http.StatusBadRequest, "school_logo_required", "school logo file is required")

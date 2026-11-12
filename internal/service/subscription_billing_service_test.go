@@ -31,7 +31,7 @@ func (p *subscriptionBillingFakeProvider) Verify(reference string)(PaymentVerifi
 
 func subscriptionBillingTestDB(t *testing.T)(*gorm.DB,uuid.UUID,uuid.UUID){
 	t.Helper()
-	db,err:=gorm.Open(sqlite.Open("file:subscription-billing-test?mode=memory&cache=shared"),&gorm.Config{})
+	db,err:=gorm.Open(sqlite.Open("file:subscription-billing-test-"+uuid.NewString()+"?mode=memory&cache=shared"),&gorm.Config{})
 	if err!=nil{t.Fatal(err)}
 	if err:=db.AutoMigrate(&models.School{},&models.AcademicSession{},&models.Term{},&models.BillingPlan{},&models.SchoolSubscription{},&models.SubscriptionEvent{},&models.SubscriptionPayment{});err!=nil{t.Fatal(err)}
 	school:=models.School{Name:"Billing Test School",Code:"BILLING-TEST",Status:models.SchoolStatusActive}

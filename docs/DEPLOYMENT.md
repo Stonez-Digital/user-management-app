@@ -9,11 +9,14 @@ The Go API must be publicly reachable over HTTPS before the frontend can be depl
 ## Required API environment
 
 - DB_DRIVER=postgres
-- DATABASE_URL=<Supabase PostgreSQL connection string>
+- DATABASE_URL=<Supabase PostgreSQL connection string for the API runtime>
+- MIGRATION_DATABASE_URL=<optional separate PostgreSQL connection with schema migration privileges>
 - JWT_SECRET=<strong random production secret>
 - APP_PORT=8080
 
 The API should listen on the platform-provided port when one is supplied. Never commit production secrets.
+
+`MIGRATION_DATABASE_URL` is optional for backwards compatibility. When configured, startup runs the versioned application migrations using this separate PostgreSQL connection, then closes it before serving requests. The API continues to use `DATABASE_URL` for normal application queries. Until a dedicated migration credential is provisioned and tested, the application falls back to `DATABASE_URL`; this fallback does not provide credential separation.
 
 ## Container
 

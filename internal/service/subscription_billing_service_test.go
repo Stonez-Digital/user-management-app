@@ -85,13 +85,13 @@ func TestSubscriptionCheckoutInitializationFailureClosesPendingRecords(t *testin
 	provider:=&subscriptionBillingFakeProvider{initializeErr:errors.New("provider unavailable")}
 	svc:=NewSubscriptionBillingService(db,provider)
 	_,err:=svc.CreateCheckout(schoolID,termID,models.BillingPlanBasic,"admin@school.test","")
-	if !errors.Is(err,ErrSubscriptionPaymentUnavailable){t.Fatalf("expected checkout failure, got %v",err)}
+	if !errors.Is(err,ErrSubscriptionPaymentRecoveryRequired){t.Fatalf("expected recoverable checkout state, got %v",err)}
 	var payment models.SubscriptionPayment
 	if err:=db.First(&payment).Error;err!=nil{t.Fatal(err)}
-	if payment.Status!=models.SubscriptionPaymentFailed{t.Fatalf("expected failed payment, got %q",payment.Status)}
+	if payment.Status!=models.SubscriptionPaymentPending{t.Fatalf("ambiguous initialization must remain pending for late-payment verification, got %q",payment.Status)}
 	var sub models.SchoolSubscription
 	if err:=db.First(&sub,"id = ?",payment.SubscriptionID).Error;err!=nil{t.Fatal(err)}
-	if sub.Status!=models.SubscriptionStatusCancelled{t.Fatalf("expected cancelled pending subscription, got %q",sub.Status)}
+	if sub.Status!=models.SubscriptionStatusPending{t.Fatalf("ambiguous initialization must not cancel subscription, got %q",sub.Status)}
 }
 
 func TestSubscriptionCheckoutRetryReusesSavedAuthorizationURL(t *testing.T) {
@@ -123,4 +123,22 @@ func TestSubscriptionCheckoutRetryDoesNotReplaceDifferentPendingPlan(t *testing.
 		t.Fatalf("expected pending checkout conflict, got %v", err)
 	}
 	if provider.initializeCalls != 1 { t.Fatalf("must not create a second provider transaction; calls=%d", provider.initializeCalls) }
+}
+
+func TestSubscriptionCheckoutMissingAuthorizationURLRemainsVerifiable(t *testing.T) {
+	db, schoolID, termID := subscriptionBillingTestDB(t)
+	now := time.Date(2026, 11, 12, 10, 0, 0, 0, time.UTC)
+	provider := &subscriptionBillingFakeProvider{verification: PaymentVerification{Provider:"paystack", AmountMinor:6500000, Currency:"NGN", Status:"succeeded", PaidAt:now}}
+	svc := NewSubscriptionBillingService(db, provider)
+	svc.now = func() time.Time { return now }
+	checkout, err := svc.CreateCheckout(schoolID, termID, models.BillingPlanBasic, "admin@school.test", "")
+	if err != nil { t.Fatal(err) }
+	if err := db.Model(&models.SubscriptionPayment{}).Where("id = ?", checkout.Payment.ID).Update("authorization_url", "").Error; err != nil { t.Fatal(err) }
+	_, err = svc.CreateCheckout(schoolID, termID, models.BillingPlanBasic, "admin@school.test", "")
+	if !errors.Is(err, ErrSubscriptionPaymentRecoveryRequired) { t.Fatalf("expected recovery-required response, got %v", err) }
+	activated, err := svc.VerifyCheckout(schoolID, checkout.Payment.Reference)
+	if err != nil { t.Fatalf("payment must remain verifiable by its original reference: %v", err) }
+	if activated.Payment.Status != models.SubscriptionPaymentSucceeded || activated.Subscription.Status != models.SubscriptionStatusActive {
+		t.Fatalf("expected verified late payment to activate, got %#v", activated)
+	}
 }

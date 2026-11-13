@@ -106,3 +106,21 @@ func TestBulkImportRowRollsBackStudentAndUserWhenEnrollmentValidationFails(t *te
 	if err := db.Model(&models.User{}).Where("school_id = ? AND email = ?",schoolID,"rollback@example.com").Count(&users).Error; err != nil { t.Fatal(err) }
 	if students != 0 || users != 0 { t.Fatalf("expected row transaction rollback, got students=%d users=%d",students,users) }
 }
+
+func TestBulkWorkerExpiredLeaseCannotCommitAnotherRow(t *testing.T) {
+	db := bulkTestDB(t)
+	schoolID, actor, staleWorker := uuid.New(), uuid.New(), uuid.New()
+	actorUser := models.User{ID: actor, Name: "School Admin", Email: "admin-lease@example.com", Role: "school_admin", Active: true, SchoolID: &schoolID}
+	if err := db.Create(&actorUser).Error; err != nil { t.Fatal(err) }
+	rows, _ := json.Marshal([]BulkRow{{"name":"Stale Worker Student","email":"stale-worker@example.com","admission_number":"STALE-001"}})
+	expired := time.Now().UTC().Add(-2 * bulkImportClaimLease)
+	job := models.BulkImportJob{SchoolID: schoolID, InitiatedBy: actor, Kind: "students", FileName: "stale.csv", Status: models.BulkImportRunning, RowsJSON: string(rows), WorkerID: &staleWorker, ClaimedAt: &expired, Attempts: 1}
+	if err := db.Create(&job).Error; err != nil { t.Fatal(err) }
+	NewBulkImportService(db, nil).processClaimed(job, staleWorker)
+	var users int64
+	if err := db.Model(&models.User{}).Where("school_id = ? AND email = ?", schoolID, "stale-worker@example.com").Count(&users).Error; err != nil { t.Fatal(err) }
+	if users != 0 { t.Fatalf("expired worker wrote %d users; expected lease fencing to block the row", users) }
+	var got models.BulkImportJob
+	if err := db.First(&got, job.ID).Error; err != nil { t.Fatal(err) }
+	if got.Status != models.BulkImportRunning { t.Fatalf("stale worker changed job status to %q", got.Status) }
+}

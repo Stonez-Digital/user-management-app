@@ -22,18 +22,17 @@ func authTenantTestDB(t *testing.T) *gorm.DB {
     return db
 }
 
-func tenantContextRouter(handler gin.HandlerFunc, schoolID string, userID string, method string, path string, body string) *httptest.ResponseRecorder {
+func tenantContextRouter(db *gorm.DB, handler gin.HandlerFunc, schoolID string, userID string, method string, path string, body string) *httptest.ResponseRecorder {
     gin.SetMode(gin.TestMode)
     r := gin.New()
-    r.Handle(method, path, func(c *gin.Context) {
-        c.Set(middleware.SchoolIDKey, schoolID)
-        c.Set(middleware.UserIDKey, userID)
-        if id := strings.TrimPrefix(path, "/admin/users/"); id != path {
-            id = strings.TrimSuffix(strings.TrimSuffix(id, "/deactivate"), "/role")
-            c.Params = gin.Params{{Key: "id", Value: id}}
-        }
-        handler(c)
-    })
+    r.Handle(method, path,
+        func(c *gin.Context) {
+            c.Set(middleware.SchoolIDKey, schoolID)
+            c.Set(middleware.UserIDKey, userID)
+        },
+        middleware.TenantTransaction(db),
+        handler,
+    )
     req := httptest.NewRequest(method, path, strings.NewReader(body))
     req.Header.Set("Content-Type", "application/json")
     rec := httptest.NewRecorder()
@@ -55,10 +54,10 @@ func TestAdminUserMutationsRejectCrossSchoolTargets(t *testing.T) {
 
     ac := NewAuthController(db)
 
-    rec := tenantContextRouter(ac.DeactivateUser, schoolA.ID.String(), actor.ID.String(), http.MethodPost, "/admin/users/"+target.ID.String()+"/deactivate", "")
+    rec := tenantContextRouter(db, ac.DeactivateUser, schoolA.ID.String(), actor.ID.String(), http.MethodPost, "/admin/users/"+target.ID.String()+"/deactivate", "")
     if rec.Code != http.StatusNotFound { t.Fatalf("expected cross-school deactivate to return 404, got %d: %s", rec.Code, rec.Body.String()) }
 
-    rec = tenantContextRouter(ac.AssignRole, schoolA.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+target.ID.String()+"/role", `{"role":"teacher"}`)
+    rec = tenantContextRouter(db, ac.AssignRole, schoolA.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+target.ID.String()+"/role", `{"role":"teacher"}`)
     if rec.Code != http.StatusNotFound { t.Fatalf("expected cross-school role assignment to return 404, got %d: %s", rec.Code, rec.Body.String()) }
 
     var stored models.User

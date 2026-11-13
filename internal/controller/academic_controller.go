@@ -26,7 +26,8 @@ func(ctrl *AcademicController)GetSession(c *gin.Context){
 	schoolID,ok:=requireSchoolID(c);if !ok{return};id,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_academic_session_id","invalid academic session id");return};v,e:=svc.GetSession(schoolID,id);if e!=nil{academicError(c,e,"academic session");return};c.JSON(200,v)}
 func(ctrl *AcademicController)CreateSession(c *gin.Context){
 	svc, ok := ctrl.requestService(c)
-	if !ok { return }var r academicRequest;if e:=c.ShouldBindJSON(&r);e!=nil{httpx.Validation(c,httpx.ValidationErrors(e));return};schoolID,ok:=requireSchoolID(c);if !ok{return};v,e:=svc.CreateSession(schoolID,models.AcademicSession{Name:r.Name,StartDate:r.StartDate,EndDate:r.EndDate,Status:r.Status});if e!=nil{academicError(c,e,"academic session");return};actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(svc.DB(),c,&actor,"academic_session.create","academic_session",&v.ID,nil);c.JSON(201,v)}
+	if !ok { return }
+	var r academicRequest;if e:=c.ShouldBindJSON(&r);e!=nil{httpx.Validation(c,httpx.ValidationErrors(e));return};schoolID,ok:=requireSchoolID(c);if !ok{return};v,e:=svc.CreateSession(schoolID,models.AcademicSession{Name:r.Name,StartDate:r.StartDate,EndDate:r.EndDate,Status:r.Status});if e!=nil{academicError(c,e,"academic session");return};actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(svc.DB(),c,&actor,"academic_session.create","academic_session",&v.ID,nil);c.JSON(201,v)}
 func(ctrl *AcademicController)UpdateSession(c *gin.Context){
 	svc, ok := ctrl.requestService(c)
 	if !ok { return }

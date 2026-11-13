@@ -154,3 +154,20 @@ func TestCreateVerifiedPaymentRejectsMismatchedVerification(t *testing.T){
     p:=financeTestProvider{name:"paystack",verification:PaymentVerification{Reference:"OTHER",Amount:20000,Status:"failed"}}
     if _,e=svc.CreateVerifiedPayment(schoolID,invoice.ID,p,"PS-002");e!=ErrPaymentInvalid{t.Fatalf("expected mismatched provider verification to fail, got %v",e)}
 }
+
+
+func TestFinanceWithDBUsesRequestTransaction(t *testing.T) {
+    db := financeTestDB(t)
+    schoolID, term, _ := financeFixture(t, db, "TX")
+    tx := db.Begin()
+    if tx.Error != nil { t.Fatal(tx.Error) }
+    scoped := NewFinanceService(repository.NewFeeItemRepository(db), repository.NewInvoiceRepository(db), repository.NewPaymentRepository(db), db).WithDB(tx)
+    if _, err := scoped.CreateFee(schoolID, models.FeeItem{TermID: term.ID, Name: "Transactional tuition", Amount: 1000, Active: true}); err != nil {
+        _ = tx.Rollback().Error
+        t.Fatal(err)
+    }
+    if err := tx.Rollback().Error; err != nil { t.Fatal(err) }
+    var count int64
+    if err := db.Model(&models.FeeItem{}).Where("school_id = ? AND name = ?", schoolID, "Transactional tuition").Count(&count).Error; err != nil { t.Fatal(err) }
+    if count != 0 { t.Fatalf("expected request transaction rollback to remove fee item, found %d", count) }
+}

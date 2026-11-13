@@ -79,11 +79,11 @@ func TestAssignRoleRejectsRoleProfileMismatch(t *testing.T) {
     if err := db.Create(&models.ParentProfile{SchoolID: school.ID, UserID: parent.ID, ParentIdentifier: "P-1"}).Error; err != nil { t.Fatal(err) }
     if err := db.Create(&models.TeacherProfile{SchoolID: school.ID, UserID: teacher.ID, StaffID: "T-1"}).Error; err != nil { t.Fatal(err) }
     ac := NewAuthController(db)
-    rec := tenantContextRouter(ac.AssignRole, school.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+parent.ID.String()+"/role", `{"role":"student"}`)
+    rec := tenantContextRouter(db, ac.AssignRole, school.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+parent.ID.String()+"/role", `{"role":"student"}`)
     if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "role_profile_mismatch") { t.Fatalf("expected parent profile mismatch conflict, got %d: %s", rec.Code, rec.Body.String()) }
-    rec = tenantContextRouter(ac.AssignRole, school.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+teacher.ID.String()+"/role", `{"role":"staff"}`)
+    rec = tenantContextRouter(db, ac.AssignRole, school.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+teacher.ID.String()+"/role", `{"role":"staff"}`)
     if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "role_profile_mismatch") { t.Fatalf("expected teacher profile mismatch conflict, got %d: %s", rec.Code, rec.Body.String()) }
-    rec = tenantContextRouter(ac.AssignRole, school.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+student.ID.String()+"/role", `{"role":"teacher"}`)
+    rec = tenantContextRouter(db, ac.AssignRole, school.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+student.ID.String()+"/role", `{"role":"teacher"}`)
     if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "role_profile_mismatch") { t.Fatalf("expected missing teacher profile conflict, got %d: %s", rec.Code, rec.Body.String()) }
     var storedParent models.User
     if err := db.First(&storedParent, "id = ?", parent.ID).Error; err != nil { t.Fatal(err) }

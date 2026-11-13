@@ -3,13 +3,40 @@ package controller
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+
 	"github.com/onoja217/users-management-app/internal/authz"
+	"github.com/onoja217/users-management-app/internal/middleware"
 	"github.com/onoja217/users-management-app/internal/models"
 	"github.com/onoja217/users-management-app/internal/repository"
 	"github.com/onoja217/users-management-app/internal/service"
 )
+
+
+func tenantContextTransactionRouter(db *gorm.DB, handler gin.HandlerFunc, schoolID, userID, method, path, body string) *httptest.ResponseRecorder {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set(middleware.SchoolIDKey, schoolID)
+		c.Set(middleware.UserIDKey, userID)
+		if id := strings.TrimPrefix(path, "/admin/users/"); id != path {
+			c.Params = gin.Params{{Key: "id", Value: id}}
+		}
+		c.Next()
+	})
+	r.Use(middleware.TenantTransaction(db))
+	r.Handle(method, path, handler)
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
 
 func TestIsolatedStagingAcceptanceSchoolUserReadAndProvisioningIsolation(t *testing.T) {
 	db := stagingAcceptanceDB(t)
@@ -36,7 +63,7 @@ func TestIsolatedStagingAcceptanceSchoolUserReadAndProvisioningIsolation(t *test
 	users := NewUserController(service.NewUserService(repository.NewUserRepository(db), db))
 
 	// A school administrator's collection response must not disclose another tenant.
-	listed := tenantContextRouter(users.GetUsers, schoolA.ID.String(), adminA.ID.String(), http.MethodGet, "/admin/users", "")
+	listed := tenantContextTransactionRouter(db, users.GetUsers, schoolA.ID.String(), adminA.ID.String(), http.MethodGet, "/admin/users", "")
 	if listed.Code != http.StatusOK {
 		t.Fatalf("school A user list expected 200, got %d: %s", listed.Code, listed.Body.String())
 	}
@@ -54,17 +81,17 @@ func TestIsolatedStagingAcceptanceSchoolUserReadAndProvisioningIsolation(t *test
 	}
 
 	// Direct lookup by another tenant's UUID must be indistinguishable from missing.
-	foreign := tenantContextRouter(users.GetUser, schoolA.ID.String(), adminA.ID.String(), http.MethodGet, "/admin/users/"+studentB.ID.String(), "")
+	foreign := tenantContextTransactionRouter(db, users.GetUser, schoolA.ID.String(), adminA.ID.String(), http.MethodGet, "/admin/users/"+studentB.ID.String(), "")
 	if foreign.Code != http.StatusNotFound {
 		t.Fatalf("cross-tenant user lookup expected 404, got %d: %s", foreign.Code, foreign.Body.String())
 	}
-	own := tenantContextRouter(users.GetUser, schoolA.ID.String(), adminA.ID.String(), http.MethodGet, "/admin/users/"+studentA.ID.String(), "")
+	own := tenantContextTransactionRouter(db, users.GetUser, schoolA.ID.String(), adminA.ID.String(), http.MethodGet, "/admin/users/"+studentA.ID.String(), "")
 	if own.Code != http.StatusOK {
 		t.Fatalf("same-tenant user lookup expected 200, got %d: %s", own.Code, own.Body.String())
 	}
 
 	// Provisioning through the school-scoped service must attach the new user to A.
-	created := tenantContextRouter(users.CreateUser, schoolA.ID.String(), adminA.ID.String(), http.MethodPost, "/admin/users",
+	created := tenantContextTransactionRouter(db, users.CreateUser, schoolA.ID.String(), adminA.ID.String(), http.MethodPost, "/admin/users",
 		`{"name":"A New Student","email":"new-student-a@staging.example","password":"StagingPass123!","role":"student"}`)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("school A user creation expected 201, got %d: %s", created.Code, created.Body.String())

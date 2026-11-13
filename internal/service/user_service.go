@@ -38,3 +38,8 @@ func (s *UserService) GetUser(schoolID, id uuid.UUID) (models.User, error) { ret
 func (s *UserService) DeleteUser(schoolID, id uuid.UUID) error { return s.repo.Delete(schoolID, id) }
 func (s *UserService) UpdateUser(schoolID uuid.UUID, user models.User) error { return s.repo.Update(schoolID, user) }
 func (s *UserService) DB() *gorm.DB { return s.db }
+
+// WithDB rebinds both repository and direct queries to the request transaction.
+func (s *UserService) WithDB(db *gorm.DB) *UserService {
+    return &UserService{repo: repository.NewUserRepository(db), db: db}
+}

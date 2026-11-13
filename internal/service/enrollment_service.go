@@ -4,6 +4,8 @@ var(ErrEnrollmentNotFound=errors.New("enrollment not found");ErrEnrollmentDuplic
 type EnrollmentService struct{repo repository.EnrollmentRepository;db *gorm.DB}
 func NewEnrollmentService(repo repository.EnrollmentRepository,db *gorm.DB)*EnrollmentService{return &EnrollmentService{repo,db}}
 func(s *EnrollmentService)DB()*gorm.DB{return s.db}
+func (s *EnrollmentService) WithDB(db *gorm.DB) *EnrollmentService { return NewEnrollmentService(repository.NewEnrollmentRepository(db), db) }
+
 func(s *EnrollmentService)Create(schoolID uuid.UUID,v models.StudentEnrollment)(models.StudentEnrollment,error){
  var student models.Student;if err:=s.db.Where("id = ? AND school_id = ?",v.StudentID,schoolID).First(&student).Error;errors.Is(err,gorm.ErrRecordNotFound){return v,ErrEnrollmentStudentMissing}else if err!=nil{return v,err}
  var session models.AcademicSession;if err:=s.db.Where("id = ? AND school_id = ?",v.AcademicSessionID,schoolID).First(&session).Error;errors.Is(err,gorm.ErrRecordNotFound){return v,ErrEnrollmentSessionMissing}else if err!=nil{return v,err};if session.Status==models.AcademicStatusClosed||session.Status==models.AcademicStatusArchived{return v,ErrEnrollmentSessionUnavailable}

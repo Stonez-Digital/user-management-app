@@ -8,12 +8,19 @@ import (
 	"github.com/google/uuid"
 	"github.com/onoja217/users-management-app/internal/audit"
 	"github.com/onoja217/users-management-app/internal/httpx"
-	"github.com/onoja217/users-management-app/internal/models"
+		"github.com/onoja217/users-management-app/internal/middleware"
+"github.com/onoja217/users-management-app/internal/models"
 	"github.com/onoja217/users-management-app/internal/service"
 )
 
 type EnrollmentController struct{ service *service.EnrollmentService }
 func NewEnrollmentController(s *service.EnrollmentService) *EnrollmentController { return &EnrollmentController{service: s} }
+
+func (ctrl *EnrollmentController) requestService(c *gin.Context) (*service.EnrollmentService, bool) {
+	tx, ok := middleware.TenantDBFromContext(c)
+	if !ok { httpx.Error(c, 500, "tenant_transaction_required", "tenant transaction is required for this operation"); return nil, false }
+	return ctrl.service.WithDB(tx), true
+}
 
 type enrollmentRequest struct {
 	StudentID uuid.UUID `json:"student_id" binding:"required"`
@@ -45,14 +52,17 @@ func enrollmentError(c *gin.Context, err error) {
 	}
 }
 
-func (ctrl *EnrollmentController) TeacherList(c *gin.Context) { schoolID,ok:=requireSchoolID(c);if !ok{return}
+func (ctrl *EnrollmentController) TeacherList(c *gin.Context) {
+	svc, ok := ctrl.requestService(c); if !ok { return }
+	schoolID,ok:=requireSchoolID(c);if !ok{return}
  teacherID,e:=uuid.Parse(c.GetString("user_id"));if e!=nil{httpx.Error(c,401,"invalid_user","invalid authenticated user");return}
- items,e:=ctrl.service.ListForTeacher(schoolID,teacherID);if e!=nil{enrollmentError(c,e);return};c.JSON(http.StatusOK,items)
+ items,e:=svc.ListForTeacher(schoolID,teacherID);if e!=nil{enrollmentError(c,e);return};c.JSON(http.StatusOK,items)
 }
 func (ctrl *EnrollmentController) History(c *gin.Context) {
+	svc, ok := ctrl.requestService(c); if !ok { return }
  schoolID,ok:=requireSchoolID(c);if !ok{return}
  studentID,err:=uuid.Parse(c.Param("studentId"));if err!=nil{httpx.Error(c,400,"invalid_student_id","invalid student id");return}
- items,err:=ctrl.service.History(schoolID,studentID);if err!=nil{enrollmentError(c,err);return}
+ items,err:=svc.History(schoolID,studentID);if err!=nil{enrollmentError(c,err);return}
  c.JSON(http.StatusOK,gin.H{"enrollments":items})
 }
 type enrollmentPlacementRequest struct {
@@ -63,54 +73,65 @@ type enrollmentPlacementRequest struct {
 }
 
 func (ctrl *EnrollmentController) Place(c *gin.Context) {
+	svc, ok := ctrl.requestService(c); if !ok { return }
 	schoolID, ok := requireSchoolID(c); if !ok { return }
 	id, err := uuid.Parse(c.Param("id")); if err != nil { httpx.Error(c,400,"invalid_enrollment_id","invalid enrollment id"); return }
 	var req enrollmentPlacementRequest
 	if err := c.ShouldBindJSON(&req); err != nil { httpx.Validation(c,httpx.ValidationErrors(err)); return }
-	item, err := ctrl.service.Place(schoolID,id,service.EnrollmentPlacementRequest{TargetSessionID:req.TargetSessionID,TargetClassID:req.TargetClassID,TargetSectionID:req.TargetSectionID,Operation:req.Operation})
+	item, err := svc.Place(schoolID,id,service.EnrollmentPlacementRequest{TargetSessionID:req.TargetSessionID,TargetClassID:req.TargetClassID,TargetSectionID:req.TargetSectionID,Operation:req.Operation})
 	if err != nil { enrollmentError(c,err); return }
-	actor,_:=uuid.Parse(c.GetString("user_id")); _=audit.Record(ctrl.service.DB(),c,&actor,"enrollment.place","student_enrollment",&item.ID,nil)
+	actor,_:=uuid.Parse(c.GetString("user_id")); _=audit.Record(svc.DB(),c,&actor,"enrollment.place","student_enrollment",&item.ID,nil)
 	c.JSON(http.StatusCreated,item)
 }
-func (ctrl *EnrollmentController) List(c *gin.Context) { schoolID,ok:=requireSchoolID(c);if !ok{return}
-	items, err := ctrl.service.List(schoolID)
+func (ctrl *EnrollmentController) List(c *gin.Context) {
+	svc, ok := ctrl.requestService(c); if !ok { return }
+	schoolID,ok:=requireSchoolID(c);if !ok{return}
+	items, err := svc.List(schoolID)
 	if err != nil { enrollmentError(c, err); return }
 	c.JSON(http.StatusOK, items)
 }
-func (ctrl *EnrollmentController) Get(c *gin.Context) { schoolID,ok:=requireSchoolID(c);if !ok{return}
+func (ctrl *EnrollmentController) Get(c *gin.Context) {
+	svc, ok := ctrl.requestService(c); if !ok { return }
+	schoolID,ok:=requireSchoolID(c);if !ok{return}
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil { httpx.Error(c, 400, "invalid_enrollment_id", "invalid enrollment id"); return }
-	item, err := ctrl.service.Get(schoolID,id)
+	item, err := svc.Get(schoolID,id)
 	if err != nil { enrollmentError(c, err); return }
 	c.JSON(http.StatusOK, item)
 }
-func (ctrl *EnrollmentController) Create(c *gin.Context) { schoolID,ok:=requireSchoolID(c);if !ok{return}
+func (ctrl *EnrollmentController) Create(c *gin.Context) {
+	svc, ok := ctrl.requestService(c); if !ok { return }
+	schoolID,ok:=requireSchoolID(c);if !ok{return}
 	var req enrollmentRequest
 	if err := c.ShouldBindJSON(&req); err != nil { httpx.Validation(c, httpx.ValidationErrors(err)); return }
-	item, err := ctrl.service.Create(schoolID,models.StudentEnrollment{StudentID:req.StudentID, AcademicSessionID:req.AcademicSessionID, ClassID:req.ClassID, SectionID:req.SectionID, Status:req.Status})
+	item, err := svc.Create(schoolID,models.StudentEnrollment{StudentID:req.StudentID, AcademicSessionID:req.AcademicSessionID, ClassID:req.ClassID, SectionID:req.SectionID, Status:req.Status})
 	if err != nil { enrollmentError(c, err); return }
 	actor, _ := uuid.Parse(c.GetString("user_id"))
-	_ = audit.Record(ctrl.service.DB(), c, &actor, "enrollment.create", "student_enrollment", &item.ID, nil)
+	_ = audit.Record(svc.DB(), c, &actor, "enrollment.create", "student_enrollment", &item.ID, nil)
 	c.JSON(http.StatusCreated, item)
 }
-func (ctrl *EnrollmentController) Update(c *gin.Context) { schoolID,ok:=requireSchoolID(c);if !ok{return}
+func (ctrl *EnrollmentController) Update(c *gin.Context) {
+	svc, ok := ctrl.requestService(c); if !ok { return }
+	schoolID,ok:=requireSchoolID(c);if !ok{return}
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil { httpx.Error(c, 400, "invalid_enrollment_id", "invalid enrollment id"); return }
 	var req updateEnrollmentRequest
 	if err := c.ShouldBindJSON(&req); err != nil { httpx.Validation(c, httpx.ValidationErrors(err)); return }
-	item, err := ctrl.service.Get(schoolID,id)
+	item, err := svc.Get(schoolID,id)
 	if err != nil { enrollmentError(c, err); return }
 	item.Status = req.Status
-	if err := ctrl.service.Update(schoolID,item); err != nil { enrollmentError(c, err); return }
+	if err := svc.Update(schoolID,item); err != nil { enrollmentError(c, err); return }
 	actor, _ := uuid.Parse(c.GetString("user_id"))
-	_ = audit.Record(ctrl.service.DB(), c, &actor, "enrollment.update", "student_enrollment", &item.ID, nil)
+	_ = audit.Record(svc.DB(), c, &actor, "enrollment.update", "student_enrollment", &item.ID, nil)
 	c.JSON(http.StatusOK, item)
 }
-func (ctrl *EnrollmentController) Delete(c *gin.Context) { schoolID,ok:=requireSchoolID(c);if !ok{return}
+func (ctrl *EnrollmentController) Delete(c *gin.Context) {
+	svc, ok := ctrl.requestService(c); if !ok { return }
+	schoolID,ok:=requireSchoolID(c);if !ok{return}
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil { httpx.Error(c, 400, "invalid_enrollment_id", "invalid enrollment id"); return }
-	if err := ctrl.service.Delete(schoolID,id); err != nil { enrollmentError(c, err); return }
+	if err := svc.Delete(schoolID,id); err != nil { enrollmentError(c, err); return }
 	actor, _ := uuid.Parse(c.GetString("user_id"))
-	_ = audit.Record(ctrl.service.DB(), c, &actor, "enrollment.delete", "student_enrollment", &id, nil)
+	_ = audit.Record(svc.DB(), c, &actor, "enrollment.delete", "student_enrollment", &id, nil)
 	c.JSON(http.StatusOK, gin.H{"message":"enrollment deleted"})
 }

@@ -8,12 +8,19 @@ import (
     "github.com/google/uuid"
     "github.com/onoja217/users-management-app/internal/audit"
     "github.com/onoja217/users-management-app/internal/httpx"
-    "github.com/onoja217/users-management-app/internal/models"
+    	"github.com/onoja217/users-management-app/internal/middleware"
+"github.com/onoja217/users-management-app/internal/models"
     "github.com/onoja217/users-management-app/internal/service"
 )
 
 type ClassSubjectController struct{ service *service.ClassSubjectService }
 func NewClassSubjectController(s *service.ClassSubjectService) *ClassSubjectController { return &ClassSubjectController{s} }
+
+func (ctrl *ClassSubjectController) requestService(c *gin.Context) (*service.ClassSubjectService, bool) {
+	tx, ok := middleware.TenantDBFromContext(c)
+	if !ok { httpx.Error(c, 500, "tenant_transaction_required", "tenant transaction is required for this operation"); return nil, false }
+	return ctrl.service.WithDB(tx), true
+}
 
 type classSubjectRequest struct {
     AcademicSessionID uuid.UUID `json:"academic_session_id" binding:"required"`
@@ -40,6 +47,7 @@ func classSubjectError(c *gin.Context, e error) {
 }
 
 func (ctrl *ClassSubjectController) List(c *gin.Context) {
+	svc, ok := ctrl.requestService(c); if !ok { return }
     schoolID, ok := requireSchoolID(c); if !ok { return }
     sessionID, err := uuid.Parse(c.Query("academic_session_id"))
     if err != nil { httpx.Error(c, 400, "invalid_academic_session_id", "academic_session_id is required"); return }
@@ -48,52 +56,56 @@ func (ctrl *ClassSubjectController) List(c *gin.Context) {
         id, e := uuid.Parse(raw); if e != nil { httpx.Error(c, 400, "invalid_class_id", "invalid class_id"); return }
         classID = &id
     }
-    v, err := ctrl.service.List(schoolID, sessionID, classID)
+    v, err := svc.List(schoolID, sessionID, classID)
     if err != nil { classSubjectError(c, err); return }
     c.JSON(http.StatusOK, v)
 }
 
 func (ctrl *ClassSubjectController) Get(c *gin.Context) {
+	svc, ok := ctrl.requestService(c); if !ok { return }
     schoolID, ok := requireSchoolID(c); if !ok { return }
     id, err := uuid.Parse(c.Param("id")); if err != nil { httpx.Error(c, 400, "invalid_class_subject_id", "invalid class-subject id"); return }
-    v, err := ctrl.service.Get(schoolID, id)
+    v, err := svc.Get(schoolID, id)
     if err != nil { classSubjectError(c, err); return }
     c.JSON(http.StatusOK, v)
 }
 
 func (ctrl *ClassSubjectController) Create(c *gin.Context) {
+	svc, ok := ctrl.requestService(c); if !ok { return }
     schoolID, ok := requireSchoolID(c); if !ok { return }
     var r classSubjectRequest
     if err := c.ShouldBindJSON(&r); err != nil { httpx.Validation(c, httpx.ValidationErrors(err)); return }
     active := true; if r.Active != nil { active = *r.Active }
-    v, err := ctrl.service.Create(schoolID, models.ClassSubject{
+    v, err := svc.Create(schoolID, models.ClassSubject{
         AcademicSessionID:r.AcademicSessionID, ClassID:r.ClassID, SubjectID:r.SubjectID,
         CurriculumVersion:r.CurriculumVersion, Category:r.Category, Required:r.Required,
         SelectionGroup:r.SelectionGroup, Active:active,
     })
     if err != nil { classSubjectError(c, err); return }
-    actor,_ := uuid.Parse(c.GetString("user_id")); _ = audit.Record(ctrl.service.DB(), c, &actor, "class_subject.create", "class_subject", &v.ID, nil)
+    actor,_ := uuid.Parse(c.GetString("user_id")); _ = audit.Record(svc.DB(), c, &actor, "class_subject.create", "class_subject", &v.ID, nil)
     c.JSON(http.StatusCreated, v)
 }
 
 func (ctrl *ClassSubjectController) Update(c *gin.Context) {
+	svc, ok := ctrl.requestService(c); if !ok { return }
     schoolID, ok := requireSchoolID(c); if !ok { return }
     id, err := uuid.Parse(c.Param("id")); if err != nil { httpx.Error(c, 400, "invalid_class_subject_id", "invalid class-subject id"); return }
-    v, err := ctrl.service.Get(schoolID, id); if err != nil { classSubjectError(c, err); return }
+    v, err := svc.Get(schoolID, id); if err != nil { classSubjectError(c, err); return }
     var r classSubjectRequest
     if err = c.ShouldBindJSON(&r); err != nil { httpx.Validation(c, httpx.ValidationErrors(err)); return }
     v.AcademicSessionID,v.ClassID,v.SubjectID = r.AcademicSessionID,r.ClassID,r.SubjectID
     v.CurriculumVersion,v.Category,v.Required,v.SelectionGroup = r.CurriculumVersion,r.Category,r.Required,r.SelectionGroup
     if r.Active != nil { v.Active = *r.Active }
-    if err = ctrl.service.Update(schoolID, v); err != nil { classSubjectError(c, err); return }
-    actor,_ := uuid.Parse(c.GetString("user_id")); _ = audit.Record(ctrl.service.DB(), c, &actor, "class_subject.update", "class_subject", &v.ID, nil)
+    if err = svc.Update(schoolID, v); err != nil { classSubjectError(c, err); return }
+    actor,_ := uuid.Parse(c.GetString("user_id")); _ = audit.Record(svc.DB(), c, &actor, "class_subject.update", "class_subject", &v.ID, nil)
     c.JSON(http.StatusOK, v)
 }
 
 func (ctrl *ClassSubjectController) Delete(c *gin.Context) {
+	svc, ok := ctrl.requestService(c); if !ok { return }
     schoolID, ok := requireSchoolID(c); if !ok { return }
     id, err := uuid.Parse(c.Param("id")); if err != nil { httpx.Error(c, 400, "invalid_class_subject_id", "invalid class-subject id"); return }
-    if err = ctrl.service.Delete(schoolID, id); err != nil { classSubjectError(c, err); return }
-    actor,_ := uuid.Parse(c.GetString("user_id")); _ = audit.Record(ctrl.service.DB(), c, &actor, "class_subject.delete", "class_subject", &id, nil)
+    if err = svc.Delete(schoolID, id); err != nil { classSubjectError(c, err); return }
+    actor,_ := uuid.Parse(c.GetString("user_id")); _ = audit.Record(svc.DB(), c, &actor, "class_subject.delete", "class_subject", &id, nil)
     c.JSON(http.StatusOK, gin.H{"message":"class-subject mapping deleted"})
 }

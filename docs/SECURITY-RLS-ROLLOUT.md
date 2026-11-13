@@ -60,7 +60,7 @@ A role with NOBYPASSRLS will be subject to applicable RLS policies. Simply chang
 5. Controlled cutover
    - Provision roles and grants only after tests pass.
    - Set the Render API URL to the restricted role and enable REQUIRE_NOBYPASSRLS=true in the same approved cutover.
-   - Keep the migration URL separate and verify startup diagnostics and production smoke tests.
+   - Keep `MIGRATION_DATABASE_URL` separate from the runtime URL. When `REQUIRE_NOBYPASSRLS=true`, startup now requires this separate connection and uses it for both versioned migrations and the one-time platform-admin bootstrap before closing it. Verify startup diagnostics and production smoke tests.
    - Have a tested rollback connection ready before changing production credentials.
 
 ## Startup guard

@@ -38,21 +38,25 @@ func main() {
             }
         }
     }
+    migrationDSN := strings.TrimSpace(os.Getenv("MIGRATION_DATABASE_URL"))
+    if err := database.ValidateMigrationDatabaseConfiguration(requireNoBypassRLS, migrationDSN); err != nil {
+        log.Fatal(err)
+    }
     migrationDB, migrationErr := database.ConnectMigration()
     if migrationErr != nil { log.Fatalf("connect migration database: %v", migrationErr) }
     if migrationDB == nil {
         migrationDB = db
-        log.Printf("MIGRATION_DATABASE_URL is not configured; migrations will use the application database connection")
+        log.Printf("MIGRATION_DATABASE_URL is not configured; migrations and platform bootstrap will use the application database connection")
     } else {
-        log.Printf("database migrations are using the separate migration database connection")
+        log.Printf("database migrations and platform bootstrap are using the separate migration database connection")
     }
     if err := database.Migrate(migrationDB); err != nil { log.Fatal(err) }
+    if err := bootstrap.EnsureInitialAdmin(migrationDB); err != nil { log.Fatal(err) }
     if migrationDB != db {
         sqlDB, closeErr := migrationDB.DB()
         if closeErr != nil { log.Fatalf("get migration database connection for close: %v", closeErr) }
         if closeErr = sqlDB.Close(); closeErr != nil { log.Fatalf("close migration database connection: %v", closeErr) }
     }
-    if err:=bootstrap.EnsureInitialAdmin(db);err!=nil{log.Fatal(err)}
     r:=gin.Default();r.SetTrustedProxies(nil);server.Configure(r)
     repo:=repository.NewUserRepository(db);svc:=service.NewUserService(repo,db);ctrl:=controller.NewUserController(svc)
     authController:=controller.NewAuthController(db);auditController:=controller.NewAuditController(db);platformSchoolController:=controller.NewPlatformSchoolController(db);schoolDomainReconciliationController:=controller.NewSchoolDomainReconciliationController(db)

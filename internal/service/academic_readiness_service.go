@@ -22,6 +22,7 @@ type AcademicReadiness struct {
 type AcademicReadinessService struct { db *gorm.DB }
 
 func NewAcademicReadinessService(db *gorm.DB) *AcademicReadinessService { return &AcademicReadinessService{db: db} }
+func (s *AcademicReadinessService) WithDB(db *gorm.DB) *AcademicReadinessService { return NewAcademicReadinessService(db) }
 
 func (s *AcademicReadinessService) Get(schoolID uuid.UUID) (AcademicReadiness, error) {
     var school models.School

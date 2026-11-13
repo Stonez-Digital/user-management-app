@@ -4,6 +4,7 @@ var ErrStudentPortalForbidden=errors.New("student portal access forbidden")
 var ErrStudentPortalNotFound=errors.New("student portal record not found")
 type StudentPortalService struct{db *gorm.DB}
 func NewStudentPortalService(db *gorm.DB)*StudentPortalService{return &StudentPortalService{db}}
+func(s *StudentPortalService)WithDB(db *gorm.DB)*StudentPortalService{return NewStudentPortalService(db)}
 type StudentPortalProfile struct{ID uuid.UUID `json:"id"`;UserID uuid.UUID `json:"user_id"`;Name string `json:"name"`;Email string `json:"email"`;AdmissionNumber string `json:"admission_number"`;Gender string `json:"gender"`;EnrollmentStatus string `json:"enrollment_status"`}
 type StudentPortalEnrollment struct{ID uuid.UUID `json:"id"`;AcademicSessionID uuid.UUID `json:"academic_session_id"`;SessionName string `json:"session_name"`;ClassID uuid.UUID `json:"class_id"`;ClassName string `json:"class_name"`;SectionID uuid.UUID `json:"section_id"`;SectionName string `json:"section_name"`;Status string `json:"status"`}
 func(s *StudentPortalService)student(schoolID,uid uuid.UUID)(models.Student,error){var st models.Student;if e:=s.db.Where("school_id=? AND user_id=?",schoolID,uid).First(&st).Error;e!=nil{if errors.Is(e,gorm.ErrRecordNotFound){return st,ErrStudentPortalForbidden};return st,e};return st,nil}

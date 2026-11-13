@@ -13,11 +13,12 @@ func TestMigrateIsVersionedAndIdempotent(t *testing.T) {
     if err:=Migrate(db);err!=nil{t.Fatal(err)}
     var count int64
     if err:=db.Model(&Migration{}).Count(&count).Error;err!=nil{t.Fatal(err)}
-    if count!=46{t.Fatalf("expected forty-six applied migrations, got %d",count)}
+    if count!=47{t.Fatalf("expected forty-seven applied migrations, got %d",count)}
 
     if !db.Migrator().HasTable(&models.User{}){t.Fatal("expected users table after migration")}
     if !db.Migrator().HasTable(&models.School{}){t.Fatal("expected schools table after migration")}
     if !db.Migrator().HasTable(&models.SchoolEnquiry{}){t.Fatal("expected school enquiries table after migration")}
+    if !db.Migrator().HasColumn(&models.BulkImportJob{}, "WorkerID") || !db.Migrator().HasColumn(&models.BulkImportJob{}, "ClaimedAt") || !db.Migrator().HasColumn(&models.BulkImportJob{}, "Attempts") || !db.Migrator().HasColumn(&models.BulkImportJob{}, "LastError") { t.Fatal("expected bulk import worker lease columns after migration") }
     for _,column:=range []string{"City","State","SchoolType","RequestedPlan"} {
         if !db.Migrator().HasColumn(&models.School{},column){t.Fatalf("expected schools.%s after migration",column)}
     }

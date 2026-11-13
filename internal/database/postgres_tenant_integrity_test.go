@@ -44,8 +44,8 @@ func TestPostgresTenantIntegrityMigration(t *testing.T) {
     if err := db.Model(&Migration{}).Count(&migrationCount).Error; err != nil {
         t.Fatal(err)
     }
-    if migrationCount != 46 {
-        t.Fatalf("expected 46 migrations, got %d", migrationCount)
+    if migrationCount != 47 {
+        t.Fatalf("expected 47 migrations, got %d", migrationCount)
     }
 
     // Public Data API roles must not retain table privileges. This specifically

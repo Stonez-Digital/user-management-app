@@ -28,6 +28,10 @@ type BulkImportJob struct {
  SendCredentials bool `gorm:"not null;default:false" json:"send_credentials"`
  CredentialsSent int `gorm:"not null;default:0" json:"credentials_sent"`
  CredentialEmailsFailed int `gorm:"not null;default:0" json:"credential_emails_failed"`
+ WorkerID *uuid.UUID `gorm:"type:uuid;index" json:"-"`
+ ClaimedAt *time.Time `gorm:"index" json:"-"`
+ Attempts int `gorm:"not null;default:0" json:"attempts"`
+ LastError string `gorm:"type:text" json:"-"`
  RowsJSON string `gorm:"type:text" json:"-"`
  ErrorsJSON string `gorm:"type:text" json:"-"`
  CreatedAt time.Time `json:"created_at"`

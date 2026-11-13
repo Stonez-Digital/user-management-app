@@ -42,7 +42,7 @@ func (s *BulkImportService) claimNextJob() (*models.BulkImportJob, error) {
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var job models.BulkImportJob
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
-			Where("status = ? OR (status = ? AND claimed_at IS NOT NULL AND claimed_at < ?)",
+			Where("status = ? OR (status = ? AND (claimed_at IS NULL OR claimed_at < ?))",
 				models.BulkImportQueued, models.BulkImportRunning, cutoff).
 			Order("created_at ASC").First(&job).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {

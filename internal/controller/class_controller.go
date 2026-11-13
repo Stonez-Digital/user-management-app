@@ -19,7 +19,8 @@ func (ctrl *ClassController) requestService(c *gin.Context) (*service.ClassServi
 }
 func(ctrl *ClassController)ListClasses(c *gin.Context){
 	svc, ok := ctrl.requestService(c)
-	if !ok { return }schoolID,ok:=requireSchoolID(c);if !ok{return};v,e:=svc.ListClasses(schoolID);if e!=nil{classError(c,e,"class");return};c.JSON(200,v)}
+	if !ok { return }
+	schoolID,ok:=requireSchoolID(c);if !ok{return};v,e:=svc.ListClasses(schoolID);if e!=nil{classError(c,e,"class");return};c.JSON(200,v)}
 func(ctrl *ClassController)GetClass(c *gin.Context){
 	svc, ok := ctrl.requestService(c)
 	if !ok { return }schoolID,ok:=requireSchoolID(c);if !ok{return};id,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_class_id","invalid class id");return};v,e:=svc.GetClass(schoolID,id);if e!=nil{classError(c,e,"class");return};c.JSON(200,v)}

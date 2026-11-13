@@ -18,7 +18,8 @@ func (ctrl *AcademicController) requestService(c *gin.Context) (*service.Academi
 }
 func(ctrl *AcademicController)ListSessions(c *gin.Context){
 	svc, ok := ctrl.requestService(c)
-	if !ok { return }schoolID,ok:=requireSchoolID(c);if !ok{return};v,e:=svc.GetSessions(schoolID);if e!=nil{academicError(c,e,"academic session");return};c.JSON(200,v)}
+	if !ok { return }
+	schoolID,ok:=requireSchoolID(c);if !ok{return};v,e:=svc.GetSessions(schoolID);if e!=nil{academicError(c,e,"academic session");return};c.JSON(200,v)}
 func(ctrl *AcademicController)GetSession(c *gin.Context){
 	svc, ok := ctrl.requestService(c)
 	if !ok { return }schoolID,ok:=requireSchoolID(c);if !ok{return};id,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_academic_session_id","invalid academic session id");return};v,e:=svc.GetSession(schoolID,id);if e!=nil{academicError(c,e,"academic session");return};c.JSON(200,v)}

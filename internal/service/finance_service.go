@@ -33,6 +33,9 @@ type PaymentVerification struct { Provider string; Reference string; Amount floa
 type FinanceService struct { fees repository.FeeItemRepository; invoices repository.InvoiceRepository; payments repository.PaymentRepository; db *gorm.DB }
 func NewFinanceService(f repository.FeeItemRepository,i repository.InvoiceRepository,p repository.PaymentRepository,db *gorm.DB)*FinanceService{return &FinanceService{fees:f,invoices:i,payments:p,db:db}}
 func(s *FinanceService)DB()*gorm.DB{return s.db}
+func(s *FinanceService)WithDB(db *gorm.DB)*FinanceService{
+    return NewFinanceService(repository.NewFeeItemRepository(db), repository.NewInvoiceRepository(db), repository.NewPaymentRepository(db), db)
+}
 
 func(s *FinanceService)CreateFee(schoolID uuid.UUID,v models.FeeItem)(models.FeeItem,error){
     if schoolID==uuid.Nil||v.TermID==uuid.Nil||strings.TrimSpace(v.Name)==""||v.Amount<=0{return v,ErrFeeInvalid}

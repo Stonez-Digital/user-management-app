@@ -178,6 +178,7 @@ func TestIsolatedStagingAcceptanceOnboardingRecoveryAndTenantIsolation(t *testin
 		t.Fatal(err)
 	}
 	denied := tenantContextRouter(
+		db,
 		ac.DeactivateUser,
 		tenants[0].school.ID.String(),
 		tenants[0].admin.ID.String(),

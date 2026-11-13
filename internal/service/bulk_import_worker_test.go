@@ -72,6 +72,7 @@ func TestBulkWorkerRecoveryDoesNotDuplicatePreviouslyImportedStudent(t *testing.
 	schoolID, actor := uuid.New(), uuid.New()
 	actorUser := models.User{ID: actor, Name: "School Admin", Email: "admin-recovery@example.com", Role: "school_admin", Active: true, SchoolID: &schoolID}
 	if err := db.Create(&actorUser).Error; err != nil { t.Fatal(err) }
+	actor = actorUser.ID
 	studentUser := models.User{ID: uuid.New(), Name: "Recovered Student", Email: "recovered@example.com", Role: "student", Active: true, SchoolID: &schoolID}
 	if err := db.Create(&studentUser).Error; err != nil { t.Fatal(err) }
 	if err := db.Create(&models.Student{SchoolID: schoolID, UserID: studentUser.ID, AdmissionNumber: "REC-001"}).Error; err != nil { t.Fatal(err) }

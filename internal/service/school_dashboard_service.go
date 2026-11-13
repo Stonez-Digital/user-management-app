@@ -14,6 +14,10 @@ func NewSchoolDashboardService(db *gorm.DB) *SchoolDashboardService {
     return &SchoolDashboardService{db: db}
 }
 
+func (s *SchoolDashboardService) WithDB(db *gorm.DB) *SchoolDashboardService {
+    return NewSchoolDashboardService(db)
+}
+
 type SchoolDashboard struct {
     School          SchoolDashboardIdentity  `json:"school"`
     AcademicContext SchoolDashboardAcademic  `json:"academic_context"`

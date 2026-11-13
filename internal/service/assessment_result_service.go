@@ -12,6 +12,7 @@ var(ErrResultNotFound=errors.New("assessment result not found");ErrResultAssessm
 type AssessmentResultService struct{repo repository.AssessmentResultRepository;db *gorm.DB}
 func NewAssessmentResultService(r repository.AssessmentResultRepository,db *gorm.DB)*AssessmentResultService{return &AssessmentResultService{repo:r,db:db}}
 func(s *AssessmentResultService)DB()*gorm.DB{return s.db}
+func(s *AssessmentResultService)WithDB(db *gorm.DB)*AssessmentResultService{return NewAssessmentResultService(repository.NewAssessmentResultRepository(db),db)}
 func(s *AssessmentResultService)validate(schoolID uuid.UUID,v models.AssessmentResult)error{
  var assessment models.Assessment;if e:=s.db.Preload("TeacherAssignment").Where("id = ? AND school_id = ?",v.AssessmentID,schoolID).First(&assessment).Error;e!=nil{if errors.Is(e,gorm.ErrRecordNotFound){return ErrResultAssessmentMissing};return e}
  var enrollment models.StudentEnrollment;if e:=s.db.Where("id = ? AND school_id = ?",v.StudentEnrollmentID,schoolID).First(&enrollment).Error;e!=nil{if errors.Is(e,gorm.ErrRecordNotFound){return ErrResultEnrollmentMissing};return e}

@@ -4,7 +4,7 @@ type NotificationController struct{service *service.NotificationService}
 func(cn *NotificationController)requestService(c *gin.Context)(*service.NotificationService,bool){
  tx,ok:=middleware.TenantDBFromContext(c)
  if !ok { httpx.Error(c,http.StatusInternalServerError,"tenant_transaction_required","tenant transaction is required for this operation"); return nil,false }
- return svc.WithDB(tx),true
+ return cn.service.WithDB(tx),true
 }
 func NewNotificationController(s *service.NotificationService)*NotificationController{return &NotificationController{s}}
 func(cn *NotificationController)context(c *gin.Context)(uuid.UUID,uuid.UUID,bool){uid,e:=uuid.Parse(c.GetString("user_id"));if e!=nil{httpx.Error(c,401,"invalid_user","invalid authenticated user");return uuid.Nil,uuid.Nil,false};sid,ok:=middleware.SchoolIDFromContext(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return uuid.Nil,uuid.Nil,false};return uid,sid,true}

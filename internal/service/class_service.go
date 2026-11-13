@@ -4,6 +4,7 @@ var(ErrClassNotFound=errors.New("class not found");ErrSectionNotFound=errors.New
 type ClassService struct{classes repository.ClassRepository;sections repository.SectionRepository;db *gorm.DB}
 func NewClassService(c repository.ClassRepository,s repository.SectionRepository,db *gorm.DB)*ClassService{return &ClassService{c,s,db}}
 func(s *ClassService)DB()*gorm.DB{return s.db}
+func(s *ClassService)WithDB(db *gorm.DB)*ClassService{return NewClassService(repository.NewClassRepository(db),repository.NewSectionRepository(db),db)}
 func(s *ClassService)CreateClass(schoolID uuid.UUID,v models.SchoolClass)(models.SchoolClass,error){v.Name=strings.TrimSpace(v.Name);if v.Name==""||v.Level<0{return v,ErrClassInvalidLevel};var x models.SchoolClass;if e:=s.db.Where("school_id = ? AND lower(name) = lower(?)",schoolID,v.Name).First(&x).Error;e==nil{return v,ErrClassDuplicate}else if !errors.Is(e,gorm.ErrRecordNotFound){return v,e};return s.classes.Create(schoolID,v)}
 func(s *ClassService)ListClasses(schoolID uuid.UUID)([]models.SchoolClass,error){return s.classes.List(schoolID)}
 func(s *ClassService)GetClass(schoolID,id uuid.UUID)(models.SchoolClass,error){v,e:=s.classes.Get(schoolID,id);if errors.Is(e,gorm.ErrRecordNotFound){return v,ErrClassNotFound};return v,e}

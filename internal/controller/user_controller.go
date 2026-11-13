@@ -53,7 +53,7 @@ func (ctrl *UserController) GetUser(c *gin.Context) {
     actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(svc.DB(),c,&actor,"user.read","user",&user.ID,nil);c.JSON(200,user)
 }
 func (ctrl *UserController) DeleteUser(c *gin.Context) {
-    school,ok:=schoolID(c);if !ok{return};id,err:=uuid.Parse(c.Param("id"));if err!=nil{httpx.Error(c,400,"invalid_user_id","invalid user id");return}
+    school,ok:=schoolID(c);if !ok{return};svc,ready:=ctrl.requestService(c);if !ready{return};id,err:=uuid.Parse(c.Param("id"));if err!=nil{httpx.Error(c,400,"invalid_user_id","invalid user id");return}
     if err:=svc.DeleteUser(school,id);err!=nil{if errors.Is(err,gorm.ErrRecordNotFound){httpx.Error(c,404,"user_not_found","user not found")}else{httpx.Error(c,500,"user_delete_failed","failed to delete user")};return}
     actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(svc.DB(),c,&actor,"user.delete","user",&id,nil);c.JSON(200,gin.H{"message":"deleted"})
 }

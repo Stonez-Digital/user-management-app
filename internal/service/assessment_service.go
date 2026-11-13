@@ -13,6 +13,7 @@ var(ErrAssessmentNotFound=errors.New("assessment not found");ErrAssessmentAssign
 type AssessmentService struct{repo repository.AssessmentRepository;db *gorm.DB}
 func NewAssessmentService(r repository.AssessmentRepository,db *gorm.DB)*AssessmentService{return &AssessmentService{repo:r,db:db}}
 func(s *AssessmentService)DB()*gorm.DB{return s.db}
+func(s *AssessmentService)WithDB(db *gorm.DB)*AssessmentService{return NewAssessmentService(repository.NewAssessmentRepository(db),db)}
 func(s *AssessmentService)validate(schoolID uuid.UUID,v models.Assessment)error{
  var a models.TeacherAssignment;if e:=s.db.Where("id = ? AND school_id = ?",v.TeacherAssignmentID,schoolID).First(&a).Error;errors.Is(e,gorm.ErrRecordNotFound){return ErrAssessmentAssignmentMissing}else if e!=nil{return e}
  if !a.Active||strings.TrimSpace(v.Title)==""||strings.TrimSpace(v.Type)==""||v.MaxScore<=0||v.Weight<=0||v.Weight>100||v.Date.IsZero(){return ErrAssessmentInvalid}

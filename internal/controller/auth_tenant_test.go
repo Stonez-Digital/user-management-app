@@ -100,3 +100,21 @@ func TestAssignRoleRejectsRoleProfileMismatch(t *testing.T) {
     if err := db.First(&storedStudent, "id = ?", student.ID).Error; err != nil { t.Fatal(err) }
     if storedStudent.Role != authz.RoleStudent { t.Fatalf("student role changed unexpectedly: %s", storedStudent.Role) }
 }
+
+func TestAssignRoleCannotPromoteSchoolUserToSuperAdmin(t *testing.T) {
+    db := authTenantTestDB(t)
+    school := models.School{Name: "School", Code: "S-ADMIN", Status: models.SchoolStatusActive}
+    if err := db.Create(&school).Error; err != nil { t.Fatal(err) }
+    actor := models.User{Name: "Platform Admin", Email: "platform@example.com", Role: authz.RoleSuperAdmin, Active: true, SchoolID: &school.ID}
+    target := models.User{Name: "Target", Email: "target@example.com", Role: authz.RoleStudent, Active: true, SchoolID: &school.ID}
+    if err := db.Create(&actor).Error; err != nil { t.Fatal(err) }
+    if err := db.Create(&target).Error; err != nil { t.Fatal(err) }
+
+    rec := tenantContextRouter(db, NewAuthController(db).AssignRole, school.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+target.ID.String()+"/role", `{"role":"super_admin"}`)
+    if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_role") {
+        t.Fatalf("expected super-admin promotion to be rejected, got %d: %s", rec.Code, rec.Body.String())
+    }
+    var stored models.User
+    if err := db.First(&stored, "id = ?", target.ID).Error; err != nil { t.Fatal(err) }
+    if stored.Role != authz.RoleStudent { t.Fatalf("target role changed to %q", stored.Role) }
+}

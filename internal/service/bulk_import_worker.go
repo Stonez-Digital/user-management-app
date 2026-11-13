@@ -28,6 +28,26 @@ func (s *BulkImportService) withTenantTransaction(job models.BulkImportJob, fn f
 				return err
 			}
 		}
+
+		// Fence every worker-owned transaction against an expired or replaced
+		// lease. Locking the job row prevents another worker from reclaiming it
+		// while this row/job transaction is in flight, even if it runs longer
+		// than the lease interval. The next transaction must still present the
+		// current worker ID and a non-expired lease.
+		if job.WorkerID != nil {
+			var lease models.BulkImportJob
+			cutoff := time.Now().UTC().Add(-bulkImportClaimLease)
+			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("id = ? AND school_id = ? AND initiated_by = ? AND worker_id = ? AND status = ? AND claimed_at >= ?",
+					job.ID, job.SchoolID, job.InitiatedBy, *job.WorkerID, models.BulkImportRunning, cutoff).
+				First(&lease).Error
+			if err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return errors.New("bulk import worker lease was lost or expired")
+				}
+				return err
+			}
+		}
 		return fn(tx)
 	})
 }

@@ -20,6 +20,12 @@ type CreateUserRequest struct { Name string `json:"name" binding:"required,min=2
 
 func NewUserController(s *service.UserService) *UserController { return &UserController{service:s} }
 
+func (ctrl *UserController) requestService(c *gin.Context) (*service.UserService, bool) {
+    tx, ok := middleware.TenantDBFromContext(c)
+    if !ok || tx == nil { httpx.Error(c, http.StatusInternalServerError, "tenant_transaction_required", "tenant transaction is required for this operation"); return nil, false }
+    return ctrl.service.WithDB(tx), true
+}
+
 func schoolID(c *gin.Context) (uuid.UUID,bool) {
     id,ok:=middleware.SchoolIDFromContext(c)
     if !ok { httpx.Error(c,http.StatusForbidden,"school_context_required","school context required"); return uuid.Nil,false }
@@ -28,27 +34,28 @@ func schoolID(c *gin.Context) (uuid.UUID,bool) {
 
 func (ctrl *UserController) CreateUser(c *gin.Context) {
     school,ok:=schoolID(c); if !ok{return}
+    svc,ready:=ctrl.requestService(c);if !ready{return}
     var req CreateUserRequest
     if err:=c.ShouldBindJSON(&req);err!=nil{httpx.Validation(c,httpx.ValidationErrors(err));return}
-    user,err:=ctrl.service.CreateUser(school,req.Name,req.Email,req.Password,req.Role)
+    user,err:=svc.CreateUser(school,req.Name,req.Email,req.Password,req.Role)
     if err!=nil{if errors.Is(err,service.ErrInvalidSchoolUserRole){httpx.Error(c,403,"invalid_school_user_role","school administrators cannot create platform or school administrator accounts");return};if errors.Is(err,gorm.ErrDuplicatedKey){httpx.Error(c,409,"user_email_exists","email already exists");return};httpx.Error(c,500,"user_create_failed","failed to create user");return}
-    actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(ctrl.service.DB(),c,&actor,"user.create","user",&user.ID,nil)
+    actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(svc.DB(),c,&actor,"user.create","user",&user.ID,nil)
     c.JSON(http.StatusCreated,user)
 }
 func (ctrl *UserController) GetUsers(c *gin.Context) {
-    school,ok:=schoolID(c);if !ok{return};users,err:=ctrl.service.GetUsers(school)
+    school,ok:=schoolID(c);if !ok{return};svc,ready:=ctrl.requestService(c);if !ready{return};users,err:=svc.GetUsers(school)
     if err!=nil{httpx.Error(c,500,"user_list_failed","failed to load users");return};c.JSON(200,users)
 }
 func (ctrl *UserController) GetUser(c *gin.Context) {
-    school,ok:=schoolID(c);if !ok{return};id,err:=uuid.Parse(c.Param("id"))
+    school,ok:=schoolID(c);if !ok{return};svc,ready:=ctrl.requestService(c);if !ready{return};id,err:=uuid.Parse(c.Param("id"))
     if err!=nil{httpx.Error(c,400,"invalid_user_id","invalid user id");return}
-    user,err:=ctrl.service.GetUser(school,id);if err!=nil{httpx.Error(c,404,"user_not_found","user not found");return}
-    actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(ctrl.service.DB(),c,&actor,"user.read","user",&user.ID,nil);c.JSON(200,user)
+    user,err:=svc.GetUser(school,id);if err!=nil{httpx.Error(c,404,"user_not_found","user not found");return}
+    actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(svc.DB(),c,&actor,"user.read","user",&user.ID,nil);c.JSON(200,user)
 }
 func (ctrl *UserController) DeleteUser(c *gin.Context) {
     school,ok:=schoolID(c);if !ok{return};id,err:=uuid.Parse(c.Param("id"));if err!=nil{httpx.Error(c,400,"invalid_user_id","invalid user id");return}
-    if err:=ctrl.service.DeleteUser(school,id);err!=nil{if errors.Is(err,gorm.ErrRecordNotFound){httpx.Error(c,404,"user_not_found","user not found")}else{httpx.Error(c,500,"user_delete_failed","failed to delete user")};return}
-    actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(ctrl.service.DB(),c,&actor,"user.delete","user",&id,nil);c.JSON(200,gin.H{"message":"deleted"})
+    if err:=svc.DeleteUser(school,id);err!=nil{if errors.Is(err,gorm.ErrRecordNotFound){httpx.Error(c,404,"user_not_found","user not found")}else{httpx.Error(c,500,"user_delete_failed","failed to delete user")};return}
+    actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(svc.DB(),c,&actor,"user.delete","user",&id,nil);c.JSON(200,gin.H{"message":"deleted"})
 }
 func (ctrl *UserController) GetMe(c *gin.Context) {
     id,err:=uuid.Parse(c.GetString("user_id"));if err!=nil{httpx.Error(c,400,"invalid_user_id","invalid user id");return}

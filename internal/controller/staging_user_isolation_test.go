@@ -3,8 +3,12 @@ package controller
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/onoja217/users-management-app/internal/authz"
 	"github.com/onoja217/users-management-app/internal/middleware"

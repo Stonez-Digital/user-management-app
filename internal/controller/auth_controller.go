@@ -564,7 +564,7 @@ func (ac *AuthController) AssignRole(c *gin.Context) {
     if err := c.ShouldBindJSON(&req); err != nil {
         httpx.Validation(c, httpx.ValidationErrors(err)); return
     }
-    if !authz.IsValidRole(req.Role) {
+    if !authz.IsValidRole(req.Role) || req.Role == authz.RoleSuperAdmin {
         httpx.Error(c, http.StatusBadRequest, "invalid_role", "invalid role"); return
     }
 

@@ -121,6 +121,22 @@ func (l *rateLimiter) allowOverflow(now time.Time) (bool, int) {
 }
 
 func ValidateEnvironment() error {
+	proxyRequired := strings.EqualFold(strings.TrimSpace(os.Getenv("API_PROXY_AUTH_REQUIRED")), "true")
+	sharedRateRequired := strings.EqualFold(strings.TrimSpace(os.Getenv("REQUIRE_SHARED_RATE_LIMIT")), "true")
+	proxySecret := strings.TrimSpace(os.Getenv("API_PROXY_HMAC_SECRET"))
+	redisURL := strings.TrimSpace(os.Getenv("REDIS_URL"))
+	if proxyRequired && proxySecret == "" {
+		return fmt.Errorf("API_PROXY_AUTH_REQUIRED requires API_PROXY_HMAC_SECRET")
+	}
+	if proxySecret != "" && len(proxySecret) < 32 {
+		return fmt.Errorf("API_PROXY_HMAC_SECRET must contain at least 32 bytes")
+	}
+	if (proxyRequired || proxySecret != "" || sharedRateRequired) && redisURL == "" {
+		return fmt.Errorf("signed proxy authentication and shared rate limiting require REDIS_URL for replay protection and shared counters")
+	}
+	if redisURL != "" {
+		if _, err := newSharedStore(redisURL); err != nil { return err }
+	}
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
 		if strings.TrimSpace(os.Getenv("DB_DRIVER")) != "postgres" {
 			return fmt.Errorf("production requires DB_DRIVER=postgres")
@@ -147,6 +163,12 @@ func configureWithClock(r *gin.Engine, now func() time.Time) {
 	}
 	allowed := configuredOrigins()
 	limiter := newRateLimiter()
+	proxySecret := strings.TrimSpace(os.Getenv("API_PROXY_HMAC_SECRET"))
+	var shared *sharedStore
+	if raw := strings.TrimSpace(os.Getenv("REDIS_URL")); raw != "" {
+		shared, _ = newSharedStore(raw)
+	}
+	r.Use(proxyAuthMiddleware(proxySecret, shared, now))
 
 	r.Use(func(c *gin.Context) {
 		c.Header("X-Content-Type-Options", "nosniff")
@@ -159,7 +181,11 @@ func configureWithClock(r *gin.Engine, now func() time.Time) {
 			c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
 
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBodyBytes)
+		bodyLimit := int64(maxRequestBodyBytes)
+		if c.Request.Method == http.MethodPost && c.Request.URL.Path == "/auth/school-signup" {
+			bodyLimit = 6 << 20
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, bodyLimit)
 
 		origin := c.GetHeader("Origin")
 		if origin != "" && allowed[origin] {
@@ -181,12 +207,35 @@ func configureWithClock(r *gin.Engine, now func() time.Time) {
 		}
 
 		if strings.HasPrefix(c.Request.URL.Path, "/auth/") || (strings.HasPrefix(c.Request.URL.Path, "/public/schools/") && strings.HasSuffix(c.Request.URL.Path, "/enquiries")) {
-			key := clientIPFromRequest(c.Request.RemoteAddr, c.Request.Header.Get("CF-Connecting-IP"))
-			allowedRequest, remaining := limiter.allow(key, now())
+			clientIP := c.Request.RemoteAddr
+			// Only trust Cloudflare's visitor IP after the signed proxy middleware
+			// has authenticated this request. Direct callers can forge this header.
+			if proxySecret != "" {
+				clientIP = c.Request.Header.Get("CF-Connecting-IP")
+			}
+			key := clientIPFromRequest(c.Request.RemoteAddr, clientIP)
+			category := "auth"
+			if strings.HasPrefix(c.Request.URL.Path, "/public/schools/") { category = "public-enquiry" }
+			var allowedRequest bool
+			var remaining, retryAfter int
+			var err error
+			if shared != nil {
+				ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+				allowedRequest, remaining, retryAfter, err = shared.allowRate(ctx, sharedRateLimitKey(category, key), authRateLimit, authRateWindow)
+				cancel()
+				if err != nil {
+					c.JSON(http.StatusServiceUnavailable, gin.H{"error": "rate limiting temporarily unavailable"})
+					c.Abort()
+					return
+				}
+			} else {
+				allowedRequest, remaining = limiter.allow(key, now())
+				retryAfter = 60
+			}
 			c.Header("X-RateLimit-Limit", fmt.Sprint(authRateLimit))
 			c.Header("X-RateLimit-Remaining", fmt.Sprint(remaining))
 			if !allowedRequest {
-				c.Header("Retry-After", "60")
+				c.Header("Retry-After", fmt.Sprint(max(1, retryAfter)))
 				c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many requests; try again later"})
 				c.Abort()
 				return

@@ -5,6 +5,7 @@ var(ErrTimetableNotFound=errors.New("timetable entry not found");ErrTimetableCon
 type TimetableService struct{repo repository.TimetableRepository;db *gorm.DB}
 func NewTimetableService(r repository.TimetableRepository,db *gorm.DB)*TimetableService{return &TimetableService{repo:r,db:db}}
 func(s *TimetableService)DB()*gorm.DB{return s.db}
+func(s *TimetableService)WithDB(db *gorm.DB)*TimetableService{return NewTimetableService(repository.NewTimetableRepository(db),db)}
 func validClock(v string)bool{_,e:=time.Parse("15:04",v);return e==nil}
 func overlaps(start,end,otherStart,otherEnd string)bool{return start<otherEnd&&otherStart<end}
 func(s *TimetableService)validate(schoolID uuid.UUID,v models.TimetableEntry)error{

@@ -842,6 +842,21 @@ func Migrate(db *gorm.DB) error {
             }
             return nil
         }},
+        {Version:47,Name:"bulk_import_worker_leases",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()=="postgres" {
+                statements:=[]string{
+                    "ALTER TABLE bulk_import_jobs ADD COLUMN IF NOT EXISTS worker_id uuid",
+                    "ALTER TABLE bulk_import_jobs ADD COLUMN IF NOT EXISTS claimed_at timestamptz",
+                    "ALTER TABLE bulk_import_jobs ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0",
+                    "ALTER TABLE bulk_import_jobs ADD COLUMN IF NOT EXISTS last_error text",
+                    "CREATE INDEX IF NOT EXISTS idx_bulk_import_jobs_worker_id ON bulk_import_jobs(worker_id)",
+                    "CREATE INDEX IF NOT EXISTS idx_bulk_import_jobs_claimed_at ON bulk_import_jobs(claimed_at)",
+                }
+                for _,statement:=range statements { if err:=tx.Exec(statement).Error;err!=nil{return err} }
+                return nil
+            }
+            return tx.AutoMigrate(&models.BulkImportJob{})
+        }},
     }
     for _,migration:=range migrations{
         var applied Migration

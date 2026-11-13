@@ -12,11 +12,22 @@ import (
 
 type SchoolDashboardController struct{ service *service.SchoolDashboardService }
 
+func (ctrl *SchoolDashboardController) requestService(c *gin.Context) (*service.SchoolDashboardService, bool) {
+    tx, ok := middleware.TenantDBFromContext(c)
+    if !ok {
+        httpx.Error(c, http.StatusInternalServerError, "tenant_transaction_required", "tenant transaction is required for this operation")
+        return nil, false
+    }
+    return ctrl.service.WithDB(tx), true
+}
+
 func NewSchoolDashboardController(s *service.SchoolDashboardService) *SchoolDashboardController {
     return &SchoolDashboardController{service: s}
 }
 
 func (ctrl *SchoolDashboardController) Get(c *gin.Context) {
+    svc, ok := ctrl.requestService(c)
+    if !ok { return }
     schoolID, ok := middleware.SchoolIDFromContext(c)
     if !ok {
         httpx.Error(c, http.StatusForbidden, "school_context_required", "school context required")
@@ -36,7 +47,7 @@ func (ctrl *SchoolDashboardController) Get(c *gin.Context) {
         termID, err = uuid.Parse(raw)
         if err != nil { httpx.Error(c, http.StatusBadRequest, "invalid_term_id", "invalid term id"); return }
     }
-    result, err := ctrl.service.Get(schoolID, adminID, sessionID, termID)
+    result, err := svc.Get(schoolID, adminID, sessionID, termID)
     if err != nil {
         httpx.Error(c, http.StatusInternalServerError, "dashboard_failed", "unable to load school dashboard")
         return

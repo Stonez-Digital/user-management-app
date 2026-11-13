@@ -144,9 +144,11 @@ func (s *BulkImportService) processClaimed(job models.BulkImportJob, workerID uu
 		return
 	}
 	var errs []BulkError
-	if err := json.Unmarshal([]byte(job.ErrorsJSON), &errs); err != nil {
-		fail(fmt.Errorf("invalid stored import errors: %w", err))
-		return
+	if strings.TrimSpace(job.ErrorsJSON) != "" {
+		if err := json.Unmarshal([]byte(job.ErrorsJSON), &errs); err != nil {
+			fail(fmt.Errorf("invalid stored import errors: %w", err))
+			return
+		}
 	}
 	validRows := map[int]bool{}
 	for _, item := range errs {

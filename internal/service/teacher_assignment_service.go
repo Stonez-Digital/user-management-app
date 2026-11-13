@@ -22,6 +22,8 @@ type TeacherAssignmentService struct { repo repository.TeacherAssignmentReposito
 
 func NewTeacherAssignmentService(r repository.TeacherAssignmentRepository, db *gorm.DB) *TeacherAssignmentService { return &TeacherAssignmentService{repo:r, db:db} }
 func (s *TeacherAssignmentService) DB() *gorm.DB { return s.db }
+func (s *TeacherAssignmentService) WithDB(db *gorm.DB) *TeacherAssignmentService { return NewTeacherAssignmentService(repository.NewTeacherAssignmentRepository(db), db) }
+
 
 func (s *TeacherAssignmentService) validate(schoolID uuid.UUID, v models.TeacherAssignment) error {
 	if v.AllocationType == "" { v.AllocationType = models.TeacherAllocationSubject }

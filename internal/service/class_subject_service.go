@@ -22,6 +22,8 @@ func NewClassSubjectService(repo repository.ClassSubjectRepository, db *gorm.DB)
     return &ClassSubjectService{repo: repo, db: db}
 }
 func (s *ClassSubjectService) DB() *gorm.DB { return s.db }
+func (s *ClassSubjectService) WithDB(db *gorm.DB) *ClassSubjectService { return NewClassSubjectService(repository.NewClassSubjectRepository(db), db) }
+
 
 func (s *ClassSubjectService) validate(schoolID uuid.UUID, v models.ClassSubject) (models.ClassSubject, error) {
     v.CurriculumVersion = strings.TrimSpace(v.CurriculumVersion)

@@ -4,6 +4,8 @@ var(ErrSubjectNotFound=errors.New("subject not found");ErrSubjectDuplicate=error
 type SubjectService struct{repo repository.SubjectRepository;db *gorm.DB}
 func NewSubjectService(repo repository.SubjectRepository,db *gorm.DB)*SubjectService{return &SubjectService{repo,db}}
 func(s *SubjectService)DB()*gorm.DB{return s.db}
+func (s *SubjectService) WithDB(db *gorm.DB) *SubjectService { return NewSubjectService(repository.NewSubjectRepository(db), db) }
+
 func(s *SubjectService)norm(v models.Subject)(models.Subject,error){v.Code=strings.ToUpper(strings.TrimSpace(v.Code));v.Name=strings.TrimSpace(v.Name);v.Description=strings.TrimSpace(v.Description);if v.Code==""||v.Name==""{return v,ErrSubjectInvalid};return v,nil}
 func(s *SubjectService)Create(schoolID uuid.UUID,v models.Subject)(models.Subject,error){var e error;if v,e=s.norm(v);e!=nil{return v,e};var x models.Subject;if e=s.db.Where("school_id = ? AND (code = ? OR name = ?)",schoolID,v.Code,v.Name).First(&x).Error;e==nil{return v,ErrSubjectDuplicate}else if !errors.Is(e,gorm.ErrRecordNotFound){return v,e};return s.repo.Create(schoolID,v)}
 func(s *SubjectService)List(schoolID uuid.UUID)([]models.Subject,error){return s.repo.List(schoolID)}

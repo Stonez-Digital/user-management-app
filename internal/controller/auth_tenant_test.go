@@ -29,6 +29,11 @@ func tenantContextRouter(db *gorm.DB, handler gin.HandlerFunc, schoolID string, 
         func(c *gin.Context) {
             c.Set(middleware.SchoolIDKey, schoolID)
             c.Set(middleware.UserIDKey, userID)
+            if id := strings.TrimPrefix(path, "/admin/users/"); id != path {
+                id = strings.TrimSuffix(strings.TrimSuffix(id, "/deactivate"), "/activate")
+                id = strings.TrimSuffix(id, "/role")
+                c.Params = gin.Params{{Key: "id", Value: id}}
+            }
         },
         middleware.TenantTransaction(db),
         handler,

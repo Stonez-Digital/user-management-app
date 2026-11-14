@@ -127,8 +127,10 @@ func installBulkClaimFunctionForTest(t *testing.T, admin *gorm.DB, schema, owner
 	for _, policy := range policies {
 		if err := admin.Exec(policy).Error; err != nil { return err }
 	}
+	if err := admin.Exec("GRANT USAGE, CREATE ON SCHEMA public TO " + ownerRole).Error; err != nil { return err }
+	if err := admin.Exec("GRANT USAGE ON SCHEMA public TO " + apiRole + ", " + otherRole).Error; err != nil { return err }
 	functionSQL := fmt.Sprintf(`
-CREATE OR REPLACE FUNCTION %s.claim_next_bulk_import_job(p_worker_id uuid)
+CREATE OR REPLACE FUNCTION public.claim_next_bulk_import_job(p_worker_id uuid)
 RETURNS SETOF %s.bulk_import_jobs
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -148,13 +150,12 @@ BEGIN
      WHERE id = v_job.id RETURNING * INTO v_job;
     RETURN NEXT v_job;
 END
-$function$;`, schema, schema, schema, schema, schema)
+$function$`, schema, schema, schema, schema)
 	if err := admin.Exec(functionSQL).Error; err != nil { return err }
-	if err := admin.Exec("GRANT CREATE ON SCHEMA " + schema + " TO " + ownerRole).Error; err != nil { return err }
-	if err := admin.Exec("ALTER FUNCTION " + schema + ".claim_next_bulk_import_job(uuid) OWNER TO " + ownerRole).Error; err != nil { return err }
-	if err := admin.Exec("REVOKE CREATE ON SCHEMA " + schema + " FROM " + ownerRole).Error; err != nil { return err }
-	if err := admin.Exec("REVOKE ALL ON FUNCTION " + schema + ".claim_next_bulk_import_job(uuid) FROM PUBLIC").Error; err != nil { return err }
-	if err := admin.Exec("GRANT EXECUTE ON FUNCTION " + schema + ".claim_next_bulk_import_job(uuid) TO " + apiRole).Error; err != nil { return err }
+	if err := admin.Exec("ALTER FUNCTION public.claim_next_bulk_import_job(uuid) OWNER TO " + ownerRole).Error; err != nil { return err }
+	if err := admin.Exec("REVOKE CREATE ON SCHEMA public FROM " + ownerRole).Error; err != nil { return err }
+	if err := admin.Exec("REVOKE ALL ON FUNCTION public.claim_next_bulk_import_job(uuid) FROM PUBLIC").Error; err != nil { return err }
+	if err := admin.Exec("GRANT EXECUTE ON FUNCTION public.claim_next_bulk_import_job(uuid) TO " + apiRole).Error; err != nil { return err }
 	return nil
 }
 
@@ -222,7 +223,7 @@ func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T)
 	var claimed models.BulkImportJob
 	err = db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("SET LOCAL ROLE " + apiRole).Error; err != nil { return err }
-		result := tx.Raw("SELECT * FROM " + schema + ".claim_next_bulk_import_job(?)", workerID).Scan(&claimed)
+		result := tx.Raw("SELECT * FROM public.claim_next_bulk_import_job(?)", workerID).Scan(&claimed)
 		if result.Error != nil { return result.Error }
 		if result.RowsAffected != 1 { return fmt.Errorf("expected one claimed job, got %d", result.RowsAffected) }
 		return nil
@@ -252,7 +253,7 @@ func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T)
 	err = db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("SET LOCAL ROLE " + otherRole).Error; err != nil { return err }
 		var denied models.BulkImportJob
-		return tx.Raw("SELECT * FROM " + schema + ".claim_next_bulk_import_job(?)", uuid.New()).Scan(&denied).Error
+		return tx.Raw("SELECT * FROM public.claim_next_bulk_import_job(?)", uuid.New()).Scan(&denied).Error
 	})
 	if err == nil { t.Fatal("unrelated role unexpectedly executed the queue claim function") }
 

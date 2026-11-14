@@ -31,8 +31,21 @@ BEGIN
     IF has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'id', 'UPDATE')
        OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'school_id', 'UPDATE')
        OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'initiated_by', 'UPDATE')
+       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'kind', 'UPDATE')
+       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'file_name', 'UPDATE')
+       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'total', 'UPDATE')
+       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'valid', 'UPDATE')
+       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'created', 'UPDATE')
+       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'updated', 'UPDATE')
+       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'skipped', 'UPDATE')
+       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'failed', 'UPDATE')
+       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'send_credentials', 'UPDATE')
+       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'credentials_sent', 'UPDATE')
+       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'credential_emails_failed', 'UPDATE')
        OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'rows_json', 'UPDATE')
-       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'errors_json', 'UPDATE') THEN
+       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'errors_json', 'UPDATE')
+       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'created_at', 'UPDATE')
+       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'updated_at', 'UPDATE') THEN
         RAISE EXCEPTION 'queue owner can update protected/non-claim columns';
     END IF;
     IF has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'UPDATE')
@@ -75,12 +88,32 @@ BEGIN
 
     IF EXISTS (
         SELECT 1
-        FROM information_schema.table_privileges
-        WHERE grantee = 'stonez_bulk_queue_owner'
-          AND table_schema = 'public'
-          AND table_name <> 'bulk_import_jobs'
+        FROM pg_class AS relation
+        JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+        CROSS JOIN LATERAL aclexplode(COALESCE(relation.relacl, acldefault('r', relation.relowner))) AS privilege
+        JOIN pg_roles AS grantee ON grantee.oid = privilege.grantee
+        WHERE namespace.nspname = 'public'
+          AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+          AND relation.relname <> 'bulk_import_jobs'
+          AND grantee.rolname = 'stonez_bulk_queue_owner'
     ) THEN
-        RAISE EXCEPTION 'queue owner has unexpected privileges on another public table';
+        RAISE EXCEPTION 'queue owner has unexpected table privileges on another public relation';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM pg_attribute AS column
+        JOIN pg_class AS relation ON relation.oid = column.attrelid
+        JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+        CROSS JOIN LATERAL aclexplode(COALESCE(column.attacl, ARRAY[]::aclitem[])) AS privilege
+        JOIN pg_roles AS grantee ON grantee.oid = privilege.grantee
+        WHERE namespace.nspname = 'public'
+          AND relation.relname <> 'bulk_import_jobs'
+          AND column.attnum > 0
+          AND NOT column.attisdropped
+          AND grantee.rolname = 'stonez_bulk_queue_owner'
+    ) THEN
+        RAISE EXCEPTION 'queue owner has unexpected column privileges on another public relation';
     END IF;
 END
 $$;

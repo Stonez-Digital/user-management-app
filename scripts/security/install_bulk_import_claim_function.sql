@@ -22,6 +22,18 @@ BEGIN
     END IF;
 
     IF pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_owner', 'MEMBER')
+       OR EXISTS (
+            SELECT 1 FROM pg_roles AS privileged
+             WHERE (privileged.rolsuper OR privileged.rolbypassrls)
+               AND privileged.rolname NOT IN ('stonez_api_runtime', 'stonez_bulk_queue_owner')
+               AND pg_has_role('stonez_api_runtime', privileged.oid, 'MEMBER')
+       )
+       OR EXISTS (
+            SELECT 1 FROM pg_roles AS privileged
+             WHERE (privileged.rolsuper OR privileged.rolbypassrls)
+               AND privileged.rolname <> 'stonez_bulk_queue_owner'
+               AND pg_has_role('stonez_bulk_queue_owner', privileged.oid, 'MEMBER')
+       )
        OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'SELECT')
        OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'INSERT')
        OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'UPDATE')

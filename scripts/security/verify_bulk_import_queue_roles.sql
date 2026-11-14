@@ -9,7 +9,7 @@ BEGIN
     IF NOT FOUND THEN RAISE EXCEPTION 'missing stonez_bulk_queue_owner'; END IF;
     SELECT * INTO api_role FROM pg_roles WHERE rolname = 'stonez_api_runtime';
     IF NOT FOUND THEN RAISE EXCEPTION 'missing stonez_api_runtime'; END IF;
-    IF owner_role.rolcanlogin OR owner_role.rolsuper OR NOT owner_role.rolbypassrls
+    IF owner_role.rolcanlogin OR owner_role.rolsuper OR owner_role.rolbypassrls
        OR owner_role.rolcreatedb OR owner_role.rolcreaterole OR owner_role.rolinherit THEN
         RAISE EXCEPTION 'queue owner role attributes are unsafe';
     END IF;

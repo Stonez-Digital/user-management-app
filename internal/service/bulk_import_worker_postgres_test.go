@@ -475,9 +475,6 @@ CREATE TABLE %s.bulk_import_jobs (
 	if err := admin.Exec("CREATE ROLE " + loginRole + " LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS PASSWORD '" + loginPassword + "'").Error; err != nil {
 		t.Fatalf("create restricted API login for script test: %v", err)
 	}
-	if err := admin.Exec("GRANT " + apiRole + " TO " + loginRole).Error; err != nil {
-		t.Fatalf("grant API runtime group to restricted login: %v", err)
-	}
 	var loginDB *gorm.DB
 	t.Cleanup(func() {
 		if loginDB != nil {
@@ -487,6 +484,9 @@ CREATE TABLE %s.bulk_import_jobs (
 		_ = admin.Exec("DROP OWNED BY " + loginRole).Error
 		_ = admin.Exec("DROP ROLE IF EXISTS " + loginRole).Error
 	})
+	if err := admin.Exec("GRANT " + apiRole + " TO " + loginRole).Error; err != nil {
+		t.Fatalf("grant API runtime group to restricted login: %v", err)
+	}
 	loginURL, err := url.Parse(dsn)
 	if err != nil { t.Fatalf("parse test database URL for restricted login: %v", err) }
 	loginURL.User = url.UserPassword(loginRole, loginPassword)

@@ -139,7 +139,7 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 		)`,
 		"ALTER TABLE " + table + " ENABLE ROW LEVEL SECURITY",
 		"CREATE POLICY queue_owner_all ON " + table + " FOR ALL TO " + ownerRole + " USING (true) WITH CHECK (true)",
-		"GRANT SELECT (id, school_id, initiated_by, kind, file_name, status, rows_json, errors_json, created_at, attempts, claimed_at) ON " + table + " TO " + ownerRole,
+		"GRANT SELECT (id, school_id, initiated_by, kind, file_name, status, rows_json, errors_json, created_at, attempts) ON " + table + " TO " + ownerRole,
 		"GRANT UPDATE (status, worker_id, claimed_at, attempts, last_error) ON " + table + " TO " + ownerRole,
 		"REVOKE ALL ON " + table + " FROM PUBLIC",
 	}
@@ -273,5 +273,20 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 	}
 	if ownerIsTableOwner {
 		t.Fatal("queue function owner must not own the queue table")
+	}
+
+	var privilegedRoles int
+	if err := admin.Raw(`SELECT count(*) FROM pg_roles WHERE rolname IN (?, ?, ?) AND (rolsuper OR rolbypassrls)`, ownerRole, runtimeRole, runtimeLogin).Scan(&privilegedRoles).Error; err != nil {
+		t.Fatalf("inspect restricted role attributes: %v", err)
+	}
+	if privilegedRoles != 0 {
+		t.Fatalf("%d restricted queue roles unexpectedly have SUPERUSER or BYPASSRLS", privilegedRoles)
+	}
+	var ownerMembership bool
+	if err := admin.Raw(`SELECT pg_has_role(?, ?, 'MEMBER')`, runtimeLogin, ownerRole).Scan(&ownerMembership).Error; err != nil {
+		t.Fatalf("inspect runtime/function-owner membership: %v", err)
+	}
+	if ownerMembership {
+		t.Fatal("runtime login must not be a member of the function-owner role")
 	}
 }

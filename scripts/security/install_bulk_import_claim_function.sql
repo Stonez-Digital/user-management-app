@@ -43,7 +43,10 @@ BEGIN
        OR EXISTS (
             SELECT 1 FROM pg_class AS relation
              WHERE relation.oid = 'public.bulk_import_jobs'::regclass
-               AND relation.relowner = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime')
+               AND relation.relowner IN (
+                   (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime'),
+                   (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner')
+               )
        ) THEN
         RAISE EXCEPTION 'API runtime must not inherit queue-owner privileges, own the queue table, or have non-tenant write privileges';
     END IF;
@@ -250,6 +253,11 @@ BEGIN
        OR has_schema_privilege('stonez_api_runtime', 'public', 'CREATE')
        OR has_schema_privilege('stonez_bulk_queue_owner', 'stonez_internal', 'CREATE')
        OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE')
+       OR NOT EXISTS (
+            SELECT 1 FROM pg_class
+             WHERE oid = 'public.bulk_import_jobs'::regclass
+               AND relrowsecurity
+       )
        OR NOT has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'SELECT')
        OR NOT has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'INSERT')
        OR NOT has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'UPDATE')

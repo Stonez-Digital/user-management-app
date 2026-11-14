@@ -186,6 +186,11 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 	if err := admin.Exec("REVOKE ALL ON FUNCTION " + function + "(uuid) FROM PUBLIC").Error; err != nil {
 		t.Fatalf("revoke public function execution: %v", err)
 	}
+	// The creating identity owns the function at this point, so it can
+	// establish the least-privilege ACL before transferring ownership.
+	if err := admin.Exec("GRANT EXECUTE ON FUNCTION " + function + "(uuid) TO " + runtimeRole).Error; err != nil {
+		t.Fatalf("grant runtime function execution: %v", err)
+	}
 	if err := admin.Exec("GRANT " + ownerRole + " TO " + identity.Role).Error; err != nil {
 		t.Fatalf("temporarily grant function-owner membership: %v", err)
 	}
@@ -197,9 +202,6 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 	}
 	if err := admin.Exec("REVOKE CREATE ON SCHEMA " + schema + " FROM " + ownerRole).Error; err != nil {
 		t.Fatalf("revoke temporary schema create: %v", err)
-	}
-	if err := admin.Exec("GRANT EXECUTE ON FUNCTION " + function + "(uuid) TO " + runtimeRole).Error; err != nil {
-		t.Fatalf("grant runtime function execution: %v", err)
 	}
 
 	runtimeDSN := *parsed

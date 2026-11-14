@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -69,7 +68,7 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, str
 		_ = adminSQL.Close()
 		t.Skip("TEST_DATABASE_URL role cannot create isolated PostgreSQL roles; restricted queue tests require CREATEROLE")
 	}
-	if err := admin.Exec("CREATE ROLE " + ownerRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT BYPASSRLS").Error; err != nil {
+	if err := admin.Exec("CREATE ROLE " + ownerRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS").Error; err != nil {
 		_ = admin.Exec("DROP SCHEMA stonez_internal CASCADE").Error
 		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
 		_ = adminSQL.Close()
@@ -151,6 +150,7 @@ func installBulkClaimFunctionForTest(t *testing.T, admin *gorm.DB, schema, owner
 	if err := admin.Exec("GRANT SELECT, INSERT, UPDATE ON TABLE " + schema + ".bulk_import_jobs TO " + apiRole).Error; err != nil { return err }
 	if err := admin.Exec("ALTER TABLE " + schema + ".bulk_import_jobs ENABLE ROW LEVEL SECURITY").Error; err != nil { return err }
 	policies := []string{
+		"CREATE POLICY bulk_import_jobs_queue_owner_all ON " + schema + ".bulk_import_jobs FOR ALL TO " + ownerRole + " USING (true) WITH CHECK (true)",
 		"CREATE POLICY bulk_import_jobs_tenant_select ON " + schema + ".bulk_import_jobs FOR SELECT TO " + apiRole + " USING (school_id = nullif(current_setting('app.current_school_id', true), '')::uuid)",
 		"CREATE POLICY bulk_import_jobs_tenant_insert ON " + schema + ".bulk_import_jobs FOR INSERT TO " + apiRole + " WITH CHECK (school_id = nullif(current_setting('app.current_school_id', true), '')::uuid AND initiated_by = nullif(current_setting('app.current_user_id', true), '')::uuid)",
 		"CREATE POLICY bulk_import_jobs_tenant_update ON " + schema + ".bulk_import_jobs FOR UPDATE TO " + apiRole + " USING (school_id = nullif(current_setting('app.current_school_id', true), '')::uuid AND initiated_by = nullif(current_setting('app.current_user_id', true), '')::uuid) WITH CHECK (school_id = nullif(current_setting('app.current_school_id', true), '')::uuid AND initiated_by = nullif(current_setting('app.current_user_id', true), '')::uuid)",

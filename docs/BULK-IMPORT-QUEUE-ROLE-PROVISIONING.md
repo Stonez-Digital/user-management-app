@@ -86,3 +86,7 @@ If the CI PostgreSQL identity cannot create and drop temporary roles, add a dedi
 - [ ] Existing CI workflows pass.
 
 Only after these gates should the function migration and Go integration be prepared for review. The broader tenant-route and RLS-policy inventory remains a separate prerequisite to any production runtime cutover.
+
+## Implemented fixture boundary
+
+`internal/service/bulk_import_worker_security_postgres_test.go` now contains an opt-in disposable-schema test for the role model. It requires `BULK_QUEUE_ROLE_TEST_ALLOW_ROLE_DDL=true`, an explicit `BULK_QUEUE_ROLE_TEST_DATABASE` match, and a non-superuser `CREATEROLE` connection. It creates unique roles and a schema, proves the runtime login cannot directly read or mutate the queue table, proves only the runtime group can execute the small test-only `SECURITY DEFINER` claim function, and cleans up the schema and roles. The Go Tests workflow provisions a separate non-superuser test identity for this test; the existing migration tests continue using their original test connection. This fixture is a permission-model test only: it does not install or exercise the production claim function, concurrency/lease recovery, or the Go worker integration.

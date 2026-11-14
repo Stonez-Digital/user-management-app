@@ -7,7 +7,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_roles
         WHERE rolname = 'stonez_bulk_queue_owner'
-          AND rolcanlogin = false AND rolsuper = false AND rolbypassrls = true
+          AND rolcanlogin = false AND rolsuper = false AND rolbypassrls = false
           AND rolcreatedb = false AND rolcreaterole = false AND rolinherit = false
     ) THEN
         RAISE EXCEPTION 'stonez_bulk_queue_owner is missing or has unsafe attributes';
@@ -82,7 +82,15 @@ GRANT USAGE ON SCHEMA stonez_internal TO stonez_api_runtime;
 
 -- Normal school-facing API operations keep tenant-scoped table access. The
 -- global worker claim remains isolated behind the SECURITY DEFINER function.
+-- The function owner is NOBYPASSRLS; this table-specific policy grants it
+-- global queue visibility without granting cluster-wide RLS bypass.
 ALTER TABLE public.bulk_import_jobs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS bulk_import_jobs_queue_owner_all ON public.bulk_import_jobs;
+CREATE POLICY bulk_import_jobs_queue_owner_all
+    ON public.bulk_import_jobs
+    FOR ALL TO stonez_bulk_queue_owner
+    USING (true)
+    WITH CHECK (true);
 DROP POLICY IF EXISTS bulk_import_jobs_tenant_select ON public.bulk_import_jobs;
 CREATE POLICY bulk_import_jobs_tenant_select
     ON public.bulk_import_jobs

@@ -310,7 +310,8 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 		COALESCE(array_to_string(p.proconfig, ','), '') AS search_path,
 		has_function_privilege(?, p.oid, 'EXECUTE') AS runtime_can_execute,
 		has_function_privilege(?, p.oid, 'EXECUTE') AS outsider_can_execute,
-		has_function_privilege('PUBLIC', p.oid, 'EXECUTE') AS public_can_execute
+		EXISTS (SELECT 1 FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) acl
+			WHERE acl.grantee = 0 AND acl.privilege_type = 'EXECUTE') AS public_can_execute
 		FROM pg_proc p WHERE p.oid = ?::regprocedure`,
 		runtimeLogin, outsiderLogin, function+"(uuid)").Scan(&metadata).Error; err != nil {
 		t.Fatalf("inspect restricted function metadata: %v", err)

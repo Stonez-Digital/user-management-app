@@ -259,7 +259,8 @@ BEGIN
         RAISE EXCEPTION 'API runtime table/function grants do not match the intended tenant-only boundary';
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'bulk_import_jobs' AND policyname = 'bulk_import_jobs_tenant_select')
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'bulk_import_jobs' AND policyname = 'bulk_import_jobs_queue_owner_all')
+       OR NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'bulk_import_jobs' AND policyname = 'bulk_import_jobs_tenant_select')
        OR NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'bulk_import_jobs' AND policyname = 'bulk_import_jobs_tenant_insert')
        OR NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'bulk_import_jobs' AND policyname = 'bulk_import_jobs_tenant_update') THEN
         RAISE EXCEPTION 'bulk import tenant RLS policies were not installed';

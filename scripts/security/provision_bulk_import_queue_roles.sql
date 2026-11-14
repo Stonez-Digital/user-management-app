@@ -1,5 +1,6 @@
 -- Operator-run preparation only. Not called by app startup or migrations.
--- The queue owner is BYPASSRLS but has privileges only on bulk_import_jobs.
+-- The queue owner is NOBYPASSRLS and receives global queue visibility only
+-- through a dedicated policy on bulk_import_jobs.
 -- The API group role is NOBYPASSRLS; the later function installer grants only
 -- tenant-policy-controlled SELECT/INSERT/UPDATE on the queue table.
 -- Do not grant either role to the current postgres API connection.
@@ -14,7 +15,7 @@ BEGIN
     END IF;
 END
 $$;
-ALTER ROLE stonez_bulk_queue_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT BYPASSRLS;
+ALTER ROLE stonez_bulk_queue_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
 ALTER ROLE stonez_api_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS;
 GRANT USAGE ON SCHEMA public TO stonez_bulk_queue_owner;
 REVOKE CREATE ON SCHEMA public FROM stonez_bulk_queue_owner;

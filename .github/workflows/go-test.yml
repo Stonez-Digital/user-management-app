@@ -48,5 +48,7 @@ jobs:
         with:
           go-version: '1.26.x'
           cache: true
+      - name: Restricted bulk-import queue role and concurrency test
+        run: go test -v ./internal/service -run '^TestBulkQueuePostgresRestrictedRoleBoundary
       - name: Test
         run: go test ./...

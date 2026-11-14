@@ -63,17 +63,20 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, str
 	}
 	var canCreateRoles bool
 	if err := admin.Raw("SELECT rolsuper OR rolcreaterole FROM pg_roles WHERE rolname = current_user").Scan(&canCreateRoles).Error; err != nil || !canCreateRoles {
+		_ = admin.Exec("DROP SCHEMA stonez_internal CASCADE").Error
 		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
 		_ = adminSQL.Close()
 		t.Skip("TEST_DATABASE_URL role cannot create isolated PostgreSQL roles; restricted queue tests require CREATEROLE")
 	}
 	if err := admin.Exec("CREATE ROLE " + ownerRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT BYPASSRLS").Error; err != nil {
+		_ = admin.Exec("DROP SCHEMA stonez_internal CASCADE").Error
 		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
 		_ = adminSQL.Close()
 		t.Skipf("cannot create isolated queue-owner test role: %v", err)
 	}
 	if err := admin.Exec("CREATE ROLE " + apiRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS").Error; err != nil {
 		_ = admin.Exec("DROP ROLE " + ownerRole).Error
+		_ = admin.Exec("DROP SCHEMA stonez_internal CASCADE").Error
 		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
 		_ = adminSQL.Close()
 		t.Skipf("cannot create isolated API test role: %v", err)
@@ -81,6 +84,7 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, str
 	if err := admin.Exec("CREATE ROLE " + otherRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS").Error; err != nil {
 		_ = admin.Exec("DROP ROLE " + apiRole).Error
 		_ = admin.Exec("DROP ROLE " + ownerRole).Error
+		_ = admin.Exec("DROP SCHEMA stonez_internal CASCADE").Error
 		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
 		_ = adminSQL.Close()
 		t.Skipf("cannot create isolated unrelated test role: %v", err)
@@ -91,6 +95,7 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, str
 		_ = admin.Exec("DROP ROLE " + otherRole).Error
 		_ = admin.Exec("DROP ROLE " + apiRole).Error
 		_ = admin.Exec("DROP ROLE " + ownerRole).Error
+		_ = admin.Exec("DROP SCHEMA stonez_internal CASCADE").Error
 		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
 		_ = adminSQL.Close()
 		t.Skipf("cannot grant isolated test roles to test session: %v", err)

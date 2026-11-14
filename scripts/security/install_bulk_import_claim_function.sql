@@ -162,7 +162,7 @@ RESET ROLE;
 REVOKE stonez_bulk_queue_owner FROM CURRENT_USER;
 REVOKE CREATE ON SCHEMA public FROM stonez_bulk_queue_owner;
 
-DO $
+DO $$
 DECLARE
     function_owner text;
     function_is_definer boolean;
@@ -199,5 +199,5 @@ BEGIN
         RAISE EXCEPTION 'bulk import tenant RLS policies were not installed';
     END IF;
 END
-$;
+$$;
 COMMIT;

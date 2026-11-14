@@ -90,6 +90,9 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, str
 			return tx.Exec("DROP FUNCTION IF EXISTS public.claim_next_bulk_import_job(uuid)").Error
 		})
 		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
+		_ = admin.Exec("DROP OWNED BY " + otherRole).Error
+		_ = admin.Exec("DROP OWNED BY " + apiRole).Error
+		_ = admin.Exec("DROP OWNED BY " + ownerRole).Error
 		_ = admin.Exec("REVOKE " + apiRole + ", " + ownerRole + ", " + otherRole + " FROM CURRENT_USER").Error
 		_ = admin.Exec("DROP ROLE " + otherRole).Error
 		_ = admin.Exec("DROP ROLE " + apiRole).Error

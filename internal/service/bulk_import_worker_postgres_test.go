@@ -161,35 +161,66 @@ $function$;`, schema, schema, schema, schema, schema)
 
 func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T) {
 	db, schema, ownerRole, apiRole, otherRole := openBulkWorkerPostgres(t)
-	job := models.BulkImportJob{
-		SchoolID: uuid.New(), InitiatedBy: uuid.New(), Kind: "students",
-		FileName: "restricted.csv", Status: models.BulkImportQueued,
+	schoolA, schoolB := uuid.New(), uuid.New()
+	actorA, actorB := uuid.New(), uuid.New()
+	jobA := models.BulkImportJob{
+		SchoolID: schoolA, InitiatedBy: actorA, Kind: "students",
+		FileName: "school-a.csv", Status: models.BulkImportQueued,
 		CreatedAt: time.Now().UTC(),
 	}
-	if err := db.Create(&job).Error; err != nil {
-		t.Fatalf("create queued job: %v", err)
+	jobB := models.BulkImportJob{
+		SchoolID: schoolB, InitiatedBy: actorB, Kind: "students",
+		FileName: "school-b.csv", Status: models.BulkImportQueued,
+		CreatedAt: time.Now().UTC().Add(time.Second),
 	}
+	if err := db.Create(&jobA).Error; err != nil { t.Fatalf("create school A job: %v", err) }
+	if err := db.Create(&jobB).Error; err != nil { t.Fatalf("create school B job: %v", err) }
 
-	statements := []string{
-		"SELECT * FROM " + schema + ".bulk_import_jobs",
-		"INSERT INTO " + schema + ".bulk_import_jobs DEFAULT VALUES",
-		"UPDATE " + schema + ".bulk_import_jobs SET status = 'failed'",
-		"DELETE FROM " + schema + ".bulk_import_jobs",
-		"TRUNCATE TABLE " + schema + ".bulk_import_jobs",
-	}
-	for _, statement := range statements {
-		err := db.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Exec("SET LOCAL ROLE " + apiRole).Error; err != nil { return err }
-			return tx.Exec(statement).Error
-		})
-		if err == nil {
-			t.Fatalf("restricted API role unexpectedly executed direct queue statement: %s", statement)
+	// The API role has normal table grants, but RLS limits it to the
+	// transaction-local school and initiating user.
+	err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SET LOCAL ROLE " + apiRole).Error; err != nil { return err }
+		if err := tx.Exec("SELECT set_config('app.current_school_id', ?, true)", schoolA.String()).Error; err != nil { return err }
+		if err := tx.Exec("SELECT set_config('app.current_user_id', ?, true)", actorA.String()).Error; err != nil { return err }
+
+		var visible []models.BulkImportJob
+		if err := tx.Table(schema + ".bulk_import_jobs").Find(&visible).Error; err != nil { return err }
+		if len(visible) != 1 || visible[0].ID != jobA.ID {
+			return fmt.Errorf("school A should see only its own import job, got %+v", visible)
 		}
-	}
 
+		crossUpdate := tx.Table(schema + ".bulk_import_jobs").Where("id = ?", jobB.ID).Update("last_error", "cross-tenant")
+		if crossUpdate.Error != nil { return crossUpdate.Error }
+		if crossUpdate.RowsAffected != 0 { return fmt.Errorf("school A updated school B job") }
+
+		sameUpdate := tx.Table(schema + ".bulk_import_jobs").Where("id = ?", jobA.ID).Update("last_error", "same-tenant")
+		if sameUpdate.Error != nil { return sameUpdate.Error }
+		if sameUpdate.RowsAffected != 1 { return fmt.Errorf("school A could not update its own job") }
+
+		crossInsert := models.BulkImportJob{SchoolID: schoolB, InitiatedBy: actorB, Kind: "students", FileName: "cross.csv", Status: models.BulkImportPending}
+		if err := tx.Create(&crossInsert).Error; err == nil { return fmt.Errorf("cross-tenant job insert was not rejected") }
+
+		sameInsert := models.BulkImportJob{SchoolID: schoolA, InitiatedBy: actorA, Kind: "students", FileName: "same.csv", Status: models.BulkImportPending}
+		if err := tx.Create(&sameInsert).Error; err != nil { return fmt.Errorf("same-tenant job insert failed: %w", err) }
+		return nil
+	})
+	if err != nil { t.Fatalf("tenant-scoped API table access failed: %v", err) }
+
+	// Without transaction-local context, SELECT sees no jobs and INSERT fails.
+	err = db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SET LOCAL ROLE " + apiRole).Error; err != nil { return err }
+		var count int64
+		if err := tx.Table(schema + ".bulk_import_jobs").Count(&count).Error; err != nil { return err }
+		if count != 0 { return fmt.Errorf("expected no-context SELECT to see zero jobs, got %d", count) }
+		return tx.Create(&models.BulkImportJob{SchoolID: schoolA, InitiatedBy: actorA, Kind: "students", FileName: "no-context.csv", Status: models.BulkImportPending}).Error
+	})
+	if err == nil { t.Fatal("API role unexpectedly inserted a job without tenant context") }
+
+	// Global claim is the only cross-tenant queue operation and is available
+	// through the SECURITY DEFINER function even without tenant GUCs.
 	workerID := uuid.New()
 	var claimed models.BulkImportJob
-	err := db.Transaction(func(tx *gorm.DB) error {
+	err = db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("SET LOCAL ROLE " + apiRole).Error; err != nil { return err }
 		result := tx.Raw("SELECT * FROM " + schema + ".claim_next_bulk_import_job(?)", workerID).Scan(&claimed)
 		if result.Error != nil { return result.Error }
@@ -197,8 +228,19 @@ func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T)
 		return nil
 	})
 	if err != nil { t.Fatalf("restricted role could not execute queue claim function: %v", err) }
-	if claimed.ID != job.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID {
+	if claimed.ID != jobA.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID {
 		t.Fatalf("claim function returned unexpected job/worker: %+v", claimed)
+	}
+
+	for _, statement := range []string{
+		"DELETE FROM " + schema + ".bulk_import_jobs",
+		"TRUNCATE TABLE " + schema + ".bulk_import_jobs",
+	} {
+		err = db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Exec("SET LOCAL ROLE " + apiRole).Error; err != nil { return err }
+			return tx.Exec(statement).Error
+		})
+		if err == nil { t.Fatalf("API role unexpectedly executed forbidden queue statement: %s", statement) }
 	}
 
 	err = db.Transaction(func(tx *gorm.DB) error {

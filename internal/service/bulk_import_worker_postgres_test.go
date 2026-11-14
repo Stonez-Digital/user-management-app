@@ -18,7 +18,7 @@ import (
 
 // openBulkWorkerPostgres creates a private schema per test so migration and
 // queue state cannot collide with other packages running against TEST_DATABASE_URL.
-func openBulkWorkerPostgres(t *testing.T) *gorm.DB {
+func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string) {
 	t.Helper()
 	dsn := strings.TrimSpace(os.Getenv("TEST_DATABASE_URL"))
 	if dsn == "" {
@@ -86,7 +86,7 @@ func openBulkWorkerPostgres(t *testing.T) *gorm.DB {
 	if err := installBulkClaimFunctionForTest(t, admin, schema, ownerRole, apiRole); err != nil {
 		t.Fatalf("install isolated restricted claim function: %v", err)
 	}
-	return db
+	return db, schema, ownerRole, apiRole
 }
 
 func installBulkClaimFunctionForTest(t *testing.T, admin *gorm.DB, schema, ownerRole, apiRole string) error {
@@ -125,8 +125,96 @@ $function$;`, schema, schema, schema, schema, schema)
 	return nil
 }
 
+
+func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T) {
+	db, schema, ownerRole, apiRole := openBulkWorkerPostgres(t)
+	job := models.BulkImportJob{
+		SchoolID: uuid.New(), InitiatedBy: uuid.New(), Kind: "students",
+		FileName: "restricted.csv", Status: models.BulkImportQueued,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := db.Create(&job).Error; err != nil {
+		t.Fatalf("create queued job: %v", err)
+	}
+
+	statements := []string{
+		"SELECT * FROM " + schema + ".bulk_import_jobs",
+		"INSERT INTO " + schema + ".bulk_import_jobs DEFAULT VALUES",
+		"UPDATE " + schema + ".bulk_import_jobs SET status = 'failed'",
+		"DELETE FROM " + schema + ".bulk_import_jobs",
+		"TRUNCATE TABLE " + schema + ".bulk_import_jobs",
+	}
+	for _, statement := range statements {
+		err := db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Exec("SET LOCAL ROLE " + apiRole).Error; err != nil { return err }
+			return tx.Exec(statement).Error
+		})
+		if err == nil {
+			t.Fatalf("restricted API role unexpectedly executed direct queue statement: %s", statement)
+		}
+	}
+
+	workerID := uuid.New()
+	var claimed models.BulkImportJob
+	err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SET LOCAL ROLE " + apiRole).Error; err != nil { return err }
+		result := tx.Raw("SELECT * FROM " + schema + ".claim_next_bulk_import_job(?)", workerID).Scan(&claimed)
+		if result.Error != nil { return result.Error }
+		if result.RowsAffected != 1 { return fmt.Errorf("expected one claimed job, got %d", result.RowsAffected) }
+		return nil
+	})
+	if err != nil { t.Fatalf("restricted role could not execute queue claim function: %v", err) }
+	if claimed.ID != job.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID {
+		t.Fatalf("claim function returned unexpected job/worker: %+v", claimed)
+	}
+
+	err = db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SET LOCAL ROLE " + apiRole).Error; err != nil { return err }
+		return tx.Exec("SET LOCAL ROLE " + ownerRole).Error
+	})
+	if err == nil { t.Fatal("API role unexpectedly assumed the queue-owner role") }
+}
+
+func TestBulkWorkerPostgresClaimFunctionReclaimsOnlyExpiredLeases(t *testing.T) {
+	db, _, _, _ := openBulkWorkerPostgres(t)
+	schoolID, actor := uuid.New(), uuid.New()
+	oldWorker, legacyWorker, activeWorker := uuid.New(), uuid.New(), uuid.New()
+	now := time.Now().UTC()
+	jobs := []models.BulkImportJob{
+		{SchoolID: schoolID, InitiatedBy: actor, Kind: "students", FileName: "expired.csv",
+			Status: models.BulkImportRunning, WorkerID: &oldWorker, ClaimedAt: ptrTime(now.Add(-6 * time.Minute)),
+			Attempts: 1, CreatedAt: now.Add(-3 * time.Minute)},
+		{SchoolID: schoolID, InitiatedBy: actor, Kind: "students", FileName: "legacy.csv",
+			Status: models.BulkImportRunning, WorkerID: &legacyWorker, ClaimedAt: nil,
+			Attempts: 2, CreatedAt: now.Add(-2 * time.Minute)},
+		{SchoolID: schoolID, InitiatedBy: actor, Kind: "students", FileName: "active.csv",
+			Status: models.BulkImportRunning, WorkerID: &activeWorker, ClaimedAt: ptrTime(now),
+			Attempts: 3, CreatedAt: now.Add(-time.Minute)},
+	}
+	for i := range jobs {
+		if err := db.Create(&jobs[i]).Error; err != nil { t.Fatalf("create lease fixture %d: %v", i, err) }
+	}
+	worker := NewBulkImportService(db, nil)
+	first, err := worker.claimNextJob()
+	if err != nil { t.Fatalf("claim expired lease: %v", err) }
+	if first == nil || first.ID != jobs[0].ID || first.Attempts != 2 {
+		t.Fatalf("expected expired lease to be reclaimed and attempts incremented: %+v", first)
+	}
+	second, err := worker.claimNextJob()
+	if err != nil { t.Fatalf("claim legacy lease: %v", err) }
+	if second == nil || second.ID != jobs[1].ID || second.Attempts != 3 {
+		t.Fatalf("expected legacy unleased job to be reclaimed: %+v", second)
+	}
+	third, err := worker.claimNextJob()
+	if err != nil { t.Fatalf("check active lease: %v", err) }
+	if third != nil { t.Fatalf("active unexpired lease must not be reclaimed: %+v", third) }
+}
+
+func ptrTime(value time.Time) *time.Time { return &value }
+
+
 func TestBulkWorkerPostgresConcurrentClaimsSkipLockedJobs(t *testing.T) {
-	db := openBulkWorkerPostgres(t)
+	db, _, _, _ := openBulkWorkerPostgres(t)
 	schoolID, actor := uuid.New(), uuid.New()
 	first := models.BulkImportJob{
 		SchoolID: schoolID, InitiatedBy: actor, Kind: "students",

@@ -13,6 +13,8 @@ import (
 	"gorm.io/gorm"
 )
 
+func bulkQueueTimePtr(value time.Time) *time.Time { return &value }
+
 type restrictedClaimRow struct {
 	ID         uuid.UUID `gorm:"column:id"`
 	SchoolID   uuid.UUID `gorm:"column:school_id"`
@@ -163,10 +165,10 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 		attempts int
 		lastError string
 	}{
-		{jobID, "expired.csv", "running", `[{"name":"Expired payload"}]`, `[{"row":2,"message":"previous"}]`, now.Add(-4*time.Minute), timePtr(now.Add(-10*time.Minute)), 2, "stale failure"},
+		{jobID, "expired.csv", "running", `[{"name":"Expired payload"}]`, `[{"row":2,"message":"previous"}]`, now.Add(-4*time.Minute), bulkQueueTimePtr(now.Add(-10*time.Minute)), 2, "stale failure"},
 		{queuedID, "queued.csv", "queued", `[{"name":"Queued payload"}]`, `[{"row":3,"message":"validation"}]`, now.Add(-3*time.Minute), nil, 0, "old queue error"},
 		{unleasedID, "unleased.csv", "running", "[]", "[]", now.Add(-2*time.Minute), nil, 4, "orphaned lease"},
-		{activeID, "active.csv", "running", "[]", "[]", now.Add(-time.Minute), timePtr(now.Add(-time.Minute)), 1, ""},
+		{activeID, "active.csv", "running", "[]", "[]", now.Add(-time.Minute), bulkQueueTimePtr(now.Add(-time.Minute)), 1, ""},
 	}
 	for _, s := range seeds {
 		if err := admin.Exec(seed, s.id, schoolID, actorID, s.name, s.status, s.rows, s.errors, s.created, s.claimed, s.attempts, s.lastError).Error; err != nil {

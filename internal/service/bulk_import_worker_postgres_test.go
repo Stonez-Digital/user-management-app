@@ -44,6 +44,12 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, str
 		_ = adminSQL.Close()
 		t.Fatalf("create isolated test schema: %v", err)
 	}
+	var existingClaimFunction bool
+	if err := admin.Raw("SELECT to_regprocedure('public.claim_next_bulk_import_job(uuid)') IS NOT NULL").Scan(&existingClaimFunction).Error; err != nil || existingClaimFunction {
+		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
+		_ = adminSQL.Close()
+		t.Skip("TEST_DATABASE_URL already contains public.claim_next_bulk_import_job(uuid); use a clean isolated test database")
+	}
 	var canCreateRoles bool
 	if err := admin.Raw("SELECT rolsuper OR rolcreaterole FROM pg_roles WHERE rolname = current_user").Scan(&canCreateRoles).Error; err != nil || !canCreateRoles {
 		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
@@ -79,6 +85,10 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, str
 		t.Skipf("cannot grant isolated test roles to test session: %v", err)
 	}
 	t.Cleanup(func() {
+		_ = admin.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Exec("SET LOCAL ROLE " + ownerRole).Error; err != nil { return err }
+			return tx.Exec("DROP FUNCTION IF EXISTS public.claim_next_bulk_import_job(uuid)").Error
+		})
 		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
 		_ = admin.Exec("REVOKE " + apiRole + ", " + ownerRole + ", " + otherRole + " FROM CURRENT_USER").Error
 		_ = admin.Exec("DROP ROLE " + otherRole).Error

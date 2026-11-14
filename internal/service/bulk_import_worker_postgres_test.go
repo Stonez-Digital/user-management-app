@@ -214,7 +214,9 @@ func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T)
 		if sameUpdate.RowsAffected != 1 { return fmt.Errorf("school A could not update its own job") }
 
 		crossInsert := models.BulkImportJob{SchoolID: schoolB, InitiatedBy: actorB, Kind: "students", FileName: "cross.csv", Status: models.BulkImportPending}
+		if err := tx.SavePoint("before_cross_tenant_insert").Error; err != nil { return err }
 		if err := tx.Create(&crossInsert).Error; err == nil { return fmt.Errorf("cross-tenant job insert was not rejected") }
+		if err := tx.RollbackTo("before_cross_tenant_insert").Error; err != nil { return err }
 
 		sameInsert := models.BulkImportJob{SchoolID: schoolA, InitiatedBy: actorA, Kind: "students", FileName: "same.csv", Status: models.BulkImportPending}
 		if err := tx.Create(&sameInsert).Error; err != nil { return fmt.Errorf("same-tenant job insert failed: %w", err) }

@@ -64,6 +64,21 @@ BEGIN
 END
 $$;
 
+-- Keep the privileged function outside Supabase's exposed public schema.
+CREATE SCHEMA IF NOT EXISTS stonez_internal AUTHORIZATION CURRENT_USER;
+REVOKE ALL PRIVILEGES ON SCHEMA stonez_internal FROM PUBLIC;
+DO $
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+        EXECUTE 'REVOKE ALL PRIVILEGES ON SCHEMA stonez_internal FROM anon';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+        EXECUTE 'REVOKE ALL PRIVILEGES ON SCHEMA stonez_internal FROM authenticated';
+    END IF;
+END
+$;
+GRANT USAGE ON SCHEMA stonez_internal TO stonez_api_runtime;
+
 -- Normal school-facing API operations keep tenant-scoped table access. The
 -- global worker claim remains isolated behind the SECURITY DEFINER function.
 ALTER TABLE public.bulk_import_jobs ENABLE ROW LEVEL SECURITY;
@@ -100,11 +115,11 @@ GRANT SELECT, INSERT, UPDATE ON TABLE public.bulk_import_jobs TO stonez_api_runt
 -- Create/replace the function while SET ROLE is the dedicated owner. This
 -- avoids leaving the migration/operator role as function owner.
 GRANT USAGE ON SCHEMA public TO stonez_api_runtime;
-GRANT USAGE, CREATE ON SCHEMA public TO stonez_bulk_queue_owner;
+GRANT USAGE, CREATE ON SCHEMA stonez_internal TO stonez_bulk_queue_owner;
 GRANT stonez_bulk_queue_owner TO CURRENT_USER;
 SET LOCAL ROLE stonez_bulk_queue_owner;
 
-CREATE OR REPLACE FUNCTION public.claim_next_bulk_import_job(p_worker_id uuid)
+CREATE OR REPLACE FUNCTION stonez_internal.claim_next_bulk_import_job(p_worker_id uuid)
 RETURNS SETOF public.bulk_import_jobs
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -113,6 +128,10 @@ AS $function$
 DECLARE
     v_job public.bulk_import_jobs%ROWTYPE;
 BEGIN
+    IF NOT pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER') THEN
+        RAISE EXCEPTION 'caller is not an authorized API runtime login';
+    END IF;
+
     IF p_worker_id IS NULL THEN
         RAISE EXCEPTION 'worker ID is required';
     END IF;
@@ -144,23 +163,23 @@ BEGIN
 END
 $function$;
 
-REVOKE ALL PRIVILEGES ON FUNCTION public.claim_next_bulk_import_job(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.claim_next_bulk_import_job(uuid) TO stonez_api_runtime;
+REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) TO stonez_api_runtime;
 
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
-        EXECUTE 'REVOKE ALL PRIVILEGES ON FUNCTION public.claim_next_bulk_import_job(uuid) FROM anon';
+        EXECUTE 'REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) FROM anon';
     END IF;
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-        EXECUTE 'REVOKE ALL PRIVILEGES ON FUNCTION public.claim_next_bulk_import_job(uuid) FROM authenticated';
+        EXECUTE 'REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) FROM authenticated';
     END IF;
 END
 $$;
 
 RESET ROLE;
 REVOKE stonez_bulk_queue_owner FROM CURRENT_USER;
-REVOKE CREATE ON SCHEMA public FROM stonez_bulk_queue_owner;
+REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_bulk_queue_owner;
 
 DO $$
 DECLARE
@@ -173,7 +192,7 @@ BEGIN
       FROM pg_proc AS procedure
       JOIN pg_namespace AS namespace ON namespace.oid = procedure.pronamespace
       JOIN pg_roles AS owner_role ON owner_role.oid = procedure.proowner
-     WHERE procedure.oid = 'public.claim_next_bulk_import_job(uuid)'::regprocedure;
+     WHERE procedure.oid = 'stonez_internal.claim_next_bulk_import_job(uuid)'::regprocedure;
 
     IF function_owner IS DISTINCT FROM 'stonez_bulk_queue_owner'
        OR function_is_definer IS DISTINCT FROM true
@@ -181,7 +200,10 @@ BEGIN
         RAISE EXCEPTION 'claim function owner, SECURITY DEFINER mode, or fixed search_path is unsafe';
     END IF;
 
-    IF NOT has_function_privilege('stonez_api_runtime', 'public.claim_next_bulk_import_job(uuid)', 'EXECUTE')
+    IF NOT has_schema_privilege('stonez_api_runtime', 'stonez_internal', 'USAGE')
+       OR has_schema_privilege('stonez_api_runtime', 'stonez_internal', 'CREATE')
+       OR has_schema_privilege('stonez_bulk_queue_owner', 'stonez_internal', 'CREATE')
+       OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE')
        OR NOT has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'SELECT')
        OR NOT has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'INSERT')
        OR NOT has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'UPDATE')

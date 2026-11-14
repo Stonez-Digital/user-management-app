@@ -141,7 +141,7 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 		)`,
 		"ALTER TABLE " + table + " ENABLE ROW LEVEL SECURITY",
 		"CREATE POLICY queue_owner_all ON " + table + " FOR ALL TO " + ownerRole + " USING (true) WITH CHECK (true)",
-		"GRANT SELECT (id, school_id, initiated_by, kind, file_name, status, rows_json, errors_json, created_at, attempts, claimed_at) ON " + table + " TO " + ownerRole,
+		"GRANT SELECT (id, school_id, initiated_by, kind, file_name, status, rows_json, errors_json, created_at, attempts, claimed_at, worker_id, last_error) ON " + table + " TO " + ownerRole,
 		"GRANT UPDATE (status, worker_id, claimed_at, attempts, last_error) ON " + table + " TO " + ownerRole,
 		"REVOKE ALL ON " + table + " FROM PUBLIC",
 	}
@@ -152,7 +152,7 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 	}
 
 	jobID, schoolID, actorID := uuid.New(), uuid.New(), uuid.New()
-	queuedID, expiredID, unleasedID, activeID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	queuedID, unleasedID, activeID := uuid.New(), uuid.New(), uuid.New()
 	now := time.Now().UTC()
 	seed := "INSERT INTO " + table + " (id, school_id, initiated_by, kind, file_name, status, rows_json, errors_json, created_at, claimed_at, attempts, last_error) VALUES (?, ?, ?, 'students', ?, ?, ?, ?, ?, ?, ?, ?)"
 	seeds := []struct {

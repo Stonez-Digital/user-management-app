@@ -187,9 +187,10 @@ DECLARE
     function_owner text;
     function_is_definer boolean;
     function_config text[];
+    function_definition text;
 BEGIN
-    SELECT owner_role.rolname, procedure.prosecdef, procedure.proconfig
-      INTO function_owner, function_is_definer, function_config
+    SELECT owner_role.rolname, procedure.prosecdef, procedure.proconfig, pg_get_functiondef(procedure.oid)
+      INTO function_owner, function_is_definer, function_config, function_definition
       FROM pg_proc AS procedure
       JOIN pg_namespace AS namespace ON namespace.oid = procedure.pronamespace
       JOIN pg_roles AS owner_role ON owner_role.oid = procedure.proowner
@@ -197,7 +198,8 @@ BEGIN
 
     IF function_owner IS DISTINCT FROM 'stonez_bulk_queue_owner'
        OR function_is_definer IS DISTINCT FROM true
-       OR NOT ('search_path=pg_catalog' = ANY(COALESCE(function_config, ARRAY[]::text[]))) THEN
+       OR NOT ('search_path=pg_catalog' = ANY(COALESCE(function_config, ARRAY[]::text[])))
+       OR position('pg_has_role(session_user' IN function_definition) = 0 THEN
         RAISE EXCEPTION 'claim function owner, SECURITY DEFINER mode, or fixed search_path is unsafe';
     END IF;
 

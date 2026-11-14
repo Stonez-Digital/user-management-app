@@ -36,7 +36,6 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 	if dsn == "" {
 		t.Skip("BULK_QUEUE_ROLE_TEST_DATABASE_URL (or TEST_DATABASE_URL) is not configured")
 	}
-	}
 	if os.Getenv("BULK_QUEUE_ROLE_TEST_ALLOW_ROLE_DDL") != "true" {
 		t.Skip("set BULK_QUEUE_ROLE_TEST_ALLOW_ROLE_DDL=true only for a disposable PostgreSQL test database")
 	}

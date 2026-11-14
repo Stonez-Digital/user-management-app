@@ -261,11 +261,11 @@ func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T)
 		if err == nil { t.Fatalf("API role unexpectedly executed forbidden queue statement: %s", statement) }
 	}
 
-	err = db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec("SET LOCAL ROLE " + apiRole).Error; err != nil { return err }
-		return tx.Exec("SET LOCAL ROLE " + ownerRole).Error
-	})
-	if err == nil { t.Fatal("API role unexpectedly assumed the queue-owner role") }
+	var apiCanAssumeQueueOwner bool
+	if err := db.Raw("SELECT pg_has_role(?, ?, 'MEMBER')", apiRole, ownerRole).Scan(&apiCanAssumeQueueOwner).Error; err != nil {
+		t.Fatalf("inspect API-to-owner role membership: %v", err)
+	}
+	if apiCanAssumeQueueOwner { t.Fatal("API role unexpectedly belongs to the queue-owner role") }
 
 	err = db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("SET LOCAL ROLE " + otherRole).Error; err != nil { return err }

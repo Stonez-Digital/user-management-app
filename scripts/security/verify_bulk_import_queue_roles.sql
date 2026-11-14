@@ -102,15 +102,15 @@ BEGIN
 
     IF EXISTS (
         SELECT 1
-        FROM pg_attribute AS column
-        JOIN pg_class AS relation ON relation.oid = column.attrelid
+        FROM pg_attribute AS attribute
+        JOIN pg_class AS relation ON relation.oid = attribute.attrelid
         JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
-        CROSS JOIN LATERAL aclexplode(COALESCE(column.attacl, ARRAY[]::aclitem[])) AS privilege
+        CROSS JOIN LATERAL aclexplode(COALESCE(attribute.attacl, ARRAY[]::aclitem[])) AS privilege
         JOIN pg_roles AS grantee ON grantee.oid = privilege.grantee
         WHERE namespace.nspname = 'public'
           AND relation.relname <> 'bulk_import_jobs'
-          AND column.attnum > 0
-          AND NOT column.attisdropped
+          AND attribute.attnum > 0
+          AND NOT attribute.attisdropped
           AND grantee.rolname = 'stonez_bulk_queue_owner'
     ) THEN
         RAISE EXCEPTION 'queue owner has unexpected column privileges on another public relation';

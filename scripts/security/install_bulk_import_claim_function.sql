@@ -165,18 +165,26 @@ END
 $function$;
 
 REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) TO stonez_api_runtime;
-
-DO $$
+DO $
+DECLARE
+    grantee_name text;
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
-        EXECUTE 'REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) FROM anon';
-    END IF;
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-        EXECUTE 'REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) FROM authenticated';
-    END IF;
+    FOR grantee_name IN
+        SELECT grantee_role.rolname
+          FROM pg_proc AS procedure
+          CROSS JOIN LATERAL aclexplode(COALESCE(procedure.proacl, acldefault('f', procedure.proowner))) AS function_privilege
+          JOIN pg_roles AS grantee_role ON grantee_role.oid = function_privilege.grantee
+         WHERE procedure.oid = 'stonez_internal.claim_next_bulk_import_job(uuid)'::regprocedure
+           AND grantee_role.rolname NOT IN ('stonez_bulk_queue_owner', 'stonez_api_runtime')
+    LOOP
+        EXECUTE format(
+            'REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) FROM %I',
+            grantee_name
+        );
+    END LOOP;
 END
-$$;
+$;
+GRANT EXECUTE ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) TO stonez_api_runtime;
 
 RESET ROLE;
 REVOKE stonez_bulk_queue_owner FROM CURRENT_USER;
@@ -204,6 +212,18 @@ BEGIN
     END IF;
 
     IF EXISTS (
+            SELECT 1
+              FROM pg_proc AS procedure
+              CROSS JOIN LATERAL aclexplode(COALESCE(procedure.proacl, acldefault('f', procedure.proowner))) AS function_privilege
+             WHERE procedure.oid = 'stonez_internal.claim_next_bulk_import_job(uuid)'::regprocedure
+               AND function_privilege.privilege_type = 'EXECUTE'
+               AND (function_privilege.grantee = 0
+                    OR function_privilege.grantee NOT IN (
+                        procedure.proowner,
+                        (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime')
+                    ))
+       )
+       OR EXISTS (
             SELECT 1
               FROM pg_namespace AS private_schema
               CROSS JOIN LATERAL aclexplode(COALESCE(private_schema.nspacl, acldefault('n', private_schema.nspowner))) AS schema_privilege

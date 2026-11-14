@@ -62,7 +62,7 @@ BEGIN
         RAISE EXCEPTION 'queue owner privileges are missing or broader than intended';
     END IF;
 END
-$;
+$$;
 
 -- Normal school-facing API operations keep tenant-scoped table access. The
 -- global worker claim remains isolated behind the SECURITY DEFINER function.

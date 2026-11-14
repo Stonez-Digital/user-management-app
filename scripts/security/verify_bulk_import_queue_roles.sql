@@ -27,6 +27,13 @@ BEGIN
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'last_error', 'UPDATE') THEN
         RAISE EXCEPTION 'queue owner is missing claim-column UPDATE privileges';
     END IF;
+    IF has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'id', 'UPDATE')
+       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'school_id', 'UPDATE')
+       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'initiated_by', 'UPDATE')
+       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'rows_json', 'UPDATE')
+       OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'errors_json', 'UPDATE') THEN
+        RAISE EXCEPTION 'queue owner can update protected/non-claim columns';
+    END IF;
     IF has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'UPDATE')
        OR has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'INSERT')
        OR has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'DELETE')

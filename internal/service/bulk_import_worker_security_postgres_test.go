@@ -104,6 +104,7 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 	if err := admin.Exec("CREATE SCHEMA " + schema).Error; err != nil {
 		t.Fatalf("create isolated schema: %v", err)
 	}
+	created = true
 	if err := admin.Exec("CREATE ROLE " + ownerRole + " NOLOGIN NOSUPERUSER NOBYPASSRLS").Error; err != nil {
 		t.Fatalf("create queue-owner role: %v", err)
 	}
@@ -116,11 +117,10 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 	if err := admin.Exec(fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD '%s' NOSUPERUSER NOBYPASSRLS", outsiderLogin, outsiderPassword)).Error; err != nil {
 		t.Fatalf("create unrelated login: %v", err)
 	}
-	created = true
 	if err := admin.Exec("GRANT " + runtimeRole + " TO " + runtimeLogin).Error; err != nil {
 		t.Fatalf("grant runtime group membership: %v", err)
 	}
-	if err := admin.Exec("GRANT USAGE ON SCHEMA " + schema + " TO " + ownerRole + ", " + runtimeRole).Error; err != nil {
+	if err := admin.Exec("GRANT USAGE ON SCHEMA " + schema + " TO " + ownerRole + ", " + runtimeRole + ", " + outsiderLogin).Error; err != nil {
 		t.Fatalf("grant schema usage: %v", err)
 	}
 
@@ -249,11 +249,19 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 
 	var directPrivileges int
 	if err := admin.Raw(`SELECT count(*) FROM information_schema.role_table_grants
-		WHERE grantee = ? AND table_schema = ? AND table_name = 'bulk_import_jobs'`,
-		runtimeLogin, schema).Scan(&directPrivileges).Error; err != nil {
+		WHERE grantee IN (?, ?) AND table_schema = ? AND table_name = 'bulk_import_jobs'`,
+		runtimeLogin, runtimeRole, schema).Scan(&directPrivileges).Error; err != nil {
 		t.Fatalf("inspect runtime direct grants: %v", err)
 	}
 	if directPrivileges != 0 {
 		t.Fatalf("runtime login has %d direct table grants; expected none", directPrivileges)
+	}
+
+	var ownerIsTableOwner bool
+	if err := admin.Raw(`SELECT pg_get_userbyid(c.relowner) = ? FROM pg_class c WHERE c.oid = ?::regclass`, ownerRole, table).Scan(&ownerIsTableOwner).Error; err != nil {
+		t.Fatalf("inspect queue table ownership: %v", err)
+	}
+	if ownerIsTableOwner {
+		t.Fatal("queue function owner must not own the queue table")
 	}
 }

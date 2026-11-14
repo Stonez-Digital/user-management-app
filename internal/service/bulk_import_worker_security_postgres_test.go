@@ -180,8 +180,14 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 	if err := admin.Exec(createFunction).Error; err != nil {
 		t.Fatalf("create isolated definer fixture: %v", err)
 	}
+	if err := admin.Exec("GRANT " + ownerRole + " TO " + identity.Role).Error; err != nil {
+		t.Fatalf("temporarily grant function-owner membership: %v", err)
+	}
 	if err := admin.Exec("ALTER FUNCTION " + function + "(uuid) OWNER TO " + ownerRole).Error; err != nil {
 		t.Fatalf("assign definer owner: %v", err)
+	}
+	if err := admin.Exec("REVOKE " + ownerRole + " FROM " + identity.Role).Error; err != nil {
+		t.Fatalf("revoke temporary function-owner membership: %v", err)
 	}
 	if err := admin.Exec("REVOKE CREATE ON SCHEMA " + schema + " FROM " + ownerRole).Error; err != nil {
 		t.Fatalf("revoke temporary schema create: %v", err)

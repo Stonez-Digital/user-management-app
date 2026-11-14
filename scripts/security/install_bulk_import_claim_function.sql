@@ -43,7 +43,40 @@ BEGIN
         RAISE EXCEPTION 'queue owner privileges are missing or broader than intended';
     END IF;
 END
-$$;
+$;
+
+-- Normal school-facing API operations keep tenant-scoped table access. The
+-- global worker claim remains isolated behind the SECURITY DEFINER function.
+ALTER TABLE public.bulk_import_jobs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS bulk_import_jobs_tenant_select ON public.bulk_import_jobs;
+CREATE POLICY bulk_import_jobs_tenant_select
+    ON public.bulk_import_jobs
+    FOR SELECT TO stonez_api_runtime
+    USING (school_id = nullif(current_setting('app.current_school_id', true), '')::uuid);
+
+DROP POLICY IF EXISTS bulk_import_jobs_tenant_insert ON public.bulk_import_jobs;
+CREATE POLICY bulk_import_jobs_tenant_insert
+    ON public.bulk_import_jobs
+    FOR INSERT TO stonez_api_runtime
+    WITH CHECK (
+        school_id = nullif(current_setting('app.current_school_id', true), '')::uuid
+        AND initiated_by = nullif(current_setting('app.current_user_id', true), '')::uuid
+    );
+
+DROP POLICY IF EXISTS bulk_import_jobs_tenant_update ON public.bulk_import_jobs;
+CREATE POLICY bulk_import_jobs_tenant_update
+    ON public.bulk_import_jobs
+    FOR UPDATE TO stonez_api_runtime
+    USING (
+        school_id = nullif(current_setting('app.current_school_id', true), '')::uuid
+        AND initiated_by = nullif(current_setting('app.current_user_id', true), '')::uuid
+    )
+    WITH CHECK (
+        school_id = nullif(current_setting('app.current_school_id', true), '')::uuid
+        AND initiated_by = nullif(current_setting('app.current_user_id', true), '')::uuid
+    );
+
+GRANT SELECT, INSERT, UPDATE ON TABLE public.bulk_import_jobs TO stonez_api_runtime;
 
 -- Create/replace the function while SET ROLE is the dedicated owner. This
 -- avoids leaving the migration/operator role as function owner.

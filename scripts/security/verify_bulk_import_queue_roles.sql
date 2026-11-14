@@ -27,7 +27,8 @@ BEGIN
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'last_error', 'UPDATE') THEN
         RAISE EXCEPTION 'queue owner is missing claim-column UPDATE privileges';
     END IF;
-    IF has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'INSERT')
+    IF has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'UPDATE')
+       OR has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'INSERT')
        OR has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'DELETE')
        OR has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'TRUNCATE') THEN
         RAISE EXCEPTION 'queue owner has unexpected write privileges';
@@ -35,7 +36,9 @@ BEGIN
     IF has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'SELECT')
        OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'INSERT')
        OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'UPDATE')
-       OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'REFERENCES') THEN
+       OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'REFERENCES')
+       OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'TRUNCATE')
+       OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'TRIGGER') THEN
         RAISE EXCEPTION 'API runtime has direct queue-table privileges';
     END IF;
     IF pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_owner', 'MEMBER') THEN

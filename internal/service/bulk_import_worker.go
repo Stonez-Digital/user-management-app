@@ -67,7 +67,7 @@ func (s *BulkImportService) claimNextJob() (*models.BulkImportJob, error) {
 	if s.db.Dialector.Name() == "postgres" {
 		err := s.db.Transaction(func(tx *gorm.DB) error {
 			var job models.BulkImportJob
-			result := tx.Raw("SELECT * FROM public.claim_next_bulk_import_job(?)", s.workerID).Scan(&job)
+			result := tx.Raw("SELECT * FROM stonez_internal.claim_next_bulk_import_job(?)", s.workerID).Scan(&job)
 			if result.Error != nil {
 				return fmt.Errorf("claim bulk import job through restricted queue function: %w", result.Error)
 			}

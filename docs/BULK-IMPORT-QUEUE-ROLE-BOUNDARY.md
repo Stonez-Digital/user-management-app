@@ -12,7 +12,7 @@ The repository now includes the role-preparation scripts, a SECURITY DEFINER cla
 |---|---:|---:|---|
 | stonez_bulk_queue_owner | No | Yes | Owns the claim function; can SELECT queue rows and UPDATE only lease/claim columns on public.bulk_import_jobs. |
 | stonez_api_runtime | No | No | Receives EXECUTE on the global claim function plus SELECT/INSERT/UPDATE on bulk_import_jobs guarded by school-and-initiator RLS policies. |
-| Actual API login | Yes | No | Must be a dedicated restricted login, later granted membership in stonez_api_runtime. It must not be postgres or a member of the queue-owner role. |
+| Actual API login | Yes | No | Must be a dedicated NOBYPASSRLS, INHERIT login, later granted membership in stonez_api_runtime. It must not be postgres or a member of the queue-owner role. |
 
 The queue owner requires BYPASSRLS because the claim operation is intentionally global across schools. This is bounded by table ACLs: it receives no privileges on other application tables, no DDL privileges, no role-management privileges, and no login capability. The API runtime role itself remains NOBYPASSRLS.
 
@@ -24,7 +24,7 @@ The provisioning script does not create an API login or password, and does not g
 2. When separately approved, run scripts/security/provision_bulk_import_queue_roles.sql using an administrative database connection that can create/alter roles and grant table privileges.
 3. Run scripts/security/verify_bulk_import_queue_roles.sql before function installation and retain its successful result as role-preparation evidence.
 4. Review and run scripts/security/install_bulk_import_claim_function.sql only after the role assertions pass. This installs the function in public, transfers ownership to the queue-owner role, and creates school/initiator RLS policies for normal API operations.
-5. Identify and provision a dedicated API login through the secret-management process. Do not put its password in this repository or in migration SQL. Grant that login membership in stonez_api_runtime only after confirming it is NOBYPASSRLS and cannot assume a privileged role.
+5. Identify and provision a dedicated API login through the secret-management process. Do not put its password in this repository or in migration SQL. Grant that login membership in stonez_api_runtime only after confirming it is NOBYPASSRLS, INHERIT, and cannot assume a privileged role.
 6. Do not change Render's DATABASE_URL, enable REQUIRE_NOBYPASSRLS, or grant the current postgres login membership in either role during this preparation stage.
 
 All three SQL scripts are explicit operator-run artifacts. They are not executed by application startup, CI migrations, or the normal Migrate function. No production role or grant is changed by merging these files.

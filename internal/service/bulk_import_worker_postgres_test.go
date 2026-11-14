@@ -189,8 +189,14 @@ func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T)
 		FileName: "school-b.csv", Status: models.BulkImportQueued,
 		CreatedAt: time.Now().UTC().Add(time.Second),
 	}
+	otherActorJob := models.BulkImportJob{
+		SchoolID: schoolA, InitiatedBy: uuid.New(), Kind: "students",
+		FileName: "school-a-other-actor.csv", Status: models.BulkImportQueued,
+		CreatedAt: time.Now().UTC().Add(2 * time.Second),
+	}
 	if err := db.Create(&jobA).Error; err != nil { t.Fatalf("create school A job: %v", err) }
 	if err := db.Create(&jobB).Error; err != nil { t.Fatalf("create school B job: %v", err) }
+	if err := db.Create(&otherActorJob).Error; err != nil { t.Fatalf("create same-school other-actor job: %v", err) }
 
 	// The API role has normal table grants, but RLS limits it to the
 	// transaction-local school and initiating user.
@@ -201,13 +207,17 @@ func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T)
 
 		var visible []models.BulkImportJob
 		if err := tx.Table(schema + ".bulk_import_jobs").Find(&visible).Error; err != nil { return err }
-		if len(visible) != 1 || visible[0].ID != jobA.ID {
-			return fmt.Errorf("school A should see only its own import job, got %+v", visible)
+		if len(visible) != 2 {
+			return fmt.Errorf("school A should see both school jobs, but no school B jobs; got %+v", visible)
 		}
 
 		crossUpdate := tx.Table(schema + ".bulk_import_jobs").Where("id = ?", jobB.ID).Update("last_error", "cross-tenant")
 		if crossUpdate.Error != nil { return crossUpdate.Error }
 		if crossUpdate.RowsAffected != 0 { return fmt.Errorf("school A updated school B job") }
+
+		otherActorUpdate := tx.Table(schema + ".bulk_import_jobs").Where("id = ?", otherActorJob.ID).Update("last_error", "other-actor")
+		if otherActorUpdate.Error != nil { return otherActorUpdate.Error }
+		if otherActorUpdate.RowsAffected != 0 { return fmt.Errorf("actor A updated another user's job in the same school") }
 
 		sameUpdate := tx.Table(schema + ".bulk_import_jobs").Where("id = ?", jobA.ID).Update("last_error", "same-tenant")
 		if sameUpdate.Error != nil { return sameUpdate.Error }

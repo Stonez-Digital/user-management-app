@@ -58,7 +58,8 @@ BEGIN
        OR has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'INSERT')
        OR has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'DELETE')
        OR has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'TRUNCATE')
-       OR has_schema_privilege('stonez_bulk_queue_owner', 'public', 'CREATE') THEN
+       OR has_schema_privilege('stonez_bulk_queue_owner', 'public', 'CREATE')
+       OR has_schema_privilege('stonez_api_runtime', 'public', 'CREATE') THEN
         RAISE EXCEPTION 'queue owner privileges are missing or broader than intended';
     END IF;
 END
@@ -67,7 +68,7 @@ $$;
 -- Keep the privileged function outside Supabase's exposed public schema.
 CREATE SCHEMA IF NOT EXISTS stonez_internal AUTHORIZATION CURRENT_USER;
 REVOKE ALL PRIVILEGES ON SCHEMA stonez_internal FROM PUBLIC;
-DO $
+DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
         EXECUTE 'REVOKE ALL PRIVILEGES ON SCHEMA stonez_internal FROM anon';
@@ -76,7 +77,7 @@ BEGIN
         EXECUTE 'REVOKE ALL PRIVILEGES ON SCHEMA stonez_internal FROM authenticated';
     END IF;
 END
-$;
+$$;
 GRANT USAGE ON SCHEMA stonez_internal TO stonez_api_runtime;
 
 -- Normal school-facing API operations keep tenant-scoped table access. The
@@ -202,6 +203,7 @@ BEGIN
 
     IF NOT has_schema_privilege('stonez_api_runtime', 'stonez_internal', 'USAGE')
        OR has_schema_privilege('stonez_api_runtime', 'stonez_internal', 'CREATE')
+       OR has_schema_privilege('stonez_api_runtime', 'public', 'CREATE')
        OR has_schema_privilege('stonez_bulk_queue_owner', 'stonez_internal', 'CREATE')
        OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE')
        OR NOT has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'SELECT')

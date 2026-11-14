@@ -88,7 +88,9 @@ $function$;
 -- PostgreSQL requires the new function owner to have CREATE on its schema at
 -- ownership-transfer time. Grant it only for this transaction, then revoke.
 GRANT USAGE, CREATE ON SCHEMA public TO stonez_bulk_queue_owner;
+GRANT stonez_bulk_queue_owner TO CURRENT_USER;
 ALTER FUNCTION public.claim_next_bulk_import_job(uuid) OWNER TO stonez_bulk_queue_owner;
+REVOKE stonez_bulk_queue_owner FROM CURRENT_USER;
 REVOKE CREATE ON SCHEMA public FROM stonez_bulk_queue_owner;
 
 REVOKE ALL PRIVILEGES ON FUNCTION public.claim_next_bulk_import_job(uuid) FROM PUBLIC;

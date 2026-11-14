@@ -64,8 +64,12 @@ BEGIN
        OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'TRIGGER') THEN
         RAISE EXCEPTION 'API runtime has direct queue-table privileges';
     END IF;
-    IF pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_owner', 'MEMBER') THEN
-        RAISE EXCEPTION 'API runtime must not be a member of queue owner';
+    IF pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_owner', 'MEMBER')
+       OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = api_role.oid) THEN
+        RAISE EXCEPTION 'API runtime must not inherit or assume another role';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_auth_members WHERE member = owner_role.oid) THEN
+        RAISE EXCEPTION 'queue owner must not inherit or assume another role';
     END IF;
 
     IF EXISTS (

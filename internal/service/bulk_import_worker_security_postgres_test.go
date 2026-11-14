@@ -168,7 +168,8 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 				SELECT q.id FROM ` + table + ` AS q
 				WHERE q.status = 'queued'
 				ORDER BY q.created_at, q.id
-				LIMIT 1\n\t\t\t\tFOR UPDATE SKIP LOCKED
+				LIMIT 1
+				FOR UPDATE SKIP LOCKED
 			)
 			RETURNING j.id, j.school_id, j.initiated_by, j.kind,
 				j.file_name, j.rows_json, j.errors_json, j.attempts

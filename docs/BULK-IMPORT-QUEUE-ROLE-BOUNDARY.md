@@ -33,7 +33,7 @@ All three SQL scripts are explicit operator-run artifacts. They are not executed
 
 The isolated PostgreSQL bulk-worker test harness uses a database where the test administrator can create and drop temporary roles. It creates uniquely named test roles and removes them in cleanup; it never reuses or alters the production role names.
 
-The PostgreSQL worker tests now create uniquely named roles and an isolated schema, install an equivalent test-scoped function, and clean up the roles/schema. They skip clearly when TEST_DATABASE_URL is absent or cannot create roles. The tests must establish the following using actual PostgreSQL role switching, not SQLite mocks:
+The PostgreSQL worker tests create uniquely named roles and isolated schemas, execute the shipped provisioning/verification/installation SQL scripts with substituted test identifiers, exercise the installed function and worker lifecycle, and clean up all roles/grants/schemas. They skip clearly when TEST_DATABASE_URL is absent or cannot create roles. The tests must establish the following using actual PostgreSQL role switching, not SQLite mocks:
 
 - A NOBYPASSRLS caller can SELECT, INSERT, and UPDATE jobs only within the school and initiating-user context set transaction-locally by the API.
 - Missing tenant context returns no rows and rejects inserts; cross-school SELECT/UPDATE/INSERT are denied by RLS.

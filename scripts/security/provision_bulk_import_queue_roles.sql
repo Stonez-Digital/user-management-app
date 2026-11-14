@@ -17,6 +17,13 @@ ALTER ROLE stonez_bulk_queue_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE N
 ALTER ROLE stonez_api_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS;
 GRANT USAGE ON SCHEMA public TO stonez_bulk_queue_owner;
 REVOKE CREATE ON SCHEMA public FROM stonez_bulk_queue_owner;
+REVOKE ALL PRIVILEGES ON TABLE public.bulk_import_jobs FROM stonez_bulk_queue_owner;
+REVOKE UPDATE (
+    id, school_id, initiated_by, kind, file_name, status, total, valid, created,
+    updated, skipped, failed, send_credentials, credentials_sent,
+    credential_emails_failed, worker_id, claimed_at, attempts, last_error,
+    rows_json, errors_json, created_at, updated_at
+) ON TABLE public.bulk_import_jobs FROM stonez_bulk_queue_owner;
 GRANT SELECT ON TABLE public.bulk_import_jobs TO stonez_bulk_queue_owner;
 GRANT UPDATE (status, worker_id, claimed_at, attempts, last_error)
     ON TABLE public.bulk_import_jobs TO stonez_bulk_queue_owner;

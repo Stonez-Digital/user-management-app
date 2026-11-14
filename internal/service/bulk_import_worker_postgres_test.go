@@ -117,6 +117,16 @@ func installBulkClaimFunctionForTest(t *testing.T, admin *gorm.DB, schema, owner
 	if err := admin.Exec("GRANT USAGE ON SCHEMA " + schema + " TO " + ownerRole + ", " + apiRole).Error; err != nil { return err }
 	if err := admin.Exec("GRANT SELECT ON TABLE " + schema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil { return err }
 	if err := admin.Exec("GRANT UPDATE (status, worker_id, claimed_at, attempts, last_error) ON TABLE " + schema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil { return err }
+	if err := admin.Exec("GRANT SELECT, INSERT, UPDATE ON TABLE " + schema + ".bulk_import_jobs TO " + apiRole).Error; err != nil { return err }
+	if err := admin.Exec("ALTER TABLE " + schema + ".bulk_import_jobs ENABLE ROW LEVEL SECURITY").Error; err != nil { return err }
+	policies := []string{
+		"CREATE POLICY bulk_import_jobs_tenant_select ON " + schema + ".bulk_import_jobs FOR SELECT TO " + apiRole + " USING (school_id = nullif(current_setting('app.current_school_id', true), '')::uuid)",
+		"CREATE POLICY bulk_import_jobs_tenant_insert ON " + schema + ".bulk_import_jobs FOR INSERT TO " + apiRole + " WITH CHECK (school_id = nullif(current_setting('app.current_school_id', true), '')::uuid AND initiated_by = nullif(current_setting('app.current_user_id', true), '')::uuid)",
+		"CREATE POLICY bulk_import_jobs_tenant_update ON " + schema + ".bulk_import_jobs FOR UPDATE TO " + apiRole + " USING (school_id = nullif(current_setting('app.current_school_id', true), '')::uuid AND initiated_by = nullif(current_setting('app.current_user_id', true), '')::uuid) WITH CHECK (school_id = nullif(current_setting('app.current_school_id', true), '')::uuid AND initiated_by = nullif(current_setting('app.current_user_id', true), '')::uuid)",
+	}
+	for _, policy := range policies {
+		if err := admin.Exec(policy).Error; err != nil { return err }
+	}
 	functionSQL := fmt.Sprintf(`
 CREATE OR REPLACE FUNCTION %s.claim_next_bulk_import_job(p_worker_id uuid)
 RETURNS SETOF %s.bulk_import_jobs

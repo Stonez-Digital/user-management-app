@@ -165,7 +165,7 @@ END
 $function$;
 
 REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) FROM PUBLIC;
-DO $
+DO $$
 DECLARE
     grantee_name text;
 BEGIN
@@ -183,7 +183,7 @@ BEGIN
         );
     END LOOP;
 END
-$;
+$$;
 GRANT EXECUTE ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) TO stonez_api_runtime;
 
 RESET ROLE;

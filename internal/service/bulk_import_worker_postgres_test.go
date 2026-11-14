@@ -55,6 +55,12 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, str
 		_ = adminSQL.Close()
 		t.Skipf("cannot create isolated private test schema: %v", err)
 	}
+	if err := admin.Exec("REVOKE ALL PRIVILEGES ON SCHEMA stonez_internal FROM PUBLIC").Error; err != nil {
+		_ = admin.Exec("DROP SCHEMA stonez_internal CASCADE").Error
+		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
+		_ = adminSQL.Close()
+		t.Fatalf("revoke public access to private test schema: %v", err)
+	}
 	var canCreateRoles bool
 	if err := admin.Raw("SELECT rolsuper OR rolcreaterole FROM pg_roles WHERE rolname = current_user").Scan(&canCreateRoles).Error; err != nil || !canCreateRoles {
 		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error

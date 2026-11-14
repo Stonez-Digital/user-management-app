@@ -164,11 +164,13 @@ BEGIN
     RETURN NEXT v_job;
 END
 $function$`, schema, schema, schema, schema)
-	if err := admin.Exec(functionSQL).Error; err != nil { return err }
-	if err := admin.Exec("ALTER FUNCTION public.claim_next_bulk_import_job(uuid) OWNER TO " + ownerRole).Error; err != nil { return err }
+	if err := admin.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SET LOCAL ROLE " + ownerRole).Error; err != nil { return err }
+		if err := tx.Exec(functionSQL).Error; err != nil { return err }
+		if err := tx.Exec("REVOKE ALL ON FUNCTION public.claim_next_bulk_import_job(uuid) FROM PUBLIC").Error; err != nil { return err }
+		return tx.Exec("GRANT EXECUTE ON FUNCTION public.claim_next_bulk_import_job(uuid) TO " + apiRole).Error
+	}); err != nil { return err }
 	if err := admin.Exec("REVOKE CREATE ON SCHEMA public FROM " + ownerRole).Error; err != nil { return err }
-	if err := admin.Exec("REVOKE ALL ON FUNCTION public.claim_next_bulk_import_job(uuid) FROM PUBLIC").Error; err != nil { return err }
-	if err := admin.Exec("GRANT EXECUTE ON FUNCTION public.claim_next_bulk_import_job(uuid) TO " + apiRole).Error; err != nil { return err }
 	return nil
 }
 

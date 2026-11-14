@@ -201,7 +201,19 @@ BEGIN
         RAISE EXCEPTION 'claim function owner, SECURITY DEFINER mode, or fixed search_path is unsafe';
     END IF;
 
-    IF NOT has_schema_privilege('stonez_api_runtime', 'stonez_internal', 'USAGE')
+    IF EXISTS (
+            SELECT 1
+              FROM pg_namespace AS private_schema
+              CROSS JOIN LATERAL aclexplode(COALESCE(private_schema.nspacl, acldefault('n', private_schema.nspowner))) AS schema_privilege
+             WHERE private_schema.nspname = 'stonez_internal'
+               AND (schema_privilege.grantee = 0
+                    OR schema_privilege.grantee NOT IN (
+                        private_schema.nspowner,
+                        (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime'),
+                        (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner')
+                    ))
+       )
+       OR NOT has_schema_privilege('stonez_api_runtime', 'stonez_internal', 'USAGE')
        OR has_schema_privilege('stonez_api_runtime', 'stonez_internal', 'CREATE')
        OR has_schema_privilege('stonez_api_runtime', 'public', 'CREATE')
        OR has_schema_privilege('stonez_bulk_queue_owner', 'stonez_internal', 'CREATE')

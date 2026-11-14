@@ -426,6 +426,15 @@ CREATE TABLE %s.bulk_import_jobs (
 		t.Fatalf("create queue table for SQL-script test: %v", err)
 	}
 
+	// Seed stale column-level grants on an existing role. Table-level REVOKE
+	// does not clear these ACLs, so the provisioning script must remove them.
+	if err := admin.Exec("CREATE ROLE " + ownerRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS").Error; err != nil {
+		t.Fatalf("create pre-existing queue-owner role: %v", err)
+	}
+	if err := admin.Exec("GRANT INSERT (rows_json), REFERENCES (school_id) ON TABLE " + tableSchema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil {
+		t.Fatalf("seed stale queue-owner column grants: %v", err)
+	}
+
 	runScript := func(name string) error {
 		raw, err := os.ReadFile("../../scripts/security/" + name)
 		if err != nil { return fmt.Errorf("read %s: %w", name, err) }

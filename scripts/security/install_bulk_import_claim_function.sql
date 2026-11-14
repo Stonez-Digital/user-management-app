@@ -181,7 +181,9 @@ BEGIN
        OR NOT has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'INSERT')
        OR NOT has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'UPDATE')
        OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'DELETE')
-       OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'TRUNCATE') THEN
+       OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'TRUNCATE')
+       OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'TRIGGER')
+       OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'REFERENCES') THEN
         RAISE EXCEPTION 'API runtime table/function grants do not match the intended tenant-only boundary';
     END IF;
 

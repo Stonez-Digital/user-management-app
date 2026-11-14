@@ -29,9 +29,20 @@ jobs:
           --health-retries 5
     env:
       TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/usersdb_test?sslmode=disable
+      BULK_QUEUE_ROLE_TEST_DATABASE_URL: postgres://bq_ci_runner:queue_role_ci_password@localhost:5432/usersdb_test?sslmode=disable
+      BULK_QUEUE_ROLE_TEST_DATABASE: usersdb_test
+      BULK_QUEUE_ROLE_TEST_ALLOW_ROLE_DDL: 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Provision isolated non-superuser role-test identity
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d usersdb_test -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE bq_ci_runner LOGIN CREATEROLE NOSUPERUSER NOBYPASSRLS PASSWORD 'queue_role_ci_password';
+          GRANT CREATE ON DATABASE usersdb_test TO bq_ci_runner;
+          SQL
       - name: Set up Go
         uses: actions/setup-go@v5
         with:

@@ -106,6 +106,9 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, str
 	if err := installBulkClaimFunctionForTest(t, admin, schema, ownerRole, apiRole); err != nil {
 		t.Fatalf("install isolated restricted claim function: %v", err)
 	}
+	if err := admin.Exec("GRANT USAGE ON SCHEMA " + schema + " TO " + otherRole).Error; err != nil {
+		t.Fatalf("grant schema usage to unrelated test role: %v", err)
+	}
 	return db, schema, ownerRole, apiRole, otherRole
 }
 

@@ -47,6 +47,7 @@ $$;
 
 -- Create/replace the function while SET ROLE is the dedicated owner. This
 -- avoids leaving the migration/operator role as function owner.
+GRANT USAGE ON SCHEMA public TO stonez_api_runtime;
 GRANT USAGE, CREATE ON SCHEMA public TO stonez_bulk_queue_owner;
 GRANT stonez_bulk_queue_owner TO CURRENT_USER;
 SET LOCAL ROLE stonez_bulk_queue_owner;
@@ -91,15 +92,10 @@ BEGIN
 END
 $function$;
 
-RESET ROLE;
-REVOKE stonez_bulk_queue_owner FROM CURRENT_USER;
-REVOKE CREATE ON SCHEMA public FROM stonez_bulk_queue_owner;
-
 REVOKE ALL PRIVILEGES ON FUNCTION public.claim_next_bulk_import_job(uuid) FROM PUBLIC;
-GRANT USAGE ON SCHEMA public TO stonez_api_runtime;
 GRANT EXECUTE ON FUNCTION public.claim_next_bulk_import_job(uuid) TO stonez_api_runtime;
 
-DO $$
+DO $
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
         EXECUTE 'REVOKE ALL PRIVILEGES ON FUNCTION public.claim_next_bulk_import_job(uuid) FROM anon';
@@ -108,5 +104,9 @@ BEGIN
         EXECUTE 'REVOKE ALL PRIVILEGES ON FUNCTION public.claim_next_bulk_import_job(uuid) FROM authenticated';
     END IF;
 END
-$$;
+$;
+
+RESET ROLE;
+REVOKE stonez_bulk_queue_owner FROM CURRENT_USER;
+REVOKE CREATE ON SCHEMA public FROM stonez_bulk_queue_owner;
 COMMIT;

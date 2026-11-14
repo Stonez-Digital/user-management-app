@@ -41,5 +41,35 @@ BEGIN
     IF pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_owner', 'MEMBER') THEN
         RAISE EXCEPTION 'API runtime must not be a member of queue owner';
     END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM pg_roles AS privileged
+        WHERE (privileged.rolsuper OR privileged.rolbypassrls)
+          AND privileged.rolname NOT IN ('stonez_api_runtime', 'stonez_bulk_queue_owner')
+          AND pg_has_role('stonez_api_runtime', privileged.oid, 'MEMBER')
+    ) THEN
+        RAISE EXCEPTION 'API runtime is a member of another privileged role';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM pg_roles AS privileged
+        WHERE (privileged.rolsuper OR privileged.rolbypassrls)
+          AND privileged.rolname NOT IN ('stonez_bulk_queue_owner')
+          AND pg_has_role('stonez_bulk_queue_owner', privileged.oid, 'MEMBER')
+    ) THEN
+        RAISE EXCEPTION 'queue owner is a member of another privileged role';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.table_privileges
+        WHERE grantee = 'stonez_bulk_queue_owner'
+          AND table_schema = 'public'
+          AND table_name <> 'bulk_import_jobs'
+    ) THEN
+        RAISE EXCEPTION 'queue owner has unexpected privileges on another public table';
+    END IF;
 END
 $$;

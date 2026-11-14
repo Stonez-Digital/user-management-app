@@ -142,4 +142,42 @@ $$;
 RESET ROLE;
 REVOKE stonez_bulk_queue_owner FROM CURRENT_USER;
 REVOKE CREATE ON SCHEMA public FROM stonez_bulk_queue_owner;
+
+DO $
+DECLARE
+    function_owner text;
+    function_is_definer boolean;
+    function_config text[];
+BEGIN
+    SELECT owner_role.rolname, procedure.prosecdef, procedure.proconfig
+      INTO function_owner, function_is_definer, function_config
+      FROM pg_proc AS procedure
+      JOIN pg_namespace AS namespace ON namespace.oid = procedure.pronamespace
+      JOIN pg_roles AS owner_role ON owner_role.oid = procedure.proowner
+     WHERE namespace.nspname = 'public'
+       AND procedure.proname = 'claim_next_bulk_import_job'
+       AND procedure.proargtypes = '2950'::oidvector;
+
+    IF function_owner IS DISTINCT FROM 'stonez_bulk_queue_owner'
+       OR function_is_definer IS DISTINCT FROM true
+       OR NOT ('search_path=pg_catalog' = ANY(COALESCE(function_config, ARRAY[]::text[]))) THEN
+        RAISE EXCEPTION 'claim function owner, SECURITY DEFINER mode, or fixed search_path is unsafe';
+    END IF;
+
+    IF NOT has_function_privilege('stonez_api_runtime', 'public.claim_next_bulk_import_job(uuid)', 'EXECUTE')
+       OR NOT has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'SELECT')
+       OR NOT has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'INSERT')
+       OR NOT has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'UPDATE')
+       OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'DELETE')
+       OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'TRUNCATE') THEN
+        RAISE EXCEPTION 'API runtime table/function grants do not match the intended tenant-only boundary';
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'bulk_import_jobs' AND policyname = 'bulk_import_jobs_tenant_select')
+       OR NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'bulk_import_jobs' AND policyname = 'bulk_import_jobs_tenant_insert')
+       OR NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'bulk_import_jobs' AND policyname = 'bulk_import_jobs_tenant_update') THEN
+        RAISE EXCEPTION 'bulk import tenant RLS policies were not installed';
+    END IF;
+END
+$;
 COMMIT;

@@ -9,6 +9,10 @@
 - The API uses custom HMAC JWT authentication, not Supabase Auth JWT claims, as the source of tenant context.
 - Gin validates a user and school context, but controllers and services currently hold a shared GORM database handle. A school ID in Gin context is not automatically attached to every SQL statement or guaranteed to use the same pooled connection.
 
+## RLS trust boundary
+
+The `app.current_school_id` and `app.current_user_id` values are custom PostgreSQL settings supplied by the application; they are not authenticated database identity claims. Any session using the runtime database login can set custom settings itself. These policies therefore protect against accidental unscoped application queries only while the Go authentication and transaction middleware remain trusted. They do not, by themselves, protect against arbitrary SQL execution/SQL injection or a compromised runtime database credential. Do not describe this as complete isolation from hostile SQL. Before making that stronger security claim, design and test a database-verifiable tenant context (for example, a signed context assertion) or another identity boundary that the runtime login cannot forge.
+
 ## Request-scoped transaction foundation
 
 The request transaction middleware is integrated in a staged manner:

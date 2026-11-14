@@ -116,7 +116,7 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, str
 	if err := database.Migrate(db); err != nil {
 		t.Fatalf("migrate isolated PostgreSQL schema: %v", err)
 	}
-	if err := installBulkClaimFunctionForTest(t, admin, schema, ownerRole, apiRole); err != nil {
+	if err := installBulkClaimFunctionForTest(t, admin, schema, ownerRole, apiRole, otherRole); err != nil {
 		t.Fatalf("install isolated restricted claim function: %v", err)
 	}
 	if err := admin.Exec("GRANT USAGE ON SCHEMA " + schema + " TO " + otherRole).Error; err != nil {
@@ -125,7 +125,7 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, str
 	return db, schema, ownerRole, apiRole, otherRole
 }
 
-func installBulkClaimFunctionForTest(t *testing.T, admin *gorm.DB, schema, ownerRole, apiRole string) error {
+func installBulkClaimFunctionForTest(t *testing.T, admin *gorm.DB, schema, ownerRole, apiRole, otherRole string) error {
 	t.Helper()
 	if err := admin.Exec("GRANT USAGE ON SCHEMA " + schema + " TO " + ownerRole + ", " + apiRole).Error; err != nil { return err }
 	if err := admin.Exec("GRANT SELECT ON TABLE " + schema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil { return err }

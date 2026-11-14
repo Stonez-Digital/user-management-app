@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -349,6 +350,133 @@ func TestBulkWorkerPostgresClaimFunctionReclaimsOnlyExpiredLeases(t *testing.T) 
 
 func ptrTime(value time.Time) *time.Time { return &value }
 
+
+// TestBulkImportQueueRoleScriptsInstallInIsolatedPostgres executes the exact
+// operator scripts after substituting isolated role/schema names. It proves
+// the shipped SQL is executable and its final assertions hold without
+// touching the production role names or schemas.
+func TestBulkImportQueueRoleScriptsInstallInIsolatedPostgres(t *testing.T) {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	admin, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("connect test PostgreSQL database: %v", err)
+	}
+	adminSQL, err := admin.DB()
+	if err != nil { t.Fatal(err) }
+
+	var canCreateRoles bool
+	if err := admin.Raw("SELECT rolsuper OR rolcreaterole FROM pg_roles WHERE rolname = current_user").Scan(&canCreateRoles).Error; err != nil || !canCreateRoles {
+		_ = adminSQL.Close()
+		t.Skip("TEST_DATABASE_URL role cannot create isolated PostgreSQL roles; SQL role-boundary test requires CREATEROLE")
+	}
+
+	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
+	tableSchema := "biq_scripts_" + suffix
+	privateSchema := "biq_internal_" + suffix
+	ownerRole := "biq_script_owner_" + suffix
+	apiRole := "biq_script_api_" + suffix
+
+	if err := admin.Exec("CREATE SCHEMA " + tableSchema).Error; err != nil {
+		_ = adminSQL.Close()
+		t.Fatalf("create SQL-script test schema: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = admin.Exec("DROP SCHEMA IF EXISTS " + privateSchema + " CASCADE").Error
+		_ = admin.Exec("DROP SCHEMA IF EXISTS " + tableSchema + " CASCADE").Error
+		_ = admin.Exec("GRANT " + ownerRole + " TO CURRENT_USER").Error
+		_ = admin.Exec("GRANT " + apiRole + " TO CURRENT_USER").Error
+		_ = admin.Exec("DROP OWNED BY " + apiRole).Error
+		_ = admin.Exec("DROP OWNED BY " + ownerRole).Error
+		_ = admin.Exec("REVOKE " + apiRole + ", " + ownerRole + " FROM CURRENT_USER").Error
+		_ = admin.Exec("DROP ROLE IF EXISTS " + apiRole).Error
+		_ = admin.Exec("DROP ROLE IF EXISTS " + ownerRole).Error
+		_ = adminSQL.Close()
+	})
+
+	createTable := fmt.Sprintf(`
+CREATE TABLE %s.bulk_import_jobs (
+    id uuid PRIMARY KEY,
+    school_id uuid NOT NULL,
+    initiated_by uuid NOT NULL,
+    kind text NOT NULL,
+    file_name text NOT NULL,
+    status text NOT NULL,
+    total integer NOT NULL DEFAULT 0,
+    valid integer NOT NULL DEFAULT 0,
+    created integer NOT NULL DEFAULT 0,
+    updated integer NOT NULL DEFAULT 0,
+    skipped integer NOT NULL DEFAULT 0,
+    failed integer NOT NULL DEFAULT 0,
+    send_credentials boolean NOT NULL DEFAULT false,
+    credentials_sent integer NOT NULL DEFAULT 0,
+    credential_emails_failed integer NOT NULL DEFAULT 0,
+    worker_id uuid,
+    claimed_at timestamptz,
+    attempts integer NOT NULL DEFAULT 0,
+    last_error text NOT NULL DEFAULT '',
+    rows_json text NOT NULL DEFAULT '[]',
+    errors_json text NOT NULL DEFAULT '[]',
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
+)`, tableSchema)
+	if err := admin.Exec(createTable).Error; err != nil {
+		t.Fatalf("create queue table for SQL-script test: %v", err)
+	}
+
+	runScript := func(name string) error {
+		raw, err := os.ReadFile("../../scripts/security/" + name)
+		if err != nil { return fmt.Errorf("read %s: %w", name, err) }
+		script := string(raw)
+		script = strings.ReplaceAll(script, "stonez_bulk_queue_owner", ownerRole)
+		script = strings.ReplaceAll(script, "stonez_api_runtime", apiRole)
+		script = strings.ReplaceAll(script, "stonez_internal", privateSchema)
+		script = strings.ReplaceAll(script, "public", tableSchema)
+		if err := admin.Exec(script).Error; err != nil {
+			return fmt.Errorf("execute %s: %w", name, err)
+		}
+		return nil
+	}
+
+	for _, name := range []string{
+		"provision_bulk_import_queue_roles.sql",
+		"verify_bulk_import_queue_roles.sql",
+		"install_bulk_import_claim_function.sql",
+	} {
+		if err := runScript(name); err != nil {
+			t.Fatalf("queue role SQL script failed: %v", err)
+		}
+	}
+
+	job := models.BulkImportJob{
+		ID: uuid.New(), SchoolID: uuid.New(), InitiatedBy: uuid.New(),
+		Kind: "students", FileName: "script-test.csv", Status: models.BulkImportQueued,
+	}
+	if err := admin.Table(tableSchema + ".bulk_import_jobs").Create(&job).Error; err != nil {
+		t.Fatalf("create queued job for installed function: %v", err)
+	}
+
+	if err := admin.Exec("GRANT " + apiRole + " TO CURRENT_USER").Error; err != nil {
+		t.Fatalf("grant temporary test session membership in API group: %v", err)
+	}
+	workerID := uuid.New()
+	var claimed models.BulkImportJob
+	err = admin.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SET LOCAL ROLE " + apiRole).Error; err != nil { return err }
+		result := tx.Raw("SELECT * FROM " + privateSchema + ".claim_next_bulk_import_job(?)", workerID).Scan(&claimed)
+		if result.Error != nil { return result.Error }
+		if result.RowsAffected != 1 { return fmt.Errorf("expected one row from installed claim function, got %d", result.RowsAffected) }
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("execute installed private claim function as API group: %v", err)
+	}
+	if claimed.ID != job.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID {
+		t.Fatalf("installed claim function returned unexpected job: %+v", claimed)
+	}
+}
 
 func TestBulkWorkerPostgresConcurrentClaimsSkipLockedJobs(t *testing.T) {
 	db, _, _, _, _ := openBulkWorkerPostgres(t)

@@ -154,9 +154,7 @@ BEGIN
       FROM pg_proc AS procedure
       JOIN pg_namespace AS namespace ON namespace.oid = procedure.pronamespace
       JOIN pg_roles AS owner_role ON owner_role.oid = procedure.proowner
-     WHERE namespace.nspname = 'public'
-       AND procedure.proname = 'claim_next_bulk_import_job'
-       AND procedure.proargtypes = '2950'::oidvector;
+     WHERE procedure.oid = 'public.claim_next_bulk_import_job(uuid)'::regprocedure;
 
     IF function_owner IS DISTINCT FROM 'stonez_bulk_queue_owner'
        OR function_is_definer IS DISTINCT FROM true

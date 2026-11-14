@@ -11,7 +11,7 @@ The repository now includes the role-preparation scripts, a SECURITY DEFINER cla
 | Role | Login | RLS bypass | Intended authority |
 |---|---:|---:|---|
 | stonez_bulk_queue_owner | No | Yes | Owns the claim function; can SELECT queue rows and UPDATE only lease/claim columns on public.bulk_import_jobs. |
-| stonez_api_runtime | No | No | Receives EXECUTE on the global claim function plus SELECT/INSERT/UPDATE on bulk_import_jobs guarded by school-and-initiator RLS policies. |
+| stonez_api_runtime | No | No | Receives EXECUTE on the global claim function plus SELECT/INSERT/UPDATE on bulk_import_jobs; SELECT is school-scoped and INSERT/UPDATE are school-and-initiator-scoped. |
 | Actual API login | Yes | No | Must be a dedicated NOBYPASSRLS, INHERIT login, later granted membership in stonez_api_runtime. It must not be postgres or a member of the queue-owner role. |
 
 The queue owner requires BYPASSRLS because the claim operation is intentionally global across schools. This is bounded by table ACLs: it receives no privileges on other application tables, no DDL privileges, no role-management privileges, and no login capability. The API runtime role itself remains NOBYPASSRLS.
@@ -38,7 +38,7 @@ The PostgreSQL worker tests now create uniquely named roles and an isolated sche
 - A NOBYPASSRLS caller can SELECT, INSERT, and UPDATE jobs only within the school and initiating-user context set transaction-locally by the API.
 - Missing tenant context returns no rows and rejects inserts; cross-school SELECT/UPDATE/INSERT are denied by RLS.
 - The API caller cannot DELETE or TRUNCATE queue rows.
-- The caller can execute the global queue-claim function without receiving unrestricted direct-table access.
+- The caller can execute the global queue-claim function without receiving unrestricted direct-table access; the function rejects a session login that is not a member of stonez_api_runtime.
 - The function owner is a non-login, non-superuser BYPASSRLS role with only SELECT and claim-column UPDATE on the queue table; its RLS bypass is not inherited by the API group.
 - PUBLIC and unrelated roles cannot execute the function.
 - Concurrent callers using FOR UPDATE SKIP LOCKED receive distinct jobs.

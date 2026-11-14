@@ -293,7 +293,7 @@ func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T)
 	err = db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("SET LOCAL ROLE " + otherRole).Error; err != nil { return err }
 		var denied models.BulkImportJob
-		return tx.Raw("SELECT * FROM public.claim_next_bulk_import_job(?)", uuid.New()).Scan(&denied).Error
+		return tx.Raw("SELECT * FROM stonez_internal.claim_next_bulk_import_job(?)", uuid.New()).Scan(&denied).Error
 	})
 	if err == nil { t.Fatal("unrelated role unexpectedly executed the queue claim function") }
 

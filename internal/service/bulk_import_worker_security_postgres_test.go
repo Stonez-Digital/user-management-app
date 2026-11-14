@@ -296,6 +296,113 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 		t.Fatalf("active lease must not be reclaimed and no eligible jobs remain: %+v", claimed)
 	}
 
+	// Verify the catalog-level function boundary, not just its observed behavior.
+	var metadata struct {
+		Owner string
+		SecurityDefiner bool
+		SearchPath string
+		RuntimeCanExecute bool
+		OutsiderCanExecute bool
+		PublicCanExecute bool
+	}
+	if err := admin.Raw(`SELECT pg_get_userbyid(p.proowner) AS owner,
+		p.prosecdef AS security_definer,
+		COALESCE(array_to_string(p.proconfig, ','), '') AS search_path,
+		has_function_privilege(?, p.oid, 'EXECUTE') AS runtime_can_execute,
+		has_function_privilege(?, p.oid, 'EXECUTE') AS outsider_can_execute,
+		has_function_privilege('PUBLIC', p.oid, 'EXECUTE') AS public_can_execute
+		FROM pg_proc p WHERE p.oid = ?::regprocedure`,
+		runtimeLogin, outsiderLogin, function+"(uuid)").Scan(&metadata).Error; err != nil {
+		t.Fatalf("inspect restricted function metadata: %v", err)
+	}
+	if metadata.Owner != ownerRole || !metadata.SecurityDefiner || metadata.SearchPath != "search_path=pg_catalog" {
+		t.Fatalf("unexpected function security metadata: %+v", metadata)
+	}
+	if !metadata.RuntimeCanExecute || metadata.OutsiderCanExecute || metadata.PublicCanExecute {
+		t.Fatalf("unexpected function execution ACL: %+v", metadata)
+	}
+
+	// Hold the oldest queue row locked from a separate connection. Concurrent
+	// restricted callers must skip it and claim different eligible rows.
+	concurrentIDs := make([]uuid.UUID, 5)
+	for i := range concurrentIDs {
+		concurrentIDs[i] = uuid.New()
+		if err := admin.Exec(seed, concurrentIDs[i], schoolID, actorID,
+			fmt.Sprintf("concurrent-%d.csv", i), "queued", "[]", "[]",
+			now.Add(time.Duration(i)*time.Second), nil, 0, "").Error; err != nil {
+			t.Fatalf("seed concurrent queue job %d: %v", i, err)
+		}
+	}
+	lockTx := admin.Begin()
+	if lockTx.Error != nil {
+		t.Fatalf("begin queue row lock transaction: %v", lockTx.Error)
+	}
+	var lockedID uuid.UUID
+	if err := lockTx.Raw("SELECT id FROM "+table+" WHERE id = ? FOR UPDATE", concurrentIDs[0]).Scan(&lockedID).Error; err != nil {
+		_ = lockTx.Rollback().Error
+		t.Fatalf("lock oldest concurrent job: %v", err)
+	}
+	if lockedID != concurrentIDs[0] {
+		_ = lockTx.Rollback().Error
+		t.Fatalf("failed to lock intended oldest job: got %s want %s", lockedID, concurrentIDs[0])
+	}
+
+	type claimResult struct {
+		row restrictedClaimRow
+		err error
+	}
+	results := make(chan claimResult, 3)
+	start := make(chan struct{})
+	for i := 0; i < 3; i++ {
+		go func() {
+			<-start
+			var rows []restrictedClaimRow
+			worker := uuid.New()
+			err := runtimeDB.Raw("SELECT * FROM "+function+"(?)", worker).Scan(&rows).Error
+			if err != nil {
+				results <- claimResult{err: err}
+				return
+			}
+			if len(rows) != 1 {
+				results <- claimResult{err: fmt.Errorf("concurrent claim returned %d rows, want 1", len(rows))}
+				return
+			}
+			if rows[0].WorkerID == nil || *rows[0].WorkerID != worker {
+				results <- claimResult{err: fmt.Errorf("concurrent claim did not persist caller worker ID")}
+				return
+			}
+			results <- claimResult{row: rows[0]}
+		}()
+	}
+	close(start)
+	claimedIDs := make(map[uuid.UUID]bool)
+	for i := 0; i < 3; i++ {
+		result := <-results
+		if result.err != nil {
+			_ = lockTx.Rollback().Error
+			t.Fatalf("concurrent restricted claim: %v", result.err)
+		}
+		if result.row.ID == concurrentIDs[0] {
+			_ = lockTx.Rollback().Error
+			t.Fatal("restricted claim did not skip the externally locked oldest job")
+		}
+		if claimedIDs[result.row.ID] {
+			_ = lockTx.Rollback().Error
+			t.Fatalf("two concurrent callers claimed the same job %s", result.row.ID)
+		}
+		claimedIDs[result.row.ID] = true
+	}
+	if err := lockTx.Commit().Error; err != nil {
+		t.Fatalf("release oldest queue row lock: %v", err)
+	}
+	var finalClaim []restrictedClaimRow
+	if err := runtimeDB.Raw("SELECT * FROM "+function+"(?)", uuid.New()).Scan(&finalClaim).Error; err != nil {
+		t.Fatalf("claim previously locked job after release: %v", err)
+	}
+	if len(finalClaim) != 1 || finalClaim[0].ID != concurrentIDs[0] {
+		t.Fatalf("expected oldest locked job to become claimable after release, got %+v", finalClaim)
+	}
+
 	outsiderDSN := *parsed
 	outsiderDSN.User = url.UserPassword(outsiderLogin, outsiderPassword)
 	outsiderDSN.RawQuery = query.Encode()

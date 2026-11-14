@@ -60,8 +60,19 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string) {
 		_ = adminSQL.Close()
 		t.Skipf("cannot create isolated API test role: %v", err)
 	}
+	// CREATEROLE test users are not necessarily superusers. Granting the
+	// temporary group role to the test session user allows SET LOCAL ROLE;
+	// the membership is removed during cleanup and never touches production.
+	if err := admin.Exec("GRANT " + apiRole + " TO CURRENT_USER").Error; err != nil {
+		_ = admin.Exec("DROP ROLE " + apiRole).Error
+		_ = admin.Exec("DROP ROLE " + ownerRole).Error
+		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
+		_ = adminSQL.Close()
+		t.Skipf("cannot grant isolated API test role to test session: %v", err)
+	}
 	t.Cleanup(func() {
 		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
+		_ = admin.Exec("REVOKE " + apiRole + " FROM CURRENT_USER").Error
 		_ = admin.Exec("DROP ROLE " + apiRole).Error
 		_ = admin.Exec("DROP ROLE " + ownerRole).Error
 		_ = adminSQL.Close()

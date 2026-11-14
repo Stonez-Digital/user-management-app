@@ -16,6 +16,7 @@ $$;
 ALTER ROLE stonez_bulk_queue_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT BYPASSRLS;
 ALTER ROLE stonez_api_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS;
 GRANT USAGE ON SCHEMA public TO stonez_bulk_queue_owner;
+REVOKE CREATE ON SCHEMA public FROM stonez_bulk_queue_owner;
 GRANT SELECT ON TABLE public.bulk_import_jobs TO stonez_bulk_queue_owner;
 GRANT UPDATE (status, worker_id, claimed_at, attempts, last_error)
     ON TABLE public.bulk_import_jobs TO stonez_bulk_queue_owner;

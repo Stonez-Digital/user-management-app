@@ -168,7 +168,7 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 				SELECT q.id FROM ` + table + ` AS q
 				WHERE q.status = 'queued'
 				ORDER BY q.created_at, q.id
-				FOR UPDATE SKIP LOCKED LIMIT 1
+				LIMIT 1\n\t\t\t\tFOR UPDATE SKIP LOCKED
 			)
 			RETURNING j.id, j.school_id, j.initiated_by, j.kind,
 				j.file_name, j.rows_json, j.errors_json, j.attempts
@@ -178,6 +178,12 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 	}
 	if err := admin.Exec(createFunction).Error; err != nil {
 		t.Fatalf("create isolated definer fixture: %v", err)
+	}
+	// Revoke the default PUBLIC EXECUTE privilege while the creating role
+	// still owns the function. Do this before ownership transfer so the
+	// unrelated login cannot inherit the default function privilege.
+	if err := admin.Exec("REVOKE ALL ON FUNCTION " + function + "(uuid) FROM PUBLIC").Error; err != nil {
+		t.Fatalf("revoke public function execution: %v", err)
 	}
 	if err := admin.Exec("GRANT " + ownerRole + " TO " + identity.Role).Error; err != nil {
 		t.Fatalf("temporarily grant function-owner membership: %v", err)
@@ -190,9 +196,6 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 	}
 	if err := admin.Exec("REVOKE CREATE ON SCHEMA " + schema + " FROM " + ownerRole).Error; err != nil {
 		t.Fatalf("revoke temporary schema create: %v", err)
-	}
-	if err := admin.Exec("REVOKE ALL ON FUNCTION " + function + "(uuid) FROM PUBLIC").Error; err != nil {
-		t.Fatalf("revoke public function execution: %v", err)
 	}
 	if err := admin.Exec("GRANT EXECUTE ON FUNCTION " + function + "(uuid) TO " + runtimeRole).Error; err != nil {
 		t.Fatalf("grant runtime function execution: %v", err)
@@ -252,7 +255,8 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer outsiderSQL.Close()
-	if err := outsiderDB.Exec("SELECT * FROM " + function + "(?)", uuid.New()).Error; err == nil {
+	var outsiderRows []restrictedClaimRow
+	if err := outsiderDB.Raw("SELECT * FROM " + function + "(?)", uuid.New()).Scan(&outsiderRows).Error; err == nil {
 		t.Fatal("unrelated login unexpectedly executed the restricted claim function")
 	}
 

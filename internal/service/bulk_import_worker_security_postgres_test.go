@@ -22,6 +22,9 @@ type restrictedClaimRow struct {
 	RowsJSON   string    `gorm:"column:rows_json"`
 	ErrorsJSON string    `gorm:"column:errors_json"`
 	Attempts   int       `gorm:"column:attempts"`
+	WorkerID   *uuid.UUID `gorm:"column:worker_id"`
+	ClaimedAt  *time.Time `gorm:"column:claimed_at"`
+	LastError  string     `gorm:"column:last_error"`
 }
 
 // TestBulkQueuePostgresRestrictedRoleBoundary is deliberately opt-in because
@@ -138,7 +141,7 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 		)`,
 		"ALTER TABLE " + table + " ENABLE ROW LEVEL SECURITY",
 		"CREATE POLICY queue_owner_all ON " + table + " FOR ALL TO " + ownerRole + " USING (true) WITH CHECK (true)",
-		"GRANT SELECT (id, school_id, initiated_by, kind, file_name, status, rows_json, errors_json, created_at, attempts) ON " + table + " TO " + ownerRole,
+		"GRANT SELECT (id, school_id, initiated_by, kind, file_name, status, rows_json, errors_json, created_at, attempts, claimed_at) ON " + table + " TO " + ownerRole,
 		"GRANT UPDATE (status, worker_id, claimed_at, attempts, last_error) ON " + table + " TO " + ownerRole,
 		"REVOKE ALL ON " + table + " FROM PUBLIC",
 	}
@@ -149,9 +152,26 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 	}
 
 	jobID, schoolID, actorID := uuid.New(), uuid.New(), uuid.New()
-	if err := admin.Exec("INSERT INTO "+table+" (id, school_id, initiated_by, kind, file_name, status, rows_json, errors_json, created_at) VALUES (?, ?, ?, 'students', 'restricted.csv', 'queued', '[]', '[]', ?)",
-		jobID, schoolID, actorID, time.Now().UTC()).Error; err != nil {
-		t.Fatalf("seed isolated queue job: %v", err)
+	queuedID, expiredID, unleasedID, activeID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	now := time.Now().UTC()
+	seed := "INSERT INTO " + table + " (id, school_id, initiated_by, kind, file_name, status, rows_json, errors_json, created_at, claimed_at, attempts, last_error) VALUES (?, ?, ?, 'students', ?, ?, ?, ?, ?, ?, ?, ?)"
+	seeds := []struct {
+		id uuid.UUID
+		name, status, rows, errors string
+		created time.Time
+		claimed *time.Time
+		attempts int
+		lastError string
+	}{
+		{jobID, "expired.csv", "running", `[{"name":"Expired payload"}]`, `[{"row":2,"message":"previous"}]`, now.Add(-4*time.Minute), timePtr(now.Add(-10*time.Minute)), 2, "stale failure"},
+		{queuedID, "queued.csv", "queued", `[{"name":"Queued payload"}]`, `[{"row":3,"message":"validation"}]`, now.Add(-3*time.Minute), nil, 0, "old queue error"},
+		{unleasedID, "unleased.csv", "running", "[]", "[]", now.Add(-2*time.Minute), nil, 4, "orphaned lease"},
+		{activeID, "active.csv", "running", "[]", "[]", now.Add(-time.Minute), timePtr(now.Add(-time.Minute)), 1, ""},
+	}
+	for _, s := range seeds {
+		if err := admin.Exec(seed, s.id, schoolID, actorID, s.name, s.status, s.rows, s.errors, s.created, s.claimed, s.attempts, s.lastError).Error; err != nil {
+			t.Fatalf("seed isolated queue job %s: %v", s.name, err)
+		}
 	}
 
 	// The fixture function is intentionally small: it validates SECURITY DEFINER
@@ -159,7 +179,8 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 	function := schema + ".claim_bulk_import_job"
 	createFunction := `CREATE FUNCTION ` + function + `(p_worker uuid)
 		RETURNS TABLE(id uuid, school_id uuid, initiated_by uuid, kind text,
-			file_name text, rows_json text, errors_json text, attempts integer)
+			file_name text, rows_json text, errors_json text, attempts integer,
+			worker_id uuid, claimed_at timestamptz, last_error text)
 		LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog AS $fn$
 			UPDATE ` + table + ` AS j
 			SET status = 'running', worker_id = p_worker,
@@ -167,12 +188,14 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 			WHERE j.id = (
 				SELECT q.id FROM ` + table + ` AS q
 				WHERE q.status = 'queued'
+				   OR (q.status = 'running' AND (q.claimed_at IS NULL OR q.claimed_at < clock_timestamp() - interval '5 minutes'))
 				ORDER BY q.created_at, q.id
 				LIMIT 1
 				FOR UPDATE SKIP LOCKED
 			)
 			RETURNING j.id, j.school_id, j.initiated_by, j.kind,
-				j.file_name, j.rows_json, j.errors_json, j.attempts
+				j.file_name, j.rows_json, j.errors_json, j.attempts,
+				j.worker_id, j.claimed_at, j.last_error
 		$fn$`
 	if err := admin.Exec("GRANT CREATE ON SCHEMA " + schema + " TO " + ownerRole).Error; err != nil {
 		t.Fatalf("temporarily grant function creation: %v", err)
@@ -242,8 +265,35 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 	if err := runtimeDB.Raw("SELECT * FROM " + function + "(?)", workerID).Scan(&claimed).Error; err != nil {
 		t.Fatalf("authorized runtime function call: %v", err)
 	}
-	if len(claimed) != 1 || claimed[0].ID != jobID || claimed[0].Attempts != 1 {
-		t.Fatalf("function did not return the single claimed job with attempts=1: %+v", claimed)
+	if len(claimed) != 1 || claimed[0].ID != jobID || claimed[0].Attempts != 3 {
+		t.Fatalf("function did not reclaim the oldest expired job with attempts=3: %+v", claimed)
+	}
+	if claimed[0].WorkerID == nil || *claimed[0].WorkerID != workerID || claimed[0].ClaimedAt == nil || claimed[0].LastError != "" {
+		t.Fatalf("claim did not refresh worker/lease and clear prior error: %+v", claimed[0])
+	}
+	if claimed[0].SchoolID != schoolID || claimed[0].InitiatedBy != actorID || claimed[0].RowsJSON != `[{"name":"Expired payload"}]` || claimed[0].ErrorsJSON != `[{"row":2,"message":"previous"}]` {
+		t.Fatalf("claim did not preserve tenant, initiator, and payload fields: %+v", claimed[0])
+	}
+	claimed = nil
+	if err := runtimeDB.Raw("SELECT * FROM " + function + "(?)", workerID).Scan(&claimed).Error; err != nil {
+		t.Fatalf("claim queued job: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != queuedID || claimed[0].Attempts != 1 || claimed[0].LastError != "" {
+		t.Fatalf("expected oldest queued job with attempts=1 and cleared error: %+v", claimed)
+	}
+	claimed = nil
+	if err := runtimeDB.Raw("SELECT * FROM " + function + "(?)", workerID).Scan(&claimed).Error; err != nil {
+		t.Fatalf("claim unleased running job: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != unleasedID || claimed[0].Attempts != 5 {
+		t.Fatalf("expected unleased running job recovery with attempts=5: %+v", claimed)
+	}
+	claimed = nil
+	if err := runtimeDB.Raw("SELECT * FROM " + function + "(?)", workerID).Scan(&claimed).Error; err != nil {
+		t.Fatalf("check exhausted queue: %v", err)
+	}
+	if len(claimed) != 0 {
+		t.Fatalf("active lease must not be reclaimed and no eligible jobs remain: %+v", claimed)
 	}
 
 	outsiderDSN := *parsed

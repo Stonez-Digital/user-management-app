@@ -18,6 +18,8 @@ The queue owner remains NOBYPASSRLS. A dedicated `FOR ALL` RLS policy on `bulk_i
 
 The provisioning script does not create an API login or password, and does not grant role membership to any existing login. The function installer grants the API group role only tenant-policy-controlled SELECT/INSERT/UPDATE on the queue table; it does not grant DELETE or TRUNCATE. The production Render connection currently uses postgres; do not grant the group role to that connection or treat it as a restricted runtime.
 
+The claim function returns a full queue row across schools. Consequently, every login granted membership in `stonez_api_runtime` can invoke the global claim operation and receive a job payload; this is a worker-capable service privilege, not a school-facing user permission. Grant membership only to the trusted service identity that runs the worker. If HTTP request handling and background processing are later separated into different processes, use a worker-only role and database connection rather than sharing this global claim capability with the web API login.
+
 ## Preparation
 
 1. Review scripts/security/provision_bulk_import_queue_roles.sql against the target database and confirm public.bulk_import_jobs exists with the lease columns from migration 47.

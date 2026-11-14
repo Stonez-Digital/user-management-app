@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -124,6 +125,7 @@ func (s *BulkImportService) workerLoop() {
 	for {
 		job, err := s.claimNextJob()
 		if err != nil {
+			log.Printf("bulk import worker claim failed: %v", err)
 			time.Sleep(bulkImportPollInterval)
 			continue
 		}

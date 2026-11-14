@@ -1,6 +1,7 @@
 -- Operator-run preparation only. Not called by app startup or migrations.
 -- The queue owner is BYPASSRLS but has privileges only on bulk_import_jobs.
--- The API group role is NOBYPASSRLS and receives no direct queue-table access.
+-- The API group role is NOBYPASSRLS; the later function installer grants only
+-- tenant-policy-controlled SELECT/INSERT/UPDATE on the queue table.
 -- Do not grant either role to the current postgres API connection.
 BEGIN;
 DO $$

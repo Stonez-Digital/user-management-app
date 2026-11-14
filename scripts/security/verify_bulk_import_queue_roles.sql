@@ -65,10 +65,10 @@ BEGIN
         RAISE EXCEPTION 'API runtime has direct queue-table privileges';
     END IF;
     IF pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_owner', 'MEMBER')
-       OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = api_role.oid) THEN
+       OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = api_role.oid OR roleid = api_role.oid) THEN
         RAISE EXCEPTION 'API runtime must not inherit or assume another role';
     END IF;
-    IF EXISTS (SELECT 1 FROM pg_auth_members WHERE member = owner_role.oid) THEN
+    IF EXISTS (SELECT 1 FROM pg_auth_members WHERE member = owner_role.oid OR roleid = owner_role.oid) THEN
         RAISE EXCEPTION 'queue owner must not inherit or assume another role';
     END IF;
 

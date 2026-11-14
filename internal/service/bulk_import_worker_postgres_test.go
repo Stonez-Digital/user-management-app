@@ -253,7 +253,7 @@ func ptrTime(value time.Time) *time.Time { return &value }
 
 
 func TestBulkWorkerPostgresConcurrentClaimsSkipLockedJobs(t *testing.T) {
-	db, _, _, _ := openBulkWorkerPostgres(t)
+	db, _, _, _, _ := openBulkWorkerPostgres(t)
 	schoolID, actor := uuid.New(), uuid.New()
 	first := models.BulkImportJob{
 		SchoolID: schoolID, InitiatedBy: actor, Kind: "students",

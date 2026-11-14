@@ -61,6 +61,7 @@ BEGIN
        OR has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'INSERT')
        OR has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'DELETE')
        OR has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'TRUNCATE')
+       OR has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'REFERENCES')
        OR has_any_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'INSERT')
        OR has_any_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'REFERENCES')
        OR has_schema_privilege('stonez_bulk_queue_owner', 'public', 'CREATE')

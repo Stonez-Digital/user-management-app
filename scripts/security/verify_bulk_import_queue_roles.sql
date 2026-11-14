@@ -111,9 +111,10 @@ BEGIN
         FROM pg_attribute AS attribute
         JOIN pg_class AS relation ON relation.oid = attribute.attrelid
         JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
-        CROSS JOIN LATERAL aclexplode(COALESCE(attribute.attacl, ARRAY[]::aclitem[])) AS privilege
+        CROSS JOIN LATERAL aclexplode(attribute.attacl) AS privilege
         JOIN pg_roles AS grantee ON grantee.oid = privilege.grantee
-        WHERE namespace.nspname = 'public'
+        WHERE attribute.attacl IS NOT NULL
+          AND namespace.nspname = 'public'
           AND relation.relname <> 'bulk_import_jobs'
           AND attribute.attnum > 0
           AND NOT attribute.attisdropped

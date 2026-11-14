@@ -70,7 +70,6 @@ ALTER FUNCTION public.claim_next_bulk_import_job(uuid) OWNER TO stonez_bulk_queu
 REVOKE CREATE ON SCHEMA public FROM stonez_bulk_queue_owner;
 
 REVOKE ALL PRIVILEGES ON FUNCTION public.claim_next_bulk_import_job(uuid) FROM PUBLIC;
-REVOKE ALL PRIVILEGES ON FUNCTION public.claim_next_bulk_import_job(uuid) FROM stonez_bulk_queue_owner;
 GRANT USAGE ON SCHEMA public TO stonez_api_runtime;
 GRANT EXECUTE ON FUNCTION public.claim_next_bulk_import_job(uuid) TO stonez_api_runtime;
 

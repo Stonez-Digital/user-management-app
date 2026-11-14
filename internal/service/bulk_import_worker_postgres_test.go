@@ -467,23 +467,58 @@ CREATE TABLE %s.bulk_import_jobs (
 		t.Fatalf("create queued job for installed function: %v", err)
 	}
 
-	if err := admin.Exec("GRANT " + apiRole + " TO CURRENT_USER").Error; err != nil {
-		t.Fatalf("grant temporary test session membership in API group: %v", err)
+	// Exercise the shipped function with a real, restricted LOGIN role. A
+	// SET ROLE test alone leaves session_user as the privileged test admin and
+	// would not prove the function's session_user membership guard.
+	loginRole := "biq_script_login_" + suffix
+	loginPassword := uuid.NewString()
+	if err := admin.Exec("CREATE ROLE " + loginRole + " LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS PASSWORD '" + loginPassword + "'").Error; err != nil {
+		t.Fatalf("create restricted API login for script test: %v", err)
 	}
+	if err := admin.Exec("GRANT " + apiRole + " TO " + loginRole).Error; err != nil {
+		t.Fatalf("grant API runtime group to restricted login: %v", err)
+	}
+	var loginDB *gorm.DB
+	t.Cleanup(func() {
+		if loginDB != nil {
+			if sqlDB, err := loginDB.DB(); err == nil { _ = sqlDB.Close() }
+		}
+		_ = admin.Exec("REVOKE " + apiRole + " FROM " + loginRole).Error
+		_ = admin.Exec("DROP OWNED BY " + loginRole).Error
+		_ = admin.Exec("DROP ROLE IF EXISTS " + loginRole).Error
+	})
+	loginURL, err := url.Parse(dsn)
+	if err != nil { t.Fatalf("parse test database URL for restricted login: %v", err) }
+	loginURL.User = url.UserPassword(loginRole, loginPassword)
+	loginDB, err = gorm.Open(postgres.Open(loginURL.String()), &gorm.Config{})
+	if err != nil { t.Fatalf("connect as restricted API login: %v", err) }
+
+	var sessionUser string
+	if err := loginDB.Raw("SELECT session_user").Scan(&sessionUser).Error; err != nil {
+		t.Fatalf("inspect restricted login session_user: %v", err)
+	}
+	if sessionUser != loginRole { t.Fatalf("expected session_user %q, got %q", loginRole, sessionUser) }
+
+	var visible int64
+	if err := loginDB.Raw("SELECT count(*) FROM " + tableSchema + ".bulk_import_jobs").Scan(&visible).Error; err != nil {
+		t.Fatalf("restricted login direct queue SELECT: %v", err)
+	}
+	if visible != 0 { t.Fatalf("restricted login without tenant context saw %d queue rows", visible) }
+
 	workerID := uuid.New()
 	var claimed models.BulkImportJob
-	err = admin.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec("SET LOCAL ROLE " + apiRole).Error; err != nil { return err }
-		result := tx.Raw("SELECT * FROM " + privateSchema + ".claim_next_bulk_import_job(?)", workerID).Scan(&claimed)
-		if result.Error != nil { return result.Error }
-		if result.RowsAffected != 1 { return fmt.Errorf("expected one row from installed claim function, got %d", result.RowsAffected) }
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("execute installed private claim function as API group: %v", err)
-	}
+	result := loginDB.Raw("SELECT * FROM " + privateSchema + ".claim_next_bulk_import_job(?)", workerID).Scan(&claimed)
+	if result.Error != nil { t.Fatalf("execute installed claim function as restricted login: %v", result.Error) }
+	if result.RowsAffected != 1 { t.Fatalf("expected one row from installed claim function, got %d", result.RowsAffected) }
 	if claimed.ID != job.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID {
 		t.Fatalf("installed claim function returned unexpected job: %+v", claimed)
+	}
+
+	if err := loginDB.Exec("DELETE FROM " + tableSchema + ".bulk_import_jobs").Error; err == nil {
+		t.Fatal("restricted API login unexpectedly deleted queue rows")
+	}
+	if err := loginDB.Exec("SET ROLE " + ownerRole).Error; err == nil {
+		t.Fatal("restricted API login unexpectedly assumed queue-owner role")
 	}
 }
 

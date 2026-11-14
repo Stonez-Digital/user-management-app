@@ -17,6 +17,13 @@ BEGIN
        OR api_role.rolcreatedb OR api_role.rolcreaterole OR NOT api_role.rolinherit THEN
         RAISE EXCEPTION 'API runtime role attributes are unsafe';
     END IF;
+    IF EXISTS (
+        SELECT 1 FROM pg_class
+        WHERE oid = 'public.bulk_import_jobs'::regclass
+          AND relowner = owner_role.oid
+    ) THEN
+        RAISE EXCEPTION 'queue owner must not own the bulk import table';
+    END IF;
     IF NOT has_schema_privilege('stonez_bulk_queue_owner', 'public', 'USAGE')
        OR NOT has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'SELECT') THEN
         RAISE EXCEPTION 'queue owner is missing schema/table read privileges';

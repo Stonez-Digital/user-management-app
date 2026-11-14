@@ -384,10 +384,10 @@ func TestBulkImportQueueRoleScriptsInstallInIsolatedPostgres(t *testing.T) {
 		t.Fatalf("create SQL-script test schema: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = admin.Exec("DROP SCHEMA IF EXISTS " + privateSchema + " CASCADE").Error
-		_ = admin.Exec("DROP SCHEMA IF EXISTS " + tableSchema + " CASCADE").Error
 		_ = admin.Exec("GRANT " + ownerRole + " TO CURRENT_USER").Error
 		_ = admin.Exec("GRANT " + apiRole + " TO CURRENT_USER").Error
+		_ = admin.Exec("DROP SCHEMA IF EXISTS " + privateSchema + " CASCADE").Error
+		_ = admin.Exec("DROP SCHEMA IF EXISTS " + tableSchema + " CASCADE").Error
 		_ = admin.Exec("DROP OWNED BY " + apiRole).Error
 		_ = admin.Exec("DROP OWNED BY " + ownerRole).Error
 		_ = admin.Exec("REVOKE " + apiRole + ", " + ownerRole + " FROM CURRENT_USER").Error

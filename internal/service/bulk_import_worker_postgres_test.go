@@ -63,16 +63,16 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string) {
 	// CREATEROLE test users are not necessarily superusers. Granting the
 	// temporary group role to the test session user allows SET LOCAL ROLE;
 	// the membership is removed during cleanup and never touches production.
-	if err := admin.Exec("GRANT " + apiRole + " TO CURRENT_USER").Error; err != nil {
+	if err := admin.Exec("GRANT " + apiRole + ", " + ownerRole + " TO CURRENT_USER").Error; err != nil {
 		_ = admin.Exec("DROP ROLE " + apiRole).Error
 		_ = admin.Exec("DROP ROLE " + ownerRole).Error
 		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
 		_ = adminSQL.Close()
-		t.Skipf("cannot grant isolated API test role to test session: %v", err)
+		t.Skipf("cannot grant isolated test roles to test session: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
-		_ = admin.Exec("REVOKE " + apiRole + " FROM CURRENT_USER").Error
+		_ = admin.Exec("REVOKE " + apiRole + ", " + ownerRole + " FROM CURRENT_USER").Error
 		_ = admin.Exec("DROP ROLE " + apiRole).Error
 		_ = admin.Exec("DROP ROLE " + ownerRole).Error
 		_ = adminSQL.Close()
@@ -184,6 +184,15 @@ func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T)
 		return tx.Exec("SET LOCAL ROLE " + ownerRole).Error
 	})
 	if err == nil { t.Fatal("API role unexpectedly assumed the queue-owner role") }
+
+	// The function owner can read the queue and update lease columns only.
+	err = db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SET LOCAL ROLE " + ownerRole).Error; err != nil { return err }
+		var count int64
+		if err := tx.Table(schema + ".bulk_import_jobs").Count(&count).Error; err != nil { return err }
+		return tx.Exec("UPDATE " + schema + ".bulk_import_jobs SET rows_json = '{}'").Error
+	})
+	if err == nil { t.Fatal("queue owner unexpectedly updated protected payload columns") }
 }
 
 func TestBulkWorkerPostgresClaimFunctionReclaimsOnlyExpiredLeases(t *testing.T) {

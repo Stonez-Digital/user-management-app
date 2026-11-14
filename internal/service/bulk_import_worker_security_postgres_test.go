@@ -340,14 +340,19 @@ func TestBulkQueuePostgresRestrictedRoleBoundary(t *testing.T) {
 	if lockTx.Error != nil {
 		t.Fatalf("begin queue row lock transaction: %v", lockTx.Error)
 	}
-	var lockedID uuid.UUID
-	if err := lockTx.Raw("SELECT id FROM "+table+" WHERE id = ? FOR UPDATE", concurrentIDs[0]).Scan(&lockedID).Error; err != nil {
+	var lockedID string
+	if err := lockTx.Raw("SELECT id::text FROM "+table+" WHERE id = ? FOR UPDATE", concurrentIDs[0]).Scan(&lockedID).Error; err != nil {
 		_ = lockTx.Rollback().Error
 		t.Fatalf("lock oldest concurrent job: %v", err)
 	}
-	if lockedID != concurrentIDs[0] {
+	parsedLockedID, parseErr := uuid.Parse(lockedID)
+	if parseErr != nil {
 		_ = lockTx.Rollback().Error
-		t.Fatalf("failed to lock intended oldest job: got %s want %s", lockedID, concurrentIDs[0])
+		t.Fatalf("parse locked queue job UUID %q: %v", lockedID, parseErr)
+	}
+	if parsedLockedID != concurrentIDs[0] {
+		_ = lockTx.Rollback().Error
+		t.Fatalf("failed to lock intended oldest job: got %s want %s", parsedLockedID, concurrentIDs[0])
 	}
 
 	type claimResult struct {

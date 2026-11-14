@@ -4,7 +4,7 @@
 
 The worker's global claim operation must continue to claim queued jobs atomically without giving the API runtime direct access to the cross-tenant queue. The intended design is one narrowly scoped PostgreSQL SECURITY DEFINER function, owned by a dedicated role, with execution granted only to a non-login API group role.
 
-This document records the role preparation and verification stage. It does not install the function, change the worker, or authorize a production database change.
+The repository now includes the role-preparation scripts, a SECURITY DEFINER claim-function installer, a PostgreSQL worker call, and isolated PostgreSQL tests. The scripts are operator-run; none has been executed against production.
 
 ## Roles
 
@@ -21,18 +21,19 @@ The provisioning script does not create an API login or password, and does not g
 ## Preparation
 
 1. Review scripts/security/provision_bulk_import_queue_roles.sql against the target database and confirm public.bulk_import_jobs exists with the lease columns from migration 47.
-2. When separately approved, run the script using an administrative database connection that can create/alter roles and grant table privileges.
+2. When separately approved, run scripts/security/provision_bulk_import_queue_roles.sql using an administrative database connection that can create/alter roles and grant table privileges.
 3. Run scripts/security/verify_bulk_import_queue_roles.sql and retain its successful result as deployment evidence.
-4. Identify and provision a dedicated API login through the secret-management process. Do not put its password in this repository or in migration SQL.
-5. Do not change Render's DATABASE_URL, enable REQUIRE_NOBYPASSRLS, or grant the current postgres login membership in either role during this preparation stage.
+4. Review and run scripts/security/install_bulk_import_claim_function.sql only after the role assertions pass. This installs the function in public and transfers ownership to the queue-owner role.
+5. Identify and provision a dedicated API login through the secret-management process. Do not put its password in this repository or in migration SQL. Grant that login membership in stonez_api_runtime only after confirming it is NOBYPASSRLS and cannot assume a privileged role.
+6. Do not change Render's DATABASE_URL, enable REQUIRE_NOBYPASSRLS, or grant the current postgres login membership in either role during this preparation stage.
 
-Both scripts are explicit operator-run artifacts. They are not executed by application startup, CI migrations, or the normal Migrate function. No production role or grant is changed by merging these files.
+All three SQL scripts are explicit operator-run artifacts. They are not executed by application startup, CI migrations, or the normal Migrate function. No production role or grant is changed by merging these files.
 
 ## Required PostgreSQL integration test setup
 
 The next implementation stage must extend the isolated PostgreSQL bulk-worker test harness. It must use a database where the test administrator can create and drop temporary roles. It must create uniquely named test roles and remove them in cleanup; it must never reuse or alter the production role names.
 
-The tests must establish all of the following using actual PostgreSQL role switching, not SQLite mocks:
+The PostgreSQL worker tests now create uniquely named roles and an isolated schema, install an equivalent test-scoped function, and clean up the roles/schema. They skip clearly when TEST_DATABASE_URL is absent or cannot create roles. The tests must establish the following using actual PostgreSQL role switching, not SQLite mocks:
 
 - A NOBYPASSRLS caller cannot SELECT, INSERT, UPDATE, DELETE, or TRUNCATE bulk_import_jobs directly.
 - The caller can execute only the queue-claim function.
@@ -40,7 +41,7 @@ The tests must establish all of the following using actual PostgreSQL role switc
 - PUBLIC and unrelated roles cannot execute the function.
 - Concurrent callers using FOR UPDATE SKIP LOCKED receive distinct jobs.
 - Queued jobs and expired/legacy running leases are claimable; an active unexpired lease is not.
-- The function returns only the job fields the worker needs and cannot update non-claim columns.
+- The function returns the queue job payload needed by the worker; only its lease/claim columns can be updated by the function owner.
 - The Go worker processes a claimed job only under its school and initiating-user transaction context; a mismatched or expired worker lease cannot write.
 - Role memberships do not allow the API caller to SET ROLE to or inherit the queue-owner role.
 
@@ -48,9 +49,9 @@ If the test database does not permit role creation, the integration test must re
 
 ## Next implementation stage
 
-After role preparation and the restricted-role PostgreSQL test harness are reviewed, add the SQL function and Go worker call in the same change. The function must use a fixed safe search_path, fully qualified table references, parameterized worker identity/time inputs, atomic row locking and lease updates, and explicit EXECUTE revocations/grants. The Go worker must fail closed if the function is unavailable; it must not fall back to direct global table access.
+The claim-function installer and Go call are now in this branch together. The PostgreSQL worker path invokes claim_next_bulk_import_job(worker_id) and fails closed if it is missing; it has no direct-table fallback. SQLite retains its existing direct claim implementation for local unit tests only. The function uses a fixed pg_catalog search_path, schema-qualified table references, a required worker UUID, a five-minute database-clock lease, atomic FOR UPDATE SKIP LOCKED selection, and explicit EXECUTE revocations/grants.
 
-The function owner and API group role names in the provisioning scripts are the intended production names. The eventual migration must verify that these roles are provisioned with the expected attributes and grants before installing/changing function ownership. Do not silently create privileged roles in the ordinary application migration path.
+The function owner and API group role names in the provisioning scripts are the intended production names. The SQL installer validates role attributes before installing/changing function ownership. Do not silently create privileged roles in the ordinary application migration path.
 
 ## Safety status
 

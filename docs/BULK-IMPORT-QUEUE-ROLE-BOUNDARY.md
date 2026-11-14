@@ -10,11 +10,11 @@ The repository now includes the role-preparation scripts, a SECURITY DEFINER cla
 
 | Role | Login | RLS bypass | Intended authority |
 |---|---:|---:|---|
-| stonez_bulk_queue_owner | No | Yes | Owns the claim function; can SELECT queue rows and UPDATE only lease/claim columns on public.bulk_import_jobs. |
+| stonez_bulk_queue_owner | No | No | Owns the claim function; can SELECT queue rows and UPDATE only lease/claim columns on public.bulk_import_jobs. |
 | stonez_api_runtime | No | No | Receives EXECUTE on the global claim function plus SELECT/INSERT/UPDATE on bulk_import_jobs; SELECT is school-scoped and INSERT/UPDATE are school-and-initiator-scoped. |
 | Actual API login | Yes | No | Must be a dedicated NOBYPASSRLS, INHERIT login, later granted membership in stonez_api_runtime. It must not be postgres or a member of the queue-owner role. |
 
-The queue owner requires BYPASSRLS because the claim operation is intentionally global across schools. This is bounded by table ACLs: it receives no privileges on other application tables, no DDL privileges, no role-management privileges, and no login capability. The API runtime role itself remains NOBYPASSRLS.
+The queue owner remains NOBYPASSRLS. A dedicated `FOR ALL` RLS policy on `bulk_import_jobs` grants this role global visibility only on that queue table; narrow column-level UPDATE grants still limit it to lease/claim columns. It has no privileges on other application tables, no DDL privileges after installation, no role-management privileges, and no login capability.
 
 The provisioning script does not create an API login or password, and does not grant role membership to any existing login. The function installer grants the API group role only tenant-policy-controlled SELECT/INSERT/UPDATE on the queue table; it does not grant DELETE or TRUNCATE. The production Render connection currently uses postgres; do not grant the group role to that connection or treat it as a restricted runtime.
 
@@ -39,7 +39,7 @@ The PostgreSQL worker tests create uniquely named roles and isolated schemas, ex
 - Missing tenant context returns no rows and rejects inserts; cross-school SELECT/UPDATE/INSERT are denied by RLS.
 - The API caller cannot DELETE or TRUNCATE queue rows.
 - The caller can execute the global queue-claim function without receiving unrestricted direct-table access; the function rejects a session login that is not a member of stonez_api_runtime.
-- The function owner is a non-login, non-superuser BYPASSRLS role with only SELECT and claim-column UPDATE on the queue table; its RLS bypass is not inherited by the API group.
+- The function owner is a non-login, non-superuser NOBYPASSRLS role with only SELECT and claim-column UPDATE on the queue table; its RLS bypass is not inherited by the API group.
 - PUBLIC and unrelated roles cannot execute the function.
 - Concurrent callers using FOR UPDATE SKIP LOCKED receive distinct jobs.
 - Queued jobs and expired/legacy running leases are claimable; an active unexpired lease is not.

@@ -22,6 +22,8 @@ BEGIN
     END IF;
 
     IF pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_owner', 'MEMBER')
+       OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime'))
+       OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner'))
        OR EXISTS (
             SELECT 1 FROM pg_roles AS privileged
              WHERE (privileged.rolsuper OR privileged.rolbypassrls)

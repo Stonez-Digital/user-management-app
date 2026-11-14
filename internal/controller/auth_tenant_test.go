@@ -10,6 +10,7 @@ import (
     "github.com/onoja217/users-management-app/internal/authz"
     "github.com/onoja217/users-management-app/internal/middleware"
     "github.com/onoja217/users-management-app/internal/models"
+    "github.com/google/uuid"
     "gorm.io/driver/sqlite"
     "gorm.io/gorm"
 )
@@ -18,22 +19,26 @@ func authTenantTestDB(t *testing.T) *gorm.DB {
     t.Helper()
     db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
     if err != nil { t.Fatal(err) }
-    if err := db.AutoMigrate(&models.School{}, &models.User{}, &models.RoleChangeAudit{}, &models.TeacherProfile{}, &models.ParentProfile{}); err != nil { t.Fatal(err) }
+    if err := db.AutoMigrate(&models.School{}, &models.User{}, &models.RoleChangeAudit{}, &models.TeacherProfile{}, &models.ParentProfile{}, &models.Session{}, &models.RefreshToken{}, &models.AuditLog{}); err != nil { t.Fatal(err) }
     return db
 }
 
-func tenantContextRouter(handler gin.HandlerFunc, schoolID string, userID string, method string, path string, body string) *httptest.ResponseRecorder {
+func tenantContextRouter(db *gorm.DB, handler gin.HandlerFunc, schoolID string, userID string, method string, path string, body string) *httptest.ResponseRecorder {
     gin.SetMode(gin.TestMode)
     r := gin.New()
-    r.Handle(method, path, func(c *gin.Context) {
-        c.Set(middleware.SchoolIDKey, schoolID)
-        c.Set(middleware.UserIDKey, userID)
-        if id := strings.TrimPrefix(path, "/admin/users/"); id != path {
-            id = strings.TrimSuffix(strings.TrimSuffix(id, "/deactivate"), "/role")
-            c.Params = gin.Params{{Key: "id", Value: id}}
-        }
-        handler(c)
-    })
+    r.Handle(method, path,
+        func(c *gin.Context) {
+            c.Set(middleware.SchoolIDKey, schoolID)
+            c.Set(middleware.UserIDKey, userID)
+            if id := strings.TrimPrefix(path, "/admin/users/"); id != path {
+                id = strings.TrimSuffix(strings.TrimSuffix(id, "/deactivate"), "/activate")
+                id = strings.TrimSuffix(id, "/role")
+                c.Params = gin.Params{{Key: "id", Value: id}}
+            }
+        },
+        middleware.TenantTransaction(db),
+        handler,
+    )
     req := httptest.NewRequest(method, path, strings.NewReader(body))
     req.Header.Set("Content-Type", "application/json")
     rec := httptest.NewRecorder()
@@ -55,10 +60,10 @@ func TestAdminUserMutationsRejectCrossSchoolTargets(t *testing.T) {
 
     ac := NewAuthController(db)
 
-    rec := tenantContextRouter(ac.DeactivateUser, schoolA.ID.String(), actor.ID.String(), http.MethodPost, "/admin/users/"+target.ID.String()+"/deactivate", "")
+    rec := tenantContextRouter(db, ac.DeactivateUser, schoolA.ID.String(), actor.ID.String(), http.MethodPost, "/admin/users/"+target.ID.String()+"/deactivate", "")
     if rec.Code != http.StatusNotFound { t.Fatalf("expected cross-school deactivate to return 404, got %d: %s", rec.Code, rec.Body.String()) }
 
-    rec = tenantContextRouter(ac.AssignRole, schoolA.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+target.ID.String()+"/role", `{"role":"teacher"}`)
+    rec = tenantContextRouter(db, ac.AssignRole, schoolA.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+target.ID.String()+"/role", `{"role":"teacher"}`)
     if rec.Code != http.StatusNotFound { t.Fatalf("expected cross-school role assignment to return 404, got %d: %s", rec.Code, rec.Body.String()) }
 
     var stored models.User
@@ -80,11 +85,11 @@ func TestAssignRoleRejectsRoleProfileMismatch(t *testing.T) {
     if err := db.Create(&models.ParentProfile{SchoolID: school.ID, UserID: parent.ID, ParentIdentifier: "P-1"}).Error; err != nil { t.Fatal(err) }
     if err := db.Create(&models.TeacherProfile{SchoolID: school.ID, UserID: teacher.ID, StaffID: "T-1"}).Error; err != nil { t.Fatal(err) }
     ac := NewAuthController(db)
-    rec := tenantContextRouter(ac.AssignRole, school.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+parent.ID.String()+"/role", `{"role":"student"}`)
+    rec := tenantContextRouter(db, ac.AssignRole, school.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+parent.ID.String()+"/role", `{"role":"student"}`)
     if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "role_profile_mismatch") { t.Fatalf("expected parent profile mismatch conflict, got %d: %s", rec.Code, rec.Body.String()) }
-    rec = tenantContextRouter(ac.AssignRole, school.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+teacher.ID.String()+"/role", `{"role":"staff"}`)
+    rec = tenantContextRouter(db, ac.AssignRole, school.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+teacher.ID.String()+"/role", `{"role":"staff"}`)
     if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "role_profile_mismatch") { t.Fatalf("expected teacher profile mismatch conflict, got %d: %s", rec.Code, rec.Body.String()) }
-    rec = tenantContextRouter(ac.AssignRole, school.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+student.ID.String()+"/role", `{"role":"teacher"}`)
+    rec = tenantContextRouter(db, ac.AssignRole, school.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+student.ID.String()+"/role", `{"role":"teacher"}`)
     if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "role_profile_mismatch") { t.Fatalf("expected missing teacher profile conflict, got %d: %s", rec.Code, rec.Body.String()) }
     var storedParent models.User
     if err := db.First(&storedParent, "id = ?", parent.ID).Error; err != nil { t.Fatal(err) }
@@ -95,4 +100,51 @@ func TestAssignRoleRejectsRoleProfileMismatch(t *testing.T) {
     var storedStudent models.User
     if err := db.First(&storedStudent, "id = ?", student.ID).Error; err != nil { t.Fatal(err) }
     if storedStudent.Role != authz.RoleStudent { t.Fatalf("student role changed unexpectedly: %s", storedStudent.Role) }
+}
+
+func TestAssignRoleCannotPromoteSchoolUserToSuperAdmin(t *testing.T) {
+    db := authTenantTestDB(t)
+    school := models.School{Name: "School", Code: "S-ADMIN", Status: models.SchoolStatusActive}
+    if err := db.Create(&school).Error; err != nil { t.Fatal(err) }
+    actor := models.User{Name: "Platform Admin", Email: "platform@example.com", Role: authz.RoleSuperAdmin, Active: true, SchoolID: &school.ID}
+    target := models.User{Name: "Target", Email: "target@example.com", Role: authz.RoleStudent, Active: true, SchoolID: &school.ID}
+    if err := db.Create(&actor).Error; err != nil { t.Fatal(err) }
+    if err := db.Create(&target).Error; err != nil { t.Fatal(err) }
+
+    rec := tenantContextRouter(db, NewAuthController(db).AssignRole, school.ID.String(), actor.ID.String(), http.MethodPut, "/admin/users/"+target.ID.String()+"/role", `{"role":"super_admin"}`)
+    if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_role") {
+        t.Fatalf("expected super-admin promotion to be rejected, got %d: %s", rec.Code, rec.Body.String())
+    }
+    var stored models.User
+    if err := db.First(&stored, "id = ?", target.ID).Error; err != nil { t.Fatal(err) }
+    if stored.Role != authz.RoleStudent { t.Fatalf("target role changed to %q", stored.Role) }
+}
+
+func TestDeactivateUserRevokesSessionsAndAuditsWithinTenantRequest(t *testing.T) {
+    db := authTenantTestDB(t)
+    school := models.School{Name: "School", Code: "DEACTIVATE", Status: models.SchoolStatusActive}
+    if err := db.Create(&school).Error; err != nil { t.Fatal(err) }
+    actor := models.User{Name: "Admin", Email: "admin-deactivate@example.com", Role: authz.RoleSchoolAdmin, Active: true, SchoolID: &school.ID}
+    target := models.User{Name: "Target", Email: "target-deactivate@example.com", Role: authz.RoleStudent, Active: true, SchoolID: &school.ID}
+    if err := db.Create(&actor).Error; err != nil { t.Fatal(err) }
+    if err := db.Create(&target).Error; err != nil { t.Fatal(err) }
+    session := models.Session{ID: uuid.New(), UserID: target.ID, RefreshTokenHash: "session-hash"}
+    refresh := models.RefreshToken{ID: uuid.New(), UserID: target.ID, TokenHash: "refresh-hash"}
+    if err := db.Create(&session).Error; err != nil { t.Fatal(err) }
+    if err := db.Create(&refresh).Error; err != nil { t.Fatal(err) }
+
+    rec := tenantContextRouter(db, NewAuthController(db).DeactivateUser, school.ID.String(), actor.ID.String(), http.MethodPost, "/admin/users/"+target.ID.String()+"/deactivate", "")
+    if rec.Code != http.StatusOK { t.Fatalf("expected deactivation 200, got %d: %s", rec.Code, rec.Body.String()) }
+    var stored models.User
+    if err := db.First(&stored, "id = ?", target.ID).Error; err != nil { t.Fatal(err) }
+    if stored.Active { t.Fatal("deactivated user remains active") }
+    var storedSession models.Session
+    if err := db.First(&storedSession, "id = ?", session.ID).Error; err != nil { t.Fatal(err) }
+    if !storedSession.Revoked { t.Fatal("deactivation did not revoke user session") }
+    var storedRefresh models.RefreshToken
+    if err := db.First(&storedRefresh, "id = ?", refresh.ID).Error; err != nil { t.Fatal(err) }
+    if !storedRefresh.Revoked { t.Fatal("deactivation did not revoke refresh token") }
+    var auditCount int64
+    if err := db.Model(&models.AuditLog{}).Where("school_id = ? AND actor_id = ? AND resource_id = ? AND action = ?", school.ID, actor.ID, target.ID, "user.deactivate").Count(&auditCount).Error; err != nil { t.Fatal(err) }
+    if auditCount != 1 { t.Fatalf("expected one deactivation audit row, got %d", auditCount) }
 }

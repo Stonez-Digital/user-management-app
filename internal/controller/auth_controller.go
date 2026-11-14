@@ -55,6 +55,15 @@ type PasswordResetMailer interface {
 	SendPasswordReset(name, email, token string) error
 }
 
+func (ac *AuthController) requestTenantDB(c *gin.Context) (*gorm.DB, bool) {
+    tx, ok := middleware.TenantDBFromContext(c)
+    if !ok {
+        httpx.Error(c, http.StatusInternalServerError, "tenant_transaction_required", "tenant transaction is required for this operation")
+        return nil, false
+    }
+    return tx, true
+}
+
 type AuthController struct {
 	DB *gorm.DB
 	Mailer PasswordResetMailer
@@ -512,44 +521,39 @@ func (ac *AuthController) LogoutAll(c *gin.Context) {
 }
 
 func (ac *AuthController) setUserActive(c *gin.Context, active bool) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
-		return
-	}
-	schoolID, ok := middleware.SchoolIDFromContext(c)
-	if !ok {
-		c.JSON(http.StatusForbidden, gin.H{"error": "school context required"})
-		return
-	}
-	var user models.User
-	if err := ac.DB.Where("school_id = ? AND id = ?", schoolID, id).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
-		return
-	}
-	if err := ac.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&user).Update("active", active).Error; err != nil { return err }
-		if !active {
-			if err := tx.Model(&models.RefreshToken{}).Where("user_id = ?", user.ID).Update("revoked", true).Error; err != nil { return err }
-			return tx.Model(&models.Session{}).Where("user_id = ?", user.ID).Update("revoked", true).Error
-		}
-		return nil
-	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update account status"})
-		return
-	}
-	actor := uuid.Nil
-	if raw := c.GetString("user_id"); raw != "" { if parsed, err := uuid.Parse(raw); err == nil { actor = parsed } }
-	action := "user.deactivate"
-	if active { action = "user.activate" }
-	_ = audit.Record(ac.DB, c, &actor, action, "user", &user.ID, nil)
-	c.JSON(http.StatusOK, gin.H{"message": map[bool]string{true: "account activated", false: "account deactivated"}[active]})
+    tx, ok := ac.requestTenantDB(c)
+    if !ok { return }
+    id, err := uuid.Parse(c.Param("id"))
+    if err != nil { httpx.Error(c, http.StatusBadRequest, "invalid_user_id", "invalid user id"); return }
+    schoolID, ok := middleware.SchoolIDFromContext(c)
+    if !ok { httpx.Error(c, http.StatusForbidden, "school_context_required", "school context required"); return }
+    actorID, err := uuid.Parse(c.GetString("user_id"))
+    if err != nil { httpx.Error(c, http.StatusUnauthorized, "invalid_user", "invalid authenticated user"); return }
+
+    var user models.User
+    if err := tx.Where("school_id = ? AND id = ?", schoolID, id).First(&user).Error; err != nil {
+        httpx.Error(c, http.StatusNotFound, "user_not_found", "user not found"); return
+    }
+    err = tx.Transaction(func(scoped *gorm.DB) error {
+        if err := scoped.Model(&models.User{}).Where("school_id = ? AND id = ?", schoolID, user.ID).Update("active", active).Error; err != nil { return err }
+        if !active {
+            if err := scoped.Model(&models.RefreshToken{}).Where("user_id = ?", user.ID).Update("revoked", true).Error; err != nil { return err }
+            if err := scoped.Model(&models.Session{}).Where("user_id = ?", user.ID).Update("revoked", true).Error; err != nil { return err }
+        }
+        action := "user.deactivate"
+        if active { action = "user.activate" }
+        return audit.Record(scoped, c, &actorID, action, "user", &user.ID, nil)
+    })
+    if err != nil { httpx.Error(c, http.StatusInternalServerError, "account_status_update_failed", "failed to update account status"); return }
+    c.JSON(http.StatusOK, gin.H{"message": map[bool]string{true:"account activated",false:"account deactivated"}[active]})
 }
 
 func (ac *AuthController) ActivateUser(c *gin.Context) { ac.setUserActive(c, true) }
 func (ac *AuthController) DeactivateUser(c *gin.Context) { ac.setUserActive(c, false) }
 
 func (ac *AuthController) AssignRole(c *gin.Context) {
+    tx, scoped := ac.requestTenantDB(c)
+    if !scoped { return }
     targetID, err := uuid.Parse(c.Param("id"))
     if err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
@@ -560,7 +564,7 @@ func (ac *AuthController) AssignRole(c *gin.Context) {
     if err := c.ShouldBindJSON(&req); err != nil {
         httpx.Validation(c, httpx.ValidationErrors(err)); return
     }
-    if !authz.IsValidRole(req.Role) {
+    if !authz.IsValidRole(req.Role) || req.Role == authz.RoleSuperAdmin {
         httpx.Error(c, http.StatusBadRequest, "invalid_role", "invalid role"); return
     }
 
@@ -577,7 +581,7 @@ func (ac *AuthController) AssignRole(c *gin.Context) {
     }
 
     var target models.User
-    if err := ac.DB.Where("school_id = ? AND id = ?", schoolID, targetID).First(&target).Error; err != nil {
+    if err := tx.Where("school_id = ? AND id = ?", schoolID, targetID).First(&target).Error; err != nil {
         c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
         return
     }
@@ -591,16 +595,16 @@ func (ac *AuthController) AssignRole(c *gin.Context) {
     }
 
     previousRole := target.Role
-    err = ac.DB.Transaction(func(tx *gorm.DB) error {
+    err = tx.Transaction(func(scoped *gorm.DB) error {
         var teacherProfile models.TeacherProfile
-        teacherProfileErr := tx.Where("school_id = ? AND user_id = ?", schoolID, target.ID).First(&teacherProfile).Error
+        teacherProfileErr := scoped.Where("school_id = ? AND user_id = ?", schoolID, target.ID).First(&teacherProfile).Error
         if teacherProfileErr != nil && !errors.Is(teacherProfileErr, gorm.ErrRecordNotFound) {
             return teacherProfileErr
         }
         hasTeacherProfile := teacherProfileErr == nil
 
         var parentProfile models.ParentProfile
-        parentProfileErr := tx.Where("school_id = ? AND user_id = ?", schoolID, target.ID).First(&parentProfile).Error
+        parentProfileErr := scoped.Where("school_id = ? AND user_id = ?", schoolID, target.ID).First(&parentProfile).Error
         if parentProfileErr != nil && !errors.Is(parentProfileErr, gorm.ErrRecordNotFound) {
             return parentProfileErr
         }
@@ -619,7 +623,7 @@ func (ac *AuthController) AssignRole(c *gin.Context) {
             return service.ErrRoleProfileMismatch
         }
 
-        if err := tx.Model(&target).Update("role", req.Role).Error; err != nil {
+        if err := scoped.Model(&models.User{}).Where("school_id = ? AND id = ?", schoolID, target.ID).Update("role", req.Role).Error; err != nil {
             return err
         }
         audit := models.RoleChangeAudit{
@@ -631,7 +635,7 @@ func (ac *AuthController) AssignRole(c *gin.Context) {
             ToRole: req.Role,
             IP: c.ClientIP(),
         }
-        return tx.Create(&audit).Error
+        return scoped.Create(&audit).Error
     })
     if errors.Is(err, service.ErrRoleProfileMismatch) {
         httpx.Error(c, http.StatusConflict, "role_profile_mismatch", "role change would leave the user role inconsistent with an existing role-specific profile; update the profile first")

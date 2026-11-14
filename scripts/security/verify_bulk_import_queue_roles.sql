@@ -48,6 +48,10 @@ BEGIN
        OR has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'updated_at', 'UPDATE') THEN
         RAISE EXCEPTION 'queue owner can update protected/non-claim columns';
     END IF;
+    IF has_any_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'INSERT')
+       OR has_any_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'REFERENCES') THEN
+        RAISE EXCEPTION 'queue owner retains forbidden column-level INSERT or REFERENCES privileges';
+    END IF;
     IF has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'UPDATE')
        OR has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'INSERT')
        OR has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'DELETE')

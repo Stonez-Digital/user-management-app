@@ -52,12 +52,28 @@ func (s *BulkImportService) withTenantTransaction(job models.BulkImportJob, fn f
 	})
 }
 
-// claimNextJob is a deliberately system-level queue operation. The current
-// deployment's postgres/BYPASSRLS connection can see the global queue; this
-// must be replaced by a narrowly privileged queue role/service before a
-// NOBYPASSRLS runtime cutover.
+// claimNextJob uses a narrowly granted SECURITY DEFINER function on PostgreSQL.
+// There is deliberately no direct-table fallback for PostgreSQL: a missing or
+// misconfigured function is a hard worker error, not a reason to use BYPASSRLS.
+// SQLite retains the direct transactional implementation for local unit tests.
 func (s *BulkImportService) claimNextJob() (*models.BulkImportJob, error) {
 	var claimed *models.BulkImportJob
+	if s.db.Dialector.Name() == "postgres" {
+		err := s.db.Transaction(func(tx *gorm.DB) error {
+			var job models.BulkImportJob
+			result := tx.Raw("SELECT * FROM claim_next_bulk_import_job(?)", s.workerID).Scan(&job)
+			if result.Error != nil {
+				return fmt.Errorf("claim bulk import job through restricted queue function: %w", result.Error)
+			}
+			if result.RowsAffected == 0 {
+				return nil
+			}
+			claimed = &job
+			return nil
+		})
+		return claimed, err
+	}
+
 	cutoff := time.Now().UTC().Add(-bulkImportClaimLease)
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var job models.BulkImportJob

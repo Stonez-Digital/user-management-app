@@ -176,7 +176,7 @@ BEGIN
      WHERE id = v_job.id RETURNING * INTO v_job;
     RETURN NEXT v_job;
 END
-$function$`, apiRole, schema, schema, schema, schema)
+$function$`, schema, schema, apiRole, schema, schema)
 	if err := admin.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("SET LOCAL ROLE " + ownerRole).Error; err != nil { return err }
 		if err := tx.Exec(functionSQL).Error; err != nil { return err }

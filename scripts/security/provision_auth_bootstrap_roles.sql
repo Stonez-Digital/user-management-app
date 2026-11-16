@@ -50,6 +50,3 @@ BEGIN
     END IF;
 END
 $$;
-
--- Keep schema creation rights only for the provisioning step.
-REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_bootstrap_owner;

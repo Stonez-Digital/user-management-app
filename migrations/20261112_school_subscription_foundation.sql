@@ -88,6 +88,12 @@ CREATE INDEX IF NOT EXISTS idx_subscription_events_school_created
 CREATE INDEX IF NOT EXISTS idx_subscription_events_subscription
     ON subscription_events(subscription_id, created_at DESC);
 
+-- A subscription may be activated by exactly one successful payment transition.
+-- This is a database-level idempotency guard in addition to the payment-row lock.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_subscription_events_activation_once
+    ON subscription_events(subscription_id)
+    WHERE event_type = 'subscription_activated';
+
 ALTER TABLE billing_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE school_subscriptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE subscription_events ENABLE ROW LEVEL SECURITY;

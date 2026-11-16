@@ -733,6 +733,10 @@ func (ac *AuthController) ChangePassword(c *gin.Context) {
 		}
 		return audit.RecordWithSchoolID(tx, c, &user.ID, user.SchoolID, "security.password_change", "user", &user.ID, nil)
 	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "current password is incorrect"})
+		return
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to change password"})
 		return

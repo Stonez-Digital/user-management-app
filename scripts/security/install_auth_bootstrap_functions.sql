@@ -285,3 +285,148 @@ GRANT EXECUTE ON FUNCTION stonez_internal.auth_revoke_session(uuid, uuid) TO sto
 
 RESET ROLE;
 REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_session_owner;
+
+-- Password recovery lookups use the read-only bootstrap owner. Password and
+-- reset-token writes use the restricted session writer owner.
+SET ROLE stonez_auth_bootstrap_owner;
+
+CREATE OR REPLACE FUNCTION stonez_internal.auth_password_reset_lookup(p_email text)
+RETURNS TABLE(user_id uuid, full_name text, email text, school_id uuid)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+    SELECT u.id, u.name, u.email, u.school_id
+      FROM public.users AS u
+     WHERE lower(u.email) = lower(btrim(p_email))
+       AND u.active = true
+     LIMIT 1
+$function$;
+
+CREATE OR REPLACE FUNCTION stonez_internal.auth_password_change_lookup(p_user_id uuid)
+RETURNS TABLE(user_id uuid, password_hash text, school_id uuid)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+    SELECT u.id, u.password_hash, u.school_id
+      FROM public.users AS u
+     WHERE u.id = p_user_id
+       AND u.active = true
+     LIMIT 1
+$function$;
+
+REVOKE ALL ON FUNCTION stonez_internal.auth_password_reset_lookup(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION stonez_internal.auth_password_change_lookup(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION stonez_internal.auth_password_reset_lookup(text) TO stonez_api_runtime;
+GRANT EXECUTE ON FUNCTION stonez_internal.auth_password_change_lookup(uuid) TO stonez_api_runtime;
+
+RESET ROLE;
+REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_bootstrap_owner;
+
+SET ROLE stonez_auth_session_owner;
+
+CREATE OR REPLACE FUNCTION stonez_internal.auth_create_password_reset(
+    p_id uuid, p_user_id uuid, p_token_hash text, p_expires_at timestamptz
+)
+RETURNS void
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+    INSERT INTO public.password_reset_tokens (id, user_id, token_hash, expires_at, used)
+    VALUES (p_id, p_user_id, p_token_hash, p_expires_at, false)
+$function$;
+
+CREATE OR REPLACE FUNCTION stonez_internal.auth_disable_password_reset(p_id uuid)
+RETURNS void
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+    UPDATE public.password_reset_tokens SET used = true WHERE id = p_id AND used = false
+$function$;
+
+CREATE OR REPLACE FUNCTION stonez_internal.auth_consume_password_reset(p_token_hash text, p_password_hash text)
+RETURNS TABLE(user_id uuid, school_id uuid)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+DECLARE
+    v_reset_id uuid;
+    v_user_id uuid;
+    v_school_id uuid;
+BEGIN
+    SELECT pr.id, pr.user_id, u.school_id
+      INTO v_reset_id, v_user_id, v_school_id
+      FROM public.password_reset_tokens AS pr
+      JOIN public.users AS u ON u.id = pr.user_id
+     WHERE pr.token_hash = p_token_hash
+       AND pr.used = false
+       AND pr.expires_at > clock_timestamp()
+       AND u.active = true
+     FOR UPDATE OF pr, u;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+
+    UPDATE public.password_reset_tokens
+       SET used = true
+     WHERE id = v_reset_id AND used = false;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+
+    UPDATE public.users
+       SET password_hash = p_password_hash
+     WHERE id = v_user_id AND active = true;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'password reset account became inactive';
+    END IF;
+
+    -- Keep lock order aligned with refresh rotation and logout.
+    UPDATE public.sessions SET revoked = true
+     WHERE user_id = v_user_id AND revoked = false;
+    UPDATE public.refresh_tokens SET revoked = true
+     WHERE user_id = v_user_id AND revoked = false;
+
+    RETURN QUERY SELECT v_user_id, v_school_id;
+END
+$function$;
+
+CREATE OR REPLACE FUNCTION stonez_internal.auth_change_password(p_user_id uuid, p_password_hash text)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+BEGIN
+    UPDATE public.users
+       SET password_hash = p_password_hash
+     WHERE id = p_user_id AND active = true;
+    IF NOT FOUND THEN
+        RETURN false;
+    END IF;
+
+    UPDATE public.sessions SET revoked = true
+     WHERE user_id = p_user_id AND revoked = false;
+    UPDATE public.refresh_tokens SET revoked = true
+     WHERE user_id = p_user_id AND revoked = false;
+    RETURN true;
+END
+$function$;
+
+REVOKE ALL ON FUNCTION stonez_internal.auth_create_password_reset(uuid,uuid,text,timestamptz) FROM PUBLIC;
+REVOKE ALL ON FUNCTION stonez_internal.auth_disable_password_reset(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION stonez_internal.auth_consume_password_reset(text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION stonez_internal.auth_change_password(uuid,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION stonez_internal.auth_create_password_reset(uuid,uuid,text,timestamptz) TO stonez_api_runtime;
+GRANT EXECUTE ON FUNCTION stonez_internal.auth_disable_password_reset(uuid) TO stonez_api_runtime;
+GRANT EXECUTE ON FUNCTION stonez_internal.auth_consume_password_reset(text,text) TO stonez_api_runtime;
+GRANT EXECUTE ON FUNCTION stonez_internal.auth_change_password(uuid,text) TO stonez_api_runtime;
+
+RESET ROLE;
+REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_session_owner;

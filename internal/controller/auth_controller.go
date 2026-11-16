@@ -353,14 +353,9 @@ type authRefreshLookup struct {
 	SessionExpiresAt time.Time `gorm:"column:session_expires_at"`
 	SessionRevoked bool `gorm:"column:session_revoked"`
 	SchoolID *uuid.UUID `gorm:"column:school_id"`
-	FullName string `gorm:"column:full_name"`
-	Email string
-	PasswordHash string `gorm:"column:password_hash"`
 	Role string
 	Active bool
 	SchoolStatus string `gorm:"column:school_status"`
-	SchoolCode string `gorm:"column:school_code"`
-	SchoolSlug string `gorm:"column:school_slug"`
 }
 
 func authLookupSchoolAccess(user models.User, status, code, slug, requestedCode, requestedSlug string) error {
@@ -398,7 +393,7 @@ func (ac *AuthController) Login(c *gin.Context) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 			return
 		}
-		user = models.User{ID: lookup.UserID, SchoolID: lookup.SchoolID, Name: lookup.FullName, Email: lookup.Email, PasswordHash: lookup.PasswordHash, Role: lookup.Role, Active: lookup.Active}
+		user = models.User{ID: lookup.UserID, SchoolID: lookup.SchoolID, Role: lookup.Role, Active: lookup.Active}
 		schoolStatus, schoolCode, schoolSlug = lookup.SchoolStatus, lookup.SchoolCode, lookup.SchoolSlug
 	} else {
 		if err := ac.DB.Where("email = ?", strings.ToLower(strings.TrimSpace(req.Email))).First(&user).Error; err != nil {

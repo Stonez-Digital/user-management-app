@@ -286,8 +286,6 @@ GRANT EXECUTE ON FUNCTION stonez_internal.auth_logout_all(uuid) TO stonez_api_ru
 GRANT EXECUTE ON FUNCTION stonez_internal.auth_revoke_session(uuid, uuid) TO stonez_api_runtime;
 
 RESET ROLE;
-REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_session_owner;
-
 -- Password recovery lookups use the read-only bootstrap owner. Password and
 -- reset-token writes use the restricted session writer owner.
 SET ROLE stonez_auth_bootstrap_owner;
@@ -328,6 +326,7 @@ GRANT EXECUTE ON FUNCTION stonez_internal.auth_password_change_lookup(uuid) TO s
 RESET ROLE;
 REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_bootstrap_owner;
 
+GRANT USAGE, CREATE ON SCHEMA stonez_internal TO stonez_auth_session_owner;
 SET ROLE stonez_auth_session_owner;
 
 CREATE OR REPLACE FUNCTION stonez_internal.auth_create_password_reset(
@@ -428,7 +427,7 @@ REVOKE ALL ON FUNCTION stonez_internal.auth_change_password(uuid,text,text) FROM
 GRANT EXECUTE ON FUNCTION stonez_internal.auth_create_password_reset(uuid,uuid,text,timestamptz) TO stonez_api_runtime;
 GRANT EXECUTE ON FUNCTION stonez_internal.auth_disable_password_reset(uuid) TO stonez_api_runtime;
 GRANT EXECUTE ON FUNCTION stonez_internal.auth_consume_password_reset(text,text) TO stonez_api_runtime;
-GRANT EXECUTE ON FUNCTION stonez_internal.auth_change_password(uuid,text) TO stonez_api_runtime;
+GRANT EXECUTE ON FUNCTION stonez_internal.auth_change_password(uuid,text,text) TO stonez_api_runtime;
 
 RESET ROLE;
 REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_session_owner;

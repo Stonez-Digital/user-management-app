@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -493,4 +494,53 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 	if changeRevokedTokens != 1 || changeRevokedSessions != 1 || changeAudit != 1 {
 		t.Fatalf("password change transaction incomplete: revoked tokens=%d sessions=%d audit=%d", changeRevokedTokens, changeRevokedSessions, changeAudit)
 	}
+
+	// Two concurrent reset requests must consume the same token exactly once.
+	concurrentResetRaw := "postgres-concurrent-reset-" + suffix
+	concurrentResetID := uuid.New()
+	if err := admin.Exec("INSERT INTO " + tableSchema + ".password_reset_tokens (id,user_id,token_hash,expires_at,used,created_at) VALUES (?,?,?,?,false,clock_timestamp())", concurrentResetID, userID, auth.HashResetToken(concurrentResetRaw), time.Now().Add(15*time.Minute)).Error; err != nil {
+		t.Fatal(err)
+	}
+	concurrentRouter := gin.New()
+	concurrentRouter.POST("/reset-password", ac.ResetPassword)
+	startConcurrentReset := make(chan struct{})
+	concurrentResults := make(chan int, 2)
+	var concurrentWG sync.WaitGroup
+	for _, password := range []string{"concurrent-reset-password-A123", "concurrent-reset-password-B123"} {
+		concurrentWG.Add(1)
+		go func(newPassword string) {
+			defer concurrentWG.Done()
+			<-startConcurrentReset
+			req := httptest.NewRequest("POST", "/reset-password", strings.NewReader(fmt.Sprintf(`{"token":%q,"new_password":%q}`, concurrentResetRaw, newPassword)))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			concurrentRouter.ServeHTTP(rec, req)
+			concurrentResults <- rec.Code
+		}(password)
+	}
+	close(startConcurrentReset)
+	concurrentWG.Wait()
+	close(concurrentResults)
+	concurrentSuccesses, concurrentRejections := 0, 0
+	for status := range concurrentResults {
+		switch status {
+		case 200:
+			concurrentSuccesses++
+		case 401:
+			concurrentRejections++
+		default:
+			t.Fatalf("unexpected concurrent reset response status %d", status)
+		}
+	}
+	if concurrentSuccesses != 1 || concurrentRejections != 1 {
+		t.Fatalf("expected one successful reset and one rejected replay, got success=%d rejected=%d", concurrentSuccesses, concurrentRejections)
+	}
+	var concurrentTokenUsed int64
+	if err := admin.Table(tableSchema + ".password_reset_tokens").Where("id = ? AND used = true", concurrentResetID).Count(&concurrentTokenUsed).Error; err != nil {
+		t.Fatal(err)
+	}
+	if concurrentTokenUsed != 1 {
+		t.Fatal("concurrent reset token was not consumed exactly once")
+	}
+}
 }

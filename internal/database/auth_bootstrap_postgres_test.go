@@ -308,10 +308,10 @@ func TestAuthBootstrapFunctionsEnforceRestrictedPostgresBoundary(t *testing.T) {
 		if err := tx.Exec("SET LOCAL ROLE " + sessionOwnerRole).Error; err != nil {
 			return err
 		}
-		return tx.Exec("SELECT token_hash FROM " + tableSchema + ".refresh_tokens").Error
+		return tx.Exec("SELECT password_hash FROM " + tableSchema + ".users").Error
 	})
 	if err == nil {
-		t.Fatal("session writer owner unexpectedly read refresh-token hashes")
+		t.Fatal("session writer owner unexpectedly read user credentials")
 	}
 
 	for _, statement := range []string{

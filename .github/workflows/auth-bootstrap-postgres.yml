@@ -1,0 +1,45 @@
+name: Auth bootstrap PostgreSQL integration
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auth-bootstrap-postgres-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  auth-bootstrap-postgres:
+    name: PostgreSQL 17 auth bootstrap boundary
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: auth_bootstrap_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d auth_bootstrap_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run isolated PostgreSQL auth bootstrap fixture
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/auth_bootstrap_test?sslmode=disable
+        run: go test ./internal/database -run '^TestAuthBootstrapFunctionsEnforceRestrictedPostgresBoundary$' -count=1 -v

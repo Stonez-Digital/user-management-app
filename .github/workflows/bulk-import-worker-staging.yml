@@ -1,8 +1,10 @@
 name: Bulk Import Worker (Staging)
 
+# Keep this workflow manual until the dedicated staging worker has passed
+# an operator-triggered end-to-end smoke test. Add a schedule only after
+# that evidence has been reviewed and approved.
+
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:

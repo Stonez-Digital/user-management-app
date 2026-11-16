@@ -72,6 +72,7 @@ GRANT USAGE ON SCHEMA public TO stonez_auth_bootstrap_owner;
 -- mutate credentials, tokens, sessions, school records, or any other table.
 GRANT SELECT (id, school_id, name, email, password_hash, role, active)
     ON TABLE public.users TO stonez_auth_bootstrap_owner;
+GRANT UPDATE (password_hash) ON TABLE public.users TO stonez_auth_bootstrap_owner;
 GRANT SELECT (id, status, code, slug)
     ON TABLE public.schools TO stonez_auth_bootstrap_owner;
 GRANT SELECT (id, family_id, user_id, token_hash, expires_at, revoked)

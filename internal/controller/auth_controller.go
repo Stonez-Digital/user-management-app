@@ -113,11 +113,29 @@ func newResetToken() (string, error) {
 func (ac *AuthController) ForgotPassword(c *gin.Context) {
 	var req ForgotPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Validation(c, httpx.ValidationErrors(err)); return
+		httpx.Validation(c, httpx.ValidationErrors(err))
+		return
 	}
 
+	email := strings.ToLower(strings.TrimSpace(req.Email))
 	var user models.User
-	if err := ac.DB.Where("email = ? AND active = true", strings.ToLower(strings.TrimSpace(req.Email))).First(&user).Error; err != nil {
+	if ac.DB.Dialector.Name() == "postgres" {
+		var rows []struct {
+			UserID uuid.UUID `gorm:"column:user_id"`
+			FullName string `gorm:"column:full_name"`
+			Email string
+			SchoolID *uuid.UUID `gorm:"column:school_id"`
+		}
+		if err := ac.DB.Raw("SELECT * FROM stonez_internal.auth_password_reset_lookup(?)", email).Scan(&rows).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process password reset"})
+			return
+		}
+		if len(rows) == 0 {
+			c.JSON(http.StatusOK, gin.H{"message": "if the account exists, a reset link will be sent"})
+			return
+		}
+		user = models.User{ID: rows[0].UserID, Name: rows[0].FullName, Email: rows[0].Email, SchoolID: rows[0].SchoolID}
+	} else if err := ac.DB.Where("email = ? AND active = true", email).First(&user).Error; err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "if the account exists, a reset link will be sent"})
 		return
 	}
@@ -128,53 +146,92 @@ func (ac *AuthController) ForgotPassword(c *gin.Context) {
 		return
 	}
 	reset := models.PasswordResetToken{ID: uuid.New(), UserID: user.ID, TokenHash: auth.HashResetToken(token), ExpiresAt: time.Now().Add(15 * time.Minute)}
-	if err := ac.DB.Create(&reset).Error; err != nil {
+	if ac.DB.Dialector.Name() == "postgres" {
+		err = ac.DB.Exec("SELECT stonez_internal.auth_create_password_reset(?, ?, ?, ?)", reset.ID, reset.UserID, reset.TokenHash, reset.ExpiresAt).Error
+	} else {
+		err = ac.DB.Create(&reset).Error
+	}
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create reset token"})
 		return
 	}
 
-	// Keep the response identical for existing and unknown accounts. Never return
-	// the raw token from the API; it is delivered only through the configured mailer.
+	// The reset token is committed before the external email operation. If
+	// delivery fails, invalidate it and log any failure to invalidate.
+	disableReset := func() {
+		var disableErr error
+		if ac.DB.Dialector.Name() == "postgres" {
+			disableErr = ac.DB.Exec("SELECT stonez_internal.auth_disable_password_reset(?)", reset.ID).Error
+		} else {
+			disableErr = ac.DB.Model(&reset).Update("used", true).Error
+		}
+		if disableErr != nil {
+			log.Printf("failed to invalidate undelivered password reset token %s: %v", reset.ID, disableErr)
+		}
+	}
 	if ac.Mailer == nil {
-		_ = ac.DB.Model(&reset).Update("used", true).Error
+		disableReset()
 		log.Printf("password reset email unavailable: mailer is not configured")
 	} else if err := ac.Mailer.SendPasswordReset(user.Name, user.Email, token); err != nil {
-		_ = ac.DB.Model(&reset).Update("used", true).Error
+		disableReset()
 		log.Printf("password reset email delivery failed: %v", err)
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "if the account exists, a reset link will be sent"})
 }
-
 func (ac *AuthController) ResetPassword(c *gin.Context) {
 	var req ResetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Validation(c, httpx.ValidationErrors(err)); return
+		httpx.Validation(c, httpx.ValidationErrors(err))
+		return
+	}
+	passwordHash, err := auth.HashPassword(req.NewPassword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
+		return
 	}
 
-	targetUserID := uuid.Nil
-	err := ac.DB.Transaction(func(tx *gorm.DB) error {
+	err = ac.DB.Transaction(func(tx *gorm.DB) error {
+		if tx.Dialector.Name() == "postgres" {
+			var rows []struct {
+				UserID uuid.UUID `gorm:"column:user_id"`
+				SchoolID *uuid.UUID `gorm:"column:school_id"`
+			}
+			if err := tx.Raw("SELECT * FROM stonez_internal.auth_consume_password_reset(?, ?)", auth.HashResetToken(req.Token), passwordHash).Scan(&rows).Error; err != nil {
+				return err
+			}
+			if len(rows) != 1 || rows[0].UserID == uuid.Nil {
+				return errResetExpired
+			}
+			return audit.RecordWithSchoolID(tx, c, nil, rows[0].SchoolID, "security.password_reset", "user", &rows[0].UserID, nil)
+		}
+
 		var reset models.PasswordResetToken
 		if err := tx.Where("token_hash = ? AND used = false", auth.HashResetToken(req.Token)).First(&reset).Error; err != nil {
 			return gorm.ErrRecordNotFound
 		}
-		if time.Now().After(reset.ExpiresAt) { return errResetExpired }
-
-		// Claim the token atomically. A concurrent request may have passed the
-		// initial read, but only one transaction can change used=false to true.
+		if time.Now().After(reset.ExpiresAt) {
+			return errResetExpired
+		}
 		claim := tx.Model(&models.PasswordResetToken{}).
 			Where("id = ? AND used = false AND expires_at > ?", reset.ID, time.Now()).
 			Update("used", true)
-		if claim.Error != nil { return claim.Error }
-		if claim.RowsAffected != 1 { return errResetExpired }
-
-		targetUserID = reset.UserID
-		hash, err := auth.HashPassword(req.NewPassword)
-		if err != nil { return err }
-		if err := tx.Model(&models.User{}).Where("id = ? AND active = true", reset.UserID).Update("password_hash", hash).Error; err != nil {
+		if claim.Error != nil {
+			return claim.Error
+		}
+		if claim.RowsAffected != 1 {
+			return errResetExpired
+		}
+		if err := tx.Model(&models.User{}).Where("id = ? AND active = true", reset.UserID).Update("password_hash", passwordHash).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&models.RefreshToken{}).Where("user_id = ?", reset.UserID).Update("revoked", true).Error; err != nil { return err }
-		return tx.Model(&models.Session{}).Where("user_id = ?", reset.UserID).Update("revoked", true).Error
+		// Revoke sessions first, then refresh tokens, matching refresh/logout.
+		if err := tx.Model(&models.Session{}).Where("user_id = ?", reset.UserID).Update("revoked", true).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&models.RefreshToken{}).Where("user_id = ?", reset.UserID).Update("revoked", true).Error; err != nil {
+			return err
+		}
+		return audit.Record(tx, c, nil, "security.password_reset", "user", &reset.UserID, nil)
 	})
 	if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, errResetExpired) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired reset token"})
@@ -184,10 +241,8 @@ func (ac *AuthController) ResetPassword(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset password"})
 		return
 	}
-	_ = audit.Record(ac.DB, c, nil, "security.password_reset", "user", &targetUserID, nil)
 	c.JSON(http.StatusOK, gin.H{"message": "password reset successful"})
 }
-
 func (ac *AuthController) Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -613,29 +668,69 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 }
 
 func (ac *AuthController) ChangePassword(c *gin.Context) {
-	userID := c.GetString("user_id")
+	userID, err := uuid.Parse(c.GetString("user_id"))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
 	var req ChangePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Validation(c, httpx.ValidationErrors(err)); return
+		httpx.Validation(c, httpx.ValidationErrors(err))
+		return
 	}
 	var user models.User
-	if err := ac.DB.First(&user, "id = ? AND active = true", userID).Error; err != nil || !auth.CheckPassword(user.PasswordHash, req.CurrentPassword) {
+	if ac.DB.Dialector.Name() == "postgres" {
+		var rows []struct {
+			UserID uuid.UUID `gorm:"column:user_id"`
+			PasswordHash string `gorm:"column:password_hash"`
+			SchoolID *uuid.UUID `gorm:"column:school_id"`
+		}
+		if err := ac.DB.Raw("SELECT * FROM stonez_internal.auth_password_change_lookup(?)", userID).Scan(&rows).Error; err != nil || len(rows) != 1 {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "current password is incorrect"})
+			return
+		}
+		user = models.User{ID: rows[0].UserID, PasswordHash: rows[0].PasswordHash, SchoolID: rows[0].SchoolID}
+	} else if err := ac.DB.First(&user, "id = ? AND active = true", userID).Error; err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "current password is incorrect"})
+		return
+	}
+	if !auth.CheckPassword(user.PasswordHash, req.CurrentPassword) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "current password is incorrect"})
 		return
 	}
 	hash, err := auth.HashPassword(req.NewPassword)
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"}); return }
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
+		return
+	}
 	err = ac.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&user).Update("password_hash", hash).Error; err != nil { return err }
-		if err := tx.Model(&models.RefreshToken{}).Where("user_id = ?", user.ID).Update("revoked", true).Error; err != nil { return err }
-		return tx.Model(&models.Session{}).Where("user_id = ?", user.ID).Update("revoked", true).Error
+		if tx.Dialector.Name() == "postgres" {
+			var changed bool
+			if err := tx.Raw("SELECT stonez_internal.auth_change_password(?, ?)", user.ID, hash).Scan(&changed).Error; err != nil {
+				return err
+			}
+			if !changed {
+				return gorm.ErrRecordNotFound
+			}
+		} else {
+			if err := tx.Model(&user).Update("password_hash", hash).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&models.Session{}).Where("user_id = ?", user.ID).Update("revoked", true).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&models.RefreshToken{}).Where("user_id = ?", user.ID).Update("revoked", true).Error; err != nil {
+				return err
+			}
+		}
+		return audit.RecordWithSchoolID(tx, c, &user.ID, user.SchoolID, "security.password_change", "user", &user.ID, nil)
 	})
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to change password"}); return }
-	uid := uuid.MustParse(userID)
-	_ = audit.Record(ac.DB, c, &uid, "security.password_change", "user", &uid, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to change password"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "password changed successfully; please sign in again"})
 }
-
 func (ac *AuthController) GetSessions(c *gin.Context) {
 	var sessions []models.Session
 	if err := ac.DB.Where("user_id = ? AND revoked = false", c.GetString("user_id")).Find(&sessions).Error; err != nil {

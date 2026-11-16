@@ -167,8 +167,10 @@ SECURITY DEFINER
 SET search_path = pg_catalog
 AS $function$
 BEGIN
-    UPDATE public.refresh_tokens SET revoked = true WHERE family_id = p_family_id;
+    -- Keep the same lock order as auth_rotate_refresh (session, then token)
+    -- to avoid deadlocks between family revocation and an in-flight rotation.
     UPDATE public.sessions SET revoked = true WHERE family_id = p_family_id;
+    UPDATE public.refresh_tokens SET revoked = true WHERE family_id = p_family_id;
 END
 $function$;
 

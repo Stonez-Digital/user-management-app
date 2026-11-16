@@ -100,6 +100,12 @@ if [[ "$claimed_rows" != "1" ]]; then
   exit 1
 fi
 
+echo "== Assert privileged CREATEROLE installer cannot invoke the function =="
+if psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "SELECT * FROM stonez_internal.claim_next_bulk_import_job('66666666-6666-4666-8666-666666666666')" >/dev/null 2>&1; then
+  echo "Privileged CREATEROLE installer unexpectedly executed the claim function" >&2
+  exit 1
+fi
+
 claim_state="$(psql "$runner_url" -X -A -t -v ON_ERROR_STOP=1 -c "SELECT status || ':' || attempts::text FROM public.bulk_import_jobs WHERE id = '11111111-1111-4111-8111-111111111111'")"
 if [[ "$claim_state" != "running:1" ]]; then
   echo "Unexpected persisted claim state '$claim_state'" >&2

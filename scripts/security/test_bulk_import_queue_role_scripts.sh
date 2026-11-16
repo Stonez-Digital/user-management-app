@@ -68,7 +68,7 @@ echo "== Install actual restricted claim function =="
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_claim_function.sql
 
 echo "== Provision dedicated worker login using the interactive operator script =="
-printf '%s\\n' 'queue_script_worker_ci_password' | psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/provision_bulk_import_worker_login.psql
+printf '%s\n' 'queue_script_worker_ci_password' | psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/provision_bulk_import_worker_login.psql
 
 echo "== Create unrelated login and seed one job =="
 psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'

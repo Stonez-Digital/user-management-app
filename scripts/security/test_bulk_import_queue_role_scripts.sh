@@ -70,7 +70,7 @@ psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import
 echo "== Create restricted runtime and unrelated logins, then seed one job =="
 psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE ROLE bq_script_runtime LOGIN PASSWORD 'queue_script_runtime_ci_password' NOSUPERUSER NOBYPASSRLS;
-GRANT stonez_api_runtime TO bq_script_runtime;
+GRANT stonez_api_runtime TO bq_script_runtime WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
 CREATE ROLE bq_script_outsider LOGIN PASSWORD 'queue_script_outsider_ci_password' NOSUPERUSER NOBYPASSRLS;
 INSERT INTO public.bulk_import_jobs (
     id, school_id, initiated_by, kind, file_name, status, rows_json, errors_json

@@ -181,6 +181,22 @@ func TestSubscriptionBillingRLSInstallerWithRestrictedPostgresRole(t *testing.T)
 			t.Fatalf("missing tenant context exposed %d rows from %s", withoutContext, table)
 		}
 	}
+
+	// A write without transaction-local tenant claims must be rejected by
+	// WITH CHECK, not merely hidden by SELECT policy.
+	noContextWrites := []struct {
+		table string
+		row map[string]interface{}
+	}{
+		{"school_subscriptions", map[string]interface{}{"id": uuid.New(), "school_id": schoolA}},
+		{"subscription_events", map[string]interface{}{"id": uuid.New(), "school_id": schoolA, "event_type": "missing_context"}},
+		{"subscription_payments", map[string]interface{}{"id": uuid.New(), "school_id": schoolA}},
+	}
+	for _, attempt := range noContextWrites {
+		if err := restricted.Table(schema+"."+attempt.table).Create(attempt.row).Error; err == nil {
+			t.Errorf("insert into %s without tenant context unexpectedly succeeded", attempt.table)
+		}
+	}
 	var plansWithoutContext int64
 	if err := restricted.Table(schema+".billing_plans").Count(&plansWithoutContext).Error; err != nil { t.Fatal(err) }
 	if plansWithoutContext != 1 { t.Fatalf("active plans visible without tenant context=%d, want 1", plansWithoutContext) }

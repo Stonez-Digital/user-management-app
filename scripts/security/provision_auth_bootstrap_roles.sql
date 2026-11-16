@@ -27,6 +27,7 @@ ALTER ROLE stonez_auth_session_owner
     NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
 
 REVOKE stonez_auth_session_owner FROM stonez_api_runtime;
+GRANT stonez_auth_bootstrap_owner, stonez_auth_session_owner TO CURRENT_USER;
 GRANT USAGE, CREATE ON SCHEMA stonez_internal TO stonez_auth_session_owner;
 GRANT USAGE ON SCHEMA public TO stonez_auth_session_owner;
 

@@ -71,3 +71,54 @@ func ValidatePostgresRoleSecurity(status *PostgresRoleSecurityStatus, required b
     }
     return nil
 }
+
+
+type BulkImportClaimRoleStatus struct {
+    SessionRole string `gorm:"column:session_role"`
+    IsLogin bool `gorm:"column:is_login"`
+    IsSuperuser bool `gorm:"column:is_superuser"`
+    BypassRLS bool `gorm:"column:bypass_rls"`
+    CanCreateDB bool `gorm:"column:can_create_db"`
+    CanCreateRole bool `gorm:"column:can_create_role"`
+    IsRuntimeMember bool `gorm:"column:is_runtime_member"`
+    IsRuntimeEffective bool `gorm:"column:is_runtime_effective"`
+    IsQueueOwnerMember bool `gorm:"column:is_queue_owner_member"`
+    CanExecuteClaim bool `gorm:"column:can_execute_claim"`
+    CurrentRoleMatchesSession bool `gorm:"column:current_role_matches_session"`
+}
+
+// ValidateBulkImportClaimRole checks that the worker's claim-only connection
+// authenticates directly as a non-privileged login with effective membership
+// in stonez_api_runtime and no queue-owner membership.
+func ValidateBulkImportClaimRole(db *gorm.DB) error {
+    if db == nil || db.Dialector.Name() != "postgres" {
+        return fmt.Errorf("bulk import claim connection must be PostgreSQL")
+    }
+    var status BulkImportClaimRoleStatus
+    err := db.Raw(`
+        SELECT
+            session_user AS session_role,
+            role.rolcanlogin AS is_login,
+            role.rolsuper AS is_superuser,
+            role.rolbypassrls AS bypass_rls,
+            role.rolcreatedb AS can_create_db,
+            role.rolcreaterole AS can_create_role,
+            pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER') AS is_runtime_member,
+            pg_has_role(session_user, 'stonez_api_runtime', 'USAGE') AS is_runtime_effective,
+            pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER') AS is_queue_owner_member,
+            has_function_privilege(session_user, 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE') AS can_execute_claim,
+            current_user = session_user AS current_role_matches_session
+        FROM pg_roles AS role
+        WHERE role.rolname = session_user
+    `).Scan(&status).Error
+    if err != nil {
+        return fmt.Errorf("inspect bulk import claim role: %w", err)
+    }
+    if status.SessionRole == "" || !status.IsLogin || status.IsSuperuser || status.BypassRLS ||
+        status.CanCreateDB || status.CanCreateRole || !status.IsRuntimeMember ||
+        !status.IsRuntimeEffective || status.IsQueueOwnerMember || !status.CanExecuteClaim ||
+        !status.CurrentRoleMatchesSession {
+        return fmt.Errorf("bulk import claim connection role %q does not satisfy the restricted worker role boundary", status.SessionRole)
+    }
+    return nil
+}

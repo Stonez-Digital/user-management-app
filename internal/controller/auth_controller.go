@@ -113,11 +113,29 @@ func newResetToken() (string, error) {
 func (ac *AuthController) ForgotPassword(c *gin.Context) {
 	var req ForgotPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Validation(c, httpx.ValidationErrors(err)); return
+		httpx.Validation(c, httpx.ValidationErrors(err))
+		return
 	}
 
+	email := strings.ToLower(strings.TrimSpace(req.Email))
 	var user models.User
-	if err := ac.DB.Where("email = ? AND active = true", strings.ToLower(strings.TrimSpace(req.Email))).First(&user).Error; err != nil {
+	if ac.DB.Dialector.Name() == "postgres" {
+		var rows []struct {
+			UserID uuid.UUID `gorm:"column:user_id"`
+			FullName string `gorm:"column:full_name"`
+			Email string
+			SchoolID *uuid.UUID `gorm:"column:school_id"`
+		}
+		if err := ac.DB.Raw("SELECT * FROM stonez_internal.auth_password_reset_lookup(?)", email).Scan(&rows).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process password reset"})
+			return
+		}
+		if len(rows) == 0 {
+			c.JSON(http.StatusOK, gin.H{"message": "if the account exists, a reset link will be sent"})
+			return
+		}
+		user = models.User{ID: rows[0].UserID, Name: rows[0].FullName, Email: rows[0].Email, SchoolID: rows[0].SchoolID}
+	} else if err := ac.DB.Where("email = ? AND active = true", email).First(&user).Error; err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "if the account exists, a reset link will be sent"})
 		return
 	}
@@ -128,53 +146,100 @@ func (ac *AuthController) ForgotPassword(c *gin.Context) {
 		return
 	}
 	reset := models.PasswordResetToken{ID: uuid.New(), UserID: user.ID, TokenHash: auth.HashResetToken(token), ExpiresAt: time.Now().Add(15 * time.Minute)}
-	if err := ac.DB.Create(&reset).Error; err != nil {
+	if ac.DB.Dialector.Name() == "postgres" {
+		err = ac.DB.Exec("SELECT stonez_internal.auth_create_password_reset(?, ?, ?, ?)", reset.ID, reset.UserID, reset.TokenHash, reset.ExpiresAt).Error
+	} else {
+		err = ac.DB.Create(&reset).Error
+	}
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create reset token"})
 		return
 	}
 
-	// Keep the response identical for existing and unknown accounts. Never return
-	// the raw token from the API; it is delivered only through the configured mailer.
+	// The reset token is committed before the external email operation. If
+	// delivery fails, invalidate it and log any failure to invalidate.
+	disableReset := func() {
+		var disableErr error
+		if ac.DB.Dialector.Name() == "postgres" {
+			var disabled bool
+			disableErr = ac.DB.Raw("SELECT stonez_internal.auth_disable_password_reset(?)", reset.ID).Scan(&disabled).Error
+			if disableErr == nil && !disabled {
+				disableErr = errors.New("reset token was not invalidated")
+			}
+		} else {
+			result := ac.DB.Model(&reset).Update("used", true)
+			disableErr = result.Error
+			if disableErr == nil && result.RowsAffected != 1 {
+				disableErr = errors.New("reset token was not invalidated")
+			}
+		}
+		if disableErr != nil {
+			log.Printf("failed to invalidate undelivered password reset token %s: %v", reset.ID, disableErr)
+		}
+	}
 	if ac.Mailer == nil {
-		_ = ac.DB.Model(&reset).Update("used", true).Error
+		disableReset()
 		log.Printf("password reset email unavailable: mailer is not configured")
 	} else if err := ac.Mailer.SendPasswordReset(user.Name, user.Email, token); err != nil {
-		_ = ac.DB.Model(&reset).Update("used", true).Error
+		disableReset()
 		log.Printf("password reset email delivery failed: %v", err)
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "if the account exists, a reset link will be sent"})
 }
-
 func (ac *AuthController) ResetPassword(c *gin.Context) {
 	var req ResetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Validation(c, httpx.ValidationErrors(err)); return
+		httpx.Validation(c, httpx.ValidationErrors(err))
+		return
+	}
+	passwordHash, err := auth.HashPassword(req.NewPassword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
+		return
 	}
 
-	targetUserID := uuid.Nil
-	err := ac.DB.Transaction(func(tx *gorm.DB) error {
+	err = ac.DB.Transaction(func(tx *gorm.DB) error {
+		if tx.Dialector.Name() == "postgres" {
+			var rows []struct {
+				UserID uuid.UUID `gorm:"column:user_id"`
+				SchoolID *uuid.UUID `gorm:"column:school_id"`
+			}
+			if err := tx.Raw("SELECT * FROM stonez_internal.auth_consume_password_reset(?, ?)", auth.HashResetToken(req.Token), passwordHash).Scan(&rows).Error; err != nil {
+				return err
+			}
+			if len(rows) != 1 || rows[0].UserID == uuid.Nil {
+				return errResetExpired
+			}
+			return audit.RecordWithSchoolID(tx, c, nil, rows[0].SchoolID, "security.password_reset", "user", &rows[0].UserID, nil)
+		}
+
 		var reset models.PasswordResetToken
 		if err := tx.Where("token_hash = ? AND used = false", auth.HashResetToken(req.Token)).First(&reset).Error; err != nil {
 			return gorm.ErrRecordNotFound
 		}
-		if time.Now().After(reset.ExpiresAt) { return errResetExpired }
-
-		// Claim the token atomically. A concurrent request may have passed the
-		// initial read, but only one transaction can change used=false to true.
+		if time.Now().After(reset.ExpiresAt) {
+			return errResetExpired
+		}
 		claim := tx.Model(&models.PasswordResetToken{}).
 			Where("id = ? AND used = false AND expires_at > ?", reset.ID, time.Now()).
 			Update("used", true)
-		if claim.Error != nil { return claim.Error }
-		if claim.RowsAffected != 1 { return errResetExpired }
-
-		targetUserID = reset.UserID
-		hash, err := auth.HashPassword(req.NewPassword)
-		if err != nil { return err }
-		if err := tx.Model(&models.User{}).Where("id = ? AND active = true", reset.UserID).Update("password_hash", hash).Error; err != nil {
+		if claim.Error != nil {
+			return claim.Error
+		}
+		if claim.RowsAffected != 1 {
+			return errResetExpired
+		}
+		if err := tx.Model(&models.User{}).Where("id = ? AND active = true", reset.UserID).Update("password_hash", passwordHash).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&models.RefreshToken{}).Where("user_id = ?", reset.UserID).Update("revoked", true).Error; err != nil { return err }
-		return tx.Model(&models.Session{}).Where("user_id = ?", reset.UserID).Update("revoked", true).Error
+		// Revoke sessions first, then refresh tokens, matching refresh/logout.
+		if err := tx.Model(&models.Session{}).Where("user_id = ?", reset.UserID).Update("revoked", true).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&models.RefreshToken{}).Where("user_id = ?", reset.UserID).Update("revoked", true).Error; err != nil {
+			return err
+		}
+		return audit.Record(tx, c, nil, "security.password_reset", "user", &reset.UserID, nil)
 	})
 	if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, errResetExpired) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired reset token"})
@@ -184,10 +249,8 @@ func (ac *AuthController) ResetPassword(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset password"})
 		return
 	}
-	_ = audit.Record(ac.DB, c, nil, "security.password_reset", "user", &targetUserID, nil)
 	c.JSON(http.StatusOK, gin.H{"message": "password reset successful"})
 }
-
 func (ac *AuthController) Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -330,56 +393,195 @@ func (ac *AuthController) PublicSchool(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"id": school.ID, "name": school.Name, "code": school.Code, "slug": school.Slug, "logo_url": logo})
 }
 
+type authLoginLookup struct {
+	UserID uuid.UUID `gorm:"column:user_id"`
+	SchoolID *uuid.UUID `gorm:"column:school_id"`
+	FullName string `gorm:"column:full_name"`
+	Email string
+	PasswordHash string `gorm:"column:password_hash"`
+	Role string
+	Active bool
+	SchoolStatus string `gorm:"column:school_status"`
+	SchoolCode string `gorm:"column:school_code"`
+	SchoolSlug string `gorm:"column:school_slug"`
+}
+
+type authRefreshLookup struct {
+	TokenID uuid.UUID `gorm:"column:token_id"`
+	FamilyID uuid.UUID `gorm:"column:family_id"`
+	UserID uuid.UUID `gorm:"column:user_id"`
+	TokenExpiresAt time.Time `gorm:"column:token_expires_at"`
+	TokenRevoked bool `gorm:"column:token_revoked"`
+	SessionID uuid.UUID `gorm:"column:session_id"`
+	SessionExpiresAt time.Time `gorm:"column:session_expires_at"`
+	SessionRevoked bool `gorm:"column:session_revoked"`
+	SchoolID *uuid.UUID `gorm:"column:school_id"`
+	Role string
+	Active bool
+	SchoolStatus string `gorm:"column:school_status"`
+}
+
+func authLookupSchoolAccess(user models.User, status, code, slug, requestedCode, requestedSlug string) error {
+	if user.Role == authz.RoleSuperAdmin {
+		if strings.TrimSpace(requestedSlug) != "" {
+			return errors.New("platform administrators must use the platform login")
+		}
+		return nil
+	}
+	if user.SchoolID == nil || *user.SchoolID == uuid.Nil || status != models.SchoolStatusActive {
+		return errors.New("school onboarding is pending platform approval")
+	}
+	if value := strings.TrimSpace(requestedCode); value != "" && !strings.EqualFold(value, code) {
+		return errors.New("school code does not match your account")
+	}
+	if value := strings.TrimSpace(requestedSlug); value != "" && !strings.EqualFold(value, slug) {
+		return errors.New("school login does not match your account")
+	}
+	return nil
+}
+
 func (ac *AuthController) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Validation(c, httpx.ValidationErrors(err)); return
+		httpx.Validation(c, httpx.ValidationErrors(err))
+		return
 	}
+
 	var user models.User
-	if err := ac.DB.Where("email = ?", strings.ToLower(strings.TrimSpace(req.Email))).First(&user).Error; err != nil || !user.Active || !auth.CheckPassword(user.PasswordHash, req.Password) {
+	var schoolStatus, schoolCode, schoolSlug string
+	if ac.DB.Dialector.Name() == "postgres" {
+		var lookup authLoginLookup
+		err := ac.DB.Raw("SELECT * FROM stonez_internal.auth_login_lookup(?)", strings.ToLower(strings.TrimSpace(req.Email))).Scan(&lookup).Error
+		if err != nil || lookup.UserID == uuid.Nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+			return
+		}
+		user = models.User{ID: lookup.UserID, SchoolID: lookup.SchoolID, Name: lookup.FullName, Email: lookup.Email, PasswordHash: lookup.PasswordHash, Role: lookup.Role, Active: lookup.Active}
+		schoolStatus, schoolCode, schoolSlug = lookup.SchoolStatus, lookup.SchoolCode, lookup.SchoolSlug
+	} else {
+		if err := ac.DB.Where("email = ?", strings.ToLower(strings.TrimSpace(req.Email))).First(&user).Error; err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+			return
+		}
+	}
+	if !user.Active || !auth.CheckPassword(user.PasswordHash, req.Password) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
-	if err := validateSchoolAccess(ac.DB, user, req.SchoolCode, req.SchoolSlug); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+	var schoolErr error
+	if ac.DB.Dialector.Name() == "postgres" {
+		schoolErr = authLookupSchoolAccess(user, schoolStatus, schoolCode, schoolSlug, req.SchoolCode, req.SchoolSlug)
+	} else {
+		schoolErr = validateSchoolAccess(ac.DB, user, req.SchoolCode, req.SchoolSlug)
+	}
+	if schoolErr != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": schoolErr.Error()})
 		return
+	}
+
+	// Supplying the school context lets the audit writer avoid a second users
+	// table read after the restricted bootstrap lookup.
+	if user.SchoolID != nil && *user.SchoolID != uuid.Nil {
+		c.Set(middleware.SchoolIDKey, user.SchoolID.String())
 	}
 	sessionID := uuid.New()
 	accessToken, err := auth.GenerateTokenForSession(user.ID.String(), user.Role, sessionID.String())
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate access token"}); return }
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate access token"})
+		return
+	}
 	refreshToken, err := auth.GenerateRefreshToken(user.ID.String())
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate refresh token"}); return }
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate refresh token"})
+		return
+	}
 
 	err = ac.DB.Transaction(func(tx *gorm.DB) error {
 		familyID := uuid.New()
 		expiry := time.Now().Add(auth.RefreshTokenTTL)
-		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: auth.HashRefreshToken(refreshToken), ExpiresAt: expiry}).Error; err != nil { return err }
-		return tx.Create(&models.Session{ID: sessionID, UserID: user.ID, FamilyID: familyID, RefreshTokenHash: auth.HashRefreshToken(refreshToken), ExpiresAt: expiry, UserAgent: c.Request.UserAgent(), IP: c.ClientIP()}).Error
+		refreshHash := auth.HashRefreshToken(refreshToken)
+		if tx.Dialector.Name() == "postgres" {
+			if err := tx.Exec("SELECT stonez_internal.auth_create_session(?, ?, ?, ?, ?, ?, ?, ?)",
+				uuid.New(), user.ID, familyID, refreshHash, expiry, sessionID, c.Request.UserAgent(), c.ClientIP()).Error; err != nil {
+				return err
+			}
+			return audit.RecordWithSchoolID(tx, c, &user.ID, user.SchoolID, "auth.login", "user", &user.ID, nil)
+		}
+		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: refreshHash, ExpiresAt: expiry}).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&models.Session{ID: sessionID, UserID: user.ID, FamilyID: familyID, RefreshTokenHash: refreshHash, ExpiresAt: expiry, UserAgent: c.Request.UserAgent(), IP: c.ClientIP()}).Error; err != nil {
+			return err
+		}
+		return audit.RecordWithSchoolID(tx, c, &user.ID, user.SchoolID, "auth.login", "user", &user.ID, nil)
 	})
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session"}); return }
-	_ = audit.Record(ac.DB, c, &user.ID, "auth.login", "user", &user.ID, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"access_token": accessToken, "refresh_token": refreshToken})
+}
+
+func revokeRefreshFamily(db *gorm.DB, familyID uuid.UUID) error {
+	if db.Dialector.Name() == "postgres" {
+		return db.Exec("SELECT stonez_internal.auth_revoke_refresh_family(?)", familyID).Error
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.RefreshToken{}).Where("family_id = ?", familyID).Updates(map[string]interface{}{"revoked": true}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.Session{}).Where("family_id = ?", familyID).Updates(map[string]interface{}{"revoked": true}).Error
+	})
+}
+
+func revokeRefreshFamilyAndAudit(db *gorm.DB, c *gin.Context, userID, familyID uuid.UUID, schoolID *uuid.UUID) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := revokeRefreshFamily(tx, familyID); err != nil {
+			return err
+		}
+		return audit.RecordWithSchoolID(tx, c, &userID, schoolID, "security.refresh_token_reuse", "user", &userID,
+			map[string]interface{}{"family_id": familyID.String()})
+	})
 }
 
 func (ac *AuthController) Refresh(c *gin.Context) {
 	var req RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Validation(c, httpx.ValidationErrors(err)); return
-	}
-
-	var stored models.RefreshToken
-	if err := ac.DB.Where("token_hash = ?", auth.HashRefreshToken(req.RefreshToken)).First(&stored).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
+		httpx.Validation(c, httpx.ValidationErrors(err))
 		return
 	}
+	tokenHash := auth.HashRefreshToken(req.RefreshToken)
+
+	var stored models.RefreshToken
+	var user models.User
+	var session models.Session
+	var schoolStatus string
+	if ac.DB.Dialector.Name() == "postgres" {
+		var lookup authRefreshLookup
+		if err := ac.DB.Raw("SELECT * FROM stonez_internal.auth_refresh_lookup(?)", tokenHash).Scan(&lookup).Error; err != nil || lookup.TokenID == uuid.Nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
+			return
+		}
+		stored = models.RefreshToken{ID: lookup.TokenID, FamilyID: lookup.FamilyID, UserID: lookup.UserID, TokenHash: tokenHash, ExpiresAt: lookup.TokenExpiresAt, Revoked: lookup.TokenRevoked}
+		user = models.User{ID: lookup.UserID, SchoolID: lookup.SchoolID, Role: lookup.Role, Active: lookup.Active}
+		session = models.Session{ID: lookup.SessionID, UserID: lookup.UserID, FamilyID: lookup.FamilyID, RefreshTokenHash: tokenHash, ExpiresAt: lookup.SessionExpiresAt, Revoked: lookup.SessionRevoked}
+		schoolStatus = lookup.SchoolStatus
+	} else {
+		if err := ac.DB.Where("token_hash = ?", tokenHash).First(&stored).Error; err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
+			return
+		}
+	}
+
 	if stored.Revoked {
-		_ = ac.DB.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Model(&models.RefreshToken{}).Where("family_id = ?", stored.FamilyID).Updates(map[string]interface{}{"revoked": true}).Error; err != nil {
-				return err
-			}
-			return tx.Model(&models.Session{}).Where("family_id = ?", stored.FamilyID).Updates(map[string]interface{}{"revoked": true}).Error
-		})
-		_ = audit.Record(ac.DB, c, &stored.UserID, "security.refresh_token_reuse", "user", &stored.UserID, map[string]interface{}{"family_id": stored.FamilyID.String()})
+		if user.ID != uuid.Nil && user.SchoolID != nil {
+			c.Set(middleware.SchoolIDKey, user.SchoolID.String())
+		}
+		if err := revokeRefreshFamilyAndAudit(ac.DB, c, stored.UserID, stored.FamilyID, user.SchoolID); err != nil {
+			log.Printf("failed to revoke/audit reused refresh-token family %s: %v", stored.FamilyID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revoke refresh-token family"})
+			return
+		}
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or already used refresh token; session revoked"})
 		return
 	}
@@ -387,78 +589,160 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
 		return
 	}
-	var user models.User
-	if err := ac.DB.First(&user, "id = ?", stored.UserID).Error; err != nil || !user.Active {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
-		return
+
+	if ac.DB.Dialector.Name() == "postgres" {
+		if !user.Active || session.ID == uuid.Nil || session.Revoked || time.Now().After(session.ExpiresAt) ||
+			authLookupSchoolAccess(user, schoolStatus, "", "", "", "") != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
+			return
+		}
+		if user.SchoolID != nil {
+			c.Set(middleware.SchoolIDKey, user.SchoolID.String())
+		}
+	} else {
+		if err := ac.DB.First(&user, "id = ?", stored.UserID).Error; err != nil || !user.Active {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
+			return
+		}
+		if err := validateSchoolAccess(ac.DB, user, "", ""); err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
+			return
+		}
+		if err := ac.DB.Where("refresh_token_hash = ? AND user_id = ? AND revoked = false AND expires_at > ?", tokenHash, user.ID, time.Now()).First(&session).Error; err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
+			return
+		}
 	}
 
-	if err := validateSchoolAccess(ac.DB, user, "", ""); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
-		return
-	}
-
-	var session models.Session
-	if err := ac.DB.Where("refresh_token_hash = ? AND user_id = ? AND revoked = false AND expires_at > ?", auth.HashRefreshToken(req.RefreshToken), user.ID, time.Now()).First(&session).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
-		return
-	}
 	accessToken, err := auth.GenerateTokenForSession(user.ID.String(), user.Role, session.ID.String())
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate access token"}); return }
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate access token"})
+		return
+	}
 	newRefreshToken, err := auth.GenerateRefreshToken(user.ID.String())
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate refresh token"}); return }
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate refresh token"})
+		return
+	}
 
 	err = ac.DB.Transaction(func(tx *gorm.DB) error {
-		result := tx.Model(&models.RefreshToken{}).Where("id = ? AND revoked = false", stored.ID).Update("revoked", true)
-		if result.Error != nil { return result.Error }
-		if result.RowsAffected != 1 { return errRefreshReused }
 		familyID := stored.FamilyID
 		expiry := time.Now().Add(auth.RefreshTokenTTL)
-		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: auth.HashRefreshToken(newRefreshToken), ExpiresAt: expiry}).Error; err != nil { return err }
-		result = tx.Model(&models.Session{}).Where("id = ? AND refresh_token_hash = ? AND revoked = false", session.ID, auth.HashRefreshToken(req.RefreshToken)).Updates(map[string]interface{}{"refresh_token_hash": auth.HashRefreshToken(newRefreshToken), "expires_at": expiry})
-		if result.Error != nil { return result.Error }
-		if result.RowsAffected != 1 { return errRefreshReused }
-		return nil
-	})
-	if errors.Is(err, errRefreshReused) {
-		_ = ac.DB.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Model(&models.RefreshToken{}).Where("family_id = ?", stored.FamilyID).Updates(map[string]interface{}{"revoked": true}).Error; err != nil {
+		newHash := auth.HashRefreshToken(newRefreshToken)
+		if tx.Dialector.Name() == "postgres" {
+			var rotated bool
+			if err := tx.Raw("SELECT stonez_internal.auth_rotate_refresh(?, ?, ?, ?, ?, ?, ?, ?)",
+				stored.ID, tokenHash, uuid.New(), user.ID, familyID, newHash, expiry, session.ID).Scan(&rotated).Error; err != nil {
 				return err
 			}
-			return tx.Model(&models.Session{}).Where("family_id = ?", stored.FamilyID).Updates(map[string]interface{}{"revoked": true}).Error
-		})
-		_ = audit.Record(ac.DB, c, &stored.UserID, "security.refresh_token_reuse", "user", &stored.UserID, map[string]interface{}{"family_id": stored.FamilyID.String()})
+			if !rotated {
+				return errRefreshReused
+			}
+			return audit.RecordWithSchoolID(tx, c, &stored.UserID, user.SchoolID, "auth.refresh", "user", &stored.UserID, map[string]interface{}{"family_id": familyID.String()})
+		}
+		result := tx.Model(&models.RefreshToken{}).Where("id = ? AND revoked = false", stored.ID).Update("revoked", true)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return errRefreshReused
+		}
+		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: newHash, ExpiresAt: expiry}).Error; err != nil {
+			return err
+		}
+		result = tx.Model(&models.Session{}).Where("id = ? AND refresh_token_hash = ? AND revoked = false", session.ID, tokenHash).Updates(map[string]interface{}{"refresh_token_hash": newHash, "expires_at": expiry})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return errRefreshReused
+		}
+		return audit.RecordWithSchoolID(tx, c, &stored.UserID, user.SchoolID, "auth.refresh", "user", &stored.UserID, map[string]interface{}{"family_id": familyID.String()})
+	})
+	if errors.Is(err, errRefreshReused) {
+		if err := revokeRefreshFamilyAndAudit(ac.DB, c, stored.UserID, stored.FamilyID, user.SchoolID); err != nil {
+			log.Printf("failed to revoke/audit raced refresh-token reuse for family %s: %v", stored.FamilyID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revoke refresh-token family"})
+			return
+		}
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or already used refresh token; session revoked"})
 		return
 	}
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rotate refresh token"}); return }
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rotate refresh token"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"access_token": accessToken, "refresh_token": newRefreshToken})
 }
 
 func (ac *AuthController) ChangePassword(c *gin.Context) {
-	userID := c.GetString("user_id")
+	userID, err := uuid.Parse(c.GetString("user_id"))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
 	var req ChangePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Validation(c, httpx.ValidationErrors(err)); return
+		httpx.Validation(c, httpx.ValidationErrors(err))
+		return
 	}
 	var user models.User
-	if err := ac.DB.First(&user, "id = ? AND active = true", userID).Error; err != nil || !auth.CheckPassword(user.PasswordHash, req.CurrentPassword) {
+	if ac.DB.Dialector.Name() == "postgres" {
+		var rows []struct {
+			UserID uuid.UUID `gorm:"column:user_id"`
+			PasswordHash string `gorm:"column:password_hash"`
+			SchoolID *uuid.UUID `gorm:"column:school_id"`
+		}
+		if err := ac.DB.Raw("SELECT * FROM stonez_internal.auth_password_change_lookup(?)", userID).Scan(&rows).Error; err != nil || len(rows) != 1 {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "current password is incorrect"})
+			return
+		}
+		user = models.User{ID: rows[0].UserID, PasswordHash: rows[0].PasswordHash, SchoolID: rows[0].SchoolID}
+	} else if err := ac.DB.First(&user, "id = ? AND active = true", userID).Error; err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "current password is incorrect"})
+		return
+	}
+	if !auth.CheckPassword(user.PasswordHash, req.CurrentPassword) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "current password is incorrect"})
 		return
 	}
 	hash, err := auth.HashPassword(req.NewPassword)
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"}); return }
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
+		return
+	}
 	err = ac.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&user).Update("password_hash", hash).Error; err != nil { return err }
-		if err := tx.Model(&models.RefreshToken{}).Where("user_id = ?", user.ID).Update("revoked", true).Error; err != nil { return err }
-		return tx.Model(&models.Session{}).Where("user_id = ?", user.ID).Update("revoked", true).Error
+		if tx.Dialector.Name() == "postgres" {
+			var changed bool
+			if err := tx.Raw("SELECT stonez_internal.auth_change_password(?, ?, ?)", user.ID, user.PasswordHash, hash).Scan(&changed).Error; err != nil {
+				return err
+			}
+			if !changed {
+				return gorm.ErrRecordNotFound
+			}
+		} else {
+			if err := tx.Model(&user).Update("password_hash", hash).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&models.Session{}).Where("user_id = ?", user.ID).Update("revoked", true).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&models.RefreshToken{}).Where("user_id = ?", user.ID).Update("revoked", true).Error; err != nil {
+				return err
+			}
+		}
+		return audit.RecordWithSchoolID(tx, c, &user.ID, user.SchoolID, "security.password_change", "user", &user.ID, nil)
 	})
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to change password"}); return }
-	uid := uuid.MustParse(userID)
-	_ = audit.Record(ac.DB, c, &uid, "security.password_change", "user", &uid, nil)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "current password is incorrect"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to change password"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "password changed successfully; please sign in again"})
 }
-
 func (ac *AuthController) GetSessions(c *gin.Context) {
 	var sessions []models.Session
 	if err := ac.DB.Where("user_id = ? AND revoked = false", c.GetString("user_id")).Find(&sessions).Error; err != nil {
@@ -469,16 +753,48 @@ func (ac *AuthController) GetSessions(c *gin.Context) {
 }
 
 func (ac *AuthController) RevokeSession(c *gin.Context) {
-	userID := c.GetString("user_id")
-	var session models.Session
-	if err := ac.DB.Where("id = ? AND user_id = ? AND revoked = false", c.Param("id"), userID).First(&session).Error; err != nil {
+	userID, err := uuid.Parse(c.GetString("user_id"))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	sessionID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid session id"})
+		return
+	}
+	var schoolID *uuid.UUID
+	if id, ok := middleware.SchoolIDFromContext(c); ok {
+		schoolID = &id
+	}
+	err = ac.DB.Transaction(func(tx *gorm.DB) error {
+		if tx.Dialector.Name() == "postgres" {
+			var revoked bool
+			if err := tx.Raw("SELECT stonez_internal.auth_revoke_session(?, ?)", sessionID, userID).Scan(&revoked).Error; err != nil {
+				return err
+			}
+			if !revoked {
+				return gorm.ErrRecordNotFound
+			}
+		} else {
+			var session models.Session
+			if err := tx.Where("id = ? AND user_id = ? AND revoked = false", sessionID, userID).First(&session).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&session).Update("revoked", true).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&models.RefreshToken{}).Where("token_hash = ? AND user_id = ?", session.RefreshTokenHash, userID).Update("revoked", true).Error; err != nil {
+				return err
+			}
+		}
+		return audit.RecordWithSchoolID(tx, c, &userID, schoolID, "auth.session_revoke", "session", &sessionID, nil)
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
 		return
 	}
-	if err := ac.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&session).Update("revoked", true).Error; err != nil { return err }
-		return tx.Model(&models.RefreshToken{}).Where("token_hash = ? AND user_id = ?", session.RefreshTokenHash, userID).Update("revoked", true).Error
-	}); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revoke session"})
 		return
 	}
@@ -488,35 +804,85 @@ func (ac *AuthController) RevokeSession(c *gin.Context) {
 func (ac *AuthController) Logout(c *gin.Context) {
 	var req LogoutRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Validation(c, httpx.ValidationErrors(err)); return
+		httpx.Validation(c, httpx.ValidationErrors(err))
+		return
 	}
-	var token models.RefreshToken
-	if err := ac.DB.Where("token_hash = ? AND revoked = false", auth.HashRefreshToken(req.RefreshToken)).First(&token).Error; err != nil {
+	tokenHash := auth.HashRefreshToken(req.RefreshToken)
+	var userID uuid.UUID
+	err := ac.DB.Transaction(func(tx *gorm.DB) error {
+		if tx.Dialector.Name() == "postgres" {
+			var rows []struct {
+				UserID uuid.UUID `gorm:"column:user_id"`
+				SchoolID *uuid.UUID `gorm:"column:school_id"`
+			}
+			if err := tx.Raw("SELECT user_id, school_id FROM stonez_internal.auth_logout(?)", tokenHash).Scan(&rows).Error; err != nil {
+				return err
+			}
+			if len(rows) != 1 || rows[0].UserID == uuid.Nil {
+				return gorm.ErrRecordNotFound
+			}
+			userID = rows[0].UserID
+			return audit.RecordWithSchoolID(tx, c, &userID, rows[0].SchoolID, "auth.logout", "user", &userID, nil)
+		} else {
+			var token models.RefreshToken
+			if err := tx.Where("token_hash = ? AND revoked = false", tokenHash).First(&token).Error; err != nil {
+				return gorm.ErrRecordNotFound
+			}
+			var session models.Session
+			if err := tx.Where("refresh_token_hash = ? AND user_id = ? AND revoked = false", tokenHash, token.UserID).First(&session).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&session).Update("revoked", true).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&token).Update("revoked", true).Error; err != nil {
+				return err
+			}
+			userID = token.UserID
+		}
+		return audit.RecordWithSchoolID(tx, c, &userID, nil, "auth.logout", "user", &userID, nil)
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 		return
 	}
-	if err := ac.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&token).Update("revoked", true).Error; err != nil { return err }
-		return tx.Model(&models.Session{}).Where("refresh_token_hash = ?", auth.HashRefreshToken(req.RefreshToken)).Update("revoked", true).Error
-	}); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to logout"})
 		return
 	}
-	_ = audit.Record(ac.DB, c, &token.UserID, "auth.logout", "user", &token.UserID, nil)
 	c.JSON(http.StatusOK, gin.H{"message": "logged out successfully"})
 }
 
 func (ac *AuthController) LogoutAll(c *gin.Context) {
-	userID := c.GetString("user_id")
-	if err := ac.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&models.RefreshToken{}).Where("user_id = ? AND revoked = false", userID).Update("revoked", true).Error; err != nil { return err }
-		return tx.Model(&models.Session{}).Where("user_id = ? AND revoked = false", userID).Update("revoked", true).Error
-	}); err != nil {
+	userID, err := uuid.Parse(c.GetString("user_id"))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	var schoolID *uuid.UUID
+	if id, ok := middleware.SchoolIDFromContext(c); ok {
+		schoolID = &id
+	}
+	err = ac.DB.Transaction(func(tx *gorm.DB) error {
+		if tx.Dialector.Name() == "postgres" {
+			if err := tx.Exec("SELECT stonez_internal.auth_logout_all(?)", userID).Error; err != nil {
+				return err
+			}
+		} else {
+			// Keep lock order consistent with refresh rotation: sessions first.
+			if err := tx.Model(&models.Session{}).Where("user_id = ? AND revoked = false", userID).Update("revoked", true).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&models.RefreshToken{}).Where("user_id = ? AND revoked = false", userID).Update("revoked", true).Error; err != nil {
+				return err
+			}
+		}
+		return audit.RecordWithSchoolID(tx, c, &userID, schoolID, "auth.logout_all", "user", &userID, nil)
+	})
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to logout all devices"})
 		return
 	}
-	uid := uuid.MustParse(userID)
-	_ = audit.Record(ac.DB, c, &uid, "auth.logout_all", "user", &uid, nil)
 	c.JSON(http.StatusOK, gin.H{"message": "logged out from all devices"})
 }
 

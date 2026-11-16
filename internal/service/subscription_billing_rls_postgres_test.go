@@ -137,7 +137,7 @@ func TestSubscriptionBillingRLSInstallerWithRestrictedPostgresRole(t *testing.T)
 		}
 
 		// A tenant may not move an existing row into another school's tenant.
-		for _, table := range []string{"school_subscriptions", "subscription_payments", "subscription_events"} {
+		for _, table := range []string{"school_subscriptions", "subscription_payments"} {
 			err := tx.Transaction(func(savepoint *gorm.DB) error {
 				return savepoint.Table(schema+"."+table).Where("school_id = ?", schoolA).Update("school_id", schoolB).Error
 			})

@@ -22,8 +22,11 @@ BEGIN
     END IF;
 END
 $$;
-ALTER ROLE stonez_bulk_queue_owner NOLOGIN NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
-ALTER ROLE stonez_api_runtime NOLOGIN NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS;
+-- New roles default to NOCREATEDB and NOCREATEROLE. A CREATEROLE-only
+-- operator cannot change another role's CREATEDB attribute, so leave these
+-- safe defaults untouched and assert them in the verification script.
+ALTER ROLE stonez_bulk_queue_owner NOLOGIN NOINHERIT NOBYPASSRLS;
+ALTER ROLE stonez_api_runtime NOLOGIN INHERIT NOBYPASSRLS;
 -- PostgreSQL does not let a non-superuser ALTER ROLE change SUPERUSER,
 -- even to NOSUPERUSER. New roles default to NOSUPERUSER; assert it instead.
 

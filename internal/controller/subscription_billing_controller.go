@@ -4,13 +4,11 @@ import (
 	"errors"
 	"net/http"
 	"os"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/onoja217/users-management-app/internal/httpx"
 	"github.com/onoja217/users-management-app/internal/middleware"
-	"github.com/onoja217/users-management-app/internal/models"
 	"github.com/onoja217/users-management-app/internal/service"
 	"gorm.io/gorm"
 )
@@ -41,7 +39,9 @@ func (ctrl *SubscriptionBillingController) Plans(c *gin.Context) {
 
 func (ctrl *SubscriptionBillingController) Current(c *gin.Context) {
 	schoolID,ok:=middleware.SchoolIDFromContext(c);if !ok {httpx.Error(c,http.StatusForbidden,"school_context_required","school context required");return}
-	sub,err:=ctrl.subscriptions.CurrentSubscription(schoolID)
+	actorID,err:=uuid.Parse(c.GetString(middleware.UserIDKey))
+	if err!=nil { httpx.Error(c,http.StatusUnauthorized,"invalid_user_context","authentication required");return }
+	sub,err:=ctrl.subscriptions.WithTenantContext(schoolID,actorID).CurrentSubscription(schoolID)
 	if errors.Is(err,service.ErrSubscriptionNotFound) {httpx.Error(c,http.StatusNotFound,"subscription_not_found","no active subscription");return}
 	if err!=nil {httpx.Error(c,http.StatusInternalServerError,"subscription_unavailable","failed to load subscription");return}
 	c.JSON(http.StatusOK,sub)
@@ -53,11 +53,12 @@ func (ctrl *SubscriptionBillingController) Checkout(c *gin.Context) {
 	if err:=c.ShouldBindJSON(&req);err!=nil {httpx.Validation(c,httpx.ValidationErrors(err));return}
 	actorID,err:=uuid.Parse(c.GetString(middleware.UserIDKey))
 	if err!=nil {httpx.Error(c,http.StatusUnauthorized,"invalid_user_context","authentication required");return}
-	var actor models.User
-	if err:=ctrl.db.Select("id","email","school_id","active").Where("id = ? AND school_id = ?",actorID,schoolID).First(&actor).Error;err!=nil || !actor.Active || strings.TrimSpace(actor.Email)=="" {
+	billing := ctrl.billing.WithTenantContext(schoolID, actorID)
+	email,err:=billing.BillingContactEmail(schoolID,actorID)
+	if err!=nil {
 		httpx.Error(c,http.StatusForbidden,"billing_contact_unavailable","an active school administrator email is required");return
 	}
-	result,err:=ctrl.billing.CreateCheckout(schoolID,req.TermID,req.PlanCode,actor.Email,os.Getenv("PAYSTACK_CALLBACK_URL"))
+	result,err:=billing.CreateCheckout(schoolID,req.TermID,req.PlanCode,email,os.Getenv("PAYSTACK_CALLBACK_URL"))
 	if err!=nil {
 		switch {
 		case errors.Is(err,service.ErrSubscriptionTermUnavailable): httpx.Error(c,http.StatusConflict,"term_unavailable","select a current active term belonging to this school")
@@ -77,7 +78,9 @@ func (ctrl *SubscriptionBillingController) Verify(c *gin.Context) {
 	schoolID,ok:=middleware.SchoolIDFromContext(c);if !ok {httpx.Error(c,http.StatusForbidden,"school_context_required","school context required");return}
 	var req subscriptionVerifyRequest
 	if err:=c.ShouldBindJSON(&req);err!=nil {httpx.Validation(c,httpx.ValidationErrors(err));return}
-	result,err:=ctrl.billing.VerifyCheckout(schoolID,req.Reference)
+	actorID,err:=uuid.Parse(c.GetString(middleware.UserIDKey))
+	if err!=nil { httpx.Error(c,http.StatusUnauthorized,"invalid_user_context","authentication required");return }
+	result,err:=ctrl.billing.WithTenantContext(schoolID,actorID).VerifyCheckout(schoolID,req.Reference)
 	if err!=nil {
 		switch {
 		case errors.Is(err,service.ErrSubscriptionPaymentNotFound): httpx.Error(c,http.StatusNotFound,"payment_not_found","subscription payment reference not found")

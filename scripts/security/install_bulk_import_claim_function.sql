@@ -145,7 +145,9 @@ GRANT SELECT, INSERT, UPDATE ON TABLE public.bulk_import_jobs TO stonez_api_runt
 -- avoids leaving the migration/operator role as function owner.
 GRANT USAGE ON SCHEMA public TO stonez_api_runtime;
 GRANT USAGE, CREATE ON SCHEMA stonez_internal TO stonez_bulk_queue_owner;
-GRANT stonez_bulk_queue_owner TO CURRENT_USER WITH ADMIN TRUE, INHERIT FALSE, SET TRUE;
+-- Preserve PostgreSQL's bootstrap-granted ADMIN OPTION by omitting ADMIN;
+-- CREATEROLE members cannot re-grant ADMIN to themselves.
+GRANT stonez_bulk_queue_owner TO CURRENT_USER WITH INHERIT FALSE, SET TRUE;
 SET LOCAL ROLE stonez_bulk_queue_owner;
 
 CREATE OR REPLACE FUNCTION stonez_internal.claim_next_bulk_import_job(p_worker_id uuid)
@@ -216,7 +218,7 @@ GRANT EXECUTE ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) TO st
 
 RESET ROLE;
 -- Restore Supabase/PostgreSQL's non-inheriting, non-SET creator membership.
-GRANT stonez_bulk_queue_owner TO CURRENT_USER WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;
+GRANT stonez_bulk_queue_owner TO CURRENT_USER WITH INHERIT FALSE, SET FALSE;
 REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_bulk_queue_owner;
 
 DO $$

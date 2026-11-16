@@ -147,3 +147,23 @@ Added SQLite controller/middleware tests for school-linked and platform /me acce
 **Validation status:** CI for the current branch head is running. These tests are not yet reported as passing. Authentication middleware still performs its pre-handler session and active-user lookups using the configured application DB connection; those checks are outside the migrated handlers and must be addressed separately before a restricted runtime/RLS cutover.
 
 No production database, Render service, credential, or deployment was changed. PR #354 remains draft and unmerged.
+
+
+## Authentication middleware pre-handler database boundary — implementation in progress (2026-11-16)
+
+The audit found two pre-handler paths that queried the application-wide GORM handle directly:
+
+1. `AuthMiddleware` queried `sessions` to validate the signed access token's session, then queried `users` to confirm the account is active and load its current role and school association.
+2. `RequireSchoolContext` repeated a `users` lookup to retrieve `school_id` and active status.
+
+The first path has been changed to open a short transaction. After JWT signature validation and UUID parsing, it sets transaction-local `app.current_user_id` from the signed token claim, then reads the matching non-revoked, unexpired session and active user through the transaction handle. It loads the current role and school association and sets `app.current_school_id` transaction-locally before committing. Only after that transaction completes does the request continue to downstream middleware/handlers. Database errors now fail closed with HTTP 500 rather than being misreported as invalid credentials; missing/expired/revoked session or inactive/missing user remains HTTP 401.
+
+`RequireSchoolContext` now validates the school association already propagated by `AuthMiddleware`; it no longer performs a second root-DB user query. It still rejects a missing or invalid school context with HTTP 403. Platform routes that do not install this guard continue to allow platform administrators without a school.
+
+Added middleware tests cover propagation of authenticated user ID, current DB role and school association, plus missing-school rejection. Existing revoked-session and active-session tests remain in place.
+
+**RLS prerequisite, not yet implemented:** staging's earlier catalog audit found `users` and `sessions` among the tables without RLS enabled. No identity/session policies or restricted-runtime grants have been installed for them. The new transaction-local user context is therefore groundwork, not evidence that the restricted runtime can yet authenticate. Before expanding RLS, define and test self-only SELECT policies for `users` and `sessions`, required minimum grants, and explicit treatment of platform identity records. Do not enable FORCE RLS or change the production runtime login until those policies and all other authentication flows are covered.
+
+**Remaining authentication paths to audit:** login/session creation, refresh-token rotation/reuse handling, logout, forgot/reset-password, and any password-reset/audit operations still use the root DB handle. They are unauthenticated/public workflows and need separate narrow transaction scopes and carefully designed access policies; they are not implicitly covered by the authenticated pre-handler transaction.
+
+No production database, Render service, credential, or deployment was changed. PR #354 remains draft and unmerged. CI for the pre-handler changes is queued at the time of this update.

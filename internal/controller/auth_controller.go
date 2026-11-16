@@ -441,10 +441,15 @@ func (ac *AuthController) Login(c *gin.Context) {
 	err = ac.DB.Transaction(func(tx *gorm.DB) error {
 		familyID := uuid.New()
 		expiry := time.Now().Add(auth.RefreshTokenTTL)
-		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: auth.HashRefreshToken(refreshToken), ExpiresAt: expiry}).Error; err != nil {
+		refreshHash := auth.HashRefreshToken(refreshToken)
+		if tx.Dialector.Name() == "postgres" {
+			return tx.Exec("SELECT stonez_internal.auth_create_session(?, ?, ?, ?, ?, ?, ?, ?)",
+				uuid.New(), user.ID, familyID, refreshHash, expiry, sessionID, c.Request.UserAgent(), c.ClientIP()).Error
+		}
+		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: refreshHash, ExpiresAt: expiry}).Error; err != nil {
 			return err
 		}
-		return tx.Create(&models.Session{ID: sessionID, UserID: user.ID, FamilyID: familyID, RefreshTokenHash: auth.HashRefreshToken(refreshToken), ExpiresAt: expiry, UserAgent: c.Request.UserAgent(), IP: c.ClientIP()}).Error
+		return tx.Create(&models.Session{ID: sessionID, UserID: user.ID, FamilyID: familyID, RefreshTokenHash: refreshHash, ExpiresAt: expiry, UserAgent: c.Request.UserAgent(), IP: c.ClientIP()}).Error
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session"})
@@ -452,6 +457,18 @@ func (ac *AuthController) Login(c *gin.Context) {
 	}
 	_ = audit.Record(ac.DB, c, &user.ID, "auth.login", "user", &user.ID, nil)
 	c.JSON(http.StatusOK, gin.H{"access_token": accessToken, "refresh_token": refreshToken})
+}
+
+func revokeRefreshFamily(db *gorm.DB, familyID uuid.UUID) error {
+	if db.Dialector.Name() == "postgres" {
+		return db.Exec("SELECT stonez_internal.auth_revoke_refresh_family(?)", familyID).Error
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.RefreshToken{}).Where("family_id = ?", familyID).Updates(map[string]interface{}{"revoked": true}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.Session{}).Where("family_id = ?", familyID).Updates(map[string]interface{}{"revoked": true}).Error
+	})
 }
 
 func (ac *AuthController) Refresh(c *gin.Context) {
@@ -484,12 +501,7 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 	}
 
 	if stored.Revoked {
-		_ = ac.DB.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Model(&models.RefreshToken{}).Where("family_id = ?", stored.FamilyID).Updates(map[string]interface{}{"revoked": true}).Error; err != nil {
-				return err
-			}
-			return tx.Model(&models.Session{}).Where("family_id = ?", stored.FamilyID).Updates(map[string]interface{}{"revoked": true}).Error
-		})
+		_ = revokeRefreshFamily(ac.DB, stored.FamilyID)
 		if user.ID != uuid.Nil && user.SchoolID != nil {
 			c.Set(middleware.SchoolIDKey, user.SchoolID.String())
 		}
@@ -538,6 +550,20 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 	}
 
 	err = ac.DB.Transaction(func(tx *gorm.DB) error {
+		familyID := stored.FamilyID
+		expiry := time.Now().Add(auth.RefreshTokenTTL)
+		newHash := auth.HashRefreshToken(newRefreshToken)
+		if tx.Dialector.Name() == "postgres" {
+			var rotated bool
+			if err := tx.Raw("SELECT stonez_internal.auth_rotate_refresh(?, ?, ?, ?, ?, ?, ?, ?)",
+				stored.ID, tokenHash, uuid.New(), user.ID, familyID, newHash, expiry, session.ID).Scan(&rotated).Error; err != nil {
+				return err
+			}
+			if !rotated {
+				return errRefreshReused
+			}
+			return nil
+		}
 		result := tx.Model(&models.RefreshToken{}).Where("id = ? AND revoked = false", stored.ID).Update("revoked", true)
 		if result.Error != nil {
 			return result.Error
@@ -545,12 +571,10 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 		if result.RowsAffected != 1 {
 			return errRefreshReused
 		}
-		familyID := stored.FamilyID
-		expiry := time.Now().Add(auth.RefreshTokenTTL)
-		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: auth.HashRefreshToken(newRefreshToken), ExpiresAt: expiry}).Error; err != nil {
+		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: newHash, ExpiresAt: expiry}).Error; err != nil {
 			return err
 		}
-		result = tx.Model(&models.Session{}).Where("id = ? AND refresh_token_hash = ? AND revoked = false", session.ID, tokenHash).Updates(map[string]interface{}{"refresh_token_hash": auth.HashRefreshToken(newRefreshToken), "expires_at": expiry})
+		result = tx.Model(&models.Session{}).Where("id = ? AND refresh_token_hash = ? AND revoked = false", session.ID, tokenHash).Updates(map[string]interface{}{"refresh_token_hash": newHash, "expires_at": expiry})
 		if result.Error != nil {
 			return result.Error
 		}

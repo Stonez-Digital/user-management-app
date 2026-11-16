@@ -706,7 +706,7 @@ func (ac *AuthController) ChangePassword(c *gin.Context) {
 	err = ac.DB.Transaction(func(tx *gorm.DB) error {
 		if tx.Dialector.Name() == "postgres" {
 			var changed bool
-			if err := tx.Raw("SELECT stonez_internal.auth_change_password(?, ?)", user.ID, hash).Scan(&changed).Error; err != nil {
+			if err := tx.Raw("SELECT stonez_internal.auth_change_password(?, ?, ?)", user.ID, user.PasswordHash, hash).Scan(&changed).Error; err != nil {
 				return err
 			}
 			if !changed {

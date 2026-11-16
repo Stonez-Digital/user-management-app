@@ -125,79 +125,63 @@ func (ctrl *SchoolContentController) CreatePublicEnquiry(c *gin.Context) {
 }
 
 func (ctrl *SchoolContentController) ListEnquiries(c *gin.Context) {
-	schoolID, ok := contentSchoolID(c)
-	if !ok {
-		httpx.Error(c, 403, "school_context_required", "school context required")
-		return
-	}
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
-	if limit < 1 || limit > 100 { limit = 50 }
-	if offset < 0 { offset = 0 }
-	items, total, err := service.NewSchoolEnquiryService(ctrl.db).List(schoolID, limit, offset)
-	if err != nil {
-		httpx.Error(c, 500, "enquiry_read_failed", "failed to load school enquiries")
-		return
-	}
-	c.JSON(200, gin.H{"enquiries": items, "total": total, "limit": limit, "offset": offset})
+    tx, _, _, tenantOK := ctrl.tenantServices(c)
+    if !tenantOK { return }
+    schoolID, ok := contentSchoolID(c)
+    if !ok { httpx.Error(c, 403, "school_context_required", "school context required"); return }
+    limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+    offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+    if limit < 1 || limit > 100 { limit = 50 }
+    if offset < 0 { offset = 0 }
+    items, total, err := service.NewSchoolEnquiryService(tx).List(schoolID, limit, offset)
+    if err != nil { httpx.Error(c, 500, "enquiry_read_failed", "failed to load school enquiries"); return }
+    c.JSON(200, gin.H{"enquiries": items, "total": total, "limit": limit, "offset": offset})
 }
 
 func (ctrl *SchoolContentController) UpdateEnquiryStatus(c *gin.Context) {
-	schoolID, ok := contentSchoolID(c)
-	if !ok {
-		httpx.Error(c, 403, "school_context_required", "school context required")
-		return
-	}
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		httpx.Error(c, 400, "invalid_enquiry_id", "invalid enquiry id")
-		return
-	}
-	var request struct {
-		Status string `json:"status" binding:"required,oneof=new in_progress responded closed"`
-	}
-	if err := c.ShouldBindJSON(&request); err != nil {
-		httpx.Validation(c, httpx.ValidationErrors(err))
-		return
-	}
-	item, err := service.NewSchoolEnquiryService(ctrl.db).UpdateStatus(schoolID, id, request.Status)
-	switch {
-	case errors.Is(err, service.ErrSchoolEnquiryNotFound):
-		httpx.Error(c, 404, "enquiry_not_found", "enquiry not found")
-	case errors.Is(err, service.ErrSchoolEnquiryInvalidStatus):
-		httpx.Error(c, 400, "enquiry_invalid_status", "invalid enquiry status")
-	case err != nil:
-		httpx.Error(c, 500, "enquiry_update_failed", "failed to update enquiry")
-	default:
-		c.JSON(200, item)
-	}
+    tx, _, _, tenantOK := ctrl.tenantServices(c)
+    if !tenantOK { return }
+    schoolID, ok := contentSchoolID(c)
+    if !ok { httpx.Error(c, 403, "school_context_required", "school context required"); return }
+    id, err := uuid.Parse(c.Param("id"))
+    if err != nil { httpx.Error(c, 400, "invalid_enquiry_id", "invalid enquiry id"); return }
+    var request struct { Status string `json:"status" binding:"required,oneof=new in_progress responded closed"` }
+    if err := c.ShouldBindJSON(&request); err != nil { httpx.Validation(c, httpx.ValidationErrors(err)); return }
+    item, err := service.NewSchoolEnquiryService(tx).UpdateStatus(schoolID, id, request.Status)
+    switch {
+    case errors.Is(err, service.ErrSchoolEnquiryNotFound):
+        httpx.Error(c, 404, "enquiry_not_found", "enquiry not found")
+    case errors.Is(err, service.ErrSchoolEnquiryInvalidStatus):
+        httpx.Error(c, 400, "enquiry_invalid_status", "invalid enquiry status")
+    case err != nil:
+        httpx.Error(c, 500, "enquiry_update_failed", "failed to update enquiry")
+    default:
+        actor := actorID(c)
+        if err := audit.Record(tx, c, &actor, "school.enquiry.status_update", "school_enquiry", &id, map[string]interface{}{"school_id": schoolID.String(), "status": request.Status}); err != nil {
+            httpx.Error(c, 500, "enquiry_audit_failed", "failed to record enquiry status change")
+            return
+        }
+        c.JSON(200, item)
+    }
 }
 
-
 func (ctrl *SchoolContentController) DeleteEnquiry(c *gin.Context) {
-	schoolID, ok := contentSchoolID(c)
-	if !ok {
-		httpx.Error(c, 403, "school_context_required", "school context required")
-		return
-	}
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		httpx.Error(c, 400, "invalid_enquiry_id", "invalid enquiry id")
-		return
-	}
-	actor := actorID(c)
-	err = ctrl.db.Transaction(func(tx *gorm.DB) error {
-		if err := audit.Record(tx, c, &actor, "school.enquiry.delete", "school_enquiry", &id, map[string]interface{}{"school_id": schoolID.String()}); err != nil {
-			return err
-		}
-		return service.NewSchoolEnquiryService(tx).Delete(schoolID, id)
-	})
-	switch {
-	case errors.Is(err, service.ErrSchoolEnquiryNotFound):
-		httpx.Error(c, 404, "enquiry_not_found", "enquiry not found")
-	case err != nil:
-		httpx.Error(c, 500, "enquiry_delete_failed", "failed to delete enquiry")
-	default:
-		c.JSON(200, gin.H{"deleted": true})
-	}
+    tx, _, _, tenantOK := ctrl.tenantServices(c)
+    if !tenantOK { return }
+    schoolID, ok := contentSchoolID(c)
+    if !ok { httpx.Error(c, 403, "school_context_required", "school context required"); return }
+    id, err := uuid.Parse(c.Param("id"))
+    if err != nil { httpx.Error(c, 400, "invalid_enquiry_id", "invalid enquiry id"); return }
+    actor := actorID(c)
+    if err = audit.Record(tx, c, &actor, "school.enquiry.delete", "school_enquiry", &id, map[string]interface{}{"school_id": schoolID.String()}); err == nil {
+        err = service.NewSchoolEnquiryService(tx).Delete(schoolID, id)
+    }
+    switch {
+    case errors.Is(err, service.ErrSchoolEnquiryNotFound):
+        httpx.Error(c, 404, "enquiry_not_found", "enquiry not found")
+    case err != nil:
+        httpx.Error(c, 500, "enquiry_delete_failed", "failed to delete enquiry")
+    default:
+        c.JSON(200, gin.H{"deleted": true})
+    }
 }

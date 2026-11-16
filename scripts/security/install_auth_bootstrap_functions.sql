@@ -324,7 +324,7 @@ GRANT EXECUTE ON FUNCTION stonez_internal.auth_password_reset_lookup(text) TO st
 GRANT EXECUTE ON FUNCTION stonez_internal.auth_password_change_lookup(uuid) TO stonez_api_runtime;
 
 RESET ROLE;
-REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_bootstrap_owner;
+
 
 GRANT USAGE, CREATE ON SCHEMA stonez_internal TO stonez_auth_session_owner;
 SET ROLE stonez_auth_session_owner;

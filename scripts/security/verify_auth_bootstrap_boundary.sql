@@ -21,7 +21,7 @@ BEGIN
       JOIN pg_namespace AS n ON n.oid = p.pronamespace
      WHERE n.nspname = 'stonez_internal'
        AND p.proname = 'auth_login_lookup'
-       AND pg_get_function_identity_arguments(p.oid) = 'p_email text';
+       AND p.pronargs = 1 AND p.proargtypes[0] = 'text'::regtype;
     IF NOT FOUND OR v_owner <> (SELECT oid FROM pg_roles WHERE rolname = 'stonez_auth_bootstrap_owner')
        OR NOT v_security_definer OR NOT ('search_path=pg_catalog' = ANY(v_config)) THEN
         RAISE EXCEPTION 'auth_login_lookup owner/SECURITY DEFINER/search_path verification failed';
@@ -33,7 +33,7 @@ BEGIN
       JOIN pg_namespace AS n ON n.oid = p.pronamespace
      WHERE n.nspname = 'stonez_internal'
        AND p.proname = 'auth_refresh_lookup'
-       AND pg_get_function_identity_arguments(p.oid) = 'p_token_hash text';
+       AND p.pronargs = 1 AND p.proargtypes[0] = 'text'::regtype;
     IF NOT FOUND OR v_owner <> (SELECT oid FROM pg_roles WHERE rolname = 'stonez_auth_bootstrap_owner')
        OR NOT v_security_definer OR NOT ('search_path=pg_catalog' = ANY(v_config)) THEN
         RAISE EXCEPTION 'auth_refresh_lookup owner/SECURITY DEFINER/search_path verification failed';
@@ -43,8 +43,16 @@ BEGIN
        OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_refresh_lookup(text)', 'EXECUTE') THEN
         RAISE EXCEPTION 'API runtime is missing required auth bootstrap EXECUTE grants';
     END IF;
-    IF has_function_privilege('public', 'stonez_internal.auth_login_lookup(text)', 'EXECUTE')
-       OR has_function_privilege('public', 'stonez_internal.auth_refresh_lookup(text)', 'EXECUTE') THEN
+    IF EXISTS (
+        SELECT 1
+          FROM pg_proc AS p
+          JOIN pg_namespace AS n ON n.oid = p.pronamespace
+          CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS a
+         WHERE n.nspname = 'stonez_internal'
+           AND p.proname IN ('auth_login_lookup', 'auth_refresh_lookup')
+           AND a.grantee = 0
+           AND a.privilege_type = 'EXECUTE'
+    ) THEN
         RAISE EXCEPTION 'PUBLIC must not execute auth bootstrap functions';
     END IF;
 END

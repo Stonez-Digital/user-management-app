@@ -123,68 +123,150 @@ func newResetToken() (string, error) {
 func (ac *AuthController) ForgotPassword(c *gin.Context) {
 	var req ForgotPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Validation(c, httpx.ValidationErrors(err)); return
+		httpx.Validation(c, httpx.ValidationErrors(err))
+		return
 	}
 
 	var user models.User
-	if err := ac.DB.Where("email = ? AND active = true", strings.ToLower(strings.TrimSpace(req.Email))).First(&user).Error; err != nil {
+	var reset models.PasswordResetToken
+	var rawToken string
+	err := ac.DB.Transaction(func(tx *gorm.DB) error {
+		// Email lookup is a pre-authentication bootstrap operation. A self-only
+		// users policy cannot authorize it; keep it transaction-scoped and
+		// resolve the owner before setting the user identity context.
+		if err := tx.Where("email = ? AND active = true", strings.ToLower(strings.TrimSpace(req.Email))).First(&user).Error; err != nil {
+			return err
+		}
+		if tx.Dialector.Name() == "postgres" {
+			schoolID := ""
+			if user.SchoolID != nil && *user.SchoolID != uuid.Nil {
+				schoolID = user.SchoolID.String()
+			}
+			if err := tx.Exec("SELECT set_config('app.current_user_id', ?, true), set_config('app.current_school_id', ?, true)", user.ID.String(), schoolID).Error; err != nil {
+				return err
+			}
+		}
+		var err error
+		rawToken, err = newResetToken()
+		if err != nil {
+			return err
+		}
+		// A newly issued link supersedes older outstanding links for this user.
+		if err := tx.Model(&models.PasswordResetToken{}).Where("user_id = ? AND used = false", user.ID).Update("used", true).Error; err != nil {
+			return err
+		}
+		reset = models.PasswordResetToken{
+			ID: uuid.New(), UserID: user.ID, TokenHash: auth.HashResetToken(rawToken),
+			ExpiresAt: time.Now().Add(15 * time.Minute),
+		}
+		return tx.Create(&reset).Error
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		c.JSON(http.StatusOK, gin.H{"message": "if the account exists, a reset link will be sent"})
 		return
 	}
-
-	token, err := newResetToken()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create reset token"})
-		return
-	}
-	reset := models.PasswordResetToken{ID: uuid.New(), UserID: user.ID, TokenHash: auth.HashResetToken(token), ExpiresAt: time.Now().Add(15 * time.Minute)}
-	if err := ac.DB.Create(&reset).Error; err != nil {
+		log.Printf("password reset request could not be prepared: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create reset token"})
 		return
 	}
 
-	// Keep the response identical for existing and unknown accounts. Never return
-	// the raw token from the API; it is delivered only through the configured mailer.
+	// Mail delivery is external I/O and deliberately remains outside the DB
+	// transaction. If delivery fails, invalidate the just-created token.
+	var deliveryErr error
 	if ac.Mailer == nil {
-		_ = ac.DB.Model(&reset).Update("used", true).Error
-		log.Printf("password reset email unavailable: mailer is not configured")
-	} else if err := ac.Mailer.SendPasswordReset(user.Name, user.Email, token); err != nil {
-		_ = ac.DB.Model(&reset).Update("used", true).Error
-		log.Printf("password reset email delivery failed: %v", err)
+		deliveryErr = errors.New("password reset mailer is not configured")
+	} else {
+		deliveryErr = ac.Mailer.SendPasswordReset(user.Name, user.Email, rawToken)
 	}
+	if deliveryErr != nil {
+		invalidationErr := ac.DB.Transaction(func(tx *gorm.DB) error {
+			if tx.Dialector.Name() == "postgres" {
+				schoolID := ""
+				if user.SchoolID != nil && *user.SchoolID != uuid.Nil {
+					schoolID = user.SchoolID.String()
+				}
+				if err := tx.Exec("SELECT set_config('app.current_user_id', ?, true), set_config('app.current_school_id', ?, true)", user.ID.String(), schoolID).Error; err != nil {
+					return err
+				}
+			}
+			result := tx.Model(&models.PasswordResetToken{}).
+				Where("id = ? AND user_id = ? AND used = false", reset.ID, user.ID).
+				Update("used", true)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return gorm.ErrRecordNotFound
+			}
+			return nil
+		})
+		if invalidationErr != nil {
+			log.Printf("CRITICAL: password reset token %s could not be invalidated after mail delivery failure: %v", reset.ID, invalidationErr)
+		}
+		log.Printf("password reset email delivery failed: %v", deliveryErr)
+	}
+
+	// Preserve the same response for existing and unknown accounts.
 	c.JSON(http.StatusOK, gin.H{"message": "if the account exists, a reset link will be sent"})
 }
 
 func (ac *AuthController) ResetPassword(c *gin.Context) {
 	var req ResetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Validation(c, httpx.ValidationErrors(err)); return
+		httpx.Validation(c, httpx.ValidationErrors(err))
+		return
 	}
 
-	targetUserID := uuid.Nil
 	err := ac.DB.Transaction(func(tx *gorm.DB) error {
 		var reset models.PasswordResetToken
 		if err := tx.Where("token_hash = ? AND used = false", auth.HashResetToken(req.Token)).First(&reset).Error; err != nil {
 			return gorm.ErrRecordNotFound
 		}
-		if time.Now().After(reset.ExpiresAt) { return errResetExpired }
+		now := time.Now()
+		if !now.Before(reset.ExpiresAt) {
+			return errResetExpired
+		}
+		// The token hash is the bootstrap credential. Once its owner is known,
+		// all identity-owned writes use the transaction-local user context.
+		if tx.Dialector.Name() == "postgres" {
+			if err := tx.Exec("SELECT set_config('app.current_user_id', ?, true)", reset.UserID.String()).Error; err != nil {
+				return err
+			}
+		}
 
-		// Claim the token atomically. A concurrent request may have passed the
-		// initial read, but only one transaction can change used=false to true.
 		claim := tx.Model(&models.PasswordResetToken{}).
-			Where("id = ? AND used = false AND expires_at > ?", reset.ID, time.Now()).
+			Where("id = ? AND user_id = ? AND used = false AND expires_at > ?", reset.ID, reset.UserID, now).
 			Update("used", true)
-		if claim.Error != nil { return claim.Error }
-		if claim.RowsAffected != 1 { return errResetExpired }
+		if claim.Error != nil {
+			return claim.Error
+		}
+		if claim.RowsAffected != 1 {
+			return errResetExpired
+		}
 
-		targetUserID = reset.UserID
 		hash, err := auth.HashPassword(req.NewPassword)
-		if err != nil { return err }
-		if err := tx.Model(&models.User{}).Where("id = ? AND active = true", reset.UserID).Update("password_hash", hash).Error; err != nil {
+		if err != nil {
 			return err
 		}
-		if err := tx.Model(&models.RefreshToken{}).Where("user_id = ?", reset.UserID).Update("revoked", true).Error; err != nil { return err }
-		return tx.Model(&models.Session{}).Where("user_id = ?", reset.UserID).Update("revoked", true).Error
+		updated := tx.Model(&models.User{}).
+			Where("id = ? AND active = true", reset.UserID).
+			Update("password_hash", hash)
+		if updated.Error != nil {
+			return updated.Error
+		}
+		if updated.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+		if err := tx.Model(&models.RefreshToken{}).Where("user_id = ?", reset.UserID).Update("revoked", true).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&models.Session{}).Where("user_id = ?", reset.UserID).Update("revoked", true).Error; err != nil {
+			return err
+		}
+		// The audit event is part of the same transaction: an audit failure
+		// rolls back the password, token claim and session revocations.
+		return audit.Record(tx, c, nil, "security.password_reset", "user", &reset.UserID, nil)
 	})
 	if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, errResetExpired) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired reset token"})
@@ -194,7 +276,6 @@ func (ac *AuthController) ResetPassword(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset password"})
 		return
 	}
-	_ = audit.Record(ac.DB, c, nil, "security.password_reset", "user", &targetUserID, nil)
 	c.JSON(http.StatusOK, gin.H{"message": "password reset successful"})
 }
 
@@ -543,21 +624,52 @@ func (ac *AuthController) RevokeSession(c *gin.Context) {
 func (ac *AuthController) Logout(c *gin.Context) {
 	var req LogoutRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Validation(c, httpx.ValidationErrors(err)); return
+		httpx.Validation(c, httpx.ValidationErrors(err))
+		return
 	}
-	var token models.RefreshToken
-	if err := ac.DB.Where("token_hash = ? AND revoked = false", auth.HashRefreshToken(req.RefreshToken)).First(&token).Error; err != nil {
+	tokenHash := auth.HashRefreshToken(req.RefreshToken)
+	err := ac.DB.Transaction(func(tx *gorm.DB) error {
+		var token models.RefreshToken
+		if err := tx.Where("token_hash = ? AND revoked = false AND expires_at > ?", tokenHash, time.Now()).First(&token).Error; err != nil {
+			return gorm.ErrRecordNotFound
+		}
+		// The presented refresh-token hash is the bootstrap credential. After
+		// resolving its owner, constrain all writes to that user and token family.
+		if tx.Dialector.Name() == "postgres" {
+			if err := tx.Exec("SELECT set_config('app.current_user_id', ?, true)", token.UserID.String()).Error; err != nil {
+				return err
+			}
+		}
+		claimed := tx.Model(&models.RefreshToken{}).
+			Where("id = ? AND user_id = ? AND family_id = ? AND token_hash = ? AND revoked = false AND expires_at > ?",
+				token.ID, token.UserID, token.FamilyID, tokenHash, time.Now()).
+			Update("revoked", true)
+		if claimed.Error != nil {
+			return claimed.Error
+		}
+		if claimed.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+		session := tx.Model(&models.Session{}).
+			Where("user_id = ? AND family_id = ? AND refresh_token_hash = ? AND revoked = false",
+				token.UserID, token.FamilyID, tokenHash).
+			Update("revoked", true)
+		if session.Error != nil {
+			return session.Error
+		}
+		if session.RowsAffected != 1 {
+			return errSessionRefreshTokenMissing
+		}
+		return audit.Record(tx, c, &token.UserID, "auth.logout", "user", &token.UserID, nil)
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 		return
 	}
-	if err := ac.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&token).Update("revoked", true).Error; err != nil { return err }
-		return tx.Model(&models.Session{}).Where("refresh_token_hash = ?", auth.HashRefreshToken(req.RefreshToken)).Update("revoked", true).Error
-	}); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to logout"})
 		return
 	}
-	_ = audit.Record(ac.DB, c, &token.UserID, "auth.logout", "user", &token.UserID, nil)
 	c.JSON(http.StatusOK, gin.H{"message": "logged out successfully"})
 }
 

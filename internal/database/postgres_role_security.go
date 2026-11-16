@@ -119,11 +119,11 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, runtimeRole, queueOwnerRole, cl
             role.rolbypassrls AS bypass_rls,
             role.rolcreatedb AS can_create_db,
             role.rolcreaterole AS can_create_role,
-            pg_has_role(session_user, ?, 'MEMBER') AS is_runtime_member,
-            pg_has_role(session_user, ?, 'USAGE') AS is_runtime_effective,
-            pg_has_role(session_user, ?, 'SET') AS can_set_runtime_role,
-            pg_has_role(session_user, ?, 'MEMBER') AS is_queue_owner_member,
-            has_function_privilege(session_user, ?, 'EXECUTE') AS can_execute_claim,
+            pg_has_role(session_user, ?::name, 'MEMBER') AS is_runtime_member,
+            pg_has_role(session_user, ?::name, 'USAGE') AS is_runtime_effective,
+            pg_has_role(session_user, ?::name, 'SET') AS can_set_runtime_role,
+            pg_has_role(session_user, ?::name, 'MEMBER') AS is_queue_owner_member,
+            has_function_privilege(session_user, ?::regprocedure, 'EXECUTE') AS can_execute_claim,
             current_user = session_user AS current_role_matches_session
         FROM pg_roles AS role
         WHERE role.rolname = session_user

@@ -801,14 +801,16 @@ func (ac *AuthController) Logout(c *gin.Context) {
 		if tx.Dialector.Name() == "postgres" {
 			var rows []struct {
 				UserID uuid.UUID `gorm:"column:user_id"`
+				SchoolID *uuid.UUID `gorm:"column:school_id"`
 			}
-			if err := tx.Raw("SELECT user_id FROM stonez_internal.auth_logout(?)", tokenHash).Scan(&rows).Error; err != nil {
+			if err := tx.Raw("SELECT user_id, school_id FROM stonez_internal.auth_logout(?)", tokenHash).Scan(&rows).Error; err != nil {
 				return err
 			}
 			if len(rows) != 1 || rows[0].UserID == uuid.Nil {
 				return gorm.ErrRecordNotFound
 			}
 			userID = rows[0].UserID
+			return audit.RecordWithSchoolID(tx, c, &userID, rows[0].SchoolID, "auth.logout", "user", &userID, nil)
 		} else {
 			var token models.RefreshToken
 			if err := tx.Where("token_hash = ? AND revoked = false", tokenHash).First(&token).Error; err != nil {

@@ -183,3 +183,105 @@ GRANT EXECUTE ON FUNCTION stonez_internal.auth_revoke_refresh_family(uuid) TO st
 
 RESET ROLE;
 REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_session_owner;
+
+-- Logout and device-session revocation remain behind the restricted writer.
+-- All functions lock sessions before refresh tokens, matching refresh rotation.
+SET ROLE stonez_auth_session_owner;
+
+CREATE OR REPLACE FUNCTION stonez_internal.auth_logout(p_token_hash text)
+RETURNS TABLE(user_id uuid)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+DECLARE
+    v_session_id uuid;
+    v_user_id uuid;
+BEGIN
+    SELECT s.id, s.user_id
+      INTO v_session_id, v_user_id
+      FROM public.sessions AS s
+     WHERE s.refresh_token_hash = p_token_hash
+       AND s.revoked = false
+     FOR UPDATE;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+
+    UPDATE public.sessions
+       SET revoked = true
+     WHERE id = v_session_id
+       AND user_id = v_user_id
+       AND revoked = false;
+
+    UPDATE public.refresh_tokens
+       SET revoked = true
+     WHERE token_hash = p_token_hash
+       AND user_id = v_user_id
+       AND revoked = false;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'logout refresh token missing or already revoked';
+    END IF;
+
+    RETURN QUERY SELECT v_user_id;
+END
+$function$;
+
+CREATE OR REPLACE FUNCTION stonez_internal.auth_logout_all(p_user_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+BEGIN
+    UPDATE public.sessions SET revoked = true
+     WHERE user_id = p_user_id AND revoked = false;
+    UPDATE public.refresh_tokens SET revoked = true
+     WHERE user_id = p_user_id AND revoked = false;
+END
+$function$;
+
+CREATE OR REPLACE FUNCTION stonez_internal.auth_revoke_session(p_session_id uuid, p_user_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+DECLARE
+    v_refresh_hash text;
+BEGIN
+    SELECT s.refresh_token_hash
+      INTO v_refresh_hash
+      FROM public.sessions AS s
+     WHERE s.id = p_session_id
+       AND s.user_id = p_user_id
+       AND s.revoked = false
+     FOR UPDATE;
+    IF NOT FOUND THEN
+        RETURN false;
+    END IF;
+
+    UPDATE public.sessions
+       SET revoked = true
+     WHERE id = p_session_id
+       AND user_id = p_user_id
+       AND revoked = false;
+
+    UPDATE public.refresh_tokens
+       SET revoked = true
+     WHERE token_hash = v_refresh_hash
+       AND user_id = p_user_id
+       AND revoked = false;
+    RETURN true;
+END
+$function$;
+
+REVOKE ALL ON FUNCTION stonez_internal.auth_logout(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION stonez_internal.auth_logout_all(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION stonez_internal.auth_revoke_session(uuid, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION stonez_internal.auth_logout(text) TO stonez_api_runtime;
+GRANT EXECUTE ON FUNCTION stonez_internal.auth_logout_all(uuid) TO stonez_api_runtime;
+GRANT EXECUTE ON FUNCTION stonez_internal.auth_revoke_session(uuid, uuid) TO stonez_api_runtime;
+
+RESET ROLE;
+REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_session_owner;

@@ -157,7 +157,7 @@ BEGIN
         END IF;
     END LOOP;
 
-    FOREACH v_name IN ARRAY ARRAY['auth_create_password_reset', 'auth_disable_password_reset', 'auth_consume_password_reset', 'auth_change_password'] LOOP
+    FOREACH v_name IN ARRAY ARRAY['auth_create_password_reset', 'auth_disable_password_reset', 'auth_consume_password_reset', 'auth_revoke_user_sessions'] LOOP
         SELECT p.proowner, p.prosecdef, p.proconfig
           INTO v_owner, v_security_definer, v_config
           FROM pg_proc AS p
@@ -178,6 +178,27 @@ BEGIN
             RAISE EXCEPTION 'PUBLIC must not execute %', v_name;
         END IF;
     END LOOP;
+
+    SELECT p.proowner, p.prosecdef, p.proconfig
+      INTO v_owner, v_security_definer, v_config
+      FROM pg_proc AS p
+      JOIN pg_namespace AS n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'stonez_internal' AND p.proname = 'auth_change_password'
+       AND p.pronargs = 3;
+    IF NOT FOUND OR v_owner <> (SELECT oid FROM pg_roles WHERE rolname = 'stonez_auth_bootstrap_owner')
+       OR NOT v_security_definer OR NOT ('search_path=pg_catalog' = ANY(v_config)) THEN
+        RAISE EXCEPTION 'auth_change_password owner/SECURITY DEFINER/search_path verification failed';
+    END IF;
+    IF EXISTS (
+        SELECT 1
+          FROM pg_proc AS p
+          JOIN pg_namespace AS n ON n.oid = p.pronamespace
+          CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS a
+         WHERE n.nspname = 'stonez_internal' AND p.proname = 'auth_change_password'
+           AND a.grantee = 0 AND a.privilege_type = 'EXECUTE'
+    ) THEN
+        RAISE EXCEPTION 'PUBLIC must not execute auth_change_password';
+    END IF;
 
     IF NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_password_reset_lookup(text)', 'EXECUTE')
        OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_password_change_lookup(uuid)', 'EXECUTE')

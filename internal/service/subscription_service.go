@@ -24,6 +24,16 @@ var (
 type SubscriptionService struct {
 	db *gorm.DB
 	now func() time.Time
+	tenantSchoolID uuid.UUID
+	tenantUserID uuid.UUID
+}
+
+// WithTenantContext binds short database transactions to the authenticated
+// school and user. Global plan catalogue reads intentionally remain unscoped.
+func (s *SubscriptionService) WithTenantContext(schoolID, userID uuid.UUID) *SubscriptionService {
+	clone := *s
+	clone.tenantSchoolID, clone.tenantUserID = schoolID, userID
+	return &clone
 }
 
 func NewSubscriptionService(db *gorm.DB) *SubscriptionService {
@@ -48,7 +58,7 @@ func (s *SubscriptionService) StartTrial(schoolID, termID uuid.UUID) (models.Sch
 	if schoolID == uuid.Nil || termID == uuid.Nil { return subscription, ErrSubscriptionInvalid }
 	now := s.now().UTC()
 
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := tenantTransaction(s.db, s.tenantSchoolID, s.tenantUserID, func(tx *gorm.DB) error {
 		var school models.School
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&school, "id = ?", schoolID).Error; err != nil { return err }
 		if school.Status != models.SchoolStatusActive { return ErrSubscriptionInvalid }
@@ -117,7 +127,7 @@ func (s *SubscriptionService) CurrentSubscription(schoolID uuid.UUID) (models.Sc
 	now := s.now().UTC()
 	var result models.SchoolSubscription
 	expired := false
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := tenantTransaction(s.db, s.tenantSchoolID, s.tenantUserID, func(tx *gorm.DB) error {
 		var current models.SchoolSubscription
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Preload("Plan").
 			Where("school_id = ? AND status = ?", schoolID, models.SubscriptionStatusActive).

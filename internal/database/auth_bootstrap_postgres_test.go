@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/driver/postgres"
@@ -193,7 +194,10 @@ func TestAuthBootstrapFunctionsEnforceRestrictedPostgresBoundary(t *testing.T) {
 
 	newFamilyID, newRefreshID, newSessionID := uuid.New(), uuid.New(), uuid.New()
 	newHash := "new-refresh-hash-" + suffix
-	newExpiry := "2099-02-01T00:00:00Z"
+	newExpiry, err := time.Parse(time.RFC3339, "2099-02-01T00:00:00Z")
+	if err != nil { t.Fatal(err) }
+	expiresAt, err := time.Parse(time.RFC3339, expires)
+	if err != nil { t.Fatal(err) }
 	if err := loginDB.Exec("SELECT " + privateSchema + ".auth_create_session(?, ?, ?, ?, ?, ?, ?, ?)",
 		newRefreshID, userID, newFamilyID, newHash, expires, newSessionID, "fixture-agent", "127.0.0.1").Error; err != nil {
 		t.Fatalf("create session through restricted writer function: %v", err)

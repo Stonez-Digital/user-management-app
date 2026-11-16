@@ -15,8 +15,11 @@ BEGIN
 END
 $$;
 
+-- PostgreSQL defaults newly created roles to NOBYPASSRLS,
+-- NOSUPERUSER, NOCREATEDB, and NOCREATEROLE. Leave those safe defaults
+-- untouched; the assertions below verify them.
 CREATE ROLE stonez_bulk_worker
-    LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS
+    LOGIN INHERIT
     CONNECTION LIMIT 5
     PASSWORD :'worker_password';
 

@@ -64,6 +64,15 @@ func (ac *AuthController) requestTenantDB(c *gin.Context) (*gorm.DB, bool) {
     return tx, true
 }
 
+func (ac *AuthController) requestIdentityDB(c *gin.Context) (*gorm.DB, bool) {
+	tx, ok := middleware.IdentityDBFromContext(c)
+	if !ok || tx == nil {
+		httpx.Error(c, http.StatusInternalServerError, "identity_transaction_required", "identity transaction is required for this operation")
+		return nil, false
+	}
+	return tx, true
+}
+
 type AuthController struct {
 	DB *gorm.DB
 	Mailer PasswordResetMailer
@@ -460,26 +469,43 @@ func (ac *AuthController) ChangePassword(c *gin.Context) {
 }
 
 func (ac *AuthController) GetSessions(c *gin.Context) {
+	tx, ok := ac.requestIdentityDB(c)
+	if !ok { return }
+	userID, err := uuid.Parse(c.GetString(middleware.UserIDKey))
+	if err != nil { httpx.Error(c, http.StatusUnauthorized, "invalid_user_id", "authenticated user context is invalid"); return }
 	var sessions []models.Session
-	if err := ac.DB.Where("user_id = ? AND revoked = false", c.GetString("user_id")).Find(&sessions).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load sessions"})
+	if err := tx.Where("user_id = ? AND revoked = false", userID).Order("created_at DESC").Find(&sessions).Error; err != nil {
+		httpx.Error(c, http.StatusInternalServerError, "sessions_read_failed", "failed to load sessions")
 		return
 	}
 	c.JSON(http.StatusOK, sessions)
 }
 
 func (ac *AuthController) RevokeSession(c *gin.Context) {
-	userID := c.GetString("user_id")
-	var session models.Session
-	if err := ac.DB.Where("id = ? AND user_id = ? AND revoked = false", c.Param("id"), userID).First(&session).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
+	tx, ok := ac.requestIdentityDB(c)
+	if !ok { return }
+	userID, err := uuid.Parse(c.GetString(middleware.UserIDKey))
+	if err != nil { httpx.Error(c, http.StatusUnauthorized, "invalid_user_id", "authenticated user context is invalid"); return }
+	sessionID, err := uuid.Parse(c.Param("id"))
+	if err != nil { httpx.Error(c, http.StatusBadRequest, "invalid_session_id", "invalid session id"); return }
+
+	err = tx.Transaction(func(scoped *gorm.DB) error {
+		var session models.Session
+		if err := scoped.Where("id = ? AND user_id = ? AND revoked = false", sessionID, userID).First(&session).Error; err != nil {
+			return gorm.ErrRecordNotFound
+		}
+		revoked := scoped.Model(&models.Session{}).Where("id = ? AND user_id = ? AND revoked = false", sessionID, userID).Update("revoked", true)
+		if revoked.Error != nil { return revoked.Error }
+		if revoked.RowsAffected != 1 { return gorm.ErrRecordNotFound }
+		if err := scoped.Model(&models.RefreshToken{}).Where("token_hash = ? AND user_id = ?", session.RefreshTokenHash, userID).Update("revoked", true).Error; err != nil { return err }
+		return audit.Record(scoped, c, &userID, "auth.session_revoke", "session", &sessionID, nil)
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		httpx.Error(c, http.StatusNotFound, "session_not_found", "session not found")
 		return
 	}
-	if err := ac.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&session).Update("revoked", true).Error; err != nil { return err }
-		return tx.Model(&models.RefreshToken{}).Where("token_hash = ? AND user_id = ?", session.RefreshTokenHash, userID).Update("revoked", true).Error
-	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revoke session"})
+	if err != nil {
+		httpx.Error(c, http.StatusInternalServerError, "session_revoke_failed", "failed to revoke session")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "session revoked"})
@@ -507,16 +533,19 @@ func (ac *AuthController) Logout(c *gin.Context) {
 }
 
 func (ac *AuthController) LogoutAll(c *gin.Context) {
-	userID := c.GetString("user_id")
-	if err := ac.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&models.RefreshToken{}).Where("user_id = ? AND revoked = false", userID).Update("revoked", true).Error; err != nil { return err }
-		return tx.Model(&models.Session{}).Where("user_id = ? AND revoked = false", userID).Update("revoked", true).Error
-	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to logout all devices"})
+	tx, ok := ac.requestIdentityDB(c)
+	if !ok { return }
+	userID, err := uuid.Parse(c.GetString(middleware.UserIDKey))
+	if err != nil { httpx.Error(c, http.StatusUnauthorized, "invalid_user_id", "authenticated user context is invalid"); return }
+	err = tx.Transaction(func(scoped *gorm.DB) error {
+		if err := scoped.Model(&models.RefreshToken{}).Where("user_id = ? AND revoked = false", userID).Update("revoked", true).Error; err != nil { return err }
+		if err := scoped.Model(&models.Session{}).Where("user_id = ? AND revoked = false", userID).Update("revoked", true).Error; err != nil { return err }
+		return audit.Record(scoped, c, &userID, "auth.logout_all", "user", &userID, nil)
+	})
+	if err != nil {
+		httpx.Error(c, http.StatusInternalServerError, "logout_all_failed", "failed to revoke all sessions")
 		return
 	}
-	uid := uuid.MustParse(userID)
-	_ = audit.Record(ac.DB, c, &uid, "auth.logout_all", "user", &uid, nil)
 	c.JSON(http.StatusOK, gin.H{"message": "logged out from all devices"})
 }
 

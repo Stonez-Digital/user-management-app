@@ -39,14 +39,9 @@ RETURNS TABLE (
     session_expires_at timestamptz,
     session_revoked boolean,
     school_id uuid,
-    full_name text,
-    email text,
-    password_hash text,
     role text,
     active boolean,
-    school_status text,
-    school_code text,
-    school_slug text
+    school_status text
 )
 LANGUAGE sql
 STABLE
@@ -57,8 +52,7 @@ AS $function$
            COALESCE(ss.id, '00000000-0000-0000-0000-000000000000'::uuid),
            COALESCE(ss.expires_at, '0001-01-01 00:00:00+00'::timestamptz),
            COALESCE(ss.revoked, true),
-           u.school_id, u.name, u.email, u.password_hash, u.role, u.active,
-           sc.status::text, sc.code, sc.slug
+           u.school_id, u.role, u.active, sc.status::text
       FROM public.refresh_tokens AS rt
       JOIN public.users AS u ON u.id = rt.user_id
       LEFT JOIN public.schools AS sc ON sc.id = u.school_id

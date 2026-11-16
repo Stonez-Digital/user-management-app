@@ -543,4 +543,3 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 		t.Fatal("concurrent reset token was not consumed exactly once")
 	}
 }
-}

@@ -494,4 +494,3 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 		t.Fatalf("password change transaction incomplete: revoked tokens=%d sessions=%d audit=%d", changeRevokedTokens, changeRevokedSessions, changeAudit)
 	}
 }
-}

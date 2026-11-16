@@ -50,10 +50,10 @@ BEGIN
         END IF;
     END LOOP;
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
-        GRANT ALL ON TABLE public.billing_plans TO service_role;
-        GRANT ALL ON TABLE public.school_subscriptions TO service_role;
-        GRANT ALL ON TABLE public.subscription_events TO service_role;
-        GRANT ALL ON TABLE public.subscription_payments TO service_role;
+        REVOKE ALL ON TABLE public.billing_plans FROM service_role;
+        REVOKE ALL ON TABLE public.school_subscriptions FROM service_role;
+        REVOKE ALL ON TABLE public.subscription_events FROM service_role;
+        REVOKE ALL ON TABLE public.subscription_payments FROM service_role;
     END IF;
 END $$;
 

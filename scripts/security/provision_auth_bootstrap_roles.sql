@@ -88,6 +88,9 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'users' AND policyname = 'auth_bootstrap_owner_select') THEN
         CREATE POLICY auth_bootstrap_owner_select ON public.users FOR SELECT TO stonez_auth_bootstrap_owner USING (true);
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'users' AND policyname = 'auth_bootstrap_owner_password_update') THEN
+        CREATE POLICY auth_bootstrap_owner_password_update ON public.users FOR UPDATE TO stonez_auth_bootstrap_owner USING (true) WITH CHECK (true);
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'schools' AND policyname = 'auth_bootstrap_owner_select') THEN
         CREATE POLICY auth_bootstrap_owner_select ON public.schools FOR SELECT TO stonez_auth_bootstrap_owner USING (true);
     END IF;

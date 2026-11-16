@@ -15,13 +15,13 @@ ALTER ROLE stonez_auth_bootstrap_owner
     NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
 
 REVOKE stonez_auth_bootstrap_owner FROM stonez_api_runtime;
-DO $
+DO $session_owner$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_auth_session_owner') THEN
         CREATE ROLE stonez_auth_session_owner;
     END IF;
 END
-$;
+$session_owner$;
 
 ALTER ROLE stonez_auth_session_owner
     NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
@@ -39,7 +39,7 @@ GRANT SELECT (id, family_id, refresh_token_hash, revoked), INSERT,
     UPDATE (refresh_token_hash, expires_at, revoked)
     ON TABLE public.sessions TO stonez_auth_session_owner;
 
-DO $
+DO $session_policy$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'refresh_tokens' AND policyname = 'auth_session_owner_access') THEN
         CREATE POLICY auth_session_owner_access ON public.refresh_tokens FOR ALL TO stonez_auth_session_owner USING (true) WITH CHECK (true);
@@ -48,7 +48,7 @@ BEGIN
         CREATE POLICY auth_session_owner_access ON public.sessions FOR ALL TO stonez_auth_session_owner USING (true) WITH CHECK (true);
     END IF;
 END
-$;
+$session_policy$;
 REVOKE ALL ON SCHEMA stonez_internal FROM PUBLIC;
 GRANT USAGE ON SCHEMA stonez_internal TO stonez_api_runtime;
 GRANT USAGE, CREATE ON SCHEMA stonez_internal TO stonez_auth_bootstrap_owner;

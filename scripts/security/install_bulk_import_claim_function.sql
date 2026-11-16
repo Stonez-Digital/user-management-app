@@ -217,8 +217,9 @@ $$;
 GRANT EXECUTE ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) TO stonez_api_runtime;
 
 RESET ROLE;
--- Restore Supabase/PostgreSQL's non-inheriting, non-SET creator membership.
-GRANT stonez_bulk_queue_owner TO CURRENT_USER WITH INHERIT FALSE, SET FALSE;
+-- Remove only the temporary self-membership used for SET ROLE. PostgreSQL's
+-- bootstrap-granted creator ADMIN membership remains intact and SET FALSE.
+REVOKE stonez_bulk_queue_owner FROM CURRENT_USER;
 REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_bulk_queue_owner;
 
 DO $$

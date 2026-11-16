@@ -94,3 +94,44 @@ BEGIN
     END IF;
 END
 $$;
+
+-- Verify logout/session-revocation functions have the same restricted owner,
+-- fixed search path, and API-only EXECUTE grants.
+DO $logout_boundary$
+DECLARE
+    v_name text;
+    v_owner oid;
+    v_security_definer boolean;
+    v_config text[];
+BEGIN
+    FOREACH v_name IN ARRAY ARRAY['auth_logout', 'auth_logout_all', 'auth_revoke_session'] LOOP
+        SELECT p.proowner, p.prosecdef, p.proconfig
+          INTO v_owner, v_security_definer, v_config
+          FROM pg_proc AS p
+          JOIN pg_namespace AS n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'stonez_internal'
+           AND p.proname = v_name;
+        IF NOT FOUND OR v_owner <> (SELECT oid FROM pg_roles WHERE rolname = 'stonez_auth_session_owner')
+           OR NOT v_security_definer OR NOT ('search_path=pg_catalog' = ANY(v_config)) THEN
+            RAISE EXCEPTION '% owner/SECURITY DEFINER/search_path verification failed', v_name;
+        END IF;
+        IF EXISTS (
+            SELECT 1
+              FROM pg_proc AS p
+              JOIN pg_namespace AS n ON n.oid = p.pronamespace
+              CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS a
+             WHERE n.nspname = 'stonez_internal'
+               AND p.proname = v_name
+               AND a.grantee = 0
+               AND a.privilege_type = 'EXECUTE'
+        ) THEN
+            RAISE EXCEPTION 'PUBLIC must not execute %', v_name;
+        END IF;
+    END LOOP;
+    IF NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_logout(text)', 'EXECUTE')
+       OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_logout_all(uuid)', 'EXECUTE')
+       OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_revoke_session(uuid,uuid)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'API runtime is missing logout/session revocation EXECUTE grants';
+    END IF;
+END
+$logout_boundary$;

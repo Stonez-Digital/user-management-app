@@ -40,7 +40,7 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 
 	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
 	tableSchema, privateSchema := "auth_handler_"+suffix, "stonez_internal"
-	ownerRole, apiRole := "auth_handler_owner_"+suffix, "auth_handler_api_"+suffix
+	ownerRole, sessionOwnerRole, apiRole := "auth_handler_owner_"+suffix, "auth_handler_session_owner_"+suffix, "auth_handler_api_"+suffix
 	loginRole := "auth_handler_login_"+suffix
 	loginPassword := uuid.NewString()
 	if err := admin.Exec("CREATE SCHEMA " + tableSchema).Error; err != nil {
@@ -50,7 +50,7 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 		_ = admin.Exec("REVOKE " + apiRole + " FROM " + loginRole).Error
 		_ = admin.Exec("DROP SCHEMA IF EXISTS " + privateSchema + " CASCADE").Error
 		_ = admin.Exec("DROP SCHEMA IF EXISTS " + tableSchema + " CASCADE").Error
-		for _, role := range []string{loginRole, apiRole, ownerRole} {
+		for _, role := range []string{loginRole, apiRole, ownerRole, sessionOwnerRole} {
 			_ = admin.Exec("DROP OWNED BY " + role).Error
 			_ = admin.Exec("REVOKE " + role + " FROM CURRENT_USER").Error
 			_ = admin.Exec("DROP ROLE IF EXISTS " + role).Error
@@ -85,10 +85,8 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 	}
 	for _, statement := range []string{
 		"GRANT USAGE ON SCHEMA " + tableSchema + " TO " + apiRole,
-		"GRANT INSERT ON " + tableSchema + ".refresh_tokens, " + tableSchema + ".sessions, " + tableSchema + ".audit_logs TO " + apiRole,
-		"GRANT UPDATE (revoked) ON " + tableSchema + ".refresh_tokens TO " + apiRole,
-		"GRANT UPDATE (refresh_token_hash, expires_at, revoked) ON " + tableSchema + ".sessions TO " + apiRole,
-	} {
+		"GRANT INSERT ON " + tableSchema + ".audit_logs TO " + apiRole,
+			} {
 		if err := admin.Exec(statement).Error; err != nil {
 			t.Fatalf("grant restricted handler privileges: %v", err)
 		}
@@ -102,6 +100,7 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 		}
 		script := string(raw)
 		script = strings.ReplaceAll(script, "stonez_auth_bootstrap_owner", ownerRole)
+		script = strings.ReplaceAll(script, "stonez_auth_session_owner", sessionOwnerRole)
 		script = strings.ReplaceAll(script, "stonez_api_runtime", apiRole)
 		return strings.ReplaceAll(script, "public", tableSchema)
 	}

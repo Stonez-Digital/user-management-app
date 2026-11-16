@@ -182,3 +182,19 @@ The login and refresh handlers have been moved to short database transactions on
 **Important RLS bootstrap limitation:** these handlers are transactionally scoped, but the initial login account lookup and initial refresh-token-hash lookup occur before a trusted user identity can be established. They cannot be authorized by ordinary self-only RLS policies on `users` or `refresh_tokens` once FORCE RLS is enabled. Do not install identity/session RLS or switch the runtime login based on this slice alone. The next design must provide narrow pre-authentication bootstrap operations (for example, carefully constrained database functions or a separate restricted authentication identity) that return only the minimum credential-verification material and token owner identity. After that bootstrap, all user/session/token work can use the transaction-local identity context.
 
 **Validation:** GitHub CI for the latest code and regression-test commits must complete before this slice is treated as validated. No identity/session RLS policies, staging DDL, production changes, credential changes, merges or deployments are included.
+
+
+## Logout and password recovery transaction slice — implementation in progress (2026-11-16)
+
+The logout and password-reset handlers have been tightened on this branch:
+
+- Logout now resolves the presented, unexpired refresh-token hash and performs token revocation, matching session revocation and the `auth.logout` audit insert in one transaction. After resolving the token owner, PostgreSQL operations set transaction-local `app.current_user_id`; all writes are constrained by user, token and family. Exactly one token and one matching session must be updated or the transaction fails closed.
+- Forgot-password now performs active-account lookup, invalidation of older outstanding reset tokens and creation of the new hashed reset token in one transaction. After resolving the account, PostgreSQL sets the user and optional school context. Mail delivery remains outside the transaction. If the mailer is unavailable or delivery fails, the newly issued token is invalidated in a separate identity-scoped transaction; invalidation failures are logged as critical operational errors. The API response remains non-enumerating for existing versus unknown accounts.
+- Reset-password now treats the reset-token hash as a pre-authentication bootstrap credential, sets transaction-local user identity after resolving the token owner, atomically claims the unexpired single-use token, requires exactly one active user row to be updated, revokes refresh tokens and sessions, and writes `security.password_reset` in the same transaction. An audit or downstream write failure rolls back the password update, token claim and revocations.
+- Added SQLite regression tests for logout audit rollback, password-reset audit rollback, and reset-token invalidation when the mailer is unavailable. Existing reset success/reuse and logout success tests remain.
+
+**Validation status:** the code and regression tests have been committed to this draft PR, but CI has not yet been checked for these new commits. These SQLite tests do not replace PostgreSQL restricted-login tests.
+
+**Pre-authentication RLS boundary remains unresolved:** forgot-password must initially locate an account by email, while reset-password and logout must initially locate a token by its hash. Those lookups happen before a trusted database user identity is established. Ordinary self-only RLS policies cannot authorize them under FORCE RLS. Keep identity/session RLS installation and restricted runtime cutover blocked until these bootstrap reads are moved behind narrowly scoped, reviewed database functions or a separate restricted authentication identity, and tested with actual PostgreSQL logins.
+
+No identity/session RLS policies, staging DDL, production database changes, credentials, Render settings, merges or deployments are included in this slice.

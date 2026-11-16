@@ -92,7 +92,7 @@ func TestSubscriptionBillingRLSInstallerWithRestrictedPostgresRole(t *testing.T)
 	assertVisible("subscription_payments", schoolA, 1)
 
 	if err := tenantTransaction(restricted, schoolA, userID, func(tx *gorm.DB) error {
-		var activePlans, totalPlans int64
+		var totalPlans int64
 		if err := tx.Table(schema+".billing_plans").Count(&totalPlans).Error; err != nil { return err }
 		if totalPlans != 1 { t.Errorf("active plan catalogue rows=%d, want 1", totalPlans) }
 		if err := tx.Table(schema+".school_subscriptions").Create(map[string]interface{}{"id":uuid.New(),"school_id":schoolB}).Error; err == nil {

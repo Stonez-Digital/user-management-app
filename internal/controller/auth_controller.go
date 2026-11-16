@@ -161,9 +161,17 @@ func (ac *AuthController) ForgotPassword(c *gin.Context) {
 	disableReset := func() {
 		var disableErr error
 		if ac.DB.Dialector.Name() == "postgres" {
-			disableErr = ac.DB.Exec("SELECT stonez_internal.auth_disable_password_reset(?)", reset.ID).Error
+			var disabled bool
+			disableErr = ac.DB.Raw("SELECT stonez_internal.auth_disable_password_reset(?)", reset.ID).Scan(&disabled).Error
+			if disableErr == nil && !disabled {
+				disableErr = errors.New("reset token was not invalidated")
+			}
 		} else {
-			disableErr = ac.DB.Model(&reset).Update("used", true).Error
+			result := ac.DB.Model(&reset).Update("used", true)
+			disableErr = result.Error
+			if disableErr == nil && result.RowsAffected != 1 {
+				disableErr = errors.New("reset token was not invalidated")
+			}
 		}
 		if disableErr != nil {
 			log.Printf("failed to invalidate undelivered password reset token %s: %v", reset.ID, disableErr)

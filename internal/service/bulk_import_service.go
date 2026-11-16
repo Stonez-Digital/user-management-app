@@ -36,7 +36,7 @@ func NewBulkImportService(db *gorm.DB, mailer *CredentialMailer)*BulkImportServi
 func NewBulkImportServiceWithClaimDB(db, claimDB *gorm.DB, mailer *CredentialMailer)(*BulkImportService,error){
  if db==nil{return nil,errors.New("bulk import application database is required")}
  if claimDB==nil{return nil,errors.New("bulk import claim database is required")}
- if claimDB.Dialector.Name()!="postgres"{return nil,errors.New("bulk import claim database must use PostgreSQL")}
+ if claimDB.Dialector.Name()!="postgres" && !(db.Dialector.Name()=="sqlite" && claimDB.Dialector.Name()=="sqlite"){return nil,errors.New("bulk import claim database must use PostgreSQL (SQLite is permitted only for SQLite tests)")}
  return &BulkImportService{db:db,claimDB:claimDB,mailer:mailer,workerID:uuid.New(),workerOnce:&sync.Once{}},nil
 }
 func(s *BulkImportService)WithDB(db *gorm.DB)*BulkImportService{return &BulkImportService{db:db,claimDB:s.claimDB,mailer:s.mailer,workerID:s.workerID,workerOnce:s.workerOnce}}

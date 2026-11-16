@@ -2,9 +2,7 @@
 
 ## Process separation
 
-The HTTP API no longer starts the bulk-import polling goroutine. Run the standalone
-`cmd/bulk-import-worker` process as a separate Render Background Worker using
-`Dockerfile.worker`.
+The HTTP API no longer starts the bulk-import polling goroutine. The recommended no-cost staging runner is the scheduled GitHub Actions workflow at `.github/workflows/bulk-import-worker-staging.yml`. It starts the standalone `cmd/bulk-import-worker` every five minutes, polls for up to four minutes, and exits. The repository is public, so standard GitHub-hosted Ubuntu runners are free and unlimited. This is periodic processing, not an always-on worker; schedule delays are possible.
 
 The worker uses two database connections:
 
@@ -31,13 +29,14 @@ before that cutover.
 
 ## Environment
 
-Configure only on the dedicated worker service:
+Configure these GitHub Actions repository secrets for the scheduled worker only:
 
 - `DB_DRIVER=postgres`
-- `DATABASE_URL`: existing application processing DSN (secret)
-- `BULK_IMPORT_CLAIM_DATABASE_URL`: DSN for the restricted `stonez_bulk_worker`
-  login via the Supabase Session pooler (secret)
-- SMTP / Resend variables if credential emails are enabled
+- `BULK_IMPORT_PROCESS_DATABASE_URL`: existing staging application processing DSN (secret; currently privileged)
+- `BULK_IMPORT_CLAIM_DATABASE_URL`: DSN for the restricted `stonez_bulk_worker` login via the Supabase Session pooler (secret)
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`, `RESEND_API_KEY`, and `APP_LOGIN_URL` if credential emails are enabled
+
+The workflow maps `BULK_IMPORT_PROCESS_DATABASE_URL` to the worker process's `DATABASE_URL`. Never add `BULK_IMPORT_CLAIM_DATABASE_URL` to the HTTP API's Render environment.
 
 Do not configure `BULK_IMPORT_CLAIM_DATABASE_URL` on the HTTP API service.
 Do not configure a migration URL or run application migrations from this worker.
@@ -49,20 +48,36 @@ settings; never commit it or put it in a SQL file.
 
 ## Staging rollout sequence
 
-1. Create a dedicated `stonez_bulk_worker` LOGIN role on the staging project,
-   with no elevated attributes, and grant only membership in
-   `stonez_api_runtime`.
-2. Set its password directly into the dedicated Render worker's secret
-   environment. Do not send it in chat or commit it.
-3. Create the Render Background Worker from this branch with Dockerfile path
-   `./Dockerfile.worker`, and configure the variables above.
-4. Verify worker startup logs report successful restricted claim-role validation.
-5. Submit a disposable staging import and verify it transitions queued ->
-   running -> completed (or completed_with_errors), with the expected records
-   and tenant ownership.
-6. Confirm the HTTP API has no claim URL and does not start a worker.
-7. Keep the existing staging API and production API database credentials
-   unchanged until separate approval.
+1. Create the restricted worker login by running
+   `psql "$STAGING_ADMIN_DATABASE_URL" -X -f scripts/security/provision_bulk_import_worker_login.psql`
+   from an interactive terminal. The script prompts for the password without
+   echoing it. Do not paste the password into chat or commit it.
+2. Copy the restricted role's Supabase Session pooler connection string using
+   the role-specific username `stonez_bulk_worker.<project-ref>`. Store it as
+   the GitHub Actions secret `BULK_IMPORT_CLAIM_DATABASE_URL`.
+3. Store the staging application processing connection string as
+   `BULK_IMPORT_PROCESS_DATABASE_URL`. This remains the existing processing
+   credential and is not changed on the API service.
+4. Add the optional SMTP/Resend secrets if imports send credentials.
+5. Review this PR. The scheduled workflow only activates after it is merged to
+   the repository's default branch. Then use Actions -> Bulk Import Worker
+   (Staging) -> Run workflow for a manual smoke test; the five-minute schedule
+   runs automatically thereafter.
+6. Submit a disposable staging import and verify queued -> running ->
+   completed (or completed_with_errors), with expected records and tenant
+   ownership. Confirm API Render environment does not contain the claim URL.
+7. Keep production untouched.
 
-Do not run this worker against production until a separate production rollout
-is reviewed and approved.
+## Optional paid always-on worker
+
+If processing must be continuous rather than scheduled, Render Background
+Workers are available but Render does not offer a free compute plan for them.
+The included `Dockerfile.worker` can be used for that deployment. Do not create
+or deploy a paid worker without explicit approval.
+
+**Important transitional limitation:** the processing connection still uses the
+existing application database identity. This isolates the global claim
+capability from the HTTP API but does not yet make job processing itself
+least-privileged. Complete the wider tenant RLS rollout and a restricted
+processing-role design before any restricted application-processing or
+production cutover.

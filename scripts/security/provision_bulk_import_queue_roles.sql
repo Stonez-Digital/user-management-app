@@ -25,8 +25,8 @@ $$;
 -- New roles default to NOCREATEDB and NOCREATEROLE. A CREATEROLE-only
 -- operator cannot change another role's CREATEDB attribute, so leave these
 -- safe defaults untouched and assert them in the verification script.
-ALTER ROLE stonez_bulk_queue_owner NOLOGIN NOINHERIT NOBYPASSRLS;
-ALTER ROLE stonez_api_runtime NOLOGIN INHERIT NOBYPASSRLS;
+ALTER ROLE stonez_bulk_queue_owner NOLOGIN NOINHERIT;
+ALTER ROLE stonez_api_runtime NOLOGIN INHERIT;
 -- PostgreSQL does not let a non-superuser ALTER ROLE change SUPERUSER,
 -- even to NOSUPERUSER. New roles default to NOSUPERUSER; assert it instead.
 

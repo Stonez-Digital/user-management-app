@@ -15,6 +15,15 @@ BEGIN
         RAISE EXCEPTION 'API runtime must not be a member of the auth bootstrap owner role';
     END IF;
 
+    SELECT * INTO v_role FROM pg_roles WHERE rolname = 'stonez_auth_session_owner';
+    IF NOT FOUND OR v_role.rolcanlogin OR v_role.rolsuper OR v_role.rolcreatedb
+       OR v_role.rolcreaterole OR v_role.rolbypassrls OR v_role.rolinherit THEN
+        RAISE EXCEPTION 'auth session owner role is missing or has unsafe attributes';
+    END IF;
+    IF pg_has_role('stonez_api_runtime', 'stonez_auth_session_owner', 'MEMBER') THEN
+        RAISE EXCEPTION 'API runtime must not be a member of the auth session owner role';
+    END IF;
+
     SELECT p.proowner, p.prosecdef, p.proconfig
       INTO v_owner, v_security_definer, v_config
       FROM pg_proc AS p
@@ -54,6 +63,34 @@ BEGIN
            AND a.privilege_type = 'EXECUTE'
     ) THEN
         RAISE EXCEPTION 'PUBLIC must not execute auth bootstrap functions';
+    END IF;
+
+    IF NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_create_session(uuid,uuid,uuid,text,timestamptz,uuid,text,text)', 'EXECUTE')
+       OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_rotate_refresh(uuid,text,uuid,uuid,uuid,text,timestamptz,uuid)', 'EXECUTE')
+       OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_revoke_refresh_family(uuid)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'API runtime is missing required auth session write EXECUTE grants';
+    END IF;
+    IF EXISTS (
+        SELECT 1
+          FROM pg_proc AS p
+          JOIN pg_namespace AS n ON n.oid = p.pronamespace
+          CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS a
+         WHERE n.nspname = 'stonez_internal'
+           AND p.proname IN ('auth_create_session', 'auth_rotate_refresh', 'auth_revoke_refresh_family')
+           AND (a.grantee = 0 AND a.privilege_type = 'EXECUTE')
+    ) THEN
+        RAISE EXCEPTION 'PUBLIC must not execute auth session write functions';
+    END IF;
+    IF EXISTS (
+        SELECT 1
+          FROM pg_proc AS p
+          JOIN pg_namespace AS n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'stonez_internal'
+           AND p.proname IN ('auth_create_session', 'auth_rotate_refresh', 'auth_revoke_refresh_family')
+           AND (p.proowner <> (SELECT oid FROM pg_roles WHERE rolname = 'stonez_auth_session_owner')
+                OR NOT p.prosecdef OR NOT ('search_path=pg_catalog' = ANY(p.proconfig))
+    ) THEN
+        RAISE EXCEPTION 'auth session write function owner/SECURITY DEFINER/search_path verification failed';
     END IF;
 END
 $$;

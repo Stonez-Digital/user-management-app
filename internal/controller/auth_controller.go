@@ -421,6 +421,13 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 		now := time.Now()
 		if !now.Before(stored.ExpiresAt) { return gorm.ErrRecordNotFound }
 		if err := tx.Where("id = ? AND active = true", stored.UserID).First(&user).Error; err != nil { return gorm.ErrRecordNotFound }
+		if tx.Dialector.Name() == "postgres" {
+			schoolValue := ""
+			if user.SchoolID != nil && *user.SchoolID != uuid.Nil {
+				schoolValue = user.SchoolID.String()
+			}
+			if err := tx.Exec("SELECT set_config('app.current_school_id', ?, true)", schoolValue).Error; err != nil { return err }
+		}
 		if err := validateSchoolAccess(tx, user, "", ""); err != nil { return gorm.ErrRecordNotFound }
 		var session models.Session
 		if err := tx.Where("refresh_token_hash = ? AND user_id = ? AND family_id = ? AND revoked = false AND expires_at > ?", tokenHash, user.ID, stored.FamilyID, now).First(&session).Error; err != nil {

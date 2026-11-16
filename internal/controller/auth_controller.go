@@ -26,6 +26,7 @@ const minPasswordLength = 8
 
 var errResetExpired = errors.New("reset token expired")
 var errRefreshReused = errors.New("refresh token already rotated")
+var errSessionRefreshTokenMissing = errors.New("session refresh token record missing")
 
 type ForgotPasswordRequest struct { Email string `json:"email" binding:"required,email,max=255"` }
 type ResetPasswordRequest struct { Token string `json:"token" binding:"required"`; NewPassword string `json:"new_password" binding:"required,min=8,max=128"` }
@@ -492,14 +493,14 @@ func (ac *AuthController) RevokeSession(c *gin.Context) {
 	err = tx.Transaction(func(scoped *gorm.DB) error {
 		var session models.Session
 		if err := scoped.Where("id = ? AND user_id = ? AND revoked = false", sessionID, userID).First(&session).Error; err != nil {
-			return gorm.ErrRecordNotFound
+			return err
 		}
 		revoked := scoped.Model(&models.Session{}).Where("id = ? AND user_id = ? AND revoked = false", sessionID, userID).Update("revoked", true)
 		if revoked.Error != nil { return revoked.Error }
 		if revoked.RowsAffected != 1 { return gorm.ErrRecordNotFound }
 		tokenRevoked := scoped.Model(&models.RefreshToken{}).Where("token_hash = ? AND user_id = ?", session.RefreshTokenHash, userID).Update("revoked", true)
 		if tokenRevoked.Error != nil { return tokenRevoked.Error }
-		if tokenRevoked.RowsAffected != 1 { return gorm.ErrRecordNotFound }
+		if tokenRevoked.RowsAffected != 1 { return errSessionRefreshTokenMissing }
 		return audit.Record(scoped, c, &userID, "auth.session_revoke", "session", &sessionID, nil)
 	})
 	if errors.Is(err, gorm.ErrRecordNotFound) {

@@ -444,3 +444,91 @@ func TestRefreshReuseAuditFailureRollsBackFamilyRevocation(t *testing.T) {
 	if err := db.Model(&models.Session{}).Where("family_id = ? AND revoked = false", familyID).Count(&activeSessions).Error; err != nil { t.Fatal(err) }
 	if activeTokens != 1 || activeSessions != 1 { t.Fatalf("failed reuse transaction must roll back family revocation; active tokens=%d sessions=%d", activeTokens, activeSessions) }
 }
+
+
+func TestLogoutRollsBackTokenAndSessionWhenAuditFails(t *testing.T) {
+	db := authControllerTestDB(t)
+	user := models.User{Name: "Logout Audit", Email: "logout-audit-" + strings.ToLower(t.Name()) + "@example.com", Role: authz.RoleStudent, Active: true}
+	if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
+	raw := strings.Repeat("logout-audit-token-", 3)
+	hash := auth.HashRefreshToken(raw)
+	familyID := uuid.New()
+	if err := db.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: hash, ExpiresAt: time.Now().Add(time.Hour)}).Error; err != nil { t.Fatal(err) }
+	if err := db.Create(&models.Session{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, RefreshTokenHash: hash, ExpiresAt: time.Now().Add(time.Hour)}).Error; err != nil { t.Fatal(err) }
+	if err := db.Exec(`CREATE TRIGGER fail_logout_audit BEFORE INSERT ON audit_logs
+		WHEN NEW.action = 'auth.logout'
+		BEGIN SELECT RAISE(ABORT, 'forced logout audit failure'); END;`).Error; err != nil { t.Fatal(err) }
+
+	rec := authJSONRequest(t, NewAuthController(db), http.MethodPost, "/logout", `{"refresh_token":"`+raw+`"}`)
+	if rec.Code != http.StatusInternalServerError { t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String()) }
+	var token models.RefreshToken
+	if err := db.Where("token_hash = ?", hash).First(&token).Error; err != nil { t.Fatal(err) }
+	if token.Revoked { t.Fatal("refresh token revocation should roll back when audit fails") }
+	var session models.Session
+	if err := db.Where("refresh_token_hash = ?", hash).First(&session).Error; err != nil { t.Fatal(err) }
+	if session.Revoked { t.Fatal("session revocation should roll back when audit fails") }
+}
+
+func TestResetPasswordRollsBackAllChangesWhenAuditFails(t *testing.T) {
+	db := authControllerTestDB(t)
+	oldHash, err := auth.HashPassword("old-password123")
+	if err != nil { t.Fatal(err) }
+	user := models.User{Name: "Reset Audit", Email: "reset-audit-" + strings.ToLower(t.Name()) + "@example.com", PasswordHash: oldHash, Role: authz.RoleStudent, Active: true}
+	if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
+	raw := strings.Repeat("reset-audit-token-", 3)
+	reset := models.PasswordResetToken{ID: uuid.New(), UserID: user.ID, TokenHash: auth.HashResetToken(raw), ExpiresAt: time.Now().Add(15*time.Minute)}
+	if err := db.Create(&reset).Error; err != nil { t.Fatal(err) }
+	refreshHash := auth.HashRefreshToken("reset-audit-refresh")
+	familyID := uuid.New()
+	if err := db.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: refreshHash, ExpiresAt: time.Now().Add(time.Hour)}).Error; err != nil { t.Fatal(err) }
+	if err := db.Create(&models.Session{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, RefreshTokenHash: refreshHash, ExpiresAt: time.Now().Add(time.Hour)}).Error; err != nil { t.Fatal(err) }
+	if err := db.Exec(`CREATE TRIGGER fail_password_reset_audit BEFORE INSERT ON audit_logs
+		WHEN NEW.action = 'security.password_reset'
+		BEGIN SELECT RAISE(ABORT, 'forced password reset audit failure'); END;`).Error; err != nil { t.Fatal(err) }
+
+	router := gin.New()
+	router.POST("/reset-password", NewAuthController(db).ResetPassword)
+	req := httptest.NewRequest(http.MethodPost, "/reset-password", strings.NewReader(`{"token":"`+raw+`","new_password":"new-password123"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError { t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String()) }
+
+	var storedReset models.PasswordResetToken
+	if err := db.First(&storedReset, "id = ?", reset.ID).Error; err != nil { t.Fatal(err) }
+	if storedReset.Used { t.Fatal("reset token claim should roll back when audit fails") }
+	var storedUser models.User
+	if err := db.First(&storedUser, "id = ?", user.ID).Error; err != nil { t.Fatal(err) }
+	if !auth.CheckPassword(storedUser.PasswordHash, "old-password123") { t.Fatal("password update should roll back when audit fails") }
+	var token models.RefreshToken
+	if err := db.Where("token_hash = ?", refreshHash).First(&token).Error; err != nil { t.Fatal(err) }
+	if token.Revoked { t.Fatal("refresh-token revocation should roll back when audit fails") }
+	var session models.Session
+	if err := db.Where("refresh_token_hash = ?", refreshHash).First(&session).Error; err != nil { t.Fatal(err) }
+	if session.Revoked { t.Fatal("session revocation should roll back when audit fails") }
+}
+
+func TestForgotPasswordInvalidatesTokenWhenMailerUnavailable(t *testing.T) {
+	db := authControllerTestDB(t)
+	user := models.User{Name: "Forgot Password", Email: "forgot-" + strings.ToLower(t.Name()) + "@example.com", Role: authz.RoleStudent, Active: true}
+	if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
+	old := models.PasswordResetToken{ID: uuid.New(), UserID: user.ID, TokenHash: auth.HashResetToken("previous-reset-token"), ExpiresAt: time.Now().Add(15*time.Minute)}
+	if err := db.Create(&old).Error; err != nil { t.Fatal(err) }
+
+	ac := NewAuthController(db)
+	ac.Mailer = nil
+	router := gin.New()
+	router.POST("/forgot-password", ac.ForgotPassword)
+	req := httptest.NewRequest(http.MethodPost, "/forgot-password", strings.NewReader(`{"email":"`+user.Email+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK { t.Fatalf("expected generic 200, got %d: %s", rec.Code, rec.Body.String()) }
+
+	var resets []models.PasswordResetToken
+	if err := db.Where("user_id = ?", user.ID).Order("created_at DESC").Find(&resets).Error; err != nil { t.Fatal(err) }
+	if len(resets) != 2 { t.Fatalf("expected old and newly issued reset tokens, got %d", len(resets)) }
+	for _, item := range resets {
+		if !item.Used { t.Fatalf("reset token %s should be invalidated after mailer is unavailable", item.ID) }
+	}
+}

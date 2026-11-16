@@ -17,6 +17,7 @@ import (
     "github.com/onoja217/users-management-app/internal/auth"
     "github.com/onoja217/users-management-app/internal/authz"
     "github.com/onoja217/users-management-app/internal/models"
+    "github.com/onoja217/users-management-app/internal/middleware"
     "gorm.io/driver/sqlite"
     "gorm.io/gorm"
 )
@@ -208,9 +209,9 @@ func TestPasswordChangeRevokesAllSessionsAndRefreshTokens(t *testing.T) {
     ac := NewAuthController(db)
     router := gin.New()
     router.POST("/change-password", func(c *gin.Context) {
-        c.Set("user_id", user.ID.String())
-        ac.ChangePassword(c)
-    })
+        c.Set(middleware.UserIDKey, user.ID.String())
+        c.Next()
+    }, middleware.IdentityTransaction(db), ac.ChangePassword)
     req := httptest.NewRequest(http.MethodPost, "/change-password", strings.NewReader("{\"current_password\":\"current-password123\",\"new_password\":\"new-password123\"}"))
     req.Header.Set("Content-Type", "application/json")
     rec := httptest.NewRecorder()

@@ -200,6 +200,11 @@ BEGIN
         RAISE EXCEPTION 'PUBLIC must not execute auth_change_password';
     END IF;
 
+    IF NOT has_function_privilege('stonez_auth_bootstrap_owner', 'stonez_internal.auth_revoke_user_sessions(uuid)', 'EXECUTE')
+       OR has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_revoke_user_sessions(uuid)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'password change session-revocation helper grants are unsafe';
+    END IF;
+
     IF NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_password_reset_lookup(text)', 'EXECUTE')
        OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_password_change_lookup(uuid)', 'EXECUTE')
        OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_create_password_reset(uuid,uuid,text,timestamptz)', 'EXECUTE')

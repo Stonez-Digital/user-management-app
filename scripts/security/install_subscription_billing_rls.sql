@@ -110,7 +110,7 @@ BEGIN
         REVOKE ALL ON TABLE public.billing_plans, public.school_subscriptions,
             public.subscription_events, public.subscription_payments FROM service_role;
     END IF;
-END $;
+END $$;
 
 GRANT SELECT ON TABLE public.billing_plans TO stonez_api_runtime;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.school_subscriptions TO stonez_api_runtime;

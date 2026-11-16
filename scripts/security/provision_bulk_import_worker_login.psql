@@ -21,7 +21,7 @@ CREATE ROLE stonez_bulk_worker
     CONNECTION LIMIT 5;
 
 -- psql hides both password prompts and sends only the encrypted verifier.
-\\password stonez_bulk_worker
+\password stonez_bulk_worker
 
 -- The login inherits only the restricted API group privileges. It cannot
 -- administer the group or SET ROLE into it; the claim function checks effective

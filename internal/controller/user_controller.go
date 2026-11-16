@@ -58,46 +58,76 @@ func (ctrl *UserController) DeleteUser(c *gin.Context) {
     actor,_:=uuid.Parse(c.GetString("user_id"));_=audit.Record(svc.DB(),c,&actor,"user.delete","user",&id,nil);c.JSON(200,gin.H{"message":"deleted"})
 }
 func (ctrl *UserController) GetMe(c *gin.Context) {
-    id,err:=uuid.Parse(c.GetString("user_id"));if err!=nil{httpx.Error(c,400,"invalid_user_id","invalid user id");return}
-    var user models.User
-    if err:=ctrl.service.DB().Where("id = ? AND active = true",id).First(&user).Error;err!=nil{httpx.Error(c,404,"user_not_found","user not found");return}
-    schoolName := ""
-    schoolLogoURL := ""
-    schoolSlug := ""
-    if user.SchoolID != nil {
-        var school models.School
-        if err := ctrl.service.DB().Select("name, slug, logo_url").First(&school, "id = ?", *user.SchoolID).Error; err == nil {
-            schoolName = school.Name
-            schoolSlug = school.Slug
-            schoolLogoURL = school.LogoURL
-        }
-    }
-    c.JSON(http.StatusOK,gin.H{
-        "id": user.ID,
-        "name": user.Name,
-        "email": user.Email,
-        "role": user.Role,
-        "active": user.Active,
-        "school_id": user.SchoolID,
-        "school_name": schoolName,
-        "school_slug": schoolSlug,
-        "school_logo_url": schoolLogoURL,
-    })
+	tx, ok := middleware.IdentityDBFromContext(c)
+	if !ok || tx == nil {
+		httpx.Error(c, http.StatusInternalServerError, "identity_transaction_required", "identity transaction is required")
+		return
+	}
+	id, err := uuid.Parse(c.GetString(middleware.UserIDKey))
+	if err != nil {
+		httpx.Error(c, http.StatusUnauthorized, "invalid_user_id", "authenticated user context is invalid")
+		return
+	}
+	var user models.User
+	if err := tx.Where("id = ? AND active = true", id).First(&user).Error; err != nil {
+		httpx.Error(c, http.StatusNotFound, "user_not_found", "user not found")
+		return
+	}
+	schoolName, schoolLogoURL, schoolSlug := "", "", ""
+	if user.SchoolID != nil && *user.SchoolID != uuid.Nil {
+		var school models.School
+		if err := tx.Select("name, slug, logo_url").First(&school, "id = ?", *user.SchoolID).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			httpx.Error(c, http.StatusInternalServerError, "school_profile_read_failed", "failed to load school profile")
+			return
+		} else if err == nil {
+			schoolName, schoolSlug, schoolLogoURL = school.Name, school.Slug, school.LogoURL
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"id": user.ID, "name": user.Name, "email": user.Email, "role": user.Role,
+		"active": user.Active, "school_id": user.SchoolID, "school_name": schoolName,
+		"school_slug": schoolSlug, "school_logo_url": schoolLogoURL,
+	})
 }
+
 func (ctrl *UserController) UpdateMe(c *gin.Context) {
-    id,err:=uuid.Parse(c.GetString("user_id"));if err!=nil{httpx.Error(c,400,"invalid_user_id","invalid user id");return}
-    var req UpdateMeRequest;if err:=c.ShouldBindJSON(&req);err!=nil{httpx.Validation(c,httpx.ValidationErrors(err));return}
-    if c.GetString(middleware.RoleKey)==authz.RoleSuperAdmin {
-        var user models.User
-        if err:=ctrl.service.DB().First(&user,"id = ?",id).Error;err!=nil{httpx.Error(c,404,"user_not_found","user not found");return}
-        updates:=map[string]interface{}{}
-        if req.Name!=""{updates["name"]=req.Name};if req.Email!=""{updates["email"]=req.Email}
-        if len(updates)>0{if err:=ctrl.service.DB().Model(&user).Updates(updates).Error;err!=nil{httpx.Error(c,500,"user_update_failed","failed to update user");return};if err:=ctrl.service.DB().First(&user,id).Error;err!=nil{httpx.Error(c,500,"user_read_failed","failed to load updated profile");return}}
-        _=audit.Record(ctrl.service.DB(),c,&id,"user.update","user",&id,nil);c.JSON(200,user);return
-    }
-    school,ok:=schoolID(c);if !ok{return}
-    user,err:=ctrl.service.GetUser(school,id);if err!=nil{httpx.Error(c,404,"user_not_found","user not found");return}
-    if req.Name!=""{user.Name=req.Name};if req.Email!=""{user.Email=req.Email}
-    if err:=ctrl.service.UpdateUser(school,user);err!=nil{httpx.Error(c,500,"user_update_failed","failed to update user");return}
-    _=audit.Record(ctrl.service.DB(),c,&id,"user.update","user",&id,nil);c.JSON(200,user)
+	tx, ok := middleware.IdentityDBFromContext(c)
+	if !ok || tx == nil {
+		httpx.Error(c, http.StatusInternalServerError, "identity_transaction_required", "identity transaction is required")
+		return
+	}
+	id, err := uuid.Parse(c.GetString(middleware.UserIDKey))
+	if err != nil {
+		httpx.Error(c, http.StatusUnauthorized, "invalid_user_id", "authenticated user context is invalid")
+		return
+	}
+	var req UpdateMeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Validation(c, httpx.ValidationErrors(err))
+		return
+	}
+	updates := map[string]interface{}{}
+	if req.Name != "" { updates["name"] = req.Name }
+	if req.Email != "" { updates["email"] = req.Email }
+
+	var user models.User
+	if err := tx.Where("id = ? AND active = true", id).First(&user).Error; err != nil {
+		httpx.Error(c, http.StatusNotFound, "user_not_found", "user not found")
+		return
+	}
+	if len(updates) > 0 {
+		if err := tx.Model(&models.User{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+			httpx.Error(c, http.StatusInternalServerError, "user_update_failed", "failed to update user")
+			return
+		}
+		if err := tx.First(&user, "id = ?", id).Error; err != nil {
+			httpx.Error(c, http.StatusInternalServerError, "user_read_failed", "failed to load updated profile")
+			return
+		}
+	}
+	if err := audit.Record(tx, c, &id, "user.update", "user", &id, nil); err != nil {
+		httpx.Error(c, http.StatusInternalServerError, "user_audit_failed", "failed to record profile update")
+		return
+	}
+	c.JSON(http.StatusOK, user)
 }

@@ -89,7 +89,7 @@ BEGIN
            AND p.proname IN ('auth_create_session', 'auth_rotate_refresh', 'auth_revoke_refresh_family')
            AND (p.proowner <> (SELECT oid FROM pg_roles WHERE rolname = 'stonez_auth_session_owner')
                 OR NOT p.prosecdef OR NOT ('search_path=pg_catalog' = ANY(p.proconfig))
-    ) THEN
+    )) THEN
         RAISE EXCEPTION 'auth session write function owner/SECURITY DEFINER/search_path verification failed';
     END IF;
 END

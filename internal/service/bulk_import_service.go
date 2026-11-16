@@ -29,9 +29,17 @@ type BulkRow map[string]string
 type BulkError struct { Row int `json:"row"`; Field string `json:"field,omitempty"`; Message string `json:"message"` }
 type BulkImportPreview struct { Job models.BulkImportJob `json:"job"`; Preview []BulkRow `json:"preview"`; Errors []BulkError `json:"errors"` }
 
-type BulkImportService struct { db *gorm.DB; mu sync.Mutex; mailer *CredentialMailer; workerID uuid.UUID; workerOnce *sync.Once }
-func NewBulkImportService(db *gorm.DB, mailer *CredentialMailer)*BulkImportService{return &BulkImportService{db:db,mailer:mailer,workerID:uuid.New(),workerOnce:&sync.Once{}}}
-func(s *BulkImportService)WithDB(db *gorm.DB)*BulkImportService{return &BulkImportService{db:db,mailer:s.mailer,workerID:s.workerID,workerOnce:s.workerOnce}}
+type BulkImportService struct { db *gorm.DB; claimDB *gorm.DB; mu sync.Mutex; mailer *CredentialMailer; workerID uuid.UUID; workerOnce *sync.Once }
+func NewBulkImportService(db *gorm.DB, mailer *CredentialMailer)*BulkImportService{return &BulkImportService{db:db,claimDB:db,mailer:mailer,workerID:uuid.New(),workerOnce:&sync.Once{}}}
+// NewBulkImportServiceWithClaimDB separates the narrowly privileged queue-claim
+// connection from the application connection used to process claimed jobs.
+func NewBulkImportServiceWithClaimDB(db, claimDB *gorm.DB, mailer *CredentialMailer)(*BulkImportService,error){
+ if db==nil{return nil,errors.New("bulk import application database is required")}
+ if claimDB==nil{return nil,errors.New("bulk import claim database is required")}
+ if claimDB.Dialector.Name()!="postgres"{return nil,errors.New("bulk import claim database must use PostgreSQL")}
+ return &BulkImportService{db:db,claimDB:claimDB,mailer:mailer,workerID:uuid.New(),workerOnce:&sync.Once{}},nil
+}
+func(s *BulkImportService)WithDB(db *gorm.DB)*BulkImportService{return &BulkImportService{db:db,claimDB:s.claimDB,mailer:s.mailer,workerID:s.workerID,workerOnce:s.workerOnce}}
 func(s *BulkImportService)DB()*gorm.DB{return s.db}
 
 func parseUpload(fh *multipart.FileHeader)([]BulkRow,error){

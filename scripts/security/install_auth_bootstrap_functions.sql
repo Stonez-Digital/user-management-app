@@ -401,6 +401,36 @@ BEGIN
 END
 $function$;
 
+CREATE OR REPLACE FUNCTION stonez_internal.auth_revoke_user_sessions(p_user_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+BEGIN
+    UPDATE public.sessions SET revoked = true
+     WHERE user_id = p_user_id AND revoked = false;
+    UPDATE public.refresh_tokens SET revoked = true
+     WHERE user_id = p_user_id AND revoked = false;
+END
+$function$;
+
+REVOKE ALL ON FUNCTION stonez_internal.auth_revoke_user_sessions(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION stonez_internal.auth_revoke_user_sessions(uuid) TO stonez_auth_bootstrap_owner;
+
+REVOKE ALL ON FUNCTION stonez_internal.auth_create_password_reset(uuid,uuid,text,timestamptz) FROM PUBLIC;
+REVOKE ALL ON FUNCTION stonez_internal.auth_disable_password_reset(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION stonez_internal.auth_consume_password_reset(text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION stonez_internal.auth_create_password_reset(uuid,uuid,text,timestamptz) TO stonez_api_runtime;
+GRANT EXECUTE ON FUNCTION stonez_internal.auth_disable_password_reset(uuid) TO stonez_api_runtime;
+GRANT EXECUTE ON FUNCTION stonez_internal.auth_consume_password_reset(text,text) TO stonez_api_runtime;
+
+RESET ROLE;
+REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_session_owner;
+
+GRANT USAGE, CREATE ON SCHEMA stonez_internal TO stonez_auth_bootstrap_owner;
+SET ROLE stonez_auth_bootstrap_owner;
+
 CREATE OR REPLACE FUNCTION stonez_internal.auth_change_password(p_user_id uuid, p_expected_password_hash text, p_password_hash text)
 RETURNS boolean
 LANGUAGE plpgsql
@@ -414,23 +444,13 @@ BEGIN
     IF NOT FOUND THEN
         RETURN false;
     END IF;
-
-    UPDATE public.sessions SET revoked = true
-     WHERE user_id = p_user_id AND revoked = false;
-    UPDATE public.refresh_tokens SET revoked = true
-     WHERE user_id = p_user_id AND revoked = false;
+    PERFORM stonez_internal.auth_revoke_user_sessions(p_user_id);
     RETURN true;
 END
 $function$;
 
-REVOKE ALL ON FUNCTION stonez_internal.auth_create_password_reset(uuid,uuid,text,timestamptz) FROM PUBLIC;
-REVOKE ALL ON FUNCTION stonez_internal.auth_disable_password_reset(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION stonez_internal.auth_consume_password_reset(text,text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION stonez_internal.auth_change_password(uuid,text,text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION stonez_internal.auth_create_password_reset(uuid,uuid,text,timestamptz) TO stonez_api_runtime;
-GRANT EXECUTE ON FUNCTION stonez_internal.auth_disable_password_reset(uuid) TO stonez_api_runtime;
-GRANT EXECUTE ON FUNCTION stonez_internal.auth_consume_password_reset(text,text) TO stonez_api_runtime;
 GRANT EXECUTE ON FUNCTION stonez_internal.auth_change_password(uuid,text,text) TO stonez_api_runtime;
 
 RESET ROLE;
-REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_session_owner;
+REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_bootstrap_owner;

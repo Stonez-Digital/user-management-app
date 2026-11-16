@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,36 @@ const (
 )
 
 var errTenantRequestRollback = errors.New("tenant request returned an error status")
+
+const tenantCommitCallbacksKey = "tenant_after_commit_callbacks"
+const tenantRollbackCallbacksKey = "tenant_after_rollback_callbacks"
+
+// OnTenantCommit schedules external side effects after the request transaction commits.
+func OnTenantCommit(c *gin.Context, callback func() error) {
+    appendTenantCallback(c, tenantCommitCallbacksKey, callback)
+}
+
+// OnTenantRollback schedules compensation for external side effects if the request rolls back.
+func OnTenantRollback(c *gin.Context, callback func() error) {
+    appendTenantCallback(c, tenantRollbackCallbacksKey, callback)
+}
+
+func appendTenantCallback(c *gin.Context, key string, callback func() error) {
+    if callback == nil { return }
+    callbacks, _ := c.Get(key)
+    list, _ := callbacks.([]func() error)
+    c.Set(key, append(list, callback))
+}
+
+func runTenantCallbacks(c *gin.Context, key string) {
+    callbacks, _ := c.Get(key)
+    list, _ := callbacks.([]func() error)
+    for _, callback := range list {
+        if err := callback(); err != nil {
+            log.Printf("tenant transaction external side effect failed (%s): %v", key, err)
+        }
+    }
+}
 
 // RequireSchoolContext derives the tenant from the authenticated database user.
 // It never trusts a school ID supplied by the client.
@@ -108,8 +139,13 @@ func TenantTransaction(db *gorm.DB) gin.HandlerFunc {
 		})
 
 		c.Writer = originalWriter
-		c.Set(TenantDBKey, nil)
-		switch {
+        c.Set(TenantDBKey, nil)
+        if err == nil {
+            runTenantCallbacks(c, tenantCommitCallbacksKey)
+        } else {
+            runTenantCallbacks(c, tenantRollbackCallbacksKey)
+        }
+        switch {
 		case errors.Is(err, errTenantRequestRollback):
 			bufferedWriter.flushTo(originalWriter)
 		case err != nil:

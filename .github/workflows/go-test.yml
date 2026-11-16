@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, fix/supabase-pg17-queue-role-provisioning]
+    branches: [main, fix/supabase-pg17-queue-role-provisioning, feat/dedicated-bulk-import-worker-claim-connection]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

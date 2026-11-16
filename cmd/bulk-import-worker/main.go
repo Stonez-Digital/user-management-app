@@ -55,7 +55,9 @@ func main() {
 		log.Fatal(err)
 	}
 	if role != nil && !requireProcessingRole &&
-		(role.SessionSuperuser || role.SessionBypassRLS || role.SessionCanAssumePrivilegedRole ||
+		(!role.SessionCanLogin || !role.CurrentRoleMatchesSession || role.CurrentRole != role.SessionRole ||
+			role.CurrentSuperuser || role.CurrentBypassRLS || role.SessionSuperuser || role.SessionBypassRLS ||
+			role.SessionCanCreateDB || role.SessionCanCreateRole || role.SessionCanAssumePrivilegedRole ||
 			role.SessionIsAPIRuntimeMember || role.SessionIsQueueOwnerMember || role.SessionIsServiceRoleMember) {
 		log.Printf("SECURITY WARNING: bulk import processing database session %q is privileged or belongs to a shared runtime role; tenant GUCs are not a substitute for a restricted processing role", role.SessionRole)
 	}

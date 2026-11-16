@@ -167,3 +167,18 @@ Added middleware tests cover propagation of authenticated user ID, current DB ro
 **Remaining authentication paths to audit:** login/session creation, refresh-token rotation/reuse handling, logout, forgot/reset-password, and any password-reset/audit operations still use the root DB handle. They are unauthenticated/public workflows and need separate narrow transaction scopes and carefully designed access policies; they are not implicitly covered by the authenticated pre-handler transaction.
 
 No production database, Render service, credential, or deployment was changed. PR #354 remains draft and unmerged. CI for the pre-handler changes is queued at the time of this update.
+
+
+## Public login and refresh transaction slice — implementation in progress (2026-11-16)
+
+The login and refresh handlers have been moved to short database transactions on this branch.
+
+- Login now reads the account and validates its active status, password and school association within one transaction. Once the user is resolved, PostgreSQL transaction-local `app.current_user_id` and `app.current_school_id` are set before the school lookup and session writes. The refresh-token row, session row and `auth.login` audit event commit together. A failed audit write rolls back session creation.
+- Refresh now performs token lookup, owner lookup, active-account and school validation, session validation, single-use token claim, replacement-token creation and session hash rotation within one transaction. The user context is set after resolving the stored token owner; the school context is set after loading the active user.
+- Reuse detection now revokes all refresh tokens and sessions in the affected user/family and records `security.refresh_token_reuse` in the same transaction. Failures are returned as server errors and roll back the revocation rather than being ignored.
+- Conditional updates require exactly one row to be claimed/rotated. If a concurrent refresh loses the claim or session update, the family is revoked and audited in the same transaction.
+- Added regression tests proving login session creation rolls back when its audit write fails, and reuse-family revocation rolls back if its audit write fails.
+
+**Important RLS bootstrap limitation:** these handlers are transactionally scoped, but the initial login account lookup and initial refresh-token-hash lookup occur before a trusted user identity can be established. They cannot be authorized by ordinary self-only RLS policies on `users` or `refresh_tokens` once FORCE RLS is enabled. Do not install identity/session RLS or switch the runtime login based on this slice alone. The next design must provide narrow pre-authentication bootstrap operations (for example, carefully constrained database functions or a separate restricted authentication identity) that return only the minimum credential-verification material and token owner identity. After that bootstrap, all user/session/token work can use the transaction-local identity context.
+
+**Validation:** GitHub CI for the latest code and regression-test commits must complete before this slice is treated as validated. No identity/session RLS policies, staging DDL, production changes, credential changes, merges or deployments are included.

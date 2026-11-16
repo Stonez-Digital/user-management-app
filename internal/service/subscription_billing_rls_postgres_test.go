@@ -95,17 +95,38 @@ func TestSubscriptionBillingRLSInstallerWithRestrictedPostgresRole(t *testing.T)
 		var totalPlans int64
 		if err := tx.Table(schema+".billing_plans").Count(&totalPlans).Error; err != nil { return err }
 		if totalPlans != 1 { t.Errorf("active plan catalogue rows=%d, want 1", totalPlans) }
-		if err := tx.Table(schema+".school_subscriptions").Create(map[string]interface{}{"id":uuid.New(),"school_id":schoolB}).Error; err == nil {
-			t.Error("cross-school subscription insert unexpectedly succeeded")
+		crossSchoolWrites := []struct {
+			name string
+			write func(*gorm.DB) error
+		}{
+			{name: "subscription", write: func(sp *gorm.DB) error {
+				return sp.Table(schema+".school_subscriptions").Create(map[string]interface{}{"id":uuid.New(),"school_id":schoolB}).Error
+			}},
+			{name: "payment", write: func(sp *gorm.DB) error {
+				return sp.Table(schema+".subscription_payments").Create(map[string]interface{}{"id":uuid.New(),"school_id":schoolB}).Error
+			}},
+			{name: "event", write: func(sp *gorm.DB) error {
+				return sp.Table(schema+".subscription_events").Create(map[string]interface{}{"id":uuid.New(),"school_id":schoolB,"event_type":"forbidden"}).Error
+			}},
 		}
-		if err := tx.Table(schema+".subscription_payments").Create(map[string]interface{}{"id":uuid.New(),"school_id":schoolB}).Error; err == nil {
-			t.Error("cross-school payment insert unexpectedly succeeded")
+		for _, attempt := range crossSchoolWrites {
+			err := tx.Transaction(func(savepoint *gorm.DB) error { return attempt.write(savepoint) })
+			if err == nil { t.Errorf("cross-school %s insert unexpectedly succeeded", attempt.name) }
 		}
-		if err := tx.Table(schema+".subscription_events").Create(map[string]interface{}{"id":uuid.New(),"school_id":schoolB,"event_type":"forbidden"}).Error; err == nil {
-			t.Error("cross-school event insert unexpectedly succeeded")
+		if err := tx.Table(schema+".school_subscriptions").Where("school_id = ?", schoolA).Update("school_id", schoolA).Error; err != nil {
+			t.Errorf("same-school subscription update failed: %v", err)
+		}
+		if err := tx.Table(schema+".subscription_payments").Where("school_id = ?", schoolA).Update("school_id", schoolA).Error; err != nil {
+			t.Errorf("same-school payment update failed: %v", err)
 		}
 		if err := tx.Table(schema+".school_subscriptions").Create(map[string]interface{}{"id":uuid.New(),"school_id":schoolA}).Error; err != nil {
 			t.Errorf("same-school subscription insert failed: %v", err)
+		}
+		if err := tx.Table(schema+".subscription_payments").Create(map[string]interface{}{"id":uuid.New(),"school_id":schoolA}).Error; err != nil {
+			t.Errorf("same-school payment insert failed: %v", err)
+		}
+		if err := tx.Table(schema+".subscription_events").Create(map[string]interface{}{"id":uuid.New(),"school_id":schoolA,"actor_id":userID,"event_type":"allowed"}).Error; err != nil {
+			t.Errorf("same-school event insert failed: %v", err)
 		}
 		return nil
 	}); err != nil { t.Fatalf("restricted role tenant transaction: %v", err) }

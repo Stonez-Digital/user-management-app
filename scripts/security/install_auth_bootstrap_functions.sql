@@ -76,3 +76,88 @@ GRANT EXECUTE ON FUNCTION stonez_internal.auth_refresh_lookup(text) TO stonez_ap
 
 RESET ROLE;
 REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_bootstrap_owner;
+
+-- Keep token/session writes behind a second non-login owner. The API role
+-- receives EXECUTE only; it never receives direct table DML or token-hash reads.
+SET ROLE stonez_auth_session_owner;
+
+CREATE OR REPLACE FUNCTION stonez_internal.auth_create_session(
+    p_refresh_id uuid,
+    p_user_id uuid,
+    p_family_id uuid,
+    p_refresh_hash text,
+    p_expires_at timestamptz,
+    p_session_id uuid,
+    p_user_agent text,
+    p_ip text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+BEGIN
+    INSERT INTO public.refresh_tokens (id, user_id, family_id, token_hash, expires_at, revoked)
+    VALUES (p_refresh_id, p_user_id, p_family_id, p_refresh_hash, p_expires_at, false);
+    INSERT INTO public.sessions (id, user_id, family_id, refresh_token_hash, expires_at, revoked, user_agent, ip)
+    VALUES (p_session_id, p_user_id, p_family_id, p_refresh_hash, p_expires_at, false, p_user_agent, p_ip);
+END
+$function$;
+
+CREATE OR REPLACE FUNCTION stonez_internal.auth_rotate_refresh(
+    p_old_token_id uuid,
+    p_old_hash text,
+    p_new_refresh_id uuid,
+    p_user_id uuid,
+    p_family_id uuid,
+    p_new_hash text,
+    p_new_expires_at timestamptz,
+    p_session_id uuid
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+BEGIN
+    UPDATE public.refresh_tokens
+       SET revoked = true
+     WHERE id = p_old_token_id AND revoked = false;
+    IF NOT FOUND THEN
+        RETURN false;
+    END IF;
+
+    INSERT INTO public.refresh_tokens (id, user_id, family_id, token_hash, expires_at, revoked)
+    VALUES (p_new_refresh_id, p_user_id, p_family_id, p_new_hash, p_new_expires_at, false);
+
+    UPDATE public.sessions
+       SET refresh_token_hash = p_new_hash, expires_at = p_new_expires_at
+     WHERE id = p_session_id AND refresh_token_hash = p_old_hash AND revoked = false;
+    IF NOT FOUND THEN
+        RETURN false;
+    END IF;
+    RETURN true;
+END
+$function$;
+
+CREATE OR REPLACE FUNCTION stonez_internal.auth_revoke_refresh_family(p_family_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+BEGIN
+    UPDATE public.refresh_tokens SET revoked = true WHERE family_id = p_family_id;
+    UPDATE public.sessions SET revoked = true WHERE family_id = p_family_id;
+END
+$function$;
+
+REVOKE ALL ON FUNCTION stonez_internal.auth_create_session(uuid, uuid, uuid, text, timestamptz, uuid, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION stonez_internal.auth_rotate_refresh(uuid, text, uuid, uuid, uuid, text, timestamptz, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION stonez_internal.auth_revoke_refresh_family(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION stonez_internal.auth_create_session(uuid, uuid, uuid, text, timestamptz, uuid, text, text) TO stonez_api_runtime;
+GRANT EXECUTE ON FUNCTION stonez_internal.auth_rotate_refresh(uuid, text, uuid, uuid, uuid, text, timestamptz, uuid) TO stonez_api_runtime;
+GRANT EXECUTE ON FUNCTION stonez_internal.auth_revoke_refresh_family(uuid) TO stonez_api_runtime;
+
+RESET ROLE;
+REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_session_owner;

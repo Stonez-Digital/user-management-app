@@ -149,7 +149,7 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 	loginBody := fmt.Sprintf(`{"email":%q,"password":"password123","school_code":%q,"school_slug":%q}`, email, "SCH-"+suffix, "school-"+suffix)
 
 	// Login session creation and its audit event must commit or roll back together.
-	if err := admin.Exec("CREATE FUNCTION " + privateSchema + ".reject_auth_audit() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN RAISE EXCEPTION 'audit sink unavailable'; END $").Error; err != nil {
+	if err := admin.Exec("CREATE FUNCTION " + privateSchema + ".reject_auth_audit() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''audit sink unavailable''; END'").Error; err != nil {
 		t.Fatalf("create audit failure trigger function: %v", err)
 	}
 	if err := admin.Exec("CREATE TRIGGER reject_auth_audit BEFORE INSERT ON " + tableSchema + ".audit_logs FOR EACH ROW EXECUTE FUNCTION " + privateSchema + ".reject_auth_audit()").Error; err != nil {
@@ -183,7 +183,7 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 	}
 
 	// A failed refresh audit insert must roll back both token rotation writes.
-	if err := admin.Exec("CREATE FUNCTION " + privateSchema + ".reject_auth_audit() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN RAISE EXCEPTION 'audit sink unavailable'; END $").Error; err != nil {
+	if err := admin.Exec("CREATE FUNCTION " + privateSchema + ".reject_auth_audit() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''audit sink unavailable''; END'").Error; err != nil {
 		t.Fatalf("create refresh audit failure trigger function: %v", err)
 	}
 	if err := admin.Exec("CREATE TRIGGER reject_auth_audit BEFORE INSERT ON " + tableSchema + ".audit_logs FOR EACH ROW EXECUTE FUNCTION " + privateSchema + ".reject_auth_audit()").Error; err != nil {
@@ -229,7 +229,7 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 		t.Fatalf("expected exactly one committed refresh audit event, got %d", refreshAuditCount)
 	}
 	// A failed security audit insert must roll back family revocation as well.
-	if err := admin.Exec("CREATE FUNCTION " + privateSchema + ".reject_auth_audit() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN RAISE EXCEPTION 'audit sink unavailable'; END $").Error; err != nil {
+	if err := admin.Exec("CREATE FUNCTION " + privateSchema + ".reject_auth_audit() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''audit sink unavailable''; END'").Error; err != nil {
 		t.Fatalf("recreate audit failure trigger function: %v", err)
 	}
 	if err := admin.Exec("CREATE TRIGGER reject_auth_audit BEFORE INSERT ON " + tableSchema + ".audit_logs FOR EACH ROW EXECUTE FUNCTION " + privateSchema + ".reject_auth_audit()").Error; err != nil {

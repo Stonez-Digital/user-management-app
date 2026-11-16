@@ -399,7 +399,7 @@ BEGIN
 END
 $function$;
 
-CREATE OR REPLACE FUNCTION stonez_internal.auth_change_password(p_user_id uuid, p_password_hash text)
+CREATE OR REPLACE FUNCTION stonez_internal.auth_change_password(p_user_id uuid, p_expected_password_hash text, p_password_hash text)
 RETURNS boolean
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -408,7 +408,7 @@ AS $function$
 BEGIN
     UPDATE public.users
        SET password_hash = p_password_hash
-     WHERE id = p_user_id AND active = true;
+     WHERE id = p_user_id AND active = true AND password_hash = p_expected_password_hash;
     IF NOT FOUND THEN
         RETURN false;
     END IF;
@@ -424,7 +424,7 @@ $function$;
 REVOKE ALL ON FUNCTION stonez_internal.auth_create_password_reset(uuid,uuid,text,timestamptz) FROM PUBLIC;
 REVOKE ALL ON FUNCTION stonez_internal.auth_disable_password_reset(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION stonez_internal.auth_consume_password_reset(text,text) FROM PUBLIC;
-REVOKE ALL ON FUNCTION stonez_internal.auth_change_password(uuid,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION stonez_internal.auth_change_password(uuid,text,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION stonez_internal.auth_create_password_reset(uuid,uuid,text,timestamptz) TO stonez_api_runtime;
 GRANT EXECUTE ON FUNCTION stonez_internal.auth_disable_password_reset(uuid) TO stonez_api_runtime;
 GRANT EXECUTE ON FUNCTION stonez_internal.auth_consume_password_reset(text,text) TO stonez_api_runtime;

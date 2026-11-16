@@ -54,7 +54,9 @@ SECURITY DEFINER
 SET search_path = pg_catalog
 AS $function$
     SELECT rt.id, rt.family_id, rt.user_id, rt.expires_at, rt.revoked,
-           ss.id, ss.expires_at, ss.revoked,
+           COALESCE(ss.id, '00000000-0000-0000-0000-000000000000'::uuid),
+           COALESCE(ss.expires_at, '-infinity'::timestamptz),
+           COALESCE(ss.revoked, true),
            u.school_id, u.name, u.email, u.password_hash, u.role, u.active,
            sc.status::text, sc.code, sc.slug
       FROM public.refresh_tokens AS rt

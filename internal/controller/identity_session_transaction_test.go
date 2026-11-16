@@ -127,11 +127,14 @@ func TestLogoutAllRevokesOnlyAuthenticatedUsersSessionsAndTokens(t *testing.T) {
 	ac := NewAuthController(db)
 	rec := identityRequest(t, db, userA, http.MethodPost, "/logout-all", "", ac.LogoutAll)
 	if rec.Code != http.StatusOK { t.Fatalf("logout-all failed: %d %s", rec.Code, rec.Body.String()) }
-	var activeA, activeB int64
-	if err := db.Model(&models.Session{}).Where("user_id = ? AND revoked = false", userA).Count(&activeA).Error; err != nil { t.Fatal(err) }
-	if err := db.Model(&models.RefreshToken{}).Where("user_id = ? AND revoked = false", userA).Count(&activeA).Error; err != nil { t.Fatal(err) }
-	if err := db.Model(&models.Session{}).Where("user_id = ? AND revoked = false", userB).Count(&activeB).Error; err != nil { t.Fatal(err) }
-	if activeA != 0 || activeB != 1 { t.Fatalf("logout-all scope wrong: userA active=%d userB active=%d", activeA, activeB) }
+	var activeSessionsA, activeTokensA, activeSessionsB, activeTokensB int64
+	if err := db.Model(&models.Session{}).Where("user_id = ? AND revoked = false", userA).Count(&activeSessionsA).Error; err != nil { t.Fatal(err) }
+	if err := db.Model(&models.RefreshToken{}).Where("user_id = ? AND revoked = false", userA).Count(&activeTokensA).Error; err != nil { t.Fatal(err) }
+	if err := db.Model(&models.Session{}).Where("user_id = ? AND revoked = false", userB).Count(&activeSessionsB).Error; err != nil { t.Fatal(err) }
+	if err := db.Model(&models.RefreshToken{}).Where("user_id = ? AND revoked = false", userB).Count(&activeTokensB).Error; err != nil { t.Fatal(err) }
+	if activeSessionsA != 0 || activeTokensA != 0 || activeSessionsB != 1 || activeTokensB != 1 {
+		t.Fatalf("logout-all scope wrong: userA sessions/tokens=%d/%d userB sessions/tokens=%d/%d", activeSessionsA, activeTokensA, activeSessionsB, activeTokensB)
+	}
 }
 
 func TestIdentityHandlersFailClosedWithoutIdentityTransaction(t *testing.T) {

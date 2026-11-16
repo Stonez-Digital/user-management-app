@@ -153,17 +153,27 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 	if rotatedRefresh == rawRefresh {
 		t.Fatal("expected PostgreSQL handler to rotate the refresh token")
 	}
+	var priorToken struct {
+		FamilyID uuid.UUID
+		Revoked bool
+	}
+	if err := admin.Table(tableSchema + ".refresh_tokens").Select("family_id", "revoked").Where("token_hash = ?", auth.HashRefreshToken(rawRefresh)).Scan(&priorToken).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !priorToken.Revoked {
+		t.Fatalf("rotation did not persist the old token as revoked (family %s)", priorToken.FamilyID)
+	}
 	reused := authJSONRequest(t, ac, "POST", "/refresh", fmt.Sprintf(`{"refresh_token":%q}`, rawRefresh))
-	if reused.Code != 401 {
-		t.Fatalf("expected PostgreSQL handler to reject reused token, got %d: %s", reused.Code, reused.Body.String())
+	if reused.Code != 401 || !strings.Contains(reused.Body.String(), "already used") {
+		t.Fatalf("expected PostgreSQL handler to detect reused token, got %d: %s", reused.Code, reused.Body.String())
 	}
 
 	var activeTokens int64
-	if err := admin.Table(tableSchema + ".refresh_tokens").Where("user_id = ? AND revoked = false", userID).Count(&activeTokens).Error; err != nil {
+	if err := admin.Table(tableSchema + ".refresh_tokens").Where("family_id = ? AND revoked = false", priorToken.FamilyID).Count(&activeTokens).Error; err != nil {
 		t.Fatal(err)
 	}
 	if activeTokens != 0 {
-		t.Fatalf("expected reuse detection to revoke the whole family, found %d active tokens", activeTokens)
+		t.Fatalf("expected reuse detection to revoke family %s, found %d active tokens (response %s)", priorToken.FamilyID, activeTokens, reused.Body.String())
 	}
 	var auditCount int64
 	if err := admin.Table(tableSchema + ".audit_logs").Where("action = ? AND resource_id = ?", "security.refresh_token_reuse", userID).Count(&auditCount).Error; err != nil {

@@ -337,8 +337,8 @@ LANGUAGE sql
 SECURITY DEFINER
 SET search_path = pg_catalog
 AS $function$
-    INSERT INTO public.password_reset_tokens (id, user_id, token_hash, expires_at, used)
-    VALUES (p_id, p_user_id, p_token_hash, p_expires_at, false)
+    INSERT INTO public.password_reset_tokens (id, user_id, token_hash, expires_at, used, created_at)
+    VALUES (p_id, p_user_id, p_token_hash, p_expires_at, false, clock_timestamp())
 $function$;
 
 CREATE OR REPLACE FUNCTION stonez_internal.auth_disable_password_reset(p_id uuid)

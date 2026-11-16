@@ -137,6 +137,13 @@ func (s *BulkImportService) RunWorker(ctx context.Context) error {
 	if s.db == nil || s.claimDB == nil {
 		return errors.New("bulk import worker requires application and claim database connections")
 	}
+	// Bind both database handles to the worker lifetime so cancellation and
+	// the scheduled-run deadline interrupt in-flight database operations, not
+	// only the polling loop between jobs.
+	worker := *s
+	worker.db = s.db.WithContext(ctx)
+	worker.claimDB = s.claimDB.WithContext(ctx)
+
 	lastWorkAt := time.Now()
 	for {
 		select {
@@ -144,7 +151,7 @@ func (s *BulkImportService) RunWorker(ctx context.Context) error {
 			return ctx.Err()
 		default:
 		}
-		job, err := s.claimNextJob()
+		job, err := worker.claimNextJob()
 		if err != nil {
 			log.Printf("bulk import worker claim failed: %v", err)
 			if !waitForWorkerPoll(ctx) { return ctx.Err() }
@@ -157,7 +164,10 @@ func (s *BulkImportService) RunWorker(ctx context.Context) error {
 			if !waitForWorkerPoll(ctx) { return ctx.Err() }
 			continue
 		}
-		s.processClaimed(*job, s.workerID)
+		worker.processClaimed(*job, worker.workerID)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		lastWorkAt = time.Now()
 	}
 }

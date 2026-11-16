@@ -12,7 +12,7 @@ The bulk-import claim boundary is installed on staging, and several school-owned
 - The application API still uses the PostgreSQL `postgres` login with `BYPASSRLS`.
 - The route transaction middleware is deliberately opt-in. Every school-scoped route must use `TenantTransaction(db)` and every controller/service/repository/audit query in that request must use `TenantDBFromContext(c)`.
 - School profile/logo, audit-log, and protected school-content/media admin handlers have now been migrated to request-scoped transactions on this branch. External object-storage mutations are deferred until commit, with upload compensation on rollback.
-- The staging project currently has 42 public tables in the catalog snapshot. 27 have RLS disabled; 15 have RLS enabled. Of those 15 enabled tables, 14 have no policies. Only `bulk_import_jobs` has policies (the four expected queue/tenant policies). No inspected table has FORCE ROW LEVEL SECURITY.
+- The initial staging snapshot had 42 public tables. The two reviewed subscription schema migrations and billing RLS installer have since been applied to staging only. The four billing tables now have FORCE RLS and nine narrowly scoped policies. The original 42-table inventory predates these additions; refresh the full inventory before relying on its table count. The remaining original 27-RLS-disabled / 14-policyless counts are historical baseline figures, not a current complete catalog count.
 - All inspected public application tables are owned by `postgres`.
 - `stonez_api_runtime` is NOLOGIN/NOBYPASSRLS and has no login member. Its only observed application-table grants are on `bulk_import_jobs`. The worker login inherits this group with INHERIT=true, SET=false, ADMIN=false.
 - The repository production posture document reports 45 public application tables. The 42-table staging catalog is not evidence of production schema parity; production needs its own read-only catalog comparison before any cutover.
@@ -49,7 +49,7 @@ This is route-level and unit-test evidence only. The associated services, reposi
 
 The current route wiring still needs migration/review for:
 - `GET/PUT /me`: user profile reads and updates. Must be classified for school members versus platform administrators.
-- Billing: `GET /admin/billing/subscription`, `POST /admin/billing/checkout`, `POST /admin/billing/verify`. `GET /admin/billing/plans` is global plan catalogue data. Payment-provider calls must not be held inside a long database transaction; use a short transaction for state changes and explicit idempotency/reconciliation.
+- Billing: `GET /admin/billing/subscription`, `POST /admin/billing/checkout`, and `POST /admin/billing/verify` still lack `TenantTransaction(db)` route middleware in the inspected `cmd/server/main.go`. The billing controller is instantiated with the root DB, so it must be changed to obtain the request transaction before this restricted runtime can serve these endpoints. `GET /admin/billing/plans` is global catalogue data and needs an explicit global-read path. Payment-provider calls must remain outside long DB transactions; use short transactions for state changes and explicit idempotency/reconciliation.
 
 ### Routes that need explicit non-tenant access models
 
@@ -79,9 +79,38 @@ These must not be blindly wrapped in school tenant middleware:
 
 All 42 inspected public tables were owned by `postgres`; none had FORCE RLS in the snapshot.
 
+## Staging billing schema and RLS installation (2026-11-16)
+
+After explicit authorization, the exact repository SQL files below were applied to staging project `school-media-recovery-test` only, in order:
+
+1. `migrations/20261112_school_subscription_foundation.sql`
+2. `migrations/20261112_subscription_checkout_payments.sql`
+3. `scripts/security/install_subscription_billing_rls.sql`
+
+Verified after application:
+
+- Four billing tables exist: `billing_plans`, `school_subscriptions`, `subscription_events`, and `subscription_payments`.
+- Five plan catalogue rows exist.
+- All four tables have RLS enabled and FORCE RLS enabled.
+- Exactly nine expected policies exist across the four tables.
+- All four tables remain owned by `postgres`, not the runtime role.
+- `stonez_api_runtime` remains NOLOGIN, NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE, INHERIT.
+- Runtime grants match the intended minimum: plans SELECT; subscriptions SELECT/INSERT/UPDATE; events SELECT/INSERT; payments SELECT/INSERT/UPDATE.
+- No table privileges remain for `service_role` on the four billing tables.
+- The two SQL files are intentionally outside the automatic GORM migration runner; the application migration ledger was not modified.
+
+Important test limitations:
+
+- The staging database currently has one school but zero terms. Therefore a valid school/term subscription fixture cannot be created for an end-to-end tenant-write test.
+- An attempt to switch the Supabase SQL editor session to `stonez_bulk_worker` using `SET ROLE` was rejected with permission denied. The SQL editor's admin session therefore did not prove actual runtime-login behavior.
+- The nine policy definitions, RLS flags, role attributes and grants are catalog-verified, but no successful restricted-login smoke test or two-school isolation test has yet been run.
+- The installer policies trust transaction-local `app.current_school_id` / `app.current_user_id` values supplied by application code. They are not authenticated database claims.
+
+No production database, credentials, Render service or deployment was changed.
+
 ## Required remaining work
 
-1. Migrate and test the remaining `/me` profile routes and billing routes using explicit user/school ownership boundaries. Keep payment-provider calls outside DB transactions and make verify/reconciliation idempotent under concurrent retries.
+1. Wire the three school billing endpoints to request-scoped tenant transactions and bind the billing controller/service to `TenantDBFromContext(c)`; retain an explicit global-read path for plans. Then test billing under the actual restricted login. Also migrate and test `/me` with explicit user/school ownership boundaries. Keep provider calls outside DB transactions and preserve idempotent verification/reconciliation.
 2. Build a complete table-to-route/service ownership matrix for every application table, including indirect child ownership and cross-school foreign-key consistency.
 3. Classify each table as tenant-scoped, user-scoped, platform-global, public projection, queue/system, migration-only, or token/session.
 4. Write and review policies and grants for the exact restricted API role. Include SELECT policies for UPDATE paths, both USING and WITH CHECK, no-context denial, user-specific rules, and explicit public/platform exceptions.
@@ -96,4 +125,4 @@ The current `app.current_school_id` and `app.current_user_id` values are custom 
 
 ## Safety
 
-No production database was queried or changed as part of this audit. No production role, policy, grant, secret, Render setting or deployment was changed. The staging catalog queries were read-only.
+No production database was queried or changed as part of this audit. No production role, policy, grant, secret, Render setting or deployment was changed. The initial staging catalog queries were read-only; the separately authorized billing DDL installation was limited to staging.

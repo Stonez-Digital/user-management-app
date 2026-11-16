@@ -438,19 +438,24 @@ func (ac *AuthController) Login(c *gin.Context) {
 		expiry := time.Now().Add(auth.RefreshTokenTTL)
 		refreshHash := auth.HashRefreshToken(refreshToken)
 		if tx.Dialector.Name() == "postgres" {
-			return tx.Exec("SELECT stonez_internal.auth_create_session(?, ?, ?, ?, ?, ?, ?, ?)",
-				uuid.New(), user.ID, familyID, refreshHash, expiry, sessionID, c.Request.UserAgent(), c.ClientIP()).Error
+			if err := tx.Exec("SELECT stonez_internal.auth_create_session(?, ?, ?, ?, ?, ?, ?, ?)",
+				uuid.New(), user.ID, familyID, refreshHash, expiry, sessionID, c.Request.UserAgent(), c.ClientIP()).Error; err != nil {
+				return err
+			}
+			return audit.Record(tx, c, &user.ID, "auth.login", "user", &user.ID, nil)
 		}
 		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: refreshHash, ExpiresAt: expiry}).Error; err != nil {
 			return err
 		}
-		return tx.Create(&models.Session{ID: sessionID, UserID: user.ID, FamilyID: familyID, RefreshTokenHash: refreshHash, ExpiresAt: expiry, UserAgent: c.Request.UserAgent(), IP: c.ClientIP()}).Error
+		if err := tx.Create(&models.Session{ID: sessionID, UserID: user.ID, FamilyID: familyID, RefreshTokenHash: refreshHash, ExpiresAt: expiry, UserAgent: c.Request.UserAgent(), IP: c.ClientIP()}).Error; err != nil {
+			return err
+		}
+		return audit.Record(tx, c, &user.ID, "auth.login", "user", &user.ID, nil)
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session"})
 		return
 	}
-	_ = audit.Record(ac.DB, c, &user.ID, "auth.login", "user", &user.ID, nil)
 	c.JSON(http.StatusOK, gin.H{"access_token": accessToken, "refresh_token": refreshToken})
 }
 
@@ -463,6 +468,16 @@ func revokeRefreshFamily(db *gorm.DB, familyID uuid.UUID) error {
 			return err
 		}
 		return tx.Model(&models.Session{}).Where("family_id = ?", familyID).Updates(map[string]interface{}{"revoked": true}).Error
+	})
+}
+
+func revokeRefreshFamilyAndAudit(db *gorm.DB, c *gin.Context, userID, familyID uuid.UUID) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := revokeRefreshFamily(tx, familyID); err != nil {
+			return err
+		}
+		return audit.Record(tx, c, &userID, "security.refresh_token_reuse", "user", &userID,
+			map[string]interface{}{"family_id": familyID.String()})
 	})
 }
 
@@ -496,15 +511,14 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 	}
 
 	if stored.Revoked {
-		if err := revokeRefreshFamily(ac.DB, stored.FamilyID); err != nil {
-			log.Printf("failed to revoke reused refresh-token family %s: %v", stored.FamilyID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revoke refresh-token family"})
-			return
-		}
 		if user.ID != uuid.Nil && user.SchoolID != nil {
 			c.Set(middleware.SchoolIDKey, user.SchoolID.String())
 		}
-		_ = audit.Record(ac.DB, c, &stored.UserID, "security.refresh_token_reuse", "user", &stored.UserID, map[string]interface{}{"family_id": stored.FamilyID.String()})
+		if err := revokeRefreshFamilyAndAudit(ac.DB, c, stored.UserID, stored.FamilyID); err != nil {
+			log.Printf("failed to revoke/audit reused refresh-token family %s: %v", stored.FamilyID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revoke refresh-token family"})
+			return
+		}
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or already used refresh token; session revoked"})
 		return
 	}
@@ -583,8 +597,11 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 		return nil
 	})
 	if errors.Is(err, errRefreshReused) {
-		_ = revokeRefreshFamily(ac.DB, stored.FamilyID)
-		_ = audit.Record(ac.DB, c, &stored.UserID, "security.refresh_token_reuse", "user", &stored.UserID, map[string]interface{}{"family_id": stored.FamilyID.String()})
+		if err := revokeRefreshFamilyAndAudit(ac.DB, c, stored.UserID, stored.FamilyID); err != nil {
+			log.Printf("failed to revoke/audit raced refresh-token reuse for family %s: %v", stored.FamilyID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revoke refresh-token family"})
+			return
+		}
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or already used refresh token; session revoked"})
 		return
 	}

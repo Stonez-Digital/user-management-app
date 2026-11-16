@@ -42,4 +42,7 @@ jobs:
       - name: Run isolated PostgreSQL auth bootstrap and handler tests
         env:
           TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/auth_bootstrap_test?sslmode=disable
-        run: go test ./internal/database ./internal/controller -run '^(TestAuthBootstrapFunctionsEnforceRestrictedPostgresBoundary|TestPostgresAuthBootstrapLoginAndRefreshHandlers)$' -count=1 -v
+        run: go test ./internal/database ./internal/controller -run '^(TestAuthBootstrapFunctionsEnforceRestrictedPostgresBoundary|TestPostgresAuthBootstrapLoginAndRefreshHandlers) -count=1 -v
+
+      - name: Run complete database and controller unit suites
+        run: go test ./internal/database ./internal/controller -count=1

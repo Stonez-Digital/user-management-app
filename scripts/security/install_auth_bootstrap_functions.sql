@@ -182,7 +182,7 @@ GRANT EXECUTE ON FUNCTION stonez_internal.auth_rotate_refresh(uuid, text, uuid, 
 GRANT EXECUTE ON FUNCTION stonez_internal.auth_revoke_refresh_family(uuid) TO stonez_api_runtime;
 
 RESET ROLE;
-REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_session_owner;
+
 
 -- Logout and device-session revocation remain behind the restricted writer.
 -- All functions lock sessions before refresh tokens, matching refresh rotation.

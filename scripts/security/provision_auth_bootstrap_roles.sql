@@ -33,9 +33,9 @@ GRANT USAGE ON SCHEMA public TO stonez_auth_session_owner;
 
 -- This non-login owner is used only by SECURITY DEFINER session-write
 -- functions. Column grants limit the data it can inspect or modify.
-GRANT SELECT (id, family_id, revoked), INSERT, UPDATE (revoked)
+GRANT SELECT (id, family_id, user_id, token_hash, expires_at, revoked), INSERT, UPDATE (revoked)
     ON TABLE public.refresh_tokens TO stonez_auth_session_owner;
-GRANT SELECT (id, family_id, refresh_token_hash, revoked), INSERT,
+GRANT SELECT (id, user_id, family_id, refresh_token_hash, expires_at, revoked), INSERT,
     UPDATE (refresh_token_hash, expires_at, revoked)
     ON TABLE public.sessions TO stonez_auth_session_owner;
 

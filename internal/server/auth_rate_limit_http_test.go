@@ -63,3 +63,50 @@ func TestAuthRateLimitHTTPEnforcementAndWindowReset(t *testing.T) {
 		t.Fatalf("after one-minute window: expected HTTP 204, got %d: %s", got.Code, got.Body.String())
 	}
 }
+
+
+// The public forgot-password endpoint is covered by the same auth-wide
+// per-client limiter as login, refresh, and logout.
+func TestForgotPasswordEndpointRateLimited(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("API_PROXY_HMAC_SECRET", "")
+	t.Setenv("REDIS_URL", "")
+	t.Setenv("APP_ENV", "")
+
+	now := time.Date(2026, time.November, 16, 12, 0, 0, 0, time.UTC)
+	router := gin.New()
+	configureWithClock(router, func() time.Time { return now })
+	handlerCalls := 0
+	router.POST("/auth/forgot-password", func(c *gin.Context) {
+		handlerCalls++
+		c.JSON(http.StatusOK, gin.H{"message": "if the account exists, a reset link will be sent"})
+	})
+
+	doRequest := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/auth/forgot-password", strings.NewReader(`{"email":"person@example.test"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "198.51.100.25:443"
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, req)
+		return response
+	}
+	for i := 1; i <= authRateLimit; i++ {
+		response := doRequest()
+		if response.Code != http.StatusOK {
+			t.Fatalf("forgot-password request %d: expected HTTP 200, got %d: %s", i, response.Code, response.Body.String())
+		}
+	}
+	limited := doRequest()
+	if limited.Code != http.StatusTooManyRequests {
+		t.Fatalf("11th forgot-password request: expected HTTP 429, got %d: %s", limited.Code, limited.Body.String())
+	}
+	if got := limited.Header().Get("X-RateLimit-Limit"); got != "10" {
+		t.Fatalf("expected X-RateLimit-Limit=10, got %q", got)
+	}
+	if got := limited.Header().Get("Retry-After"); got != "60" {
+		t.Fatalf("expected Retry-After=60, got %q", got)
+	}
+	if handlerCalls != authRateLimit {
+		t.Fatalf("rate-limited request reached forgot-password handler: calls=%d, want %d", handlerCalls, authRateLimit)
+	}
+}

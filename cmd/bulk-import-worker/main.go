@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/onoja217/users-management-app/internal/database"
 	"github.com/onoja217/users-management-app/internal/service"
@@ -54,14 +55,24 @@ func main() {
 		log.Fatalf("configure bulk import worker: %v", err)
 	}
 
+	maxRuntime := 4 * time.Minute
+	if configured := strings.TrimSpace(os.Getenv("BULK_IMPORT_WORKER_MAX_RUNTIME")); configured != "" {
+		parsed, parseErr := time.ParseDuration(configured)
+		if parseErr != nil || parsed <= 0 || parsed > 4*time.Minute+30*time.Second {
+			log.Fatal("BULK_IMPORT_WORKER_MAX_RUNTIME must be a valid duration greater than zero and no longer than 4m30s")
+		}
+		maxRuntime = parsed
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	log.Printf("bulk import worker started with separate restricted claim connection")
-	err = worker.RunWorker(ctx)
-	if err != nil && !errors.Is(err, context.Canceled) {
+	workerCtx, cancel := context.WithTimeout(ctx, maxRuntime)
+	defer cancel()
+	log.Printf("bulk import worker started with separate restricted claim connection; polling_window=%s", maxRuntime)
+	err = worker.RunWorker(workerCtx)
+	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 		log.Fatalf("bulk import worker stopped: %v", err)
 	}
-	log.Printf("bulk import worker stopped")
+	log.Printf("bulk import worker polling window ended")
 	closeDatabase(processingDB, "processing")
 	closeDatabase(claimDB, "claim")
 }

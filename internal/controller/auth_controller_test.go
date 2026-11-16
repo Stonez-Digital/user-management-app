@@ -405,3 +405,42 @@ func TestSchoolSignupAcceptsLogoMultipartAndPersistsTenantLogo(t *testing.T) {
         t.Fatalf("expected uploaded logo URL to be persisted, got %q", school.LogoURL)
     }
 }
+
+
+func TestLoginRollsBackSessionWhenAuditWriteFails(t *testing.T) {
+	db := authControllerTestDB(t)
+	hash, err := auth.HashPassword("password123")
+	if err != nil { t.Fatal(err) }
+	school := models.School{ID: uuid.New(), Name: "Audit Failure School", Code: "AUDIT-LOGIN", Status: models.SchoolStatusActive}
+	if err := db.Create(&school).Error; err != nil { t.Fatal(err) }
+	user := models.User{Name: "Audit Failure", Email: "audit-login@example.com", PasswordHash: hash, Role: authz.RoleStudent, Active: true, SchoolID: &school.ID}
+	if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
+	if err := db.Exec(`CREATE TRIGGER reject_login_audit BEFORE INSERT ON audit_logs WHEN NEW.action = 'auth.login' BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END`).Error; err != nil { t.Fatal(err) }
+
+	rec := authJSONRequest(t, NewAuthController(db), http.MethodPost, "/login", `{"email":"audit-login@example.com","password":"password123"}`)
+	if rec.Code != http.StatusInternalServerError { t.Fatalf("expected 500 when login audit fails, got %d: %s", rec.Code, rec.Body.String()) }
+	var sessions, tokens int64
+	if err := db.Model(&models.Session{}).Where("user_id = ?", user.ID).Count(&sessions).Error; err != nil { t.Fatal(err) }
+	if err := db.Model(&models.RefreshToken{}).Where("user_id = ?", user.ID).Count(&tokens).Error; err != nil { t.Fatal(err) }
+	if sessions != 0 || tokens != 0 { t.Fatalf("login must roll back both records when audit fails; sessions=%d tokens=%d", sessions, tokens) }
+}
+
+func TestRefreshReuseAuditFailureRollsBackFamilyRevocation(t *testing.T) {
+	db := authControllerTestDB(t)
+	user := models.User{Name: "Reuse Audit Failure", Email: "reuse-audit-failure@example.com", Role: authz.RoleStudent, Active: true}
+	if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
+	familyID := uuid.New()
+	raw := strings.Repeat("reuse-audit-failure-token-", 2)
+	hash := auth.HashRefreshToken(raw)
+	if err := db.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: hash, ExpiresAt: time.Now().Add(time.Hour), Revoked: true}).Error; err != nil { t.Fatal(err) }
+	if err := db.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: auth.HashRefreshToken("another-family-token"), ExpiresAt: time.Now().Add(time.Hour), Revoked: false}).Error; err != nil { t.Fatal(err) }
+	if err := db.Create(&models.Session{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, RefreshTokenHash: hash, ExpiresAt: time.Now().Add(time.Hour), Revoked: false}).Error; err != nil { t.Fatal(err) }
+	if err := db.Exec(`CREATE TRIGGER reject_reuse_audit BEFORE INSERT ON audit_logs WHEN NEW.action = 'security.refresh_token_reuse' BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END`).Error; err != nil { t.Fatal(err) }
+
+	rec := authJSONRequest(t, NewAuthController(db), http.MethodPost, "/refresh", `{"refresh_token":"`+raw+`"}`)
+	if rec.Code != http.StatusInternalServerError { t.Fatalf("expected 500 when reuse audit fails, got %d: %s", rec.Code, rec.Body.String()) }
+	var activeTokens, activeSessions int64
+	if err := db.Model(&models.RefreshToken{}).Where("family_id = ? AND revoked = false", familyID).Count(&activeTokens).Error; err != nil { t.Fatal(err) }
+	if err := db.Model(&models.Session{}).Where("family_id = ? AND revoked = false", familyID).Count(&activeSessions).Error; err != nil { t.Fatal(err) }
+	if activeTokens != 1 || activeSessions != 1 { t.Fatalf("failed reuse transaction must roll back family revocation; active tokens=%d sessions=%d", activeTokens, activeSessions) }
+}

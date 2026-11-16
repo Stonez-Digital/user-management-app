@@ -140,9 +140,13 @@ func (s *BulkImportService) RunWorker(ctx context.Context) error {
 	// Bind both database handles to the worker lifetime so cancellation and
 	// the scheduled-run deadline interrupt in-flight database operations, not
 	// only the polling loop between jobs.
-	worker := *s
-	worker.db = s.db.WithContext(ctx)
-	worker.claimDB = s.claimDB.WithContext(ctx)
+	worker := &BulkImportService{
+		db:        s.db.WithContext(ctx),
+		claimDB:   s.claimDB.WithContext(ctx),
+		mailer:    s.mailer,
+		workerID:  s.workerID,
+		workerOnce: s.workerOnce,
+	}
 
 	lastWorkAt := time.Now()
 	for {

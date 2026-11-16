@@ -182,6 +182,57 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 		t.Fatalf("expected exactly one committed login audit event, got %d", loginAuditCount)
 	}
 
+	// Logout must use the restricted writer and commit its audit event atomically.
+	_, logoutRefresh := decodeAuthTokens(t, authJSONRequest(t, ac, "POST", "/login", loginBody))
+	logoutHash := auth.HashRefreshToken(logoutRefresh)
+	logoutResponse := authJSONRequest(t, ac, "POST", "/logout", fmt.Sprintf(`{"refresh_token":%q}`, logoutRefresh))
+	if logoutResponse.Code != 200 {
+		t.Fatalf("expected restricted PostgreSQL logout to succeed, got %d: %s", logoutResponse.Code, logoutResponse.Body.String())
+	}
+	var loggedOutTokens, loggedOutSessions, logoutAuditCount int64
+	if err := admin.Table(tableSchema + ".refresh_tokens").Where("token_hash = ? AND revoked = true", logoutHash).Count(&loggedOutTokens).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Table(tableSchema + ".sessions").Where("refresh_token_hash = ? AND revoked = true", logoutHash).Count(&loggedOutSessions).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Table(tableSchema + ".audit_logs").Where("action = ? AND resource_id = ?", "auth.logout", userID).Count(&logoutAuditCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if loggedOutTokens != 1 || loggedOutSessions != 1 || logoutAuditCount != 1 {
+		t.Fatalf("logout did not atomically revoke its token/session and audit: tokens=%d sessions=%d audits=%d", loggedOutTokens, loggedOutSessions, logoutAuditCount)
+	}
+
+	// An audit failure must roll back both logout revocation writes.
+	_, failedLogoutRefresh := decodeAuthTokens(t, authJSONRequest(t, ac, "POST", "/login", loginBody))
+	failedLogoutHash := auth.HashRefreshToken(failedLogoutRefresh)
+	if err := admin.Exec("CREATE FUNCTION " + privateSchema + ".reject_auth_audit() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''audit sink unavailable''; END'").Error; err != nil {
+		t.Fatalf("create logout audit failure trigger function: %v", err)
+	}
+	if err := admin.Exec("CREATE TRIGGER reject_auth_audit BEFORE INSERT ON " + tableSchema + ".audit_logs FOR EACH ROW EXECUTE FUNCTION " + privateSchema + ".reject_auth_audit()").Error; err != nil {
+		t.Fatalf("install logout audit failure trigger: %v", err)
+	}
+	failedLogout := authJSONRequest(t, ac, "POST", "/logout", fmt.Sprintf(`{"refresh_token":%q}`, failedLogoutRefresh))
+	if failedLogout.Code != 500 {
+		t.Fatalf("expected logout to fail when audit insert fails, got %d: %s", failedLogout.Code, failedLogout.Body.String())
+	}
+	var activeLogoutTokens, activeLogoutSessions int64
+	if err := admin.Table(tableSchema + ".refresh_tokens").Where("token_hash = ? AND revoked = false", failedLogoutHash).Count(&activeLogoutTokens).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Table(tableSchema + ".sessions").Where("refresh_token_hash = ? AND revoked = false", failedLogoutHash).Count(&activeLogoutSessions).Error; err != nil {
+		t.Fatal(err)
+	}
+	if activeLogoutTokens != 1 || activeLogoutSessions != 1 {
+		t.Fatalf("logout audit failure did not roll back revocation: active tokens=%d sessions=%d", activeLogoutTokens, activeLogoutSessions)
+	}
+	if err := admin.Exec("DROP TRIGGER reject_auth_audit ON " + tableSchema + ".audit_logs").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Exec("DROP FUNCTION " + privateSchema + ".reject_auth_audit()").Error; err != nil {
+		t.Fatal(err)
+	}
+
 	// A failed refresh audit insert must roll back both token rotation writes.
 	if err := admin.Exec("CREATE FUNCTION " + privateSchema + ".reject_auth_audit() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''audit sink unavailable''; END'").Error; err != nil {
 		t.Fatalf("create refresh audit failure trigger function: %v", err)

@@ -24,7 +24,9 @@ func identityRequest(t *testing.T, db *gorm.DB, userID uuid.UUID, method, path, 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(func(c *gin.Context) { c.Set(middleware.UserIDKey, userID.String()); c.Next() })
-	router.Handle(method, path, middleware.IdentityTransaction(db), handler)
+	routePath := path
+	if strings.HasPrefix(path, "/sessions/") { routePath = "/sessions/:id" }
+	router.Handle(method, routePath, middleware.IdentityTransaction(db), handler)
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	if body != "" { req.Header.Set("Content-Type", "application/json") }
 	rec := httptest.NewRecorder()

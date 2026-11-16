@@ -189,7 +189,7 @@ REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_session_owner;
 SET ROLE stonez_auth_session_owner;
 
 CREATE OR REPLACE FUNCTION stonez_internal.auth_logout(p_token_hash text)
-RETURNS TABLE(user_id uuid)
+RETURNS TABLE(user_id uuid, school_id uuid)
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog
@@ -197,13 +197,15 @@ AS $function$
 DECLARE
     v_session_id uuid;
     v_user_id uuid;
+    v_school_id uuid;
 BEGIN
-    SELECT s.id, s.user_id
-      INTO v_session_id, v_user_id
+    SELECT s.id, s.user_id, u.school_id
+      INTO v_session_id, v_user_id, v_school_id
       FROM public.sessions AS s
+      JOIN public.users AS u ON u.id = s.user_id
      WHERE s.refresh_token_hash = p_token_hash
        AND s.revoked = false
-     FOR UPDATE;
+     FOR UPDATE OF s;
     IF NOT FOUND THEN
         RETURN;
     END IF;
@@ -223,7 +225,7 @@ BEGIN
         RAISE EXCEPTION 'logout refresh token missing or already revoked';
     END IF;
 
-    RETURN QUERY SELECT v_user_id;
+    RETURN QUERY SELECT v_user_id, v_school_id;
 END
 $function$;
 

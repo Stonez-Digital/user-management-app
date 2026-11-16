@@ -184,7 +184,7 @@ BEGIN
        OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_create_password_reset(uuid,uuid,text,timestamptz)', 'EXECUTE')
        OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_disable_password_reset(uuid)', 'EXECUTE')
        OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_consume_password_reset(text,text)', 'EXECUTE')
-       OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_change_password(uuid,text)', 'EXECUTE') THEN
+       OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_change_password(uuid,text,text)', 'EXECUTE') THEN
         RAISE EXCEPTION 'API runtime is missing password recovery/reset EXECUTE grants';
     END IF;
 END

@@ -501,7 +501,11 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 	}
 
 	if stored.Revoked {
-		_ = revokeRefreshFamily(ac.DB, stored.FamilyID)
+		if err := revokeRefreshFamily(ac.DB, stored.FamilyID); err != nil {
+			log.Printf("failed to revoke reused refresh-token family %s: %v", stored.FamilyID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revoke refresh-token family"})
+			return
+		}
 		if user.ID != uuid.Nil && user.SchoolID != nil {
 			c.Set(middleware.SchoolIDKey, user.SchoolID.String())
 		}

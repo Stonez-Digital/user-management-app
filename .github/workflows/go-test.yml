@@ -39,3 +39,6 @@ jobs:
           cache: true
       - name: Test
         run: go test ./...
+
+      - name: Verify billing PostgreSQL concurrency and RLS policies
+        run: go test -count=1 -v ./internal/service -run 'TestSubscriptionBilling(Postgres|RLSInstaller)'

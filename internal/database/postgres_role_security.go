@@ -82,6 +82,7 @@ type BulkImportClaimRoleStatus struct {
     CanCreateRole bool `gorm:"column:can_create_role"`
     IsRuntimeMember bool `gorm:"column:is_runtime_member"`
     IsRuntimeEffective bool `gorm:"column:is_runtime_effective"`
+	CanSetRuntimeRole bool `gorm:"column:can_set_runtime_role"`
     IsQueueOwnerMember bool `gorm:"column:is_queue_owner_member"`
     CanExecuteClaim bool `gorm:"column:can_execute_claim"`
     CurrentRoleMatchesSession bool `gorm:"column:current_role_matches_session"`
@@ -105,6 +106,7 @@ func ValidateBulkImportClaimRole(db *gorm.DB) error {
             role.rolcreaterole AS can_create_role,
             pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER') AS is_runtime_member,
             pg_has_role(session_user, 'stonez_api_runtime', 'USAGE') AS is_runtime_effective,
+            pg_has_role(session_user, 'stonez_api_runtime', 'SET') AS can_set_runtime_role,
             pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER') AS is_queue_owner_member,
             has_function_privilege(session_user, 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE') AS can_execute_claim,
             current_user = session_user AS current_role_matches_session
@@ -116,7 +118,7 @@ func ValidateBulkImportClaimRole(db *gorm.DB) error {
     }
     if status.SessionRole == "" || !status.IsLogin || status.IsSuperuser || status.BypassRLS ||
         status.CanCreateDB || status.CanCreateRole || !status.IsRuntimeMember ||
-        !status.IsRuntimeEffective || status.IsQueueOwnerMember || !status.CanExecuteClaim ||
+        !status.IsRuntimeEffective || status.CanSetRuntimeRole || status.IsQueueOwnerMember || !status.CanExecuteClaim ||
         !status.CurrentRoleMatchesSession {
         return fmt.Errorf("bulk import claim connection role %q does not satisfy the restricted worker role boundary", status.SessionRole)
     }

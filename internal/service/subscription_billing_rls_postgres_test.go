@@ -1,12 +1,14 @@
 package service
 
 import (
+	"context"
 	"net/url"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -62,7 +64,16 @@ func TestSubscriptionBillingRLSInstallerWithRestrictedPostgresRole(t *testing.T)
 	script = strings.ReplaceAll(script, "stonez_api_runtime", groupRole)
 	script = strings.ReplaceAll(script, "public.", schema+".")
 	script = strings.ReplaceAll(script, "'public'", "'"+schema+"'")
-	if err := admin.Exec(script).Error; err != nil { t.Fatalf("execute billing RLS installer in isolated schema: %v", err) }
+	pgxConfig, err := pgx.ParseConfig(dsn)
+	if err != nil { t.Fatalf("parse PostgreSQL test DSN for SQL installer: %v", err) }
+	pgxConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	scriptConn, err := pgx.ConnectConfig(context.Background(), pgxConfig)
+	if err != nil { t.Fatalf("open PostgreSQL simple-protocol connection: %v", err) }
+	if _, err := scriptConn.Exec(context.Background(), script); err != nil {
+		_ = scriptConn.Close(context.Background())
+		t.Fatalf("execute billing RLS installer in isolated schema: %v", err)
+	}
+	if err := scriptConn.Close(context.Background()); err != nil { t.Fatalf("close PostgreSQL SQL installer connection: %v", err) }
 
 	parsed, err := url.Parse(dsn)
 	if err != nil { t.Fatal(err) }

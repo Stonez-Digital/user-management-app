@@ -86,6 +86,13 @@ INSERT INTO public.bulk_import_jobs (
 );
 SQL
 
+echo "== Assert runtime group membership is inherited but not assumable =="
+runtime_membership="$(psql "$runtime_url" -X -A -t -v ON_ERROR_STOP=1 -c "SELECT pg_has_role(session_user, 'stonez_api_runtime', 'USAGE')::text || ':' || pg_has_role(session_user, 'stonez_api_runtime', 'SET')::text || ':' || pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')::text")"
+if [[ "$runtime_membership" != "true:false:false" ]]; then
+  echo "Unexpected restricted runtime membership state '$runtime_membership'" >&2
+  exit 1
+fi
+
 echo "== Assert runtime cannot see queue rows directly without tenant context =="
 direct_rows="$(psql "$runtime_url" -X -A -t -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM public.bulk_import_jobs')"
 if [[ "$direct_rows" != "0" ]]; then

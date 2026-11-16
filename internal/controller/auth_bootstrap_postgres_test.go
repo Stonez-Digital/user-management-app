@@ -39,7 +39,7 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 	}
 
 	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
-	tableSchema, privateSchema := "auth_handler_"+suffix, "auth_fn_"+suffix
+	tableSchema, privateSchema := "auth_handler_"+suffix, "stonez_internal"
 	ownerRole, apiRole := "auth_handler_owner_"+suffix, "auth_handler_api_"+suffix
 	loginRole := "auth_handler_login_"+suffix
 	loginPassword := uuid.NewString()
@@ -103,7 +103,6 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 		script := string(raw)
 		script = strings.ReplaceAll(script, "stonez_auth_bootstrap_owner", ownerRole)
 		script = strings.ReplaceAll(script, "stonez_api_runtime", apiRole)
-		script = strings.ReplaceAll(script, "stonez_internal", privateSchema)
 		return strings.ReplaceAll(script, "public", tableSchema)
 	}
 	for _, name := range []string{"provision_auth_bootstrap_roles.sql", "install_auth_bootstrap_functions.sql", "verify_auth_bootstrap_boundary.sql"} {

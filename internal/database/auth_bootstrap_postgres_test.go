@@ -85,6 +85,9 @@ func TestAuthBootstrapFunctionsEnforceRestrictedPostgresBoundary(t *testing.T) {
 			t.Fatalf("create isolated auth table: %v", err)
 		}
 	}
+	if err := admin.Exec("GRANT USAGE ON SCHEMA " + tableSchema + " TO " + apiRole).Error; err != nil {
+		t.Fatalf("grant API role schema visibility for table-level denial checks: %v", err)
+	}
 	for _, table := range []string{"schools", "users", "refresh_tokens", "sessions"} {
 		if err := admin.Exec("ALTER TABLE " + tableSchema + "." + table + " ENABLE ROW LEVEL SECURITY").Error; err != nil {
 			t.Fatalf("enable RLS on %s: %v", table, err)

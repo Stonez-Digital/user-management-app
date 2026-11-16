@@ -114,9 +114,29 @@ SECURITY DEFINER
 SET search_path = pg_catalog
 AS $function$
 BEGIN
+    -- Lock the session first. Competing rotations for this session serialize
+    -- here; the second request observes the changed hash after the first commits.
+    PERFORM 1
+      FROM public.sessions
+     WHERE id = p_session_id
+       AND user_id = p_user_id
+       AND family_id = p_family_id
+       AND refresh_token_hash = p_old_hash
+       AND revoked = false
+       AND expires_at > clock_timestamp()
+     FOR UPDATE;
+    IF NOT FOUND THEN
+        RETURN false;
+    END IF;
+
     UPDATE public.refresh_tokens
        SET revoked = true
-     WHERE id = p_old_token_id AND revoked = false;
+     WHERE id = p_old_token_id
+       AND token_hash = p_old_hash
+       AND user_id = p_user_id
+       AND family_id = p_family_id
+       AND revoked = false
+       AND expires_at > clock_timestamp();
     IF NOT FOUND THEN
         RETURN false;
     END IF;
@@ -126,9 +146,15 @@ BEGIN
 
     UPDATE public.sessions
        SET refresh_token_hash = p_new_hash, expires_at = p_new_expires_at
-     WHERE id = p_session_id AND refresh_token_hash = p_old_hash AND revoked = false;
+     WHERE id = p_session_id
+       AND user_id = p_user_id
+       AND family_id = p_family_id
+       AND refresh_token_hash = p_old_hash
+       AND revoked = false;
     IF NOT FOUND THEN
-        RETURN false;
+        -- An unexpected post-lock mismatch must abort the entire SQL statement,
+        -- including the preceding token revocation and replacement insert.
+        RAISE EXCEPTION 'refresh session changed during locked rotation';
     END IF;
     RETURN true;
 END

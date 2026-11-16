@@ -445,26 +445,26 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 }
 
 func (ac *AuthController) ChangePassword(c *gin.Context) {
-	userID := c.GetString("user_id")
+	tx, ok := ac.requestIdentityDB(c)
+	if !ok { return }
+	userID, err := uuid.Parse(c.GetString(middleware.UserIDKey))
+	if err != nil { httpx.Error(c, http.StatusUnauthorized, "invalid_user_id", "authenticated user context is invalid"); return }
 	var req ChangePasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Validation(c, httpx.ValidationErrors(err)); return
-	}
+	if err := c.ShouldBindJSON(&req); err != nil { httpx.Validation(c, httpx.ValidationErrors(err)); return }
 	var user models.User
-	if err := ac.DB.First(&user, "id = ? AND active = true", userID).Error; err != nil || !auth.CheckPassword(user.PasswordHash, req.CurrentPassword) {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "current password is incorrect"})
+	if err := tx.First(&user, "id = ? AND active = true", userID).Error; err != nil || !auth.CheckPassword(user.PasswordHash, req.CurrentPassword) {
+		httpx.Error(c, http.StatusUnauthorized, "current_password_invalid", "current password is incorrect")
 		return
 	}
 	hash, err := auth.HashPassword(req.NewPassword)
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"}); return }
-	err = ac.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&user).Update("password_hash", hash).Error; err != nil { return err }
-		if err := tx.Model(&models.RefreshToken{}).Where("user_id = ?", user.ID).Update("revoked", true).Error; err != nil { return err }
-		return tx.Model(&models.Session{}).Where("user_id = ?", user.ID).Update("revoked", true).Error
+	if err != nil { httpx.Error(c, http.StatusInternalServerError, "password_hash_failed", "failed to secure new password"); return }
+	err = tx.Transaction(func(scoped *gorm.DB) error {
+		if err := scoped.Model(&models.User{}).Where("id = ? AND active = true", userID).Update("password_hash", hash).Error; err != nil { return err }
+		if err := scoped.Model(&models.RefreshToken{}).Where("user_id = ?", userID).Update("revoked", true).Error; err != nil { return err }
+		if err := scoped.Model(&models.Session{}).Where("user_id = ?", userID).Update("revoked", true).Error; err != nil { return err }
+		return audit.Record(scoped, c, &userID, "security.password_change", "user", &userID, nil)
 	})
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to change password"}); return }
-	uid := uuid.MustParse(userID)
-	_ = audit.Record(ac.DB, c, &uid, "security.password_change", "user", &uid, nil)
+	if err != nil { httpx.Error(c, http.StatusInternalServerError, "password_change_failed", "failed to change password"); return }
 	c.JSON(http.StatusOK, gin.H{"message": "password changed successfully; please sign in again"})
 }
 

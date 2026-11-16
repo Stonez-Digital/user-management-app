@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, fix/supabase-pg17-queue-role-provisioning]
+    branches: [main, fix/supabase-pg17-queue-role-provisioning, feat/dedicated-bulk-import-worker-claim-connection]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -30,7 +30,7 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/usersdb_test?sslmode=disable
       BULK_QUEUE_SCRIPT_TEST_DATABASE_URL: postgres://bq_script_runner:queue_script_runner_ci_password@localhost:5432/usersdb_test?sslmode=disable
-      BULK_QUEUE_SCRIPT_TEST_RUNTIME_URL: postgres://bq_script_runtime:queue_script_runtime_ci_password@localhost:5432/usersdb_test?sslmode=disable
+      BULK_QUEUE_SCRIPT_TEST_RUNTIME_URL: postgres://stonez_bulk_worker:queue_script_worker_ci_password@localhost:5432/usersdb_test?sslmode=disable
       BULK_QUEUE_SCRIPT_TEST_OUTSIDER_URL: postgres://bq_script_outsider:queue_script_outsider_ci_password@localhost:5432/usersdb_test?sslmode=disable
       BULK_QUEUE_SCRIPT_TEST_DATABASE: usersdb_test
     steps:

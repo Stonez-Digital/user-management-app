@@ -67,10 +67,11 @@ psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/verify_bulk_import_
 echo "== Install actual restricted claim function =="
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_claim_function.sql
 
-echo "== Create restricted runtime and unrelated logins, then seed one job =="
+echo "== Provision dedicated worker login using the interactive operator script =="
+printf '%s\n%s\n' 'queue_script_worker_ci_password' 'queue_script_worker_ci_password' | psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/provision_bulk_import_worker_login.psql
+
+echo "== Create unrelated login and seed one job =="
 psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'
-CREATE ROLE bq_script_runtime LOGIN PASSWORD 'queue_script_runtime_ci_password' NOSUPERUSER NOBYPASSRLS;
-GRANT stonez_api_runtime TO bq_script_runtime;
 CREATE ROLE bq_script_outsider LOGIN PASSWORD 'queue_script_outsider_ci_password' NOSUPERUSER NOBYPASSRLS;
 INSERT INTO public.bulk_import_jobs (
     id, school_id, initiated_by, kind, file_name, status, rows_json, errors_json
@@ -85,6 +86,13 @@ INSERT INTO public.bulk_import_jobs (
     '[]'::jsonb
 );
 SQL
+
+echo "== Assert runtime group membership is inherited but not assumable =="
+runtime_membership="$(psql "$runtime_url" -X -A -t -v ON_ERROR_STOP=1 -c "SELECT pg_has_role(session_user, 'stonez_api_runtime', 'USAGE')::text || ':' || pg_has_role(session_user, 'stonez_api_runtime', 'SET')::text || ':' || pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')::text")"
+if [[ "$runtime_membership" != "true:false:false" ]]; then
+  echo "Unexpected restricted runtime membership state '$runtime_membership'" >&2
+  exit 1
+fi
 
 echo "== Assert runtime cannot see queue rows directly without tenant context =="
 direct_rows="$(psql "$runtime_url" -X -A -t -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM public.bulk_import_jobs')"

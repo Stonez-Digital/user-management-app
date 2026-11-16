@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 
 const bulkImportPollInterval = 2 * time.Second
 const bulkImportClaimLease = 5 * time.Minute
+const bulkImportIdleTimeout = 30 * time.Second
 
 // withTenantTransaction gives every worker-owned transaction an explicit
 // school and initiating-user context. PostgreSQL settings are transaction-local.
@@ -65,8 +67,12 @@ func (s *BulkImportService) withTenantTransaction(job models.BulkImportJob, fn f
 // SQLite retains the direct transactional implementation for local unit tests.
 func (s *BulkImportService) claimNextJob() (*models.BulkImportJob, error) {
 	var claimed *models.BulkImportJob
-	if s.db.Dialector.Name() == "postgres" {
-		err := s.db.Transaction(func(tx *gorm.DB) error {
+	claimDB := s.claimDB
+	if claimDB == nil {
+		return nil, errors.New("bulk import claim database is not configured")
+	}
+	if claimDB.Dialector.Name() == "postgres" {
+		err := claimDB.Transaction(func(tx *gorm.DB) error {
 			var job models.BulkImportJob
 			result := tx.Raw("SELECT * FROM stonez_internal.claim_next_bulk_import_job(?)", s.workerID).Scan(&job)
 			if result.Error != nil {
@@ -82,7 +88,7 @@ func (s *BulkImportService) claimNextJob() (*models.BulkImportJob, error) {
 	}
 
 	cutoff := time.Now().UTC().Add(-bulkImportClaimLease)
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := claimDB.Transaction(func(tx *gorm.DB) error {
 		var job models.BulkImportJob
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
 			Where("status = ? OR (status = ? AND (claimed_at IS NULL OR claimed_at < ?))",
@@ -122,18 +128,62 @@ func (s *BulkImportService) claimNextJob() (*models.BulkImportJob, error) {
 }
 
 func (s *BulkImportService) workerLoop() {
+	_ = s.RunWorker(context.Background())
+}
+
+// RunWorker polls the claim-only connection and processes returned jobs using
+// the application database connection. It exits promptly when ctx is cancelled.
+func (s *BulkImportService) RunWorker(ctx context.Context) error {
+	if s.db == nil || s.claimDB == nil {
+		return errors.New("bulk import worker requires application and claim database connections")
+	}
+	// Bind both database handles to the worker lifetime so cancellation and
+	// the scheduled-run deadline interrupt in-flight database operations, not
+	// only the polling loop between jobs.
+	worker := &BulkImportService{
+		db:        s.db.WithContext(ctx),
+		claimDB:   s.claimDB.WithContext(ctx),
+		mailer:    s.mailer,
+		workerID:  s.workerID,
+		workerOnce: s.workerOnce,
+	}
+
+	lastWorkAt := time.Now()
 	for {
-		job, err := s.claimNextJob()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		job, err := worker.claimNextJob()
 		if err != nil {
 			log.Printf("bulk import worker claim failed: %v", err)
-			time.Sleep(bulkImportPollInterval)
+			if !waitForWorkerPoll(ctx) { return ctx.Err() }
 			continue
 		}
 		if job == nil {
-			time.Sleep(bulkImportPollInterval)
+			if time.Since(lastWorkAt) >= bulkImportIdleTimeout {
+				return nil
+			}
+			if !waitForWorkerPoll(ctx) { return ctx.Err() }
 			continue
 		}
-		s.processClaimed(*job, s.workerID)
+		worker.processClaimed(*job, worker.workerID)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		lastWorkAt = time.Now()
+	}
+}
+
+func waitForWorkerPoll(ctx context.Context) bool {
+	timer := time.NewTimer(bulkImportPollInterval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 

@@ -484,7 +484,7 @@ CREATE TABLE %s.bulk_import_jobs (
 		_ = admin.Exec("DROP OWNED BY " + loginRole).Error
 		_ = admin.Exec("DROP ROLE IF EXISTS " + loginRole).Error
 	})
-	if err := admin.Exec("GRANT " + apiRole + " TO " + loginRole).Error; err != nil {
+	if err := admin.Exec("GRANT " + apiRole + " TO " + loginRole + " WITH ADMIN FALSE, INHERIT TRUE, SET FALSE").Error; err != nil {
 		t.Fatalf("grant API runtime group to restricted login: %v", err)
 	}
 	loginURL, err := url.Parse(dsn)
@@ -492,6 +492,9 @@ CREATE TABLE %s.bulk_import_jobs (
 	loginURL.User = url.UserPassword(loginRole, loginPassword)
 	loginDB, err = gorm.Open(postgres.Open(loginURL.String()), &gorm.Config{})
 	if err != nil { t.Fatalf("connect as restricted API login: %v", err) }
+	if err := database.ValidateBulkImportClaimRoleFor(loginDB, apiRole, ownerRole, privateSchema+".claim_next_bulk_import_job(uuid)"); err != nil {
+		t.Fatalf("validate restricted claim-only login: %v", err)
+	}
 
 	var sessionUser string
 	if err := loginDB.Raw("SELECT session_user").Scan(&sessionUser).Error; err != nil {

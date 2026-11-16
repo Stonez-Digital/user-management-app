@@ -2,6 +2,7 @@ package database
 
 import (
     "fmt"
+    "strings"
 
     "gorm.io/gorm"
 )
@@ -68,6 +69,73 @@ func ValidatePostgresRoleSecurity(status *PostgresRoleSecurityStatus, required b
             status.CurrentRole, status.CurrentSuperuser, status.CurrentBypassRLS,
             status.SessionRole, status.SessionSuperuser, status.SessionBypassRLS, status.SessionCanAssumePrivilegedRole,
         )
+    }
+    return nil
+}
+
+
+type BulkImportClaimRoleStatus struct {
+    SessionRole string `gorm:"column:session_role"`
+    IsLogin bool `gorm:"column:is_login"`
+    IsSuperuser bool `gorm:"column:is_superuser"`
+    BypassRLS bool `gorm:"column:bypass_rls"`
+    CanCreateDB bool `gorm:"column:can_create_db"`
+    CanCreateRole bool `gorm:"column:can_create_role"`
+    IsRuntimeMember bool `gorm:"column:is_runtime_member"`
+    IsRuntimeEffective bool `gorm:"column:is_runtime_effective"`
+	CanSetRuntimeRole bool `gorm:"column:can_set_runtime_role"`
+    IsQueueOwnerMember bool `gorm:"column:is_queue_owner_member"`
+    CanExecuteClaim bool `gorm:"column:can_execute_claim"`
+    CurrentRoleMatchesSession bool `gorm:"column:current_role_matches_session"`
+}
+
+// ValidateBulkImportClaimRole checks that the worker's claim-only connection
+// authenticates directly as a non-privileged login with effective membership
+// in stonez_api_runtime and no queue-owner membership.
+func ValidateBulkImportClaimRole(db *gorm.DB) error {
+    return ValidateBulkImportClaimRoleFor(
+        db,
+        "stonez_api_runtime",
+        "stonez_bulk_queue_owner",
+        "stonez_internal.claim_next_bulk_import_job(uuid)",
+    )
+}
+
+// ValidateBulkImportClaimRoleFor is also used by isolated PostgreSQL fixtures,
+// which substitute unique schema and role names to avoid collisions.
+func ValidateBulkImportClaimRoleFor(db *gorm.DB, runtimeRole, queueOwnerRole, claimFunction string) error {
+    if db == nil || db.Dialector.Name() != "postgres" {
+        return fmt.Errorf("bulk import claim connection must be PostgreSQL")
+    }
+    if strings.TrimSpace(runtimeRole) == "" || strings.TrimSpace(queueOwnerRole) == "" || strings.TrimSpace(claimFunction) == "" {
+        return fmt.Errorf("bulk import claim role names and function signature are required")
+    }
+    var status BulkImportClaimRoleStatus
+    err := db.Raw(`
+        SELECT
+            session_user AS session_role,
+            role.rolcanlogin AS is_login,
+            role.rolsuper AS is_superuser,
+            role.rolbypassrls AS bypass_rls,
+            role.rolcreatedb AS can_create_db,
+            role.rolcreaterole AS can_create_role,
+            pg_has_role(session_user, ?::name, 'MEMBER') AS is_runtime_member,
+            pg_has_role(session_user, ?::name, 'USAGE') AS is_runtime_effective,
+            pg_has_role(session_user, ?::name, 'SET') AS can_set_runtime_role,
+            pg_has_role(session_user, ?::name, 'MEMBER') AS is_queue_owner_member,
+            has_function_privilege(session_user, ?::regprocedure, 'EXECUTE') AS can_execute_claim,
+            current_user = session_user AS current_role_matches_session
+        FROM pg_roles AS role
+        WHERE role.rolname = session_user
+    `, runtimeRole, runtimeRole, runtimeRole, queueOwnerRole, claimFunction).Scan(&status).Error
+    if err != nil {
+        return fmt.Errorf("inspect bulk import claim role: %w", err)
+    }
+    if status.SessionRole == "" || !status.IsLogin || status.IsSuperuser || status.BypassRLS ||
+        status.CanCreateDB || status.CanCreateRole || !status.IsRuntimeMember ||
+        !status.IsRuntimeEffective || status.CanSetRuntimeRole || status.IsQueueOwnerMember || !status.CanExecuteClaim ||
+        !status.CurrentRoleMatchesSession {
+        return fmt.Errorf("bulk import claim connection role %q does not satisfy the restricted worker role boundary", status.SessionRole)
     }
     return nil
 }

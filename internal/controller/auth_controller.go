@@ -485,7 +485,7 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 			return
 		}
 		stored = models.RefreshToken{ID: lookup.TokenID, FamilyID: lookup.FamilyID, UserID: lookup.UserID, TokenHash: tokenHash, ExpiresAt: lookup.TokenExpiresAt, Revoked: lookup.TokenRevoked}
-		user = models.User{ID: lookup.UserID, SchoolID: lookup.SchoolID, Name: lookup.FullName, Email: lookup.Email, PasswordHash: lookup.PasswordHash, Role: lookup.Role, Active: lookup.Active}
+		user = models.User{ID: lookup.UserID, SchoolID: lookup.SchoolID, Role: lookup.Role, Active: lookup.Active}
 		session = models.Session{ID: lookup.SessionID, UserID: lookup.UserID, FamilyID: lookup.FamilyID, RefreshTokenHash: tokenHash, ExpiresAt: lookup.SessionExpiresAt, Revoked: lookup.SessionRevoked}
 		schoolStatus = lookup.SchoolStatus
 	} else {

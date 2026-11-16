@@ -147,7 +147,40 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 
 	ac := NewAuthController(runtimeDB)
 	loginBody := fmt.Sprintf(`{"email":%q,"password":"password123","school_code":%q,"school_slug":%q}`, email, "SCH-"+suffix, "school-"+suffix)
+
+	// Login session creation and its audit event must commit or roll back together.
+	if err := admin.Exec("CREATE FUNCTION " + privateSchema + ".reject_auth_audit() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN RAISE EXCEPTION 'audit sink unavailable'; END $").Error; err != nil {
+		t.Fatalf("create audit failure trigger function: %v", err)
+	}
+	if err := admin.Exec("CREATE TRIGGER reject_auth_audit BEFORE INSERT ON " + tableSchema + ".audit_logs FOR EACH ROW EXECUTE FUNCTION " + privateSchema + ".reject_auth_audit()").Error; err != nil {
+		t.Fatalf("install audit failure trigger: %v", err)
+	}
+	failedLogin := authJSONRequest(t, ac, "POST", "/login", loginBody)
+	if failedLogin.Code != 500 {
+		t.Fatalf("expected login to fail when audit insert fails, got %d: %s", failedLogin.Code, failedLogin.Body.String())
+	}
+	var orphanedSessions int64
+	if err := admin.Table(tableSchema + ".sessions").Where("user_id = ?", userID).Count(&orphanedSessions).Error; err != nil {
+		t.Fatal(err)
+	}
+	if orphanedSessions != 0 {
+		t.Fatalf("login audit failure left %d persisted sessions", orphanedSessions)
+	}
+	if err := admin.Exec("DROP TRIGGER reject_auth_audit ON " + tableSchema + ".audit_logs").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Exec("DROP FUNCTION " + privateSchema + ".reject_auth_audit()").Error; err != nil {
+		t.Fatal(err)
+	}
+
 	_, rawRefresh := decodeAuthTokens(t, authJSONRequest(t, ac, "POST", "/login", loginBody))
+	var loginAuditCount int64
+	if err := admin.Table(tableSchema + ".audit_logs").Where("action = ? AND resource_id = ?", "auth.login", userID).Count(&loginAuditCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if loginAuditCount != 1 {
+		t.Fatalf("expected exactly one committed login audit event, got %d", loginAuditCount)
+	}
 
 	_, rotatedRefresh := decodeAuthTokens(t, authJSONRequest(t, ac, "POST", "/refresh", fmt.Sprintf(`{"refresh_token":%q}`, rawRefresh)))
 	if rotatedRefresh == rawRefresh {
@@ -163,6 +196,31 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 	if !priorToken.Revoked {
 		t.Fatalf("rotation did not persist the old token as revoked (family %s)", priorToken.FamilyID)
 	}
+	// A failed security audit insert must roll back family revocation as well.
+	if err := admin.Exec("CREATE FUNCTION " + privateSchema + ".reject_auth_audit() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN RAISE EXCEPTION 'audit sink unavailable'; END $").Error; err != nil {
+		t.Fatalf("recreate audit failure trigger function: %v", err)
+	}
+	if err := admin.Exec("CREATE TRIGGER reject_auth_audit BEFORE INSERT ON " + tableSchema + ".audit_logs FOR EACH ROW EXECUTE FUNCTION " + privateSchema + ".reject_auth_audit()").Error; err != nil {
+		t.Fatalf("reinstall audit failure trigger: %v", err)
+	}
+	failedReuse := authJSONRequest(t, ac, "POST", "/refresh", fmt.Sprintf(`{"refresh_token":%q}`, rawRefresh))
+	if failedReuse.Code != 500 {
+		t.Fatalf("expected reuse response to fail when audit insert fails, got %d: %s", failedReuse.Code, failedReuse.Body.String())
+	}
+	var activeAfterAuditFailure int64
+	if err := admin.Table(tableSchema + ".refresh_tokens").Where("family_id = ? AND revoked = false", priorToken.FamilyID).Count(&activeAfterAuditFailure).Error; err != nil {
+		t.Fatal(err)
+	}
+	if activeAfterAuditFailure != 1 {
+		t.Fatalf("audit failure should roll back family revocation, found %d active tokens", activeAfterAuditFailure)
+	}
+	if err := admin.Exec("DROP TRIGGER reject_auth_audit ON " + tableSchema + ".audit_logs").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Exec("DROP FUNCTION " + privateSchema + ".reject_auth_audit()").Error; err != nil {
+		t.Fatal(err)
+	}
+
 	reused := authJSONRequest(t, ac, "POST", "/refresh", fmt.Sprintf(`{"refresh_token":%q}`, rawRefresh))
 	if reused.Code != 401 || !strings.Contains(reused.Body.String(), "already used") {
 		t.Fatalf("expected PostgreSQL handler to detect reused token, got %d: %s", reused.Code, reused.Body.String())

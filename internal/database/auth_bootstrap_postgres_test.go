@@ -199,7 +199,7 @@ func TestAuthBootstrapFunctionsEnforceRestrictedPostgresBoundary(t *testing.T) {
 	expiresAt, err := time.Parse(time.RFC3339, expires)
 	if err != nil { t.Fatal(err) }
 	if err := loginDB.Exec("SELECT " + privateSchema + ".auth_create_session(?, ?, ?, ?, ?, ?, ?, ?)",
-		newRefreshID, userID, newFamilyID, newHash, expires, newSessionID, "fixture-agent", "127.0.0.1").Error; err != nil {
+		newRefreshID, userID, newFamilyID, newHash, expiresAt, newSessionID, "fixture-agent", "127.0.0.1").Error; err != nil {
 		t.Fatalf("create session through restricted writer function: %v", err)
 	}
 	if err := loginDB.Exec("INSERT INTO " + tableSchema + ".refresh_tokens (id,family_id,user_id,token_hash,expires_at,revoked) VALUES (?,?,?,?,?,false)",

@@ -69,7 +69,7 @@ GRANT EXECUTE ON FUNCTION stonez_internal.auth_login_lookup(text) TO stonez_api_
 GRANT EXECUTE ON FUNCTION stonez_internal.auth_refresh_lookup(text) TO stonez_api_runtime;
 
 RESET ROLE;
-REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_bootstrap_owner;
+
 
 -- Keep token/session writes behind a second non-login owner. The API role
 -- receives EXECUTE only; it never receives direct table DML or token-hash reads.
@@ -428,7 +428,6 @@ GRANT EXECUTE ON FUNCTION stonez_internal.auth_consume_password_reset(text,text)
 RESET ROLE;
 REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_auth_session_owner;
 
-GRANT USAGE, CREATE ON SCHEMA stonez_internal TO stonez_auth_bootstrap_owner;
 SET ROLE stonez_auth_bootstrap_owner;
 
 CREATE OR REPLACE FUNCTION stonez_internal.auth_change_password(p_user_id uuid, p_expected_password_hash text, p_password_hash text)

@@ -40,6 +40,7 @@ func TestAuthBootstrapFunctionsEnforceRestrictedPostgresBoundary(t *testing.T) {
 	tableSchema := "auth_bootstrap_" + suffix
 	privateSchema := "auth_internal_" + suffix
 	ownerRole := "auth_owner_" + suffix
+	sessionOwnerRole := "auth_session_owner_" + suffix
 	apiRole := "auth_api_" + suffix
 	otherRole := "auth_other_" + suffix
 	loginRole := "auth_login_" + suffix
@@ -52,7 +53,7 @@ func TestAuthBootstrapFunctionsEnforceRestrictedPostgresBoundary(t *testing.T) {
 		_ = admin.Exec("REVOKE " + apiRole + " FROM " + loginRole).Error
 		_ = admin.Exec("DROP SCHEMA IF EXISTS " + privateSchema + " CASCADE").Error
 		_ = admin.Exec("DROP SCHEMA IF EXISTS " + tableSchema + " CASCADE").Error
-		for _, role := range []string{loginRole, otherRole, apiRole, ownerRole} {
+		for _, role := range []string{loginRole, otherRole, apiRole, ownerRole, sessionOwnerRole} {
 			_ = admin.Exec("DROP OWNED BY " + role).Error
 			_ = admin.Exec("REVOKE " + role + " FROM CURRENT_USER").Error
 			_ = admin.Exec("DROP ROLE IF EXISTS " + role).Error
@@ -78,7 +79,7 @@ func TestAuthBootstrapFunctionsEnforceRestrictedPostgresBoundary(t *testing.T) {
 		"CREATE TABLE " + tableSchema + ".schools (id uuid PRIMARY KEY, status text NOT NULL, code text NOT NULL, slug text NOT NULL)",
 		"CREATE TABLE " + tableSchema + ".users (id uuid PRIMARY KEY, school_id uuid, name text NOT NULL, email text NOT NULL, password_hash text NOT NULL, role text NOT NULL, active boolean NOT NULL)",
 		"CREATE TABLE " + tableSchema + ".refresh_tokens (id uuid PRIMARY KEY, family_id uuid NOT NULL, user_id uuid NOT NULL, token_hash text NOT NULL, expires_at timestamptz NOT NULL, revoked boolean NOT NULL)",
-		"CREATE TABLE " + tableSchema + ".sessions (id uuid PRIMARY KEY, user_id uuid NOT NULL, family_id uuid NOT NULL, refresh_token_hash text NOT NULL, expires_at timestamptz NOT NULL, revoked boolean NOT NULL)",
+		"CREATE TABLE " + tableSchema + ".sessions (id uuid PRIMARY KEY, user_id uuid NOT NULL, family_id uuid NOT NULL, refresh_token_hash text NOT NULL, expires_at timestamptz NOT NULL, revoked boolean NOT NULL, user_agent text, ip text)",
 	}
 	for _, statement := range tables {
 		if err := admin.Exec(statement).Error; err != nil {
@@ -120,6 +121,7 @@ func TestAuthBootstrapFunctionsEnforceRestrictedPostgresBoundary(t *testing.T) {
 		}
 		script := string(raw)
 		script = strings.ReplaceAll(script, "stonez_auth_bootstrap_owner", ownerRole)
+		script = strings.ReplaceAll(script, "stonez_auth_session_owner", sessionOwnerRole)
 		script = strings.ReplaceAll(script, "stonez_api_runtime", apiRole)
 		script = strings.ReplaceAll(script, "stonez_internal", privateSchema)
 		script = strings.ReplaceAll(script, "public", tableSchema)
@@ -187,6 +189,26 @@ func TestAuthBootstrapFunctionsEnforceRestrictedPostgresBoundary(t *testing.T) {
 	if refresh.TokenID != refreshID || refresh.FamilyID != familyID || refresh.UserID != userID ||
 		refresh.SessionID != sessionID || refresh.SchoolID != schoolID || !refresh.Active || refresh.SchoolStatus != "active" {
 		t.Fatalf("refresh lookup returned unexpected token/session/identity data: %+v", refresh)
+	}
+
+	newFamilyID, newRefreshID, newSessionID := uuid.New(), uuid.New(), uuid.New()
+	newHash := "new-refresh-hash-" + suffix
+	newExpiry := "2099-02-01T00:00:00Z"
+	if err := loginDB.Exec("SELECT " + privateSchema + ".auth_create_session(?, ?, ?, ?, ?, ?, ?, ?)",
+		newRefreshID, userID, newFamilyID, newHash, expires, newSessionID, "fixture-agent", "127.0.0.1").Error; err != nil {
+		t.Fatalf("create session through restricted writer function: %v", err)
+	}
+	if err := loginDB.Exec("INSERT INTO " + tableSchema + ".refresh_tokens (id,family_id,user_id,token_hash,expires_at,revoked) VALUES (?,?,?,?,?,false)",
+		uuid.New(), newFamilyID, userID, "direct-write-denied", expires).Error; err == nil {
+		t.Fatal("API runtime unexpectedly inserted a refresh token directly")
+	}
+	var rotated bool
+	if err := loginDB.Raw("SELECT " + privateSchema + ".auth_rotate_refresh(?, ?, ?, ?, ?, ?, ?, ?)",
+		newRefreshID, newHash, uuid.New(), userID, newFamilyID, "rotated-"+suffix, newExpiry, newSessionID).Scan(&rotated).Error; err != nil || !rotated {
+		t.Fatalf("rotate refresh through restricted writer function: rotated=%v err=%v", rotated, err)
+	}
+	if err := loginDB.Exec("SELECT " + privateSchema + ".auth_revoke_refresh_family(?)", newFamilyID).Error; err != nil {
+		t.Fatalf("revoke refresh family through restricted writer function: %v", err)
 	}
 
 	for _, statement := range []string{

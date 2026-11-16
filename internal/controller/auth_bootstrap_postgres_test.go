@@ -118,6 +118,9 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 		t.Fatalf("parse test database URL: %v", err)
 	}
 	loginDSN.User = url.UserPassword(loginRole, loginPassword)
+	query := loginDSN.Query()
+	query.Set("options", "-csearch_path="+tableSchema)
+	loginDSN.RawQuery = query.Encode()
 	runtimeDB, err := gorm.Open(postgres.Open(loginDSN.String()), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("connect as restricted API login: %v", err)

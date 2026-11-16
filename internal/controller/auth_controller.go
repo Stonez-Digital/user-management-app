@@ -471,7 +471,7 @@ func revokeRefreshFamily(db *gorm.DB, familyID uuid.UUID) error {
 	})
 }
 
-func revokeRefreshFamilyAndAudit(db *gorm.DB, c *gin.Context, userID, familyID uuid.UUID) error {
+func revokeRefreshFamilyAndAudit(db *gorm.DB, c *gin.Context, userID, familyID uuid.UUID, schoolID *uuid.UUID) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		if err := revokeRefreshFamily(tx, familyID); err != nil {
 			return err
@@ -514,7 +514,7 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 		if user.ID != uuid.Nil && user.SchoolID != nil {
 			c.Set(middleware.SchoolIDKey, user.SchoolID.String())
 		}
-		if err := revokeRefreshFamilyAndAudit(ac.DB, c, stored.UserID, stored.FamilyID); err != nil {
+		if err := revokeRefreshFamilyAndAudit(ac.DB, c, stored.UserID, stored.FamilyID, user.SchoolID); err != nil {
 			log.Printf("failed to revoke/audit reused refresh-token family %s: %v", stored.FamilyID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revoke refresh-token family"})
 			return

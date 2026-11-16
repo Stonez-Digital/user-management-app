@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -36,7 +37,13 @@ func (s *BulkImportService) withTenantTransaction(job models.BulkImportJob, fn f
 		// current worker ID and a non-expired lease.
 		if job.WorkerID != nil {
 			var lease models.BulkImportJob
-			cutoff := time.Now().UTC().Add(-bulkImportClaimLease)
+			leaseClock := time.Now().UTC()
+			if tx.Dialector.Name() == "postgres" {
+				if err := tx.Raw("SELECT clock_timestamp()").Scan(&leaseClock).Error; err != nil {
+					return err
+				}
+			}
+			cutoff := leaseClock.Add(-bulkImportClaimLease)
 			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 				Where("id = ? AND school_id = ? AND initiated_by = ? AND worker_id = ? AND status = ? AND claimed_at >= ?",
 					job.ID, job.SchoolID, job.InitiatedBy, *job.WorkerID, models.BulkImportRunning, cutoff).
@@ -52,12 +59,28 @@ func (s *BulkImportService) withTenantTransaction(job models.BulkImportJob, fn f
 	})
 }
 
-// claimNextJob is a deliberately system-level queue operation. The current
-// deployment's postgres/BYPASSRLS connection can see the global queue; this
-// must be replaced by a narrowly privileged queue role/service before a
-// NOBYPASSRLS runtime cutover.
+// claimNextJob uses a narrowly granted SECURITY DEFINER function on PostgreSQL.
+// There is deliberately no direct-table fallback for PostgreSQL: a missing or
+// misconfigured function is a hard worker error, not a reason to use BYPASSRLS.
+// SQLite retains the direct transactional implementation for local unit tests.
 func (s *BulkImportService) claimNextJob() (*models.BulkImportJob, error) {
 	var claimed *models.BulkImportJob
+	if s.db.Dialector.Name() == "postgres" {
+		err := s.db.Transaction(func(tx *gorm.DB) error {
+			var job models.BulkImportJob
+			result := tx.Raw("SELECT * FROM stonez_internal.claim_next_bulk_import_job(?)", s.workerID).Scan(&job)
+			if result.Error != nil {
+				return fmt.Errorf("claim bulk import job through restricted queue function: %w", result.Error)
+			}
+			if result.RowsAffected == 0 {
+				return nil
+			}
+			claimed = &job
+			return nil
+		})
+		return claimed, err
+	}
+
 	cutoff := time.Now().UTC().Add(-bulkImportClaimLease)
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var job models.BulkImportJob
@@ -102,6 +125,7 @@ func (s *BulkImportService) workerLoop() {
 	for {
 		job, err := s.claimNextJob()
 		if err != nil {
+			log.Printf("bulk import worker claim failed: %v", err)
 			time.Sleep(bulkImportPollInterval)
 			continue
 		}
@@ -115,6 +139,11 @@ func (s *BulkImportService) workerLoop() {
 
 func (s *BulkImportService) updateClaimedJob(job models.BulkImportJob, workerID uuid.UUID, values map[string]any) error {
 	return s.withTenantTransaction(job, func(tx *gorm.DB) error {
+		if tx.Dialector.Name() == "postgres" {
+			if claimedAt, ok := values["claimed_at"]; ok && claimedAt != nil {
+				values["claimed_at"] = gorm.Expr("clock_timestamp()")
+			}
+		}
 		query := tx.Model(&models.BulkImportJob{}).
 			Where("id = ? AND school_id = ? AND initiated_by = ?", job.ID, job.SchoolID, job.InitiatedBy)
 		if workerID != uuid.Nil {

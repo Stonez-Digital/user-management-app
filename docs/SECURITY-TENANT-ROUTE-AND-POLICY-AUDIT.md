@@ -1,0 +1,200 @@
+# Tenant route and RLS readiness audit
+
+Audit date: 2026-11-16
+Scope: repository branch `security/bulk-import-queue-role-boundary` and read-only catalog inspection of staging Supabase project `school-media-recovery-test` (`upschwxqagjhmextcxyp`).
+
+This is a preparation audit. It does not authorize production DDL, credential changes, Render changes, or a runtime cutover.
+
+## Executive result
+
+The bulk-import claim boundary is installed on staging, and several school-owned route families now use request-scoped transactions. The application-wide restricted API runtime is not ready.
+
+- The application API still uses the PostgreSQL `postgres` login with `BYPASSRLS`.
+- The route transaction middleware is deliberately opt-in. Every school-scoped route must use `TenantTransaction(db)` and every controller/service/repository/audit query in that request must use `TenantDBFromContext(c)`.
+- School profile/logo, audit-log, and protected school-content/media admin handlers have now been migrated to request-scoped transactions on this branch. External object-storage mutations are deferred until commit, with upload compensation on rollback.
+- The initial staging snapshot had 42 public tables. The two reviewed subscription schema migrations and billing RLS installer have since been applied to staging only. The four billing tables now have FORCE RLS and nine narrowly scoped policies. The original 42-table inventory predates these additions; refresh the full inventory before relying on its table count. The remaining original 27-RLS-disabled / 14-policyless counts are historical baseline figures, not a current complete catalog count.
+- All inspected public application tables are owned by `postgres`.
+- `stonez_api_runtime` is NOLOGIN/NOBYPASSRLS and has no login member. Its only observed application-table grants are on `bulk_import_jobs`. The worker login inherits this group with INHERIT=true, SET=false, ADMIN=false.
+- The repository production posture document reports 45 public application tables. The 42-table staging catalog is not evidence of production schema parity; production needs its own read-only catalog comparison before any cutover.
+
+## Route inventory
+
+### Already using request-scoped tenant transactions
+
+The inspected route wiring includes transaction middleware for:
+- Student CRUD.
+- Academic sessions, terms, academic context and readiness.
+- Classes, sections, subjects and class-subject mappings.
+- Teacher assignments and teacher workspace assignment/attendance/assessment/result/timetable routes.
+- Enrollments.
+- Attendance, assessments, assessment results and report cards.
+- Fees, invoices and invoice payments.
+- Bulk-import preview/start/list/get.
+- Guardian links and parent portal child/attendance/report-card/timetable/invoice/payment reads.
+- Student portal profile, enrollment, terms, attendance, timetable, report cards, invoices and payments.
+- School dashboard.
+- Person onboarding and school user CRUD.
+- Role assignment and user activation/deactivation.
+- Announcements and parent notifications.
+- School profile reads/updates and logo metadata: `GET/PUT /admin/school`, `POST /admin/school/logo`.
+- Audit-log reads: `GET /admin/audit-logs`.
+- Protected admin blog, gallery, advertisement and enquiry management routes, including media upload/delete metadata.
+- Student CareerPath attempt routes; the static assessment catalogue endpoint remains database-free.
+
+The school profile/audit and content/media migrations bind service/database operations to the request transaction and include fail-closed handler tests. Content/media handling defers object deletion until after DB commit and registers cleanup for newly uploaded objects if the DB transaction rolls back. Cleanup callback errors are logged; they still require operational monitoring and reconciliation.
+
+This is route-level and unit-test evidence only. The associated services, repositories, nested transactions, external side effects and audit writes still need PostgreSQL integration tests under the exact restricted login. The migrations do not prove that RLS policies or restricted-role grants are complete.
+
+### Tenant-scoped routes still missing request transaction wiring
+
+The current route wiring still needs migration/review for:
+- `GET/PUT /me`: user profile reads and updates. Must be classified for school members versus platform administrators.
+- Billing: `GET /admin/billing/subscription`, `POST /admin/billing/checkout`, and `POST /admin/billing/verify` do not use route-level `TenantTransaction(db)` middleware. However, the inspected billing service explicitly binds authenticated school/user context with `WithTenantContext` and opens its own short `tenantTransaction` around each DB phase, setting transaction-local GUCs. Provider initialization and verification remain outside those DB transactions. `GET /admin/billing/plans` is intentionally a global catalogue read. This service-level boundary is structurally in place, but it still needs integration tests using the actual restricted runtime login and staging term fixtures; do not label it runtime-verified yet.
+
+### Routes that need explicit non-tenant access models
+
+These must not be blindly wrapped in school tenant middleware:
+- Login, refresh, logout, forgot/reset password, password change, session list/revoke and logout-all. These are identity/session/token operations and need a dedicated user-identity transaction/access model.
+- Platform super-admin routes for national curriculum management, school provisioning/management, monitoring and domain reconciliation. These are platform-global and need narrowly scoped platform permissions and database access.
+- Public school pages, public blog/gallery reads and public enquiries. These require explicit safe public projections and bounded write permissions; they must not expose unrestricted school tables.
+- Global national curriculum catalogue reads and role catalogue reads require a deliberate global-read policy/grant or a controlled backend service path.
+
+## Staging RLS catalog snapshot
+
+### RLS disabled (27)
+
+`academic_sessions`, `announcements`, `assessment_results`, `assessments`, `attendance_records`, `audit_logs`, `career_path_attempts`, `fee_items`, `guardian_relationships`, `invoice_lines`, `invoices`, `migrations`, `notifications`, `password_reset_tokens`, `payments`, `refresh_tokens`, `role_change_audits`, `school_classes`, `sections`, `sessions`, `student_enrollments`, `students`, `subjects`, `teacher_assignments`, `terms`, `timetable_entries`, `users`.
+
+### RLS enabled but no policies (14)
+
+`blog_categories`, `blog_posts`, `class_subjects`, `gallery_albums`, `gallery_images`, `national_curricula`, `national_curriculum_classes`, `national_curriculum_levels`, `national_curriculum_subjects`, `parent_profiles`, `school_advertisements`, `school_enquiries`, `schools`, `teacher_profiles`.
+
+### RLS enabled with policies
+
+`bulk_import_jobs` only:
+- `bulk_import_jobs_queue_owner_all`
+- `bulk_import_jobs_tenant_select`
+- `bulk_import_jobs_tenant_insert`
+- `bulk_import_jobs_tenant_update`
+
+All 42 inspected public tables were owned by `postgres`; none had FORCE RLS in the snapshot.
+
+## Staging billing schema and RLS installation (2026-11-16)
+
+After explicit authorization, the exact repository SQL files below were applied to staging project `school-media-recovery-test` only, in order:
+
+1. `migrations/20261112_school_subscription_foundation.sql`
+2. `migrations/20261112_subscription_checkout_payments.sql`
+3. `scripts/security/install_subscription_billing_rls.sql`
+
+Verified after application:
+
+- Four billing tables exist: `billing_plans`, `school_subscriptions`, `subscription_events`, and `subscription_payments`.
+- Five plan catalogue rows exist.
+- All four tables have RLS enabled and FORCE RLS enabled.
+- Exactly nine expected policies exist across the four tables.
+- All four tables remain owned by `postgres`, not the runtime role.
+- `stonez_api_runtime` remains NOLOGIN, NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE, INHERIT.
+- Runtime grants match the intended minimum: plans SELECT; subscriptions SELECT/INSERT/UPDATE; events SELECT/INSERT; payments SELECT/INSERT/UPDATE.
+- No table privileges remain for `service_role` on the four billing tables.
+- The two SQL files are intentionally outside the automatic GORM migration runner; the application migration ledger was not modified.
+
+Important test limitations:
+
+- The staging database currently has one school but zero terms. Therefore a valid school/term subscription fixture cannot be created for an end-to-end tenant-write test without adding staging data; use isolated fixtures rather than altering this shared staging project.
+- An attempt to switch the shared staging SQL editor session to `stonez_bulk_worker` using `SET ROLE` was rejected with permission denied. That staging editor session therefore did not prove the staging worker login's runtime behavior. Separately, the isolated CI PostgreSQL RLS test now creates an ephemeral NOLOGIN group role plus a distinct NOBYPASSRLS LOGIN member and connects using the login's password; it asserts both `current_user` and `session_user` are that login.
+- The isolated CI test passed against disposable PostgreSQL 16: the real restricted LOGIN inherited the policy role, read only each tenant's own rows for subscriptions/events/payments, was denied cross-school inserts and school-changing updates, was denied mismatched event actors, and received zero tenant rows plus rejected inserts without transaction-local tenant context. It also verified the intended global active-plan read and denied excess write privileges. This is strong policy/runtime-role evidence, but it does not prove the separately provisioned `stonez_bulk_worker` login on the shared staging project can authenticate; that staging-specific login smoke test remains outstanding.
+- The installer policies trust transaction-local `app.current_school_id` / `app.current_user_id` values supplied by application code. They are not authenticated database claims.
+
+No production database, credentials, Render service or deployment was changed.
+
+## Required remaining work
+
+1. Complete restricted-login PostgreSQL integration tests for billing's service-managed tenant transactions, including no-context denial, cross-school isolation and provider-call transaction boundaries. Provision realistic staging term fixtures in an isolated test setup (not by editing live staging school data). Also migrate and test `/me` with explicit user/school ownership boundaries. Keep provider calls outside DB transactions and preserve idempotent verification/reconciliation.
+2. Build a complete table-to-route/service ownership matrix for every application table, including indirect child ownership and cross-school foreign-key consistency.
+3. Classify each table as tenant-scoped, user-scoped, platform-global, public projection, queue/system, migration-only, or token/session.
+4. Write and review policies and grants for the exact restricted API role. Include SELECT policies for UPDATE paths, both USING and WITH CHECK, no-context denial, user-specific rules, and explicit public/platform exceptions.
+5. Review views, SECURITY DEFINER functions, triggers, storage policies, sequences, and default privileges separately. Ensure no accidental PUBLIC execution or broad table grants.
+6. Add PostgreSQL integration tests using the actual restricted runtime login and at least two schools. Test SELECT/INSERT/UPDATE/DELETE, no tenant context, pooled-connection context reset, rollback, cross-tenant foreign keys, user/session operations, public reads, platform-admin operations and background workers.
+7. Compare staging and production schemas/catalogs read-only. Resolve the 42-versus-45 table discrepancy and verify production policy/role state independently.
+8. Only after every gate passes, plan a separately approved cutover with a restricted runtime login, separate migration/bootstrap credentials, `REQUIRE_NOBYPASSRLS=true`, staging smoke tests, production smoke tests and a tested rollback path.
+
+## Trust-boundary warning
+
+The current `app.current_school_id` and `app.current_user_id` values are custom PostgreSQL settings set by trusted application code. They are transaction-local and prevent accidental cross-request context leakage, but a compromised runtime SQL credential can set them itself. They are not cryptographically authenticated tenant claims and do not alone protect against arbitrary SQL execution or SQL injection.
+
+## Safety
+
+No production database was queried or changed as part of this audit. No production role, policy, grant, secret, Render setting or deployment was changed. The initial staging catalog queries were read-only; the separately authorized billing DDL installation was limited to staging.
+
+
+## User identity and session transaction boundary — implementation in progress (2026-11-16)
+
+A school-optional identity transaction was added for authenticated self-service identity routes. It sets transaction-local app.current_user_id and, when the authenticated user has a school association, app.current_school_id. Platform administrators without a school association can therefore use their own profile and session endpoints without passing through school-required middleware.
+
+Migrated handlers now obtain their database handle from the identity transaction context rather than the application-wide root handle:
+
+- GET /me and PUT /me: select/update only the authenticated user; school profile projection is read using that user's stored school association.
+- GET /sessions: lists only non-revoked sessions belonging to the authenticated user.
+- DELETE /sessions/:id: requires both session ID and authenticated user ID; session and matching refresh-token revocation occur in one nested transaction.
+- POST /auth/logout-all: revokes only the authenticated user's sessions and refresh tokens in one transaction, with its audit event in that transaction.
+- POST /auth/change-password: password update, refresh-token revocation, session revocation and audit event share the identity transaction.
+
+Authentication middleware now propagates the school association loaded from the authenticated user record; it does not accept a client-supplied school ID. The identity transaction fails closed when the authenticated user context is absent. School context is optional for this middleware by design.
+
+Added SQLite controller/middleware tests for school-linked and platform /me access, self-only profile updates, session listing isolation, cross-user revoke denial, session/refresh-token atomicity, logout-all ownership, and missing identity transaction rejection.
+
+**Validation status:** CI for the current branch head is running. These tests are not yet reported as passing. Authentication middleware still performs its pre-handler session and active-user lookups using the configured application DB connection; those checks are outside the migrated handlers and must be addressed separately before a restricted runtime/RLS cutover.
+
+No production database, Render service, credential, or deployment was changed. PR #354 remains draft and unmerged.
+
+
+## Authentication middleware pre-handler database boundary — implementation in progress (2026-11-16)
+
+The audit found two pre-handler paths that queried the application-wide GORM handle directly:
+
+1. `AuthMiddleware` queried `sessions` to validate the signed access token's session, then queried `users` to confirm the account is active and load its current role and school association.
+2. `RequireSchoolContext` repeated a `users` lookup to retrieve `school_id` and active status.
+
+The first path has been changed to open a short transaction. After JWT signature validation and UUID parsing, it sets transaction-local `app.current_user_id` from the signed token claim, then reads the matching non-revoked, unexpired session and active user through the transaction handle. It loads the current role and school association and sets `app.current_school_id` transaction-locally before committing. Only after that transaction completes does the request continue to downstream middleware/handlers. Database errors now fail closed with HTTP 500 rather than being misreported as invalid credentials; missing/expired/revoked session or inactive/missing user remains HTTP 401.
+
+`RequireSchoolContext` now validates the school association already propagated by `AuthMiddleware`; it no longer performs a second root-DB user query. It still rejects a missing or invalid school context with HTTP 403. Platform routes that do not install this guard continue to allow platform administrators without a school.
+
+Added middleware tests cover propagation of authenticated user ID, current DB role and school association, plus missing-school rejection. Existing revoked-session and active-session tests remain in place.
+
+**RLS prerequisite, not yet implemented:** staging's earlier catalog audit found `users` and `sessions` among the tables without RLS enabled. No identity/session policies or restricted-runtime grants have been installed for them. The new transaction-local user context is therefore groundwork, not evidence that the restricted runtime can yet authenticate. Before expanding RLS, define and test self-only SELECT policies for `users` and `sessions`, required minimum grants, and explicit treatment of platform identity records. Do not enable FORCE RLS or change the production runtime login until those policies and all other authentication flows are covered.
+
+**Remaining authentication paths to audit:** login/session creation, refresh-token rotation/reuse handling, logout, forgot/reset-password, and any password-reset/audit operations still use the root DB handle. They are unauthenticated/public workflows and need separate narrow transaction scopes and carefully designed access policies; they are not implicitly covered by the authenticated pre-handler transaction.
+
+No production database, Render service, credential, or deployment was changed. PR #354 remains draft and unmerged. CI for the pre-handler changes is queued at the time of this update.
+
+
+## Public login and refresh transaction slice — implementation in progress (2026-11-16)
+
+The login and refresh handlers have been moved to short database transactions on this branch.
+
+- Login now reads the account and validates its active status, password and school association within one transaction. Once the user is resolved, PostgreSQL transaction-local `app.current_user_id` and `app.current_school_id` are set before the school lookup and session writes. The refresh-token row, session row and `auth.login` audit event commit together. A failed audit write rolls back session creation.
+- Refresh now performs token lookup, owner lookup, active-account and school validation, session validation, single-use token claim, replacement-token creation and session hash rotation within one transaction. The user context is set after resolving the stored token owner; the school context is set after loading the active user.
+- Reuse detection now revokes all refresh tokens and sessions in the affected user/family and records `security.refresh_token_reuse` in the same transaction. Failures are returned as server errors and roll back the revocation rather than being ignored.
+- Conditional updates require exactly one row to be claimed/rotated. If a concurrent refresh loses the claim or session update, the family is revoked and audited in the same transaction.
+- Added regression tests proving login session creation rolls back when its audit write fails, and reuse-family revocation rolls back if its audit write fails.
+
+**Important RLS bootstrap limitation:** these handlers are transactionally scoped, but the initial login account lookup and initial refresh-token-hash lookup occur before a trusted user identity can be established. They cannot be authorized by ordinary self-only RLS policies on `users` or `refresh_tokens` once FORCE RLS is enabled. Do not install identity/session RLS or switch the runtime login based on this slice alone. The next design must provide narrow pre-authentication bootstrap operations (for example, carefully constrained database functions or a separate restricted authentication identity) that return only the minimum credential-verification material and token owner identity. After that bootstrap, all user/session/token work can use the transaction-local identity context.
+
+**Validation:** GitHub CI for the latest code and regression-test commits must complete before this slice is treated as validated. No identity/session RLS policies, staging DDL, production changes, credential changes, merges or deployments are included.
+
+
+## Logout and password recovery transaction slice — implementation in progress (2026-11-16)
+
+The logout and password-reset handlers have been tightened on this branch:
+
+- Logout now resolves the presented, unexpired refresh-token hash and performs token revocation, matching session revocation and the `auth.logout` audit insert in one transaction. After resolving the token owner, PostgreSQL operations set transaction-local `app.current_user_id`; all writes are constrained by user, token and family. Exactly one token and one matching session must be updated or the transaction fails closed.
+- Forgot-password now performs active-account lookup, invalidation of older outstanding reset tokens and creation of the new hashed reset token in one transaction. After resolving the account, PostgreSQL sets the user and optional school context. Mail delivery remains outside the transaction. If the mailer is unavailable or delivery fails, the newly issued token is invalidated in a separate identity-scoped transaction; invalidation failures are logged as critical operational errors. The API response remains non-enumerating for existing versus unknown accounts.
+- Reset-password now treats the reset-token hash as a pre-authentication bootstrap credential, sets transaction-local user identity after resolving the token owner, atomically claims the unexpired single-use token, requires exactly one active user row to be updated, revokes refresh tokens and sessions, and writes `security.password_reset` in the same transaction. An audit or downstream write failure rolls back the password update, token claim and revocations.
+- Added SQLite regression tests for logout audit rollback, password-reset audit rollback, and reset-token invalidation when the mailer is unavailable. Existing reset success/reuse and logout success tests remain.
+
+**Validation status:** the code and regression tests have been committed to this draft PR, but CI has not yet been checked for these new commits. These SQLite tests do not replace PostgreSQL restricted-login tests.
+
+**Pre-authentication RLS boundary remains unresolved:** forgot-password must initially locate an account by email, while reset-password and logout must initially locate a token by its hash. Those lookups happen before a trusted database user identity is established. Ordinary self-only RLS policies cannot authorize them under FORCE RLS. Keep identity/session RLS installation and restricted runtime cutover blocked until these bootstrap reads are moved behind narrowly scoped, reviewed database functions or a separate restricted authentication identity, and tested with actual PostgreSQL logins.
+
+No identity/session RLS policies, staging DDL, production database changes, credentials, Render settings, merges or deployments are included in this slice.

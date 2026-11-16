@@ -25,6 +25,11 @@ func NewSchoolService(repo repository.SchoolRepository, db *gorm.DB) *SchoolServ
 
 func (s *SchoolService) DB() *gorm.DB { return s.db }
 
+// WithDB returns a school service whose repository and writes use the request transaction.
+func (s *SchoolService) WithDB(db *gorm.DB) *SchoolService {
+	return &SchoolService{repo: repository.NewSchoolRepository(db), db: db}
+}
+
 func (s *SchoolService) GetSchool(id uuid.UUID) (models.School, error) {
     school, err := s.repo.GetByID(id)
     if errors.Is(err, gorm.ErrRecordNotFound) { return school, ErrSchoolNotFound }

@@ -575,7 +575,7 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 			if !rotated {
 				return errRefreshReused
 			}
-			return nil
+			return audit.Record(tx, c, &stored.UserID, "auth.refresh", "user", &stored.UserID, map[string]interface{}{"family_id": familyID.String()})
 		}
 		result := tx.Model(&models.RefreshToken{}).Where("id = ? AND revoked = false", stored.ID).Update("revoked", true)
 		if result.Error != nil {
@@ -594,7 +594,7 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 		if result.RowsAffected != 1 {
 			return errRefreshReused
 		}
-		return nil
+		return audit.Record(tx, c, &stored.UserID, "auth.refresh", "user", &stored.UserID, map[string]interface{}{"family_id": familyID.String()})
 	})
 	if errors.Is(err, errRefreshReused) {
 		if err := revokeRefreshFamilyAndAudit(ac.DB, c, stored.UserID, stored.FamilyID); err != nil {

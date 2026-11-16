@@ -210,17 +210,17 @@ BEGIN
         RETURN;
     END IF;
 
-    UPDATE public.sessions
+    UPDATE public.sessions AS s
        SET revoked = true
-     WHERE id = v_session_id
-       AND user_id = v_user_id
-       AND revoked = false;
+     WHERE s.id = v_session_id
+       AND s.user_id = v_user_id
+       AND s.revoked = false;
 
-    UPDATE public.refresh_tokens
+    UPDATE public.refresh_tokens AS rt
        SET revoked = true
-     WHERE token_hash = p_token_hash
-       AND user_id = v_user_id
-       AND revoked = false;
+     WHERE rt.token_hash = p_token_hash
+       AND rt.user_id = v_user_id
+       AND rt.revoked = false;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'logout refresh token missing or already revoked';
     END IF;
@@ -392,10 +392,10 @@ BEGIN
     END IF;
 
     -- Keep lock order aligned with refresh rotation and logout.
-    UPDATE public.sessions SET revoked = true
-     WHERE user_id = v_user_id AND revoked = false;
-    UPDATE public.refresh_tokens SET revoked = true
-     WHERE user_id = v_user_id AND revoked = false;
+    UPDATE public.sessions AS s SET revoked = true
+     WHERE s.user_id = v_user_id AND s.revoked = false;
+    UPDATE public.refresh_tokens AS rt SET revoked = true
+     WHERE rt.user_id = v_user_id AND rt.revoked = false;
 
     RETURN QUERY SELECT v_user_id, v_school_id;
 END

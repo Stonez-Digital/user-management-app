@@ -182,6 +182,31 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 		t.Fatalf("expected exactly one committed login audit event, got %d", loginAuditCount)
 	}
 
+	// A failed refresh audit insert must roll back both token rotation writes.
+	if err := admin.Exec("CREATE FUNCTION " + privateSchema + ".reject_auth_audit() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN RAISE EXCEPTION 'audit sink unavailable'; END $").Error; err != nil {
+		t.Fatalf("create refresh audit failure trigger function: %v", err)
+	}
+	if err := admin.Exec("CREATE TRIGGER reject_auth_audit BEFORE INSERT ON " + tableSchema + ".audit_logs FOR EACH ROW EXECUTE FUNCTION " + privateSchema + ".reject_auth_audit()").Error; err != nil {
+		t.Fatalf("install refresh audit failure trigger: %v", err)
+	}
+	failedRefresh := authJSONRequest(t, ac, "POST", "/refresh", fmt.Sprintf(`{"refresh_token":%q}`, rawRefresh))
+	if failedRefresh.Code != 500 {
+		t.Fatalf("expected refresh to fail when audit insert fails, got %d: %s", failedRefresh.Code, failedRefresh.Body.String())
+	}
+	var unrotated int64
+	if err := admin.Table(tableSchema + ".refresh_tokens").Where("token_hash = ? AND revoked = false", auth.HashRefreshToken(rawRefresh)).Count(&unrotated).Error; err != nil {
+		t.Fatal(err)
+	}
+	if unrotated != 1 {
+		t.Fatal("refresh audit failure left the original token revoked")
+	}
+	if err := admin.Exec("DROP TRIGGER reject_auth_audit ON " + tableSchema + ".audit_logs").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Exec("DROP FUNCTION " + privateSchema + ".reject_auth_audit()").Error; err != nil {
+		t.Fatal(err)
+	}
+
 	_, rotatedRefresh := decodeAuthTokens(t, authJSONRequest(t, ac, "POST", "/refresh", fmt.Sprintf(`{"refresh_token":%q}`, rawRefresh)))
 	if rotatedRefresh == rawRefresh {
 		t.Fatal("expected PostgreSQL handler to rotate the refresh token")
@@ -195,6 +220,13 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 	}
 	if !priorToken.Revoked {
 		t.Fatalf("rotation did not persist the old token as revoked (family %s)", priorToken.FamilyID)
+	}
+	var refreshAuditCount int64
+	if err := admin.Table(tableSchema + ".audit_logs").Where("action = ? AND resource_id = ?", "auth.refresh", userID).Count(&refreshAuditCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if refreshAuditCount != 1 {
+		t.Fatalf("expected exactly one committed refresh audit event, got %d", refreshAuditCount)
 	}
 	// A failed security audit insert must roll back family revocation as well.
 	if err := admin.Exec("CREATE FUNCTION " + privateSchema + ".reject_auth_audit() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN RAISE EXCEPTION 'audit sink unavailable'; END $").Error; err != nil {

@@ -9,7 +9,7 @@ BEGIN TRANSACTION READ ONLY;
 \echo ''
 \echo '=== 1. Database/session identity ==='
 SELECT current_database() AS database_name,
-       current_user AS current_user,
+       current_user AS current_role_name,
        session_user AS session_user,
        current_setting('server_version') AS server_version,
        current_setting('transaction_read_only') AS transaction_read_only,
@@ -157,7 +157,7 @@ WHERE n.nspname = 'public'
 ORDER BY r.rolname, privilege.privilege_type;
 
 \echo ''
-\echo '=== 8. Explicit table ACL entries (grantor/grantee/options) ==='
+\echo '=== 9. Explicit table ACL entries (grantor/grantee/options) ==='
 SELECT n.nspname AS schema_name,
        c.relname AS table_name,
        grantor.rolname AS grantor,
@@ -174,7 +174,7 @@ WHERE n.nspname = 'public'
 ORDER BY c.relname, grantee, acl.privilege_type;
 
 \echo ''
-\echo '=== 9. RLS policy role resolution and permissive/restrictive counts ==='
+\echo '=== 10. RLS policy role resolution and permissive/restrictive counts ==='
 SELECT p.schemaname,
        p.tablename,
        count(*) AS total_policies,

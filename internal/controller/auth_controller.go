@@ -476,7 +476,7 @@ func revokeRefreshFamilyAndAudit(db *gorm.DB, c *gin.Context, userID, familyID u
 		if err := revokeRefreshFamily(tx, familyID); err != nil {
 			return err
 		}
-		return audit.Record(tx, c, &userID, "security.refresh_token_reuse", "user", &userID,
+		return audit.RecordWithSchoolID(tx, c, &userID, schoolID, "security.refresh_token_reuse", "user", &userID,
 			map[string]interface{}{"family_id": familyID.String()})
 	})
 }

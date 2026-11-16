@@ -43,8 +43,7 @@ Do not configure a migration URL or run application migrations from this worker.
 
 For Supabase shared Session pooler connections, use the role-specific username
 format `stonez_bulk_worker.<project-ref>` and the host/port copied from the
-project's Connect dialog. Keep the password in Render's secret environment
-settings; never commit it or put it in a SQL file.
+project's Connect dialog. Keep the password only in the GitHub Actions repository secret; never commit it or put it in a SQL file.
 
 ## Staging rollout sequence
 
@@ -74,10 +73,3 @@ If processing must be continuous rather than scheduled, Render Background
 Workers are available but Render does not offer a free compute plan for them.
 The included `Dockerfile.worker` can be used for that deployment. Do not create
 or deploy a paid worker without explicit approval.
-
-**Important transitional limitation:** the processing connection still uses the
-existing application database identity. This isolates the global claim
-capability from the HTTP API but does not yet make job processing itself
-least-privileged. Complete the wider tenant RLS rollout and a restricted
-processing-role design before any restricted application-processing or
-production cutover.

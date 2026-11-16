@@ -56,6 +56,11 @@ func TestMeIdentityTransactionSupportsSchoolAndPlatformUsers(t *testing.T) {
 	if rec.Code != http.StatusOK { t.Fatalf("platform user without school /me failed: %d %s", rec.Code, rec.Body.String()) }
 	if err := json.Unmarshal(rec.Body.Bytes(), &profile); err != nil { t.Fatal(err) }
 	if profile["school_id"] != nil && profile["school_id"] != "" { t.Fatalf("platform profile unexpectedly has school: %#v", profile["school_id"]) }
+	rec = identityRequest(t, db, platformUser.ID, http.MethodPut, "/me", `{"name":"Updated Platform Name"}`, ctrl.UpdateMe)
+	if rec.Code != http.StatusOK { t.Fatalf("platform user update without school failed: %d %s", rec.Code, rec.Body.String()) }
+	var updatedPlatform models.User
+	if err := db.First(&updatedPlatform, "id = ?", platformUser.ID).Error; err != nil { t.Fatal(err) }
+	if updatedPlatform.Name != "Updated Platform Name" { t.Fatalf("platform profile update was not persisted: %q", updatedPlatform.Name) }
 
 	rec = identityRequest(t, db, schoolUser.ID, http.MethodPut, "/me", `{"name":"Updated Own Name"}`, ctrl.UpdateMe)
 	if rec.Code != http.StatusOK { t.Fatalf("own profile update failed: %d %s", rec.Code, rec.Body.String()) }

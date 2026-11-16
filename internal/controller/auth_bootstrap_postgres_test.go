@@ -239,14 +239,14 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 
 	// Logout-all must revoke every session and refresh token for this user,
 	// while leaving another user's sessions untouched.
-	otherUserID := uuid.New()
+	logoutAllUserID, otherUserID := uuid.New(), uuid.New()
 	logoutAllFamilyA, logoutAllFamilyB, otherFamily := uuid.New(), uuid.New(), uuid.New()
 	logoutAllHashA := auth.HashRefreshToken("postgres-logout-all-A-" + suffix)
 	logoutAllHashB := auth.HashRefreshToken("postgres-logout-all-B-" + suffix)
 	otherHash := auth.HashRefreshToken("postgres-logout-all-other-" + suffix)
 	for _, item := range []struct{ family, user uuid.UUID; hash string }{
-		{logoutAllFamilyA, userID, logoutAllHashA},
-		{logoutAllFamilyB, userID, logoutAllHashB},
+		{logoutAllFamilyA, logoutAllUserID, logoutAllHashA},
+		{logoutAllFamilyB, logoutAllUserID, logoutAllHashB},
 		{otherFamily, otherUserID, otherHash},
 	} {
 		if err := admin.Exec("INSERT INTO " + tableSchema + ".refresh_tokens (id,family_id,user_id,token_hash,expires_at,revoked) VALUES (?,?,?,?,?,false)", uuid.New(), item.family, item.user, item.hash, time.Now().Add(time.Hour)).Error; err != nil {
@@ -258,7 +258,7 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 	}
 	logoutAllRouter := gin.New()
 	logoutAllRouter.POST("/logout-all", func(c *gin.Context) {
-		c.Set("user_id", userID.String())
+		c.Set("user_id", logoutAllUserID.String())
 		ac.LogoutAll(c)
 	})
 	logoutAllReq := httptest.NewRequest("POST", "/logout-all", nil)
@@ -268,9 +268,9 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 		t.Fatalf("restricted PostgreSQL logout-all failed: %d %s", logoutAllRec.Code, logoutAllRec.Body.String())
 	}
 	var logoutAllRevokedTokens, logoutAllRevokedSessions, logoutAllAudit, otherStillActive int64
-	if err := admin.Table(tableSchema + ".refresh_tokens").Where("user_id = ? AND revoked = true AND token_hash IN ?", userID, []string{logoutAllHashA, logoutAllHashB}).Count(&logoutAllRevokedTokens).Error; err != nil { t.Fatal(err) }
-	if err := admin.Table(tableSchema + ".sessions").Where("user_id = ? AND revoked = true AND refresh_token_hash IN ?", userID, []string{logoutAllHashA, logoutAllHashB}).Count(&logoutAllRevokedSessions).Error; err != nil { t.Fatal(err) }
-	if err := admin.Table(tableSchema + ".audit_logs").Where("action = ? AND resource_id = ?", "auth.logout_all", userID).Count(&logoutAllAudit).Error; err != nil { t.Fatal(err) }
+	if err := admin.Table(tableSchema + ".refresh_tokens").Where("user_id = ? AND revoked = true AND token_hash IN ?", logoutAllUserID, []string{logoutAllHashA, logoutAllHashB}).Count(&logoutAllRevokedTokens).Error; err != nil { t.Fatal(err) }
+	if err := admin.Table(tableSchema + ".sessions").Where("user_id = ? AND revoked = true AND refresh_token_hash IN ?", logoutAllUserID, []string{logoutAllHashA, logoutAllHashB}).Count(&logoutAllRevokedSessions).Error; err != nil { t.Fatal(err) }
+	if err := admin.Table(tableSchema + ".audit_logs").Where("action = ? AND resource_id = ?", "auth.logout_all", logoutAllUserID).Count(&logoutAllAudit).Error; err != nil { t.Fatal(err) }
 	if err := admin.Table(tableSchema + ".refresh_tokens").Where("user_id = ? AND revoked = false", otherUserID).Count(&otherStillActive).Error; err != nil { t.Fatal(err) }
 	if logoutAllRevokedTokens != 2 || logoutAllRevokedSessions != 2 || logoutAllAudit != 1 || otherStillActive != 1 {
 		t.Fatalf("logout-all scope/audit incorrect: tokens=%d sessions=%d audits=%d other-user-active=%d", logoutAllRevokedTokens, logoutAllRevokedSessions, logoutAllAudit, otherStillActive)
@@ -278,6 +278,7 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 
 	// Individual session revocation must revoke only the selected session and
 	// its paired refresh token, never a sibling session or another user's row.
+	sessionOwnerUserID := uuid.New()
 	selectedSessionID, siblingSessionID := uuid.New(), uuid.New()
 	selectedFamilyID, siblingFamilyID := uuid.New(), uuid.New()
 	selectedHash := auth.HashRefreshToken("postgres-selected-session-" + suffix)
@@ -286,12 +287,12 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 		{selectedSessionID, selectedFamilyID, selectedHash},
 		{siblingSessionID, siblingFamilyID, siblingHash},
 	} {
-		if err := admin.Exec("INSERT INTO " + tableSchema + ".refresh_tokens (id,family_id,user_id,token_hash,expires_at,revoked) VALUES (?,?,?,?,?,false)", uuid.New(), item.family, userID, item.hash, time.Now().Add(time.Hour)).Error; err != nil { t.Fatal(err) }
-		if err := admin.Exec("INSERT INTO " + tableSchema + ".sessions (id,user_id,family_id,refresh_token_hash,expires_at,revoked) VALUES (?,?,?,?,?,false)", item.id, userID, item.family, item.hash, time.Now().Add(time.Hour)).Error; err != nil { t.Fatal(err) }
+		if err := admin.Exec("INSERT INTO " + tableSchema + ".refresh_tokens (id,family_id,user_id,token_hash,expires_at,revoked) VALUES (?,?,?,?,?,false)", uuid.New(), item.family, sessionOwnerUserID, item.hash, time.Now().Add(time.Hour)).Error; err != nil { t.Fatal(err) }
+		if err := admin.Exec("INSERT INTO " + tableSchema + ".sessions (id,user_id,family_id,refresh_token_hash,expires_at,revoked) VALUES (?,?,?,?,?,false)", item.id, sessionOwnerUserID, item.family, item.hash, time.Now().Add(time.Hour)).Error; err != nil { t.Fatal(err) }
 	}
 	revokeSessionRouter := gin.New()
 	revokeSessionRouter.POST("/sessions/:id/revoke", func(c *gin.Context) {
-		c.Set("user_id", userID.String())
+		c.Set("user_id", sessionOwnerUserID.String())
 		ac.RevokeSession(c)
 	})
 	revokeSessionReq := httptest.NewRequest("POST", "/sessions/"+selectedSessionID.String()+"/revoke", nil)

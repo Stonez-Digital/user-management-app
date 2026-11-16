@@ -44,7 +44,7 @@ func AuthMiddleware(db *gorm.DB) gin.HandlerFunc {
             c.Abort()
             return
         }
-        if err := db.Select("id, active, role").First(&user, "id = ?", claims.UserID).Error; err != nil || !user.Active {
+        if err := db.Select("id, active, role, school_id").First(&user, "id = ?", claims.UserID).Error; err != nil || !user.Active {
             c.JSON(http.StatusUnauthorized, gin.H{"error": "account inactive or unavailable"})
             c.Abort()
             return
@@ -54,6 +54,9 @@ func AuthMiddleware(db *gorm.DB) gin.HandlerFunc {
         // Always use the current database role. This makes role changes take effect
         // immediately instead of waiting for an old access token to expire.
         c.Set(RoleKey, user.Role)
+        if user.SchoolID != nil && *user.SchoolID != uuid.Nil {
+            c.Set(SchoolIDKey, user.SchoolID.String())
+        }
         c.Next()
     }
 }

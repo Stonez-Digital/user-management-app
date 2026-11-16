@@ -1,31 +1,50 @@
 package middleware
 
 import (
-    "net/http"
-    "net/http/httptest"
-    "testing"
-    "github.com/gin-gonic/gin"
-    "github.com/google/uuid"
-    "github.com/onoja217/users-management-app/internal/models"
-    "gorm.io/driver/sqlite"
-    "gorm.io/gorm"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
-func TestRequireSchoolContextSetsSchoolID(t *testing.T) {
-    db,err:=gorm.Open(sqlite.Open("file::memory:?cache=shared"),&gorm.Config{});if err!=nil{t.Fatal(err)}
-    if err:=db.AutoMigrate(&models.School{},&models.User{});err!=nil{t.Fatal(err)}
-    school:=models.School{Name:"Test School",Code:"TEST"};if err:=db.Create(&school).Error;err!=nil{t.Fatal(err)}
-    user:=models.User{Name:"Admin",Email:"admin@test.example",Role:"school_admin",Active:true,SchoolID:&school.ID};if err:=db.Create(&user).Error;err!=nil{t.Fatal(err)}
-    gin.SetMode(gin.TestMode);r:=gin.New();r.Use(func(c *gin.Context){c.Set(UserIDKey,user.ID.String());c.Next()});r.Use(RequireSchoolContext(db));r.GET("/",func(c *gin.Context){id,ok:=SchoolIDFromContext(c);if !ok||id!=school.ID{c.Status(http.StatusInternalServerError);return};c.Status(http.StatusNoContent)})
-    req:=httptest.NewRequest(http.MethodGet,"/",nil);rec:=httptest.NewRecorder();r.ServeHTTP(rec,req);if rec.Code!=http.StatusNoContent{t.Fatalf("expected 204, got %d",rec.Code)}
+func TestRequireSchoolContextAcceptsAuthenticatedSchool(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	schoolID := uuid.New()
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(SchoolIDKey, schoolID.String())
+		c.Next()
+	})
+	router.Use(RequireSchoolContext(nil))
+	router.GET("/", func(c *gin.Context) {
+		id, ok := SchoolIDFromContext(c)
+		if !ok || id != schoolID {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		c.Status(http.StatusNoContent)
+	})
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for authenticated school context, got %d", recorder.Code)
+	}
 }
 
-func TestRequireSchoolContextRejectsUserWithoutSchool(t *testing.T) {
-    db,err:=gorm.Open(sqlite.Open("file::memory:?cache=shared"),&gorm.Config{});if err!=nil{t.Fatal(err)}
-    if err:=db.AutoMigrate(&models.School{},&models.User{});err!=nil{t.Fatal(err)}
-    user:=models.User{Name:"Admin",Email:"noschool@test.example",Role:"school_admin",Active:true};if err:=db.Create(&user).Error;err!=nil{t.Fatal(err)}
-    gin.SetMode(gin.TestMode);r:=gin.New();r.Use(func(c *gin.Context){c.Set(UserIDKey,user.ID.String());c.Next()});r.Use(RequireSchoolContext(db));r.GET("/",func(c *gin.Context){c.Status(http.StatusNoContent)})
-    req:=httptest.NewRequest(http.MethodGet,"/",nil);rec:=httptest.NewRecorder();r.ServeHTTP(rec,req);if rec.Code!=http.StatusForbidden{t.Fatalf("expected 403, got %d",rec.Code)}
-}
+func TestRequireSchoolContextRejectsMissingAuthenticatedSchool(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/", RequireSchoolContext(nil), func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
 
-var _ = uuid.Nil
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 without authenticated school context, got %d", recorder.Code)
+	}
+}

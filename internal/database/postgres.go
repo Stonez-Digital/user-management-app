@@ -30,6 +30,19 @@ func Connect() (*gorm.DB, error) {
     default: return nil,fmt.Errorf("unsupported DB_DRIVER %q",driver)
     }
 }
+// ConnectPostgresURL opens a PostgreSQL connection using an explicit DSN.
+// It does not run migrations or log the supplied connection string.
+func ConnectPostgresURL(dsn string) (*gorm.DB, error) {
+    if strings.TrimSpace(dsn) == "" {
+        return nil, fmt.Errorf("PostgreSQL connection URL is required")
+    }
+    db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+    if err != nil {
+        return nil, fmt.Errorf("connect PostgreSQL database: %w", err)
+    }
+    return db, nil
+}
+
 func envOrDefault(key,fallback string) string { if value:=os.Getenv(key); value!="" { return value }; return fallback }
 
 func Migrate(db *gorm.DB) error {

@@ -39,6 +39,11 @@ GRANT SELECT (id, user_id, family_id, refresh_token_hash, expires_at, revoked), 
     UPDATE (refresh_token_hash, expires_at, revoked)
     ON TABLE public.sessions TO stonez_auth_session_owner;
 
+GRANT SELECT (id, school_id, active) ON TABLE public.users TO stonez_auth_session_owner;
+GRANT UPDATE (password_hash) ON TABLE public.users TO stonez_auth_session_owner;
+GRANT SELECT (id, user_id, token_hash, expires_at, used), INSERT, UPDATE (used)
+    ON TABLE public.password_reset_tokens TO stonez_auth_session_owner;
+
 DO $session_policy$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'refresh_tokens' AND policyname = 'auth_session_owner_access') THEN
@@ -46,6 +51,15 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'sessions' AND policyname = 'auth_session_owner_access') THEN
         CREATE POLICY auth_session_owner_access ON public.sessions FOR ALL TO stonez_auth_session_owner USING (true) WITH CHECK (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'users' AND policyname = 'auth_session_owner_password_select') THEN
+        CREATE POLICY auth_session_owner_password_select ON public.users FOR SELECT TO stonez_auth_session_owner USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'users' AND policyname = 'auth_session_owner_password_update') THEN
+        CREATE POLICY auth_session_owner_password_update ON public.users FOR UPDATE TO stonez_auth_session_owner USING (true) WITH CHECK (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'password_reset_tokens' AND policyname = 'auth_session_owner_reset_access') THEN
+        CREATE POLICY auth_session_owner_reset_access ON public.password_reset_tokens FOR ALL TO stonez_auth_session_owner USING (true) WITH CHECK (true);
     END IF;
 END
 $session_policy$;

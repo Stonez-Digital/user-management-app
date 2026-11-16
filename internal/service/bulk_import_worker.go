@@ -17,6 +17,7 @@ import (
 
 const bulkImportPollInterval = 2 * time.Second
 const bulkImportClaimLease = 5 * time.Minute
+const bulkImportIdleTimeout = 30 * time.Second
 
 // withTenantTransaction gives every worker-owned transaction an explicit
 // school and initiating-user context. PostgreSQL settings are transaction-local.
@@ -136,6 +137,7 @@ func (s *BulkImportService) RunWorker(ctx context.Context) error {
 	if s.db == nil || s.claimDB == nil {
 		return errors.New("bulk import worker requires application and claim database connections")
 	}
+	lastWorkAt := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
@@ -149,10 +151,14 @@ func (s *BulkImportService) RunWorker(ctx context.Context) error {
 			continue
 		}
 		if job == nil {
+			if time.Since(lastWorkAt) >= bulkImportIdleTimeout {
+				return nil
+			}
 			if !waitForWorkerPoll(ctx) { return ctx.Err() }
 			continue
 		}
 		s.processClaimed(*job, s.workerID)
+		lastWorkAt = time.Now()
 	}
 }
 

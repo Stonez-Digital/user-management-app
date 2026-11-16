@@ -80,6 +80,7 @@ func TestAuthBootstrapFunctionsEnforceRestrictedPostgresBoundary(t *testing.T) {
 	tables := []string{
 		"CREATE TABLE " + tableSchema + ".schools (id uuid PRIMARY KEY, status text NOT NULL, code text NOT NULL, slug text NOT NULL)",
 		"CREATE TABLE " + tableSchema + ".users (id uuid PRIMARY KEY, school_id uuid, name text NOT NULL, email text NOT NULL, password_hash text NOT NULL, role text NOT NULL, active boolean NOT NULL)",
+		"CREATE TABLE " + tableSchema + ".password_reset_tokens (id uuid PRIMARY KEY, user_id uuid NOT NULL, token_hash text NOT NULL UNIQUE, expires_at timestamptz NOT NULL, used boolean NOT NULL, created_at timestamptz)",
 		"CREATE TABLE " + tableSchema + ".refresh_tokens (id uuid PRIMARY KEY, family_id uuid NOT NULL, user_id uuid NOT NULL, token_hash text NOT NULL, expires_at timestamptz NOT NULL, revoked boolean NOT NULL)",
 		"CREATE TABLE " + tableSchema + ".sessions (id uuid PRIMARY KEY, user_id uuid NOT NULL, family_id uuid NOT NULL, refresh_token_hash text NOT NULL, expires_at timestamptz NOT NULL, revoked boolean NOT NULL, user_agent text, ip text)",
 	}

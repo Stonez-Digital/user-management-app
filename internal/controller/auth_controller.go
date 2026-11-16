@@ -442,7 +442,7 @@ func (ac *AuthController) Login(c *gin.Context) {
 				uuid.New(), user.ID, familyID, refreshHash, expiry, sessionID, c.Request.UserAgent(), c.ClientIP()).Error; err != nil {
 				return err
 			}
-			return audit.Record(tx, c, &user.ID, "auth.login", "user", &user.ID, nil)
+			return audit.RecordWithSchoolID(tx, c, &user.ID, user.SchoolID, "auth.login", "user", &user.ID, nil)
 		}
 		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: refreshHash, ExpiresAt: expiry}).Error; err != nil {
 			return err
@@ -450,7 +450,7 @@ func (ac *AuthController) Login(c *gin.Context) {
 		if err := tx.Create(&models.Session{ID: sessionID, UserID: user.ID, FamilyID: familyID, RefreshTokenHash: refreshHash, ExpiresAt: expiry, UserAgent: c.Request.UserAgent(), IP: c.ClientIP()}).Error; err != nil {
 			return err
 		}
-		return audit.Record(tx, c, &user.ID, "auth.login", "user", &user.ID, nil)
+		return audit.RecordWithSchoolID(tx, c, &user.ID, user.SchoolID, "auth.login", "user", &user.ID, nil)
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session"})
@@ -575,7 +575,7 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 			if !rotated {
 				return errRefreshReused
 			}
-			return audit.Record(tx, c, &stored.UserID, "auth.refresh", "user", &stored.UserID, map[string]interface{}{"family_id": familyID.String()})
+			return audit.RecordWithSchoolID(tx, c, &stored.UserID, user.SchoolID, "auth.refresh", "user", &stored.UserID, map[string]interface{}{"family_id": familyID.String()})
 		}
 		result := tx.Model(&models.RefreshToken{}).Where("id = ? AND revoked = false", stored.ID).Update("revoked", true)
 		if result.Error != nil {
@@ -594,7 +594,7 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 		if result.RowsAffected != 1 {
 			return errRefreshReused
 		}
-		return audit.Record(tx, c, &stored.UserID, "auth.refresh", "user", &stored.UserID, map[string]interface{}{"family_id": familyID.String()})
+		return audit.RecordWithSchoolID(tx, c, &stored.UserID, user.SchoolID, "auth.refresh", "user", &stored.UserID, map[string]interface{}{"family_id": familyID.String()})
 	})
 	if errors.Is(err, errRefreshReused) {
 		if err := revokeRefreshFamilyAndAudit(ac.DB, c, stored.UserID, stored.FamilyID); err != nil {

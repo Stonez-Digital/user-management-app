@@ -201,12 +201,12 @@ func TestAuthBootstrapFunctionsEnforceRestrictedPostgresBoundary(t *testing.T) {
 		if err := tx.Exec("SET LOCAL ROLE " + ownerRole).Error; err != nil {
 			return err
 		}
-		var count int64
-		if err := tx.Table(tableSchema + ".users").Count(&count).Error; err != nil {
+		var visible []uuid.UUID
+		if err := tx.Table(tableSchema + ".users").Pluck("id", &visible).Error; err != nil {
 			return err
 		}
-		if count != 1 {
-			return fmt.Errorf("bootstrap owner expected one visible user, got %d", count)
+		if len(visible) != 1 || visible[0] != userID {
+			return fmt.Errorf("bootstrap owner expected the seeded user only, got %v", visible)
 		}
 		return tx.Exec("UPDATE " + tableSchema + ".users SET active = false").Error
 	})

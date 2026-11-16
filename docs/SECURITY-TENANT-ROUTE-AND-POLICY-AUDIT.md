@@ -102,8 +102,8 @@ Verified after application:
 Important test limitations:
 
 - The staging database currently has one school but zero terms. Therefore a valid school/term subscription fixture cannot be created for an end-to-end tenant-write test without adding staging data; use isolated fixtures rather than altering this shared staging project.
-- An attempt to switch the Supabase SQL editor session to `stonez_bulk_worker` using `SET ROLE` was rejected with permission denied. The SQL editor's admin session therefore did not prove actual runtime-login behavior.
-- The nine policy definitions, RLS flags, role attributes and grants are catalog-verified, but no successful restricted-login smoke test or two-school isolation test has yet been run.
+- An attempt to switch the shared staging SQL editor session to `stonez_bulk_worker` using `SET ROLE` was rejected with permission denied. That staging editor session therefore did not prove the staging worker login's runtime behavior. Separately, the isolated CI PostgreSQL RLS test now creates an ephemeral NOLOGIN group role plus a distinct NOBYPASSRLS LOGIN member and connects using the login's password; it asserts both `current_user` and `session_user` are that login.
+- The isolated CI test passed against disposable PostgreSQL 16: the real restricted LOGIN inherited the policy role, read only each tenant's own rows for subscriptions/events/payments, was denied cross-school inserts and school-changing updates, was denied mismatched event actors, and received zero tenant rows plus rejected inserts without transaction-local tenant context. It also verified the intended global active-plan read and denied excess write privileges. This is strong policy/runtime-role evidence, but it does not prove the separately provisioned `stonez_bulk_worker` login on the shared staging project can authenticate; that staging-specific login smoke test remains outstanding.
 - The installer policies trust transaction-local `app.current_school_id` / `app.current_user_id` values supplied by application code. They are not authenticated database claims.
 
 No production database, credentials, Render service or deployment was changed.

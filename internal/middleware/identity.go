@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -48,7 +49,7 @@ func IdentityTransaction(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-var errIdentityRequestRollback = gorm.ErrInvalidTransaction
+var errIdentityRequestRollback = errors.New("identity request returned an error status")
 
 // IdentityDBFromContext returns the transaction opened by IdentityTransaction.
 func IdentityDBFromContext(c *gin.Context) (*gorm.DB, bool) {

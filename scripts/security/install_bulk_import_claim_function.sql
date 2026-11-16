@@ -22,8 +22,22 @@ BEGIN
     END IF;
 
     IF pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_owner', 'MEMBER')
-       OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime') OR roleid = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime'))
-       OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner') OR roleid = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner'))
+       OR EXISTS (
+            SELECT 1 FROM pg_auth_members
+             WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime')
+                OR (roleid = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime') AND NOT (
+                    member = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+                    AND admin_option AND NOT inherit_option AND NOT set_option
+                ))
+       )
+       OR EXISTS (
+            SELECT 1 FROM pg_auth_members
+             WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner')
+                OR (roleid = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner') AND NOT (
+                    member = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+                    AND admin_option AND NOT inherit_option AND NOT set_option
+                ))
+       )
        OR EXISTS (
             SELECT 1 FROM pg_roles AS privileged
              WHERE (privileged.rolsuper OR privileged.rolbypassrls)
@@ -131,7 +145,9 @@ GRANT SELECT, INSERT, UPDATE ON TABLE public.bulk_import_jobs TO stonez_api_runt
 -- avoids leaving the migration/operator role as function owner.
 GRANT USAGE ON SCHEMA public TO stonez_api_runtime;
 GRANT USAGE, CREATE ON SCHEMA stonez_internal TO stonez_bulk_queue_owner;
-GRANT stonez_bulk_queue_owner TO CURRENT_USER;
+-- Preserve PostgreSQL's bootstrap-granted ADMIN OPTION by omitting ADMIN;
+-- CREATEROLE members cannot re-grant ADMIN to themselves.
+GRANT stonez_bulk_queue_owner TO CURRENT_USER WITH INHERIT FALSE, SET TRUE;
 SET LOCAL ROLE stonez_bulk_queue_owner;
 
 CREATE OR REPLACE FUNCTION stonez_internal.claim_next_bulk_import_job(p_worker_id uuid)
@@ -143,8 +159,23 @@ AS $function$
 DECLARE
     v_job public.bulk_import_jobs%ROWTYPE;
 BEGIN
-    IF NOT pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER') THEN
-        RAISE EXCEPTION 'caller is not an authorized API runtime login';
+    -- MEMBER alone is insufficient: PostgreSQL 16+ gives a CREATEROLE
+    -- creator a non-inheriting, non-SET ADMIN membership in roles it creates.
+    -- Require effective inherited runtime privileges and a non-privileged
+    -- login; explicitly reject queue-owner membership.
+    IF NOT EXISTS (
+        SELECT 1
+          FROM pg_roles AS caller
+         WHERE caller.rolname = session_user
+           AND caller.rolcanlogin
+           AND NOT caller.rolsuper
+           AND NOT caller.rolbypassrls
+           AND NOT caller.rolcreatedb
+           AND NOT caller.rolcreaterole
+           AND pg_has_role(session_user, 'stonez_api_runtime', 'USAGE')
+           AND NOT pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')
+    ) THEN
+        RAISE EXCEPTION 'caller is not an authorized non-privileged API runtime login';
     END IF;
 
     IF p_worker_id IS NULL THEN
@@ -201,6 +232,8 @@ $$;
 GRANT EXECUTE ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) TO stonez_api_runtime;
 
 RESET ROLE;
+-- Remove only the temporary self-membership used for SET ROLE. PostgreSQL's
+-- bootstrap-granted creator ADMIN membership remains intact and SET FALSE.
 REVOKE stonez_bulk_queue_owner FROM CURRENT_USER;
 REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_bulk_queue_owner;
 

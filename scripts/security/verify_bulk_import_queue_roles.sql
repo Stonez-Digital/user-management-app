@@ -76,12 +76,29 @@ BEGIN
        OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'TRIGGER') THEN
         RAISE EXCEPTION 'API runtime has direct queue-table privileges';
     END IF;
+    -- PostgreSQL 16+ automatically grants the CREATEROLE actor ADMIN OPTION
+    -- on roles it creates, with INHERIT FALSE and SET FALSE. Permit only that
+    -- inert creator membership; reject every other membership in either role.
     IF pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_owner', 'MEMBER')
-       OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = api_role.oid OR roleid = api_role.oid) THEN
+       OR EXISTS (
+            SELECT 1 FROM pg_auth_members
+            WHERE member = api_role.oid
+               OR (roleid = api_role.oid AND NOT (
+                    member = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+                    AND admin_option AND NOT inherit_option AND NOT set_option
+               ))
+       ) THEN
         RAISE EXCEPTION 'API runtime must not inherit or assume another role';
     END IF;
-    IF EXISTS (SELECT 1 FROM pg_auth_members WHERE member = owner_role.oid OR roleid = owner_role.oid) THEN
-        RAISE EXCEPTION 'queue owner must not inherit or assume another role';
+    IF EXISTS (
+        SELECT 1 FROM pg_auth_members
+        WHERE member = owner_role.oid
+           OR (roleid = owner_role.oid AND NOT (
+                member = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+                AND admin_option AND NOT inherit_option AND NOT set_option
+           ))
+    ) THEN
+        RAISE EXCEPTION 'queue owner has unexpected role membership';
     END IF;
 
     IF EXISTS (

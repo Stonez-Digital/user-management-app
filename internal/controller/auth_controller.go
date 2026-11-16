@@ -497,7 +497,9 @@ func (ac *AuthController) RevokeSession(c *gin.Context) {
 		revoked := scoped.Model(&models.Session{}).Where("id = ? AND user_id = ? AND revoked = false", sessionID, userID).Update("revoked", true)
 		if revoked.Error != nil { return revoked.Error }
 		if revoked.RowsAffected != 1 { return gorm.ErrRecordNotFound }
-		if err := scoped.Model(&models.RefreshToken{}).Where("token_hash = ? AND user_id = ?", session.RefreshTokenHash, userID).Update("revoked", true).Error; err != nil { return err }
+		tokenRevoked := scoped.Model(&models.RefreshToken{}).Where("token_hash = ? AND user_id = ?", session.RefreshTokenHash, userID).Update("revoked", true)
+		if tokenRevoked.Error != nil { return tokenRevoked.Error }
+		if tokenRevoked.RowsAffected != 1 { return gorm.ErrRecordNotFound }
 		return audit.Record(scoped, c, &userID, "auth.session_revoke", "session", &sessionID, nil)
 	})
 	if errors.Is(err, gorm.ErrRecordNotFound) {

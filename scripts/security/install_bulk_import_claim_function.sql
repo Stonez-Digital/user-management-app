@@ -159,8 +159,23 @@ AS $function$
 DECLARE
     v_job public.bulk_import_jobs%ROWTYPE;
 BEGIN
-    IF NOT pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER') THEN
-        RAISE EXCEPTION 'caller is not an authorized API runtime login';
+    -- MEMBER alone is insufficient: PostgreSQL 16+ gives a CREATEROLE
+    -- creator a non-inheriting, non-SET ADMIN membership in roles it creates.
+    -- Require effective inherited runtime privileges and a non-privileged
+    -- login; explicitly reject queue-owner membership.
+    IF NOT EXISTS (
+        SELECT 1
+          FROM pg_roles AS caller
+         WHERE caller.rolname = session_user
+           AND caller.rolcanlogin
+           AND NOT caller.rolsuper
+           AND NOT caller.rolbypassrls
+           AND NOT caller.rolcreatedb
+           AND NOT caller.rolcreaterole
+           AND pg_has_role(session_user, 'stonez_api_runtime', 'USAGE')
+           AND NOT pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')
+    ) THEN
+        RAISE EXCEPTION 'caller is not an authorized non-privileged API runtime login';
     END IF;
 
     IF p_worker_id IS NULL THEN

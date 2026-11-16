@@ -88,6 +88,16 @@ func TestSubscriptionBillingRLSInstallerWithRestrictedPostgresRole(t *testing.T)
 	restrictedSQL.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = restrictedSQL.Close() })
 
+	// Prove the test is exercising a real PostgreSQL LOGIN identity, not
+	// merely SET ROLE on the admin connection.
+	var effectiveRole, sessionRole string
+	if err := restricted.Raw("SELECT current_user, session_user").Row().Scan(&effectiveRole, &sessionRole); err != nil {
+		t.Fatalf("read restricted PostgreSQL identity: %v", err)
+	}
+	if effectiveRole != loginRole || sessionRole != loginRole {
+		t.Fatalf("expected effective and session identity %q, got current_user=%q session_user=%q", loginRole, effectiveRole, sessionRole)
+	}
+
 	assertVisible := func(table string, schoolID uuid.UUID, want int64) {
 		t.Helper()
 		err := tenantTransaction(restricted, schoolID, userID, func(tx *gorm.DB) error {
@@ -98,9 +108,10 @@ func TestSubscriptionBillingRLSInstallerWithRestrictedPostgresRole(t *testing.T)
 		})
 		if err != nil { t.Errorf("%s tenant read: %v", table, err) }
 	}
-	assertVisible("school_subscriptions", schoolA, 1)
-	assertVisible("subscription_events", schoolA, 1)
-	assertVisible("subscription_payments", schoolA, 1)
+	for _, table := range []string{"school_subscriptions", "subscription_events", "subscription_payments"} {
+		assertVisible(table, schoolA, 1)
+		assertVisible(table, schoolB, 1)
+	}
 
 	if err := tenantTransaction(restricted, schoolA, userID, func(tx *gorm.DB) error {
 		var totalPlans int64
@@ -124,6 +135,23 @@ func TestSubscriptionBillingRLSInstallerWithRestrictedPostgresRole(t *testing.T)
 			err := tx.Transaction(func(savepoint *gorm.DB) error { return attempt.write(savepoint) })
 			if err == nil { t.Errorf("cross-school %s insert unexpectedly succeeded", attempt.name) }
 		}
+
+		// A tenant may not move an existing row into another school's tenant.
+		for _, table := range []string{"school_subscriptions", "subscription_payments", "subscription_events"} {
+			err := tx.Transaction(func(savepoint *gorm.DB) error {
+				return savepoint.Table(schema+"."+table).Where("school_id = ?", schoolA).Update("school_id", schoolB).Error
+			})
+			if err == nil { t.Errorf("cross-school %s update unexpectedly succeeded", table) }
+		}
+
+		// Event actor attribution is constrained to the authenticated user claim.
+		actorMismatchErr := tx.Transaction(func(savepoint *gorm.DB) error {
+			return savepoint.Table(schema+".subscription_events").Create(map[string]interface{}{
+				"id": uuid.New(), "school_id": schoolA, "actor_id": uuid.New(), "event_type": "forbidden_actor",
+			}).Error
+		})
+		if actorMismatchErr == nil { t.Error("subscription event with a different actor_id unexpectedly succeeded") }
+
 		if err := tx.Table(schema+".school_subscriptions").Where("school_id = ?", schoolA).Update("school_id", schoolA).Error; err != nil {
 			t.Errorf("same-school subscription update failed: %v", err)
 		}
@@ -142,7 +170,30 @@ func TestSubscriptionBillingRLSInstallerWithRestrictedPostgresRole(t *testing.T)
 		return nil
 	}); err != nil { t.Fatalf("restricted role tenant transaction: %v", err) }
 
-	var withoutContext int64
-	if err := restricted.Table(schema+".school_subscriptions").Count(&withoutContext).Error; err != nil { t.Fatal(err) }
-	if withoutContext != 0 { t.Fatalf("missing tenant context exposed %d subscription rows", withoutContext) }
+	// No tenant GUC must deny every school-owned billing table, while the
+	// active global plan catalogue remains readable by design.
+	for _, table := range []string{"school_subscriptions", "subscription_events", "subscription_payments"} {
+		var withoutContext int64
+		if err := restricted.Table(schema+"."+table).Count(&withoutContext).Error; err != nil {
+			t.Fatalf("read %s without tenant context: %v", table, err)
+		}
+		if withoutContext != 0 {
+			t.Fatalf("missing tenant context exposed %d rows from %s", withoutContext, table)
+		}
+	}
+	var plansWithoutContext int64
+	if err := restricted.Table(schema+".billing_plans").Count(&plansWithoutContext).Error; err != nil { t.Fatal(err) }
+	if plansWithoutContext != 1 { t.Fatalf("active plans visible without tenant context=%d, want 1", plansWithoutContext) }
+
+	// Privileges are checked on the login identity as well as RLS policies.
+	for _, denied := range []struct{ table, privilege string }{
+		{"billing_plans", "INSERT"}, {"billing_plans", "UPDATE"}, {"billing_plans", "DELETE"},
+		{"school_subscriptions", "DELETE"}, {"subscription_events", "UPDATE"},
+		{"subscription_events", "DELETE"}, {"subscription_payments", "DELETE"},
+	} {
+		var allowed bool
+		query := "SELECT has_table_privilege(current_user, $1, $2)"
+		if err := restricted.Raw(query, schema+"."+denied.table, denied.privilege).Row().Scan(&allowed); err != nil { t.Fatal(err) }
+		if allowed { t.Errorf("restricted login unexpectedly has %s on %s", denied.privilege, denied.table) }
+	}
 }

@@ -492,7 +492,7 @@ CREATE TABLE %s.bulk_import_jobs (
 	loginURL.User = url.UserPassword(loginRole, loginPassword)
 	loginDB, err = gorm.Open(postgres.Open(loginURL.String()), &gorm.Config{})
 	if err != nil { t.Fatalf("connect as restricted API login: %v", err) }
-	if err := database.ValidateBulkImportClaimRole(loginDB); err != nil {
+	if err := database.ValidateBulkImportClaimRoleFor(loginDB, apiRole, ownerRole, privateSchema+".claim_next_bulk_import_job(uuid)"); err != nil {
 		t.Fatalf("validate restricted claim-only login: %v", err)
 	}
 

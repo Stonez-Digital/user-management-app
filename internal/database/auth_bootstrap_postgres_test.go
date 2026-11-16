@@ -107,7 +107,7 @@ func TestAuthBootstrapFunctionsEnforceRestrictedPostgresBoundary(t *testing.T) {
 		fmt.Sprintf("INSERT INTO %s.schools VALUES ('%s','active','SCH-A','school-a')", tableSchema, schoolID),
 		fmt.Sprintf("INSERT INTO %s.users VALUES ('%s','%s','Test User','test@example.com','bcrypt-hash','school_admin',true)", tableSchema, userID, schoolID),
 		fmt.Sprintf("INSERT INTO %s.refresh_tokens VALUES ('%s','%s','%s','%s','%s',false)", tableSchema, refreshID, familyID, userID, tokenHash, expires),
-		fmt.Sprintf("INSERT INTO %s.sessions VALUES ('%s','%s','%s','%s','%s',false)", tableSchema, sessionID, userID, familyID, tokenHash, expires),
+		fmt.Sprintf("INSERT INTO %s.sessions VALUES ('%s','%s','%s','%s','%s',false,NULL,NULL)", tableSchema, sessionID, userID, familyID, tokenHash, expires),
 	} {
 		if err := admin.Exec(statement).Error; err != nil {
 			t.Fatalf("seed isolated auth fixture: %v", err)

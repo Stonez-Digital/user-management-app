@@ -5,6 +5,8 @@ import (
     "strings"
     "time"
 
+    "github.com/google/uuid"
+
     "github.com/gin-gonic/gin"
     "github.com/onoja217/users-management-app/internal/auth"
     "github.com/onoja217/users-management-app/internal/models"

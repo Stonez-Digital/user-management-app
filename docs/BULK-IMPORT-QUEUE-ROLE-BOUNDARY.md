@@ -12,7 +12,8 @@ The repository now includes the role-preparation scripts, a SECURITY DEFINER cla
 |---|---:|---:|---|
 | stonez_bulk_queue_owner | No | No | Owns the claim function; can SELECT queue rows and UPDATE only lease/claim columns on public.bulk_import_jobs. |
 | stonez_api_runtime | No | No | Receives EXECUTE on the global claim function plus SELECT/INSERT/UPDATE on bulk_import_jobs; SELECT is school-scoped and INSERT/UPDATE are school-and-initiator-scoped. |
-| Actual API login | Yes | No | Must be a dedicated NOBYPASSRLS, INHERIT login, later granted membership in stonez_api_runtime. It must not be postgres or a member of the queue-owner role. |
+| Dedicated worker claim login | Yes | No | Inherits stonez_api_runtime only for its queue permissions; cannot administer or SET ROLE to the group and is not a queue-owner member. |
+| Actual API login | Yes | No | Must be a separate NOBYPASSRLS login after the wider tenant rollout. It is not granted the global claim function. |
 
 The queue owner remains NOBYPASSRLS. A dedicated `FOR ALL` RLS policy on `bulk_import_jobs` grants this role global visibility only on that queue table; narrow column-level UPDATE grants still limit it to lease/claim columns. It has no privileges on other application tables, no DDL privileges after installation, no role-management privileges, and no login capability.
 
@@ -26,7 +27,8 @@ The claim function returns a full queue row across schools. Consequently, every 
 2. When separately approved, run scripts/security/provision_bulk_import_queue_roles.sql using an administrative database connection that can create/alter roles and grant table privileges.
 3. Run scripts/security/verify_bulk_import_queue_roles.sql before function installation and retain its successful result as role-preparation evidence.
 4. Review and run scripts/security/install_bulk_import_claim_function.sql only after the role assertions pass. This creates the non-exposed stonez_internal schema, revokes schema access from PUBLIC/anon/authenticated, creates the SECURITY DEFINER function there as the queue-owner role, and installs school-scoped SELECT plus school-and-initiator-scoped write policies for normal API operations.
-5. Identify and provision a dedicated API login through the secret-management process. Do not put its password in this repository or in migration SQL. Grant that login membership in stonez_api_runtime only after confirming it is NOBYPASSRLS, INHERIT, and cannot assume a privileged role.
+5. Provision the dedicated worker claim login with `scripts/security/provision_bulk_import_worker_login.psql` from an interactive psql session. It prompts for the password without echoing it, creates a NOBYPASSRLS login, and grants only non-admin, inherited, non-SET membership in stonez_api_runtime. Store the resulting DSN only in the dedicated worker service secret settings. Do not put its password in this repository or chat.
+6. Keep the HTTP API login separate. Do not grant it stonez_api_runtime or configure BULK_IMPORT_CLAIM_DATABASE_URL on the API service.
 6. Do not change Render's DATABASE_URL, enable REQUIRE_NOBYPASSRLS, or grant the current postgres login membership in either role during this preparation stage.
 
 All three SQL scripts are explicit operator-run artifacts. They are not executed by application startup, CI migrations, or the normal Migrate function. No production role or grant is changed by merging these files.
@@ -53,10 +55,14 @@ If the test database does not permit role creation, the integration test must re
 
 ## Implemented queue boundary
 
-The claim-function installer and Go call are now in this branch together. The PostgreSQL worker path invokes stonez_internal.claim_next_bulk_import_job(worker_id) and fails closed if it is missing; it has no direct-table fallback. SQLite retains its existing direct claim implementation for local unit tests only. The function is stored outside Supabase's exposed public schema, uses a fixed pg_catalog search_path and schema-qualified table references, verifies session_user belongs to stonez_api_runtime, accepts a required worker UUID, uses a five-minute database-clock lease and atomic FOR UPDATE SKIP LOCKED selection, and has explicit EXECUTE revocations/grants. Keep stonez_internal out of the Supabase Data API exposed-schema list. The installer also creates three RLS policies: school-scoped SELECT, school-and-initiator-scoped INSERT, and school-and-initiator-scoped UPDATE. The API group receives only SELECT/INSERT/UPDATE; global claim is the function's narrowly scoped exception.
+The claim-function installer and Go call are now in this branch together. The PostgreSQL worker path invokes stonez_internal.claim_next_bulk_import_job(worker_id) and fails closed if it is missing; it has no direct-table fallback. SQLite retains its existing direct claim implementation for local unit tests only. The function is stored outside Supabase's exposed public schema, uses a fixed pg_catalog search_path and schema-qualified table references, verifies session_user has effective inherited stonez_api_runtime privileges and is not privileged or a queue-owner member, accepts a required worker UUID, uses a five-minute database-clock lease and atomic FOR UPDATE SKIP LOCKED selection, and has explicit EXECUTE revocations/grants. Keep stonez_internal out of the Supabase Data API exposed-schema list. The installer also creates three RLS policies: school-scoped SELECT, school-and-initiator-scoped INSERT, and school-and-initiator-scoped UPDATE. The API group receives only SELECT/INSERT/UPDATE; global claim is the function's narrowly scoped exception.
 
 The function owner and API group role names in the provisioning scripts are the intended production names. The SQL installer validates role attributes before installing/changing function ownership. Do not silently create privileged roles in the ordinary application migration path.
 
-## Safety status
+## Current staging status
 
-No production SQL has been executed. No database role, grant, RLS policy, Render setting, or secret has been changed. The runtime still uses the existing privileged connection, and this preparation does not make a NOBYPASSRLS cutover safe.
+The dedicated staging Supabase project has the queue owner and runtime group roles, the private schema, the claim function, and the four queue RLS policies installed and verified. The restricted worker LOGIN and Render Background Worker have not yet been provisioned. The staging HTTP API continues using its existing application connection; no claim credential is configured on it.
+
+The standalone worker uses a separate restricted claim connection, while its processing connection still uses the existing application database identity. This isolates global queue claiming from the HTTP API, but is not yet a least-privileged processing role. Complete the remaining tenant RLS rollout before any restricted application-processing or production cutover.
+
+No production SQL, role, grant, secret, or Render setting has been changed.

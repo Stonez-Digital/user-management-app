@@ -7,7 +7,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/onoja217/users-management-app/internal/models"
 	"gorm.io/gorm"
 )
 
@@ -50,27 +49,14 @@ func runTenantCallbacks(c *gin.Context, key string) {
 
 // RequireSchoolContext derives the tenant from the authenticated database user.
 // It never trusts a school ID supplied by the client.
-func RequireSchoolContext(db *gorm.DB) gin.HandlerFunc {
+// RequireSchoolContext validates the school association already loaded by
+// AuthMiddleware. It deliberately performs no second root-DB user lookup.
+func RequireSchoolContext(_ *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID, err := uuid.Parse(c.GetString(UserIDKey))
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid user context"})
-			return
-		}
-		var user models.User
-		if err := db.Select("id", "school_id", "active").First(&user, "id = ?", userID).Error; err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
-			return
-		}
-		if !user.Active {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "account inactive"})
-			return
-		}
-		if user.SchoolID == nil || *user.SchoolID == uuid.Nil {
+		if _, ok := SchoolIDFromContext(c); !ok {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "school context required"})
 			return
 		}
-		c.Set(SchoolIDKey, user.SchoolID.String())
 		c.Next()
 	}
 }

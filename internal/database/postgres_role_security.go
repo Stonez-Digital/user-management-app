@@ -2,6 +2,7 @@ package database
 
 import (
     "fmt"
+    "strings"
 
     "gorm.io/gorm"
 )
@@ -92,8 +93,22 @@ type BulkImportClaimRoleStatus struct {
 // authenticates directly as a non-privileged login with effective membership
 // in stonez_api_runtime and no queue-owner membership.
 func ValidateBulkImportClaimRole(db *gorm.DB) error {
+    return ValidateBulkImportClaimRoleFor(
+        db,
+        "stonez_api_runtime",
+        "stonez_bulk_queue_owner",
+        "stonez_internal.claim_next_bulk_import_job(uuid)",
+    )
+}
+
+// ValidateBulkImportClaimRoleFor is also used by isolated PostgreSQL fixtures,
+// which substitute unique schema and role names to avoid collisions.
+func ValidateBulkImportClaimRoleFor(db *gorm.DB, runtimeRole, queueOwnerRole, claimFunction string) error {
     if db == nil || db.Dialector.Name() != "postgres" {
         return fmt.Errorf("bulk import claim connection must be PostgreSQL")
+    }
+    if strings.TrimSpace(runtimeRole) == "" || strings.TrimSpace(queueOwnerRole) == "" || strings.TrimSpace(claimFunction) == "" {
+        return fmt.Errorf("bulk import claim role names and function signature are required")
     }
     var status BulkImportClaimRoleStatus
     err := db.Raw(`
@@ -104,15 +119,15 @@ func ValidateBulkImportClaimRole(db *gorm.DB) error {
             role.rolbypassrls AS bypass_rls,
             role.rolcreatedb AS can_create_db,
             role.rolcreaterole AS can_create_role,
-            pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER') AS is_runtime_member,
-            pg_has_role(session_user, 'stonez_api_runtime', 'USAGE') AS is_runtime_effective,
-            pg_has_role(session_user, 'stonez_api_runtime', 'SET') AS can_set_runtime_role,
-            pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER') AS is_queue_owner_member,
-            has_function_privilege(session_user, 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE') AS can_execute_claim,
+            pg_has_role(session_user, ?, 'MEMBER') AS is_runtime_member,
+            pg_has_role(session_user, ?, 'USAGE') AS is_runtime_effective,
+            pg_has_role(session_user, ?, 'SET') AS can_set_runtime_role,
+            pg_has_role(session_user, ?, 'MEMBER') AS is_queue_owner_member,
+            has_function_privilege(session_user, ?, 'EXECUTE') AS can_execute_claim,
             current_user = session_user AS current_role_matches_session
         FROM pg_roles AS role
         WHERE role.rolname = session_user
-    `).Scan(&status).Error
+    `, runtimeRole, runtimeRole, runtimeRole, queueOwnerRole, claimFunction).Scan(&status).Error
     if err != nil {
         return fmt.Errorf("inspect bulk import claim role: %w", err)
     }

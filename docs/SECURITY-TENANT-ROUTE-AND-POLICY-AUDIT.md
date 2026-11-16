@@ -7,10 +7,11 @@ This is a preparation audit. It does not authorize production DDL, credential ch
 
 ## Executive result
 
-The bulk-import claim boundary is installed on staging, but the application-wide restricted API runtime is not ready.
+The bulk-import claim boundary is installed on staging, and several school-owned route families now use request-scoped transactions. The application-wide restricted API runtime is not ready.
 
 - The application API still uses the PostgreSQL `postgres` login with `BYPASSRLS`.
 - The route transaction middleware is deliberately opt-in. Every school-scoped route must use `TenantTransaction(db)` and every controller/service/repository/audit query in that request must use `TenantDBFromContext(c)`.
+- School profile/logo, audit-log, and protected school-content/media admin handlers have now been migrated to request-scoped transactions on this branch. External object-storage mutations are deferred until commit, with upload compensation on rollback.
 - The staging project currently has 42 public tables in the catalog snapshot. 27 have RLS disabled; 15 have RLS enabled. Of those 15 enabled tables, 14 have no policies. Only `bulk_import_jobs` has policies (the four expected queue/tenant policies). No inspected table has FORCE ROW LEVEL SECURITY.
 - All inspected public application tables are owned by `postgres`.
 - `stonez_api_runtime` is NOLOGIN/NOBYPASSRLS and has no login member. Its only observed application-table grants are on `bulk_import_jobs`. The worker login inherits this group with INHERIT=true, SET=false, ADMIN=false.
@@ -35,19 +36,20 @@ The inspected route wiring includes transaction middleware for:
 - Person onboarding and school user CRUD.
 - Role assignment and user activation/deactivation.
 - Announcements and parent notifications.
+- School profile reads/updates and logo metadata: `GET/PUT /admin/school`, `POST /admin/school/logo`.
+- Audit-log reads: `GET /admin/audit-logs`.
+- Protected admin blog, gallery, advertisement and enquiry management routes, including media upload/delete metadata.
+- Student CareerPath attempt routes; the static assessment catalogue endpoint remains database-free.
 
-This is route-level evidence only. The associated services, repositories, nested transactions, external side effects and audit writes still need code review and PostgreSQL integration tests under the exact restricted login.
+The school profile/audit and content/media migrations bind service/database operations to the request transaction and include fail-closed handler tests. Content/media handling defers object deletion until after DB commit and registers cleanup for newly uploaded objects if the DB transaction rolls back. Cleanup callback errors are logged; they still require operational monitoring and reconciliation.
+
+This is route-level and unit-test evidence only. The associated services, repositories, nested transactions, external side effects and audit writes still need PostgreSQL integration tests under the exact restricted login. The migrations do not prove that RLS policies or restricted-role grants are complete.
 
 ### Tenant-scoped routes still missing request transaction wiring
 
-The current route wiring shows these school/user-owned paths without `TenantTransaction(db)`:
-
+The current route wiring still needs migration/review for:
 - `GET/PUT /me`: user profile reads and updates. Must be classified for school members versus platform administrators.
-- `GET /admin/school`, `PUT /admin/school`, `POST /admin/school/logo`: school profile and logo metadata.
 - Billing: `GET /admin/billing/subscription`, `POST /admin/billing/checkout`, `POST /admin/billing/verify`. `GET /admin/billing/plans` is global plan catalogue data. Payment-provider calls must not be held inside a long database transaction; use a short transaction for state changes and explicit idempotency/reconciliation.
-- Audit: `GET /admin/audit-logs`.
-- School content: admin blog, gallery, advertisement and enquiry management routes, including media upload/delete metadata. Storage operations are external side effects and need an explicit compensating-action design around database transactions.
-- Student CareerPath attempt routes were previously missing transaction wiring. They have now been changed in this branch to require a request transaction and use a request-scoped service. The static assessment catalogue endpoint remains database-free.
 
 ### Routes that need explicit non-tenant access models
 
@@ -79,7 +81,7 @@ All 42 inspected public tables were owned by `postgres`; none had FORCE RLS in t
 
 ## Required remaining work
 
-1. Finish tenant transaction migration for the missing school/user-owned routes above, with tests proving every service/repository/audit query uses the transaction handle.
+1. Migrate and test the remaining `/me` profile routes and billing routes using explicit user/school ownership boundaries. Keep payment-provider calls outside DB transactions and make verify/reconciliation idempotent under concurrent retries.
 2. Build a complete table-to-route/service ownership matrix for every application table, including indirect child ownership and cross-school foreign-key consistency.
 3. Classify each table as tenant-scoped, user-scoped, platform-global, public projection, queue/system, migration-only, or token/session.
 4. Write and review policies and grants for the exact restricted API role. Include SELECT policies for UPDATE paths, both USING and WITH CHECK, no-context denial, user-specific rules, and explicit public/platform exceptions.

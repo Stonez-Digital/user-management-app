@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log"
-	"database/sql"
 	"os"
 	"os/signal"
 	"strings"

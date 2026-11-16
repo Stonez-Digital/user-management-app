@@ -342,12 +342,15 @@ AS $function$
 $function$;
 
 CREATE OR REPLACE FUNCTION stonez_internal.auth_disable_password_reset(p_id uuid)
-RETURNS void
-LANGUAGE sql
+RETURNS boolean
+LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog
 AS $function$
-    UPDATE public.password_reset_tokens SET used = true WHERE id = p_id AND used = false
+BEGIN
+    UPDATE public.password_reset_tokens SET used = true WHERE id = p_id AND used = false;
+    RETURN FOUND;
+END
 $function$;
 
 CREATE OR REPLACE FUNCTION stonez_internal.auth_consume_password_reset(p_token_hash text, p_password_hash text)

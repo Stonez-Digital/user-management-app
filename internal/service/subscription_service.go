@@ -36,6 +36,13 @@ func (s *SubscriptionService) WithTenantContext(schoolID, userID uuid.UUID) *Sub
 	return &clone
 }
 
+func (s *SubscriptionService) tenantMatches(schoolID uuid.UUID) bool {
+	if s.tenantSchoolID == uuid.Nil && s.tenantUserID == uuid.Nil {
+		return true // internal/system callers remain explicitly unscoped until migrated.
+	}
+	return s.tenantSchoolID != uuid.Nil && s.tenantUserID != uuid.Nil && s.tenantSchoolID == schoolID
+}
+
 func NewSubscriptionService(db *gorm.DB) *SubscriptionService {
 	return &SubscriptionService{db: db, now: func() time.Time { return time.Now().UTC() }}
 }
@@ -55,7 +62,7 @@ func (s *SubscriptionService) ListPlans() ([]models.BillingPlan, error) {
 // requested_plan on the school record remains a preference, not activation.
 func (s *SubscriptionService) StartTrial(schoolID, termID uuid.UUID) (models.SchoolSubscription, error) {
 	var subscription models.SchoolSubscription
-	if schoolID == uuid.Nil || termID == uuid.Nil { return subscription, ErrSubscriptionInvalid }
+	if schoolID == uuid.Nil || termID == uuid.Nil || !s.tenantMatches(schoolID) { return subscription, ErrSubscriptionInvalid }
 	now := s.now().UTC()
 
 	err := tenantTransaction(s.db, s.tenantSchoolID, s.tenantUserID, func(tx *gorm.DB) error {
@@ -123,7 +130,7 @@ func (s *SubscriptionService) StartTrial(schoolID, termID uuid.UUID) (models.Sch
 
 // CurrentSubscription expires an ended subscription and records the transition once.
 func (s *SubscriptionService) CurrentSubscription(schoolID uuid.UUID) (models.SchoolSubscription, error) {
-	if schoolID == uuid.Nil { return models.SchoolSubscription{}, ErrSubscriptionInvalid }
+	if schoolID == uuid.Nil || !s.tenantMatches(schoolID) { return models.SchoolSubscription{}, ErrSubscriptionInvalid }
 	now := s.now().UTC()
 	var result models.SchoolSubscription
 	expired := false

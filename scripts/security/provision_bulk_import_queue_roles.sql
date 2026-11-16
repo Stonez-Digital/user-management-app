@@ -15,17 +15,18 @@ BEGIN
     END IF;
 END
 $$;
-ALTER ROLE stonez_bulk_queue_owner NOLOGIN NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
-ALTER ROLE stonez_api_runtime NOLOGIN NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS;
--- PostgreSQL does not let a non-superuser ALTER ROLE change SUPERUSER,
--- even to NOSUPERUSER. New roles default to NOSUPERUSER; assert it instead.
-DO $
+DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname IN ('stonez_bulk_queue_owner', 'stonez_api_runtime') AND rolsuper) THEN
         RAISE EXCEPTION 'queue roles must be created as non-superusers';
     END IF;
 END
-$;
+$$;
+ALTER ROLE stonez_bulk_queue_owner NOLOGIN NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+ALTER ROLE stonez_api_runtime NOLOGIN NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS;
+-- PostgreSQL does not let a non-superuser ALTER ROLE change SUPERUSER,
+-- even to NOSUPERUSER. New roles default to NOSUPERUSER; assert it instead.
+
 GRANT USAGE ON SCHEMA public TO stonez_bulk_queue_owner;
 REVOKE CREATE ON SCHEMA public FROM stonez_bulk_queue_owner;
 REVOKE ALL PRIVILEGES ON TABLE public.bulk_import_jobs FROM stonez_bulk_queue_owner;

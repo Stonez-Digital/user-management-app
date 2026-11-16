@@ -124,3 +124,42 @@ func TestBulkWorkerExpiredLeaseCannotCommitAnotherRow(t *testing.T) {
 	if err := db.First(&got, job.ID).Error; err != nil { t.Fatal(err) }
 	if got.Status != models.BulkImportRunning { t.Fatalf("stale worker changed job status to %q", got.Status) }
 }
+
+
+func TestBulkWorkerClaimsThroughSeparateClaimDatabase(t *testing.T) {
+	applicationDB := bulkTestDB(t)
+	claimDB := bulkTestDB(t)
+	schoolID, actor := uuid.New(), uuid.New()
+	job := models.BulkImportJob{
+		SchoolID: schoolID, InitiatedBy: actor, Kind: "students",
+		FileName: "separate-claim.csv", Status: models.BulkImportQueued,
+	}
+	if err := claimDB.Create(&job).Error; err != nil {
+		t.Fatalf("create job in claim database: %v", err)
+	}
+	worker, err := NewBulkImportServiceWithClaimDB(applicationDB, claimDB, nil)
+	if err != nil {
+		t.Fatalf("construct worker with separate claim database: %v", err)
+	}
+	claimed, err := worker.claimNextJob()
+	if err != nil {
+		t.Fatalf("claim through dedicated claim database: %v", err)
+	}
+	if claimed == nil || claimed.ID != job.ID {
+		t.Fatalf("expected claim database job %s, got %+v", job.ID, claimed)
+	}
+	var applicationRows int64
+	if err := applicationDB.Model(&models.BulkImportJob{}).Count(&applicationRows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if applicationRows != 0 {
+		t.Fatalf("claim unexpectedly read or wrote the application database queue; rows=%d", applicationRows)
+	}
+	var claimRow models.BulkImportJob
+	if err := claimDB.First(&claimRow, job.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if claimRow.Status != models.BulkImportRunning || claimRow.WorkerID == nil || *claimRow.WorkerID != worker.workerID {
+		t.Fatalf("claim was not persisted through claim database: %+v", claimRow)
+	}
+}

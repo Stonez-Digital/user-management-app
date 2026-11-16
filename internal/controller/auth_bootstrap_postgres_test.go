@@ -334,4 +334,162 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 	if pending.Code != 401 {
 		t.Fatalf("expected pending-school PostgreSQL login to fail, got %d: %s", pending.Code, pending.Body.String())
 	}
+
+	// Password recovery must work through the restricted runtime identity.
+	mailer := &passwordResetMailerStub{}
+	ac.Mailer = mailer
+	forgotRouter := gin.New()
+	forgotRouter.POST("/forgot-password", ac.ForgotPassword)
+	forgotReq := httptest.NewRequest("POST", "/forgot-password", strings.NewReader(fmt.Sprintf(`{"email":%q}`, email)))
+	forgotReq.Header.Set("Content-Type", "application/json")
+	forgotRec := httptest.NewRecorder()
+	forgotRouter.ServeHTTP(forgotRec, forgotReq)
+	if forgotRec.Code != 200 || mailer.calls != 1 || mailer.token == "" {
+		t.Fatalf("restricted PostgreSQL forgot-password failed: status=%d body=%s mailer=%+v", forgotRec.Code, forgotRec.Body.String(), mailer)
+	}
+	var storedReset models.PasswordResetToken
+	if err := admin.Table(tableSchema + ".password_reset_tokens").Where("user_id = ?", userID).Scan(&storedReset).Error; err != nil {
+		t.Fatal(err)
+	}
+	if storedReset.TokenHash != auth.HashResetToken(mailer.token) {
+		t.Fatal("PostgreSQL reset storage did not retain only the reset-token hash")
+	}
+
+	// Reset consumes the token, changes the password, revokes sessions/tokens,
+	// and records its audit event in one transaction.
+	resetFamily := uuid.New()
+	resetRefresh := "postgres-reset-refresh-" + suffix
+	resetHash := auth.HashRefreshToken(resetRefresh)
+	if err := admin.Exec("INSERT INTO " + tableSchema + ".refresh_tokens (id,family_id,user_id,token_hash,expires_at,revoked) VALUES (?,?,?,?,?,false)", uuid.New(), resetFamily, userID, resetHash, time.Now().Add(time.Hour)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Exec("INSERT INTO " + tableSchema + ".sessions (id,user_id,family_id,refresh_token_hash,expires_at,revoked) VALUES (?,?,?,?,?,false)", uuid.New(), userID, resetFamily, resetHash, time.Now().Add(time.Hour)).Error; err != nil {
+		t.Fatal(err)
+	}
+	resetRouter := gin.New()
+	resetRouter.POST("/reset-password", ac.ResetPassword)
+	resetReq := httptest.NewRequest("POST", "/reset-password", strings.NewReader(fmt.Sprintf(`{"token":%q,"new_password":"new-reset-password123"}`, mailer.token)))
+	resetReq.Header.Set("Content-Type", "application/json")
+	resetRec := httptest.NewRecorder()
+	resetRouter.ServeHTTP(resetRec, resetReq)
+	if resetRec.Code != 200 {
+		t.Fatalf("restricted PostgreSQL password reset failed: %d %s", resetRec.Code, resetRec.Body.String())
+	}
+	var updatedPassword string
+	if err := admin.Table(tableSchema + ".users").Select("password_hash").Where("id = ?", userID).Scan(&updatedPassword).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !auth.CheckPassword(updatedPassword, "new-reset-password123") {
+		t.Fatal("password reset did not persist the new password hash")
+	}
+	var resetRevokedTokens, resetRevokedSessions, resetAudit int64
+	if err := admin.Table(tableSchema + ".refresh_tokens").Where("family_id = ? AND revoked = true", resetFamily).Count(&resetRevokedTokens).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Table(tableSchema + ".sessions").Where("family_id = ? AND revoked = true", resetFamily).Count(&resetRevokedSessions).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Table(tableSchema + ".audit_logs").Where("action = ? AND resource_id = ?", "security.password_reset", userID).Count(&resetAudit).Error; err != nil {
+		t.Fatal(err)
+	}
+	if resetRevokedTokens != 1 || resetRevokedSessions != 1 || resetAudit != 1 {
+		t.Fatalf("password reset transaction incomplete: revoked tokens=%d sessions=%d audit=%d", resetRevokedTokens, resetRevokedSessions, resetAudit)
+	}
+	replayReq := httptest.NewRequest("POST", "/reset-password", strings.NewReader(fmt.Sprintf(`{"token":%q,"new_password":"another-reset-password123"}`, mailer.token)))
+	replayReq.Header.Set("Content-Type", "application/json")
+	replayRec := httptest.NewRecorder()
+	resetRouter.ServeHTTP(replayRec, replayReq)
+	if replayRec.Code != 401 {
+		t.Fatalf("expected PostgreSQL reset-token replay to fail, got %d: %s", replayRec.Code, replayRec.Body.String())
+	}
+
+	// Audit failure must roll back the password update, reset-token consumption,
+	// and session revocations together.
+	failedResetRaw := "postgres-reset-audit-failure-" + suffix
+	failedResetID := uuid.New()
+	if err := admin.Exec("INSERT INTO " + tableSchema + ".password_reset_tokens (id,user_id,token_hash,expires_at,used) VALUES (?,?,?,?,false)", failedResetID, userID, auth.HashResetToken(failedResetRaw), time.Now().Add(15*time.Minute)).Error; err != nil {
+		t.Fatal(err)
+	}
+	failedResetFamily := uuid.New()
+	failedResetHash := auth.HashRefreshToken("postgres-reset-audit-refresh-" + suffix)
+	if err := admin.Exec("INSERT INTO " + tableSchema + ".refresh_tokens (id,family_id,user_id,token_hash,expires_at,revoked) VALUES (?,?,?,?,?,false)", uuid.New(), failedResetFamily, userID, failedResetHash, time.Now().Add(time.Hour)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Exec("INSERT INTO " + tableSchema + ".sessions (id,user_id,family_id,refresh_token_hash,expires_at,revoked) VALUES (?,?,?,?,?,false)", uuid.New(), userID, failedResetFamily, failedResetHash, time.Now().Add(time.Hour)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Exec("CREATE FUNCTION " + privateSchema + ".reject_auth_audit() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''audit sink unavailable''; END'").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Exec("CREATE TRIGGER reject_auth_audit BEFORE INSERT ON " + tableSchema + ".audit_logs FOR EACH ROW EXECUTE FUNCTION " + privateSchema + ".reject_auth_audit()").Error; err != nil {
+		t.Fatal(err)
+	}
+	failedResetReq := httptest.NewRequest("POST", "/reset-password", strings.NewReader(fmt.Sprintf(`{"token":%q,"new_password":"must-not-commit123"}`, failedResetRaw)))
+	failedResetReq.Header.Set("Content-Type", "application/json")
+	failedResetRec := httptest.NewRecorder()
+	resetRouter.ServeHTTP(failedResetRec, failedResetReq)
+	if failedResetRec.Code != 500 {
+		t.Fatalf("expected password reset audit failure to return 500, got %d: %s", failedResetRec.Code, failedResetRec.Body.String())
+	}
+	var failedResetStillUnused, failedResetStillActive, failedSessionStillActive int64
+	if err := admin.Table(tableSchema + ".password_reset_tokens").Where("id = ? AND used = false", failedResetID).Count(&failedResetStillUnused).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Table(tableSchema + ".refresh_tokens").Where("family_id = ? AND revoked = false", failedResetFamily).Count(&failedResetStillActive).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Table(tableSchema + ".sessions").Where("family_id = ? AND revoked = false", failedResetFamily).Count(&failedSessionStillActive).Error; err != nil {
+		t.Fatal(err)
+	}
+	if failedResetStillUnused != 1 || failedResetStillActive != 1 || failedSessionStillActive != 1 {
+		t.Fatalf("audit failure did not roll back reset: unused=%d active tokens=%d active sessions=%d", failedResetStillUnused, failedResetStillActive, failedSessionStillActive)
+	}
+	if err := admin.Exec("DROP TRIGGER reject_auth_audit ON " + tableSchema + ".audit_logs").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Exec("DROP FUNCTION " + privateSchema + ".reject_auth_audit()").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// Password change uses the restricted credential lookup and writer function.
+	changeFamily := uuid.New()
+	changeHash := auth.HashRefreshToken("postgres-change-password-refresh-" + suffix)
+	if err := admin.Exec("INSERT INTO " + tableSchema + ".refresh_tokens (id,family_id,user_id,token_hash,expires_at,revoked) VALUES (?,?,?,?,?,false)", uuid.New(), changeFamily, userID, changeHash, time.Now().Add(time.Hour)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Exec("INSERT INTO " + tableSchema + ".sessions (id,user_id,family_id,refresh_token_hash,expires_at,revoked) VALUES (?,?,?,?,?,false)", uuid.New(), userID, changeFamily, changeHash, time.Now().Add(time.Hour)).Error; err != nil {
+		t.Fatal(err)
+	}
+	changeRouter := gin.New()
+	changeRouter.POST("/change-password", func(c *gin.Context) {
+		c.Set("user_id", userID.String())
+		ac.ChangePassword(c)
+	})
+	changeReq := httptest.NewRequest("POST", "/change-password", strings.NewReader(`{"current_password":"new-reset-password123","new_password":"changed-password123"}`))
+	changeReq.Header.Set("Content-Type", "application/json")
+	changeRec := httptest.NewRecorder()
+	changeRouter.ServeHTTP(changeRec, changeReq)
+	if changeRec.Code != 200 {
+		t.Fatalf("restricted PostgreSQL password change failed: %d %s", changeRec.Code, changeRec.Body.String())
+	}
+	if err := admin.Table(tableSchema + ".users").Select("password_hash").Where("id = ?", userID).Scan(&updatedPassword).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !auth.CheckPassword(updatedPassword, "changed-password123") {
+		t.Fatal("password change did not persist the new password hash")
+	}
+	var changeRevokedTokens, changeRevokedSessions, changeAudit int64
+	if err := admin.Table(tableSchema + ".refresh_tokens").Where("family_id = ? AND revoked = true", changeFamily).Count(&changeRevokedTokens).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Table(tableSchema + ".sessions").Where("family_id = ? AND revoked = true", changeFamily).Count(&changeRevokedSessions).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Table(tableSchema + ".audit_logs").Where("action = ? AND resource_id = ?", "security.password_change", userID).Count(&changeAudit).Error; err != nil {
+		t.Fatal(err)
+	}
+	if changeRevokedTokens != 1 || changeRevokedSessions != 1 || changeAudit != 1 {
+		t.Fatalf("password change transaction incomplete: revoked tokens=%d sessions=%d audit=%d", changeRevokedTokens, changeRevokedSessions, changeAudit)
+	}
+}
 }

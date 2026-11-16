@@ -132,7 +132,41 @@ WHERE n.nspname = 'public'
 ORDER BY c.relname, grantee.rolname, privilege.privilege_type;
 
 \echo ''
-\echo '=== 7. Effective schema privileges on public ==='
+\echo '=== 7. Effective column-only privileges ==='
+\echo 'Rows are limited to column privileges not already covered by a table-level grant.'
+SELECT n.nspname AS schema_name,
+       c.relname AS table_name,
+       a.attname AS column_name,
+       grantee.rolname AS role_name,
+       privilege.privilege_type
+FROM pg_class AS c
+JOIN pg_namespace AS n ON n.oid = c.relnamespace
+JOIN pg_attribute AS a ON a.attrelid = c.oid
+CROSS JOIN pg_roles AS grantee
+CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('REFERENCES')) AS privilege(privilege_type)
+WHERE n.nspname = 'public'
+  AND c.relkind IN ('r', 'p')
+  AND a.attnum > 0
+  AND NOT a.attisdropped
+  AND (
+      grantee.rolcanlogin
+      OR grantee.rolname IN (
+          'stonez_api_runtime',
+          'stonez_auth_bootstrap_owner',
+          'stonez_auth_session_owner',
+          'stonez_bulk_queue_owner',
+          'anon',
+          'authenticated',
+          'service_role',
+          'postgres'
+      )
+  )
+  AND has_column_privilege(grantee.oid, c.oid, a.attnum, privilege.privilege_type)
+  AND NOT has_table_privilege(grantee.oid, c.oid, privilege.privilege_type)
+ORDER BY c.relname, a.attnum, grantee.rolname, privilege.privilege_type;
+
+\echo ''
+\echo '=== 8. Effective schema privileges on public ==='
 SELECT r.rolname AS role_name,
        privilege.privilege_type,
        has_schema_privilege(r.oid, n.oid, privilege.privilege_type) AS effective
@@ -157,7 +191,7 @@ WHERE n.nspname = 'public'
 ORDER BY r.rolname, privilege.privilege_type;
 
 \echo ''
-\echo '=== 9. Explicit table ACL entries (grantor/grantee/options) ==='
+\echo '=== 10. Explicit table ACL entries (grantor/grantee/options) ==='
 SELECT n.nspname AS schema_name,
        c.relname AS table_name,
        grantor.rolname AS grantor,
@@ -174,7 +208,7 @@ WHERE n.nspname = 'public'
 ORDER BY c.relname, grantee, acl.privilege_type;
 
 \echo ''
-\echo '=== 10. RLS policy role resolution and permissive/restrictive counts ==='
+\echo '=== 11. RLS policy role resolution and permissive/restrictive counts ==='
 SELECT p.schemaname,
        p.tablename,
        count(*) AS total_policies,

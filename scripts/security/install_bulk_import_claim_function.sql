@@ -22,8 +22,22 @@ BEGIN
     END IF;
 
     IF pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_owner', 'MEMBER')
-       OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime') OR roleid = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime'))
-       OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner') OR roleid = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner'))
+       OR EXISTS (
+            SELECT 1 FROM pg_auth_members
+             WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime')
+                OR (roleid = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime') AND NOT (
+                    member = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+                    AND admin_option AND NOT inherit_option AND NOT set_option
+                ))
+       )
+       OR EXISTS (
+            SELECT 1 FROM pg_auth_members
+             WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner')
+                OR (roleid = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner') AND NOT (
+                    member = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+                    AND admin_option AND NOT inherit_option AND NOT set_option
+                ))
+       )
        OR EXISTS (
             SELECT 1 FROM pg_roles AS privileged
              WHERE (privileged.rolsuper OR privileged.rolbypassrls)
@@ -131,7 +145,7 @@ GRANT SELECT, INSERT, UPDATE ON TABLE public.bulk_import_jobs TO stonez_api_runt
 -- avoids leaving the migration/operator role as function owner.
 GRANT USAGE ON SCHEMA public TO stonez_api_runtime;
 GRANT USAGE, CREATE ON SCHEMA stonez_internal TO stonez_bulk_queue_owner;
-GRANT stonez_bulk_queue_owner TO CURRENT_USER;
+GRANT stonez_bulk_queue_owner TO CURRENT_USER WITH ADMIN TRUE, INHERIT FALSE, SET TRUE;
 SET LOCAL ROLE stonez_bulk_queue_owner;
 
 CREATE OR REPLACE FUNCTION stonez_internal.claim_next_bulk_import_job(p_worker_id uuid)
@@ -201,7 +215,8 @@ $$;
 GRANT EXECUTE ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) TO stonez_api_runtime;
 
 RESET ROLE;
-REVOKE stonez_bulk_queue_owner FROM CURRENT_USER;
+-- Restore Supabase/PostgreSQL's non-inheriting, non-SET creator membership.
+GRANT stonez_bulk_queue_owner TO CURRENT_USER WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;
 REVOKE CREATE ON SCHEMA stonez_internal FROM stonez_bulk_queue_owner;
 
 DO $$

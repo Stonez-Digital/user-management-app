@@ -49,7 +49,7 @@ This is route-level and unit-test evidence only. The associated services, reposi
 
 The current route wiring still needs migration/review for:
 - `GET/PUT /me`: user profile reads and updates. Must be classified for school members versus platform administrators.
-- Billing: `GET /admin/billing/subscription`, `POST /admin/billing/checkout`, and `POST /admin/billing/verify` still lack `TenantTransaction(db)` route middleware in the inspected `cmd/server/main.go`. The billing controller is instantiated with the root DB, so it must be changed to obtain the request transaction before this restricted runtime can serve these endpoints. `GET /admin/billing/plans` is global catalogue data and needs an explicit global-read path. Payment-provider calls must remain outside long DB transactions; use short transactions for state changes and explicit idempotency/reconciliation.
+- Billing: `GET /admin/billing/subscription`, `POST /admin/billing/checkout`, and `POST /admin/billing/verify` do not use route-level `TenantTransaction(db)` middleware. However, the inspected billing service explicitly binds authenticated school/user context with `WithTenantContext` and opens its own short `tenantTransaction` around each DB phase, setting transaction-local GUCs. Provider initialization and verification remain outside those DB transactions. `GET /admin/billing/plans` is intentionally a global catalogue read. This service-level boundary is structurally in place, but it still needs integration tests using the actual restricted runtime login and staging term fixtures; do not label it runtime-verified yet.
 
 ### Routes that need explicit non-tenant access models
 
@@ -101,7 +101,7 @@ Verified after application:
 
 Important test limitations:
 
-- The staging database currently has one school but zero terms. Therefore a valid school/term subscription fixture cannot be created for an end-to-end tenant-write test.
+- The staging database currently has one school but zero terms. Therefore a valid school/term subscription fixture cannot be created for an end-to-end tenant-write test without adding staging data; use isolated fixtures rather than altering this shared staging project.
 - An attempt to switch the Supabase SQL editor session to `stonez_bulk_worker` using `SET ROLE` was rejected with permission denied. The SQL editor's admin session therefore did not prove actual runtime-login behavior.
 - The nine policy definitions, RLS flags, role attributes and grants are catalog-verified, but no successful restricted-login smoke test or two-school isolation test has yet been run.
 - The installer policies trust transaction-local `app.current_school_id` / `app.current_user_id` values supplied by application code. They are not authenticated database claims.
@@ -110,7 +110,7 @@ No production database, credentials, Render service or deployment was changed.
 
 ## Required remaining work
 
-1. Wire the three school billing endpoints to request-scoped tenant transactions and bind the billing controller/service to `TenantDBFromContext(c)`; retain an explicit global-read path for plans. Then test billing under the actual restricted login. Also migrate and test `/me` with explicit user/school ownership boundaries. Keep provider calls outside DB transactions and preserve idempotent verification/reconciliation.
+1. Complete restricted-login PostgreSQL integration tests for billing's service-managed tenant transactions, including no-context denial, cross-school isolation and provider-call transaction boundaries. Provision realistic staging term fixtures in an isolated test setup (not by editing live staging school data). Also migrate and test `/me` with explicit user/school ownership boundaries. Keep provider calls outside DB transactions and preserve idempotent verification/reconciliation.
 2. Build a complete table-to-route/service ownership matrix for every application table, including indirect child ownership and cross-school foreign-key consistency.
 3. Classify each table as tenant-scoped, user-scoped, platform-global, public projection, queue/system, migration-only, or token/session.
 4. Write and review policies and grants for the exact restricted API role. Include SELECT policies for UPDATE paths, both USING and WITH CHECK, no-context denial, user-specific rules, and explicit public/platform exceptions.

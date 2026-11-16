@@ -646,16 +646,48 @@ func (ac *AuthController) GetSessions(c *gin.Context) {
 }
 
 func (ac *AuthController) RevokeSession(c *gin.Context) {
-	userID := c.GetString("user_id")
-	var session models.Session
-	if err := ac.DB.Where("id = ? AND user_id = ? AND revoked = false", c.Param("id"), userID).First(&session).Error; err != nil {
+	userID, err := uuid.Parse(c.GetString("user_id"))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	sessionID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid session id"})
+		return
+	}
+	var schoolID *uuid.UUID
+	if id, ok := middleware.SchoolIDFromContext(c); ok {
+		schoolID = &id
+	}
+	err = ac.DB.Transaction(func(tx *gorm.DB) error {
+		if tx.Dialector.Name() == "postgres" {
+			var revoked bool
+			if err := tx.Raw("SELECT stonez_internal.auth_revoke_session(?, ?)", sessionID, userID).Scan(&revoked).Error; err != nil {
+				return err
+			}
+			if !revoked {
+				return gorm.ErrRecordNotFound
+			}
+		} else {
+			var session models.Session
+			if err := tx.Where("id = ? AND user_id = ? AND revoked = false", sessionID, userID).First(&session).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&session).Update("revoked", true).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&models.RefreshToken{}).Where("token_hash = ? AND user_id = ?", session.RefreshTokenHash, userID).Update("revoked", true).Error; err != nil {
+				return err
+			}
+		}
+		return audit.RecordWithSchoolID(tx, c, &userID, schoolID, "auth.session_revoke", "session", &sessionID, nil)
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
 		return
 	}
-	if err := ac.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&session).Update("revoked", true).Error; err != nil { return err }
-		return tx.Model(&models.RefreshToken{}).Where("token_hash = ? AND user_id = ?", session.RefreshTokenHash, userID).Update("revoked", true).Error
-	}); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revoke session"})
 		return
 	}
@@ -665,35 +697,83 @@ func (ac *AuthController) RevokeSession(c *gin.Context) {
 func (ac *AuthController) Logout(c *gin.Context) {
 	var req LogoutRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Validation(c, httpx.ValidationErrors(err)); return
+		httpx.Validation(c, httpx.ValidationErrors(err))
+		return
 	}
-	var token models.RefreshToken
-	if err := ac.DB.Where("token_hash = ? AND revoked = false", auth.HashRefreshToken(req.RefreshToken)).First(&token).Error; err != nil {
+	tokenHash := auth.HashRefreshToken(req.RefreshToken)
+	var userID uuid.UUID
+	err := ac.DB.Transaction(func(tx *gorm.DB) error {
+		if tx.Dialector.Name() == "postgres" {
+			var rows []struct {
+				UserID uuid.UUID `gorm:"column:user_id"`
+			}
+			if err := tx.Raw("SELECT user_id FROM stonez_internal.auth_logout(?)", tokenHash).Scan(&rows).Error; err != nil {
+				return err
+			}
+			if len(rows) != 1 || rows[0].UserID == uuid.Nil {
+				return gorm.ErrRecordNotFound
+			}
+			userID = rows[0].UserID
+		} else {
+			var token models.RefreshToken
+			if err := tx.Where("token_hash = ? AND revoked = false", tokenHash).First(&token).Error; err != nil {
+				return gorm.ErrRecordNotFound
+			}
+			var session models.Session
+			if err := tx.Where("refresh_token_hash = ? AND user_id = ? AND revoked = false", tokenHash, token.UserID).First(&session).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&session).Update("revoked", true).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&token).Update("revoked", true).Error; err != nil {
+				return err
+			}
+			userID = token.UserID
+		}
+		return audit.RecordWithSchoolID(tx, c, &userID, nil, "auth.logout", "user", &userID, nil)
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 		return
 	}
-	if err := ac.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&token).Update("revoked", true).Error; err != nil { return err }
-		return tx.Model(&models.Session{}).Where("refresh_token_hash = ?", auth.HashRefreshToken(req.RefreshToken)).Update("revoked", true).Error
-	}); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to logout"})
 		return
 	}
-	_ = audit.Record(ac.DB, c, &token.UserID, "auth.logout", "user", &token.UserID, nil)
 	c.JSON(http.StatusOK, gin.H{"message": "logged out successfully"})
 }
 
 func (ac *AuthController) LogoutAll(c *gin.Context) {
-	userID := c.GetString("user_id")
-	if err := ac.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&models.RefreshToken{}).Where("user_id = ? AND revoked = false", userID).Update("revoked", true).Error; err != nil { return err }
-		return tx.Model(&models.Session{}).Where("user_id = ? AND revoked = false", userID).Update("revoked", true).Error
-	}); err != nil {
+	userID, err := uuid.Parse(c.GetString("user_id"))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	var schoolID *uuid.UUID
+	if id, ok := middleware.SchoolIDFromContext(c); ok {
+		schoolID = &id
+	}
+	err = ac.DB.Transaction(func(tx *gorm.DB) error {
+		if tx.Dialector.Name() == "postgres" {
+			if err := tx.Exec("SELECT stonez_internal.auth_logout_all(?)", userID).Error; err != nil {
+				return err
+			}
+		} else {
+			// Keep lock order consistent with refresh rotation: sessions first.
+			if err := tx.Model(&models.Session{}).Where("user_id = ? AND revoked = false", userID).Update("revoked", true).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&models.RefreshToken{}).Where("user_id = ? AND revoked = false", userID).Update("revoked", true).Error; err != nil {
+				return err
+			}
+		}
+		return audit.RecordWithSchoolID(tx, c, &userID, schoolID, "auth.logout_all", "user", &userID, nil)
+	})
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to logout all devices"})
 		return
 	}
-	uid := uuid.MustParse(userID)
-	_ = audit.Record(ac.DB, c, &uid, "auth.logout_all", "user", &uid, nil)
 	c.JSON(http.StatusOK, gin.H{"message": "logged out from all devices"})
 }
 

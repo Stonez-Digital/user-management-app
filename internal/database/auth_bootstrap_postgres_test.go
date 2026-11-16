@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -213,6 +214,94 @@ func TestAuthBootstrapFunctionsEnforceRestrictedPostgresBoundary(t *testing.T) {
 	}
 	if err := loginDB.Exec("SELECT " + privateSchema + ".auth_revoke_refresh_family(?)", newFamilyID).Error; err != nil {
 		t.Fatalf("revoke refresh family through restricted writer function: %v", err)
+	}
+
+	// A missing/mismatched session must return false without revoking the old
+	// token or inserting a replacement, even when the function is called alone.
+	atomicFamily, atomicToken, atomicSession := uuid.New(), uuid.New(), uuid.New()
+	atomicHash := "atomic-old-" + suffix
+	if err := loginDB.Exec("SELECT " + privateSchema + ".auth_create_session(?, ?, ?, ?, ?, ?, ?, ?)",
+		atomicToken, userID, atomicFamily, atomicHash, expiresAt, atomicSession, "fixture-agent", "127.0.0.1").Error; err != nil {
+		t.Fatalf("create atomicity fixture: %v", err)
+	}
+	if err := admin.Exec("DELETE FROM " + tableSchema + ".sessions WHERE id = ?", atomicSession).Error; err != nil {
+		t.Fatalf("remove session for atomicity test: %v", err)
+	}
+	var shouldNotRotate bool
+	if err := loginDB.Raw("SELECT " + privateSchema + ".auth_rotate_refresh(?, ?, ?, ?, ?, ?, ?, ?)",
+		atomicToken, atomicHash, uuid.New(), userID, atomicFamily, "atomic-new-"+suffix, newExpiry, atomicSession).Scan(&shouldNotRotate).Error; err != nil {
+		t.Fatalf("run missing-session rotation: %v", err)
+	}
+	if shouldNotRotate {
+		t.Fatal("rotation unexpectedly succeeded without a matching session")
+	}
+	var oldStillActive int64
+	if err := admin.Table(tableSchema + ".refresh_tokens").Where("id = ? AND revoked = false", atomicToken).Count(&oldStillActive).Error; err != nil {
+		t.Fatal(err)
+	}
+	if oldStillActive != 1 {
+		t.Fatal("failed rotation changed the old token despite a missing session")
+	}
+	var unexpectedReplacement int64
+	if err := admin.Table(tableSchema + ".refresh_tokens").Where("family_id = ? AND token_hash = ?", atomicFamily, "atomic-new-"+suffix).Count(&unexpectedReplacement).Error; err != nil {
+		t.Fatal(err)
+	}
+	if unexpectedReplacement != 0 {
+		t.Fatal("failed rotation inserted a replacement token")
+	}
+
+	// Two independent API connections racing the same refresh may produce
+	// exactly one replacement. The loser must observe the changed session hash.
+	raceFamily, raceToken, raceSession := uuid.New(), uuid.New(), uuid.New()
+	raceHash := "race-old-" + suffix
+	if err := loginDB.Exec("SELECT " + privateSchema + ".auth_create_session(?, ?, ?, ?, ?, ?, ?, ?)",
+		raceToken, userID, raceFamily, raceHash, expiresAt, raceSession, "fixture-agent", "127.0.0.1").Error; err != nil {
+		t.Fatalf("create concurrency fixture: %v", err)
+	}
+	secondLoginDB, err := gorm.Open(postgres.Open(loginURL.String()), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open second restricted API connection: %v", err)
+	}
+	secondSQL, err := secondLoginDB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer secondSQL.Close()
+	start := make(chan struct{})
+	results := make(chan bool, 2)
+	var wg sync.WaitGroup
+	for i, db := range []*gorm.DB{loginDB, secondLoginDB} {
+		wg.Add(1)
+		go func(i int, db *gorm.DB) {
+			defer wg.Done()
+			<-start
+			var ok bool
+			newHash := fmt.Sprintf("race-new-%s-%d", suffix, i)
+			err := db.Raw("SELECT " + privateSchema + ".auth_rotate_refresh(?, ?, ?, ?, ?, ?, ?, ?)",
+				raceToken, raceHash, uuid.New(), userID, raceFamily, newHash, newExpiry, raceSession).Scan(&ok).Error
+			if err != nil {
+				t.Errorf("concurrent rotation %d: %v", i, err)
+				return
+			}
+			results <- ok
+		}(i, db)
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	successes := 0
+	for ok := range results {
+		if ok { successes++ }
+	}
+	if successes != 1 {
+		t.Fatalf("expected exactly one concurrent refresh rotation to succeed, got %d", successes)
+	}
+	var raceActive int64
+	if err := admin.Table(tableSchema + ".refresh_tokens").Where("family_id = ? AND revoked = false", raceFamily).Count(&raceActive).Error; err != nil {
+		t.Fatal(err)
+	}
+	if raceActive != 1 {
+		t.Fatalf("expected one active token after concurrent rotation, got %d", raceActive)
 	}
 
 	err = admin.Transaction(func(tx *gorm.DB) error {

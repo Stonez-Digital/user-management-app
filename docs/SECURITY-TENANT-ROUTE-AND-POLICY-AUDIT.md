@@ -126,3 +126,24 @@ The current `app.current_school_id` and `app.current_user_id` values are custom 
 ## Safety
 
 No production database was queried or changed as part of this audit. No production role, policy, grant, secret, Render setting or deployment was changed. The initial staging catalog queries were read-only; the separately authorized billing DDL installation was limited to staging.
+
+
+## User identity and session transaction boundary — implementation in progress (2026-11-16)
+
+A school-optional identity transaction was added for authenticated self-service identity routes. It sets transaction-local app.current_user_id and, when the authenticated user has a school association, app.current_school_id. Platform administrators without a school association can therefore use their own profile and session endpoints without passing through school-required middleware.
+
+Migrated handlers now obtain their database handle from the identity transaction context rather than the application-wide root handle:
+
+- GET /me and PUT /me: select/update only the authenticated user; school profile projection is read using that user's stored school association.
+- GET /sessions: lists only non-revoked sessions belonging to the authenticated user.
+- DELETE /sessions/:id: requires both session ID and authenticated user ID; session and matching refresh-token revocation occur in one nested transaction.
+- POST /auth/logout-all: revokes only the authenticated user's sessions and refresh tokens in one transaction, with its audit event in that transaction.
+- POST /auth/change-password: password update, refresh-token revocation, session revocation and audit event share the identity transaction.
+
+Authentication middleware now propagates the school association loaded from the authenticated user record; it does not accept a client-supplied school ID. The identity transaction fails closed when the authenticated user context is absent. School context is optional for this middleware by design.
+
+Added SQLite controller/middleware tests for school-linked and platform /me access, self-only profile updates, session listing isolation, cross-user revoke denial, session/refresh-token atomicity, logout-all ownership, and missing identity transaction rejection.
+
+**Validation status:** CI for the current branch head is running. These tests are not yet reported as passing. Authentication middleware still performs its pre-handler session and active-user lookups using the configured application DB connection; those checks are outside the migrated handlers and must be addressed separately before a restricted runtime/RLS cutover.
+
+No production database, Render service, credential, or deployment was changed. PR #354 remains draft and unmerged.

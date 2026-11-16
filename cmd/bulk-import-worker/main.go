@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -42,12 +43,23 @@ func main() {
 		log.Fatalf("restricted bulk import claim role validation failed: %v", err)
 	}
 
-	role, err := database.InspectPostgresRole(processingDB)
+	requireProcessingRole, err := parseOptionalBoolEnv("REQUIRE_BULK_IMPORT_PROCESS_ROLE")
+	if err != nil {
+		log.Fatal(err)
+	}
+	role, err := database.InspectBulkImportProcessingRole(processingDB)
 	if err != nil {
 		log.Fatalf("inspect bulk import processing database role: %v", err)
 	}
-	if role != nil && (role.SessionSuperuser || role.SessionBypassRLS || role.SessionCanAssumePrivilegedRole) {
-		log.Printf("SECURITY WARNING: bulk import processing database session %q is privileged; tenant GUCs are not a substitute for a restricted processing role", role.SessionRole)
+	if err := database.ValidateBulkImportProcessingRole(role, requireProcessingRole); err != nil {
+		log.Fatal(err)
+	}
+	if role != nil && !requireProcessingRole &&
+		(!role.SessionCanLogin || !role.CurrentRoleMatchesSession || role.CurrentRole != role.SessionRole ||
+			role.CurrentSuperuser || role.CurrentBypassRLS || role.SessionSuperuser || role.SessionBypassRLS ||
+			role.SessionCanCreateDB || role.SessionCanCreateRole || role.SessionCanAssumePrivilegedRole ||
+			role.SessionIsAPIRuntimeMember || role.SessionIsQueueOwnerMember || role.SessionIsServiceRoleMember) {
+		log.Printf("SECURITY WARNING: bulk import processing database session %q is privileged or belongs to a shared runtime role; tenant GUCs are not a substitute for a restricted processing role", role.SessionRole)
 	}
 
 	worker, err := service.NewBulkImportServiceWithClaimDB(processingDB, claimDB, service.NewCredentialMailerFromEnv())
@@ -75,6 +87,18 @@ func main() {
 	log.Printf("bulk import worker polling window ended")
 	closeDatabase(processingDB, "processing")
 	closeDatabase(claimDB, "claim")
+}
+
+func parseOptionalBoolEnv(name string) (bool, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return false, nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, errors.New(name + " must be true or false")
+	}
+	return parsed, nil
 }
 
 func closeDatabase(db interface{ DB() (*sql.DB, error) }, name string) {

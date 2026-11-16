@@ -1,6 +1,4 @@
 \set ON_ERROR_STOP on
-\prompt -s worker_password 'Set a strong password for stonez_bulk_worker: '
-
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_worker') THEN
@@ -20,8 +18,10 @@ $$;
 -- untouched; the assertions below verify them.
 CREATE ROLE stonez_bulk_worker
     LOGIN INHERIT
-    CONNECTION LIMIT 5
-    PASSWORD :'worker_password';
+    CONNECTION LIMIT 5;
+
+-- psql hides both password prompts and sends only the encrypted verifier.
+\\password stonez_bulk_worker
 
 -- The login inherits only the restricted API group privileges. It cannot
 -- administer the group or SET ROLE into it; the claim function checks effective
@@ -55,7 +55,6 @@ BEGIN
 END
 $$;
 
-\unset worker_password
 SELECT
     rolname,
     rolcanlogin,

@@ -126,3 +126,49 @@ func TestLogoutAllRevokesOnlyAuthenticatedUsersSessionsAndTokens(t *testing.T) {
 	if err := db.Model(&models.Session{}).Where("user_id = ? AND revoked = false", userB).Count(&activeB).Error; err != nil { t.Fatal(err) }
 	if activeA != 0 || activeB != 1 { t.Fatalf("logout-all scope wrong: userA active=%d userB active=%d", activeA, activeB) }
 }
+
+func TestIdentityHandlersFailClosedWithoutIdentityTransaction(t *testing.T) {
+	db := authControllerTestDB(t)
+	userController := NewUserController(nil)
+	authController := NewAuthController(db)
+	tests := []struct{name string; handler gin.HandlerFunc; method string; path string; body string}{
+		{"get me", userController.GetMe, http.MethodGet, "/me", ""},
+		{"update me", userController.UpdateMe, http.MethodPut, "/me", `{"name":"No Context"}`},
+		{"list sessions", authController.GetSessions, http.MethodGet, "/sessions", ""},
+		{"revoke session", authController.RevokeSession, http.MethodDelete, "/sessions/"+uuid.NewString(), ""},
+		{"logout all", authController.LogoutAll, http.MethodPost, "/logout-all", ""},
+		{"change password", authController.ChangePassword, http.MethodPost, "/change-password", `{"current_password":"old-password123","new_password":"new-password123"}`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			router := gin.New()
+			router.Use(func(c *gin.Context) { c.Set(middleware.UserIDKey, uuid.NewString()); c.Next() })
+			router.Handle(tc.method, tc.path, tc.handler)
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+			if tc.body != "" { req.Header.Set("Content-Type", "application/json") }
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusInternalServerError { t.Fatalf("expected missing identity transaction to fail closed, got %d: %s", rec.Code, rec.Body.String()) }
+			if !strings.Contains(rec.Body.String(), "identity_transaction_required") { t.Fatalf("expected identity_transaction_required, got %s", rec.Body.String()) }
+		})
+	}
+}
+
+func TestSessionRevocationRollsBackWhenRefreshTokenRevocationFails(t *testing.T) {
+	db := authControllerTestDB(t)
+	userID, sessionID, familyID := uuid.New(), uuid.New(), uuid.New()
+	hash := auth.HashRefreshToken("atomic-revoke-refresh")
+	now := time.Now().Add(time.Hour)
+	if err := db.Create(&models.Session{ID: sessionID, UserID: userID, FamilyID: familyID, RefreshTokenHash: hash, ExpiresAt: now}).Error; err != nil { t.Fatal(err) }
+	if err := db.Create(&models.RefreshToken{ID: uuid.New(), UserID: userID, FamilyID: familyID, TokenHash: hash, ExpiresAt: now}).Error; err != nil { t.Fatal(err) }
+	if err := db.Exec(`CREATE TRIGGER fail_refresh_revoke BEFORE UPDATE OF revoked ON refresh_tokens BEGIN SELECT RAISE(ABORT, 'forced refresh revocation failure'); END`).Error; err != nil { t.Fatal(err) }
+	ac := NewAuthController(db)
+	rec := identityRequest(t, db, userID, http.MethodDelete, "/sessions/"+sessionID.String(), "", ac.RevokeSession)
+	if rec.Code != http.StatusInternalServerError { t.Fatalf("expected atomic revocation failure, got %d: %s", rec.Code, rec.Body.String()) }
+	var session models.Session
+	if err := db.First(&session, "id = ?", sessionID).Error; err != nil { t.Fatal(err) }
+	if session.Revoked { t.Fatal("session revocation must roll back when refresh-token revocation fails") }
+	var token models.RefreshToken
+	if err := db.First(&token, "token_hash = ?", hash).Error; err != nil { t.Fatal(err) }
+	if token.Revoked { t.Fatal("refresh-token revocation unexpectedly committed") }
+}

@@ -135,3 +135,57 @@ BEGIN
     END IF;
 END
 $logout_boundary$;
+
+-- Verify password lookup functions stay with the read-only bootstrap owner
+-- and credential/reset writers stay with the restricted session writer owner.
+DO $password_boundary$
+DECLARE
+    v_name text;
+    v_owner oid;
+    v_security_definer boolean;
+    v_config text[];
+BEGIN
+    FOREACH v_name IN ARRAY ARRAY['auth_password_reset_lookup', 'auth_password_change_lookup'] LOOP
+        SELECT p.proowner, p.prosecdef, p.proconfig
+          INTO v_owner, v_security_definer, v_config
+          FROM pg_proc AS p
+          JOIN pg_namespace AS n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'stonez_internal' AND p.proname = v_name;
+        IF NOT FOUND OR v_owner <> (SELECT oid FROM pg_roles WHERE rolname = 'stonez_auth_bootstrap_owner')
+           OR NOT v_security_definer OR NOT ('search_path=pg_catalog' = ANY(v_config)) THEN
+            RAISE EXCEPTION '% owner/SECURITY DEFINER/search_path verification failed', v_name;
+        END IF;
+    END LOOP;
+
+    FOREACH v_name IN ARRAY ARRAY['auth_create_password_reset', 'auth_disable_password_reset', 'auth_consume_password_reset', 'auth_change_password'] LOOP
+        SELECT p.proowner, p.prosecdef, p.proconfig
+          INTO v_owner, v_security_definer, v_config
+          FROM pg_proc AS p
+          JOIN pg_namespace AS n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'stonez_internal' AND p.proname = v_name;
+        IF NOT FOUND OR v_owner <> (SELECT oid FROM pg_roles WHERE rolname = 'stonez_auth_session_owner')
+           OR NOT v_security_definer OR NOT ('search_path=pg_catalog' = ANY(v_config)) THEN
+            RAISE EXCEPTION '% owner/SECURITY DEFINER/search_path verification failed', v_name;
+        END IF;
+        IF EXISTS (
+            SELECT 1
+              FROM pg_proc AS p
+              JOIN pg_namespace AS n ON n.oid = p.pronamespace
+              CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS a
+             WHERE n.nspname = 'stonez_internal' AND p.proname = v_name
+               AND a.grantee = 0 AND a.privilege_type = 'EXECUTE'
+        ) THEN
+            RAISE EXCEPTION 'PUBLIC must not execute %', v_name;
+        END IF;
+    END LOOP;
+
+    IF NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_password_reset_lookup(text)', 'EXECUTE')
+       OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_password_change_lookup(uuid)', 'EXECUTE')
+       OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_create_password_reset(uuid,uuid,text,timestamptz)', 'EXECUTE')
+       OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_disable_password_reset(uuid)', 'EXECUTE')
+       OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_consume_password_reset(text,text)', 'EXECUTE')
+       OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.auth_change_password(uuid,text)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'API runtime is missing password recovery/reset EXECUTE grants';
+    END IF;
+END
+$password_boundary$;

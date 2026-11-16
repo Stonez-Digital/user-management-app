@@ -46,6 +46,13 @@ func (s *SubscriptionBillingService) WithTenantContext(schoolID, userID uuid.UUI
 	return &clone
 }
 
+func (s *SubscriptionBillingService) tenantMatches(schoolID uuid.UUID) bool {
+	if s.tenantSchoolID == uuid.Nil && s.tenantUserID == uuid.Nil {
+		return true // internal/system callers remain explicitly unscoped until migrated.
+	}
+	return s.tenantSchoolID != uuid.Nil && s.tenantUserID != uuid.Nil && s.tenantSchoolID == schoolID
+}
+
 func (s *SubscriptionBillingService) transaction(fn func(*gorm.DB) error) error {
 	return tenantTransaction(s.db, s.tenantSchoolID, s.tenantUserID, fn)
 }
@@ -53,7 +60,7 @@ func (s *SubscriptionBillingService) transaction(fn func(*gorm.DB) error) error 
 // BillingContactEmail reads the authenticated school administrator's email
 // under the same short tenant-scoped transaction used by billing operations.
 func (s *SubscriptionBillingService) BillingContactEmail(schoolID, userID uuid.UUID) (string, error) {
-	if schoolID == uuid.Nil || userID == uuid.Nil || (s.tenantSchoolID != uuid.Nil && s.tenantSchoolID != schoolID) {
+	if schoolID == uuid.Nil || userID == uuid.Nil || (s.tenantSchoolID != uuid.Nil && (s.tenantSchoolID != schoolID || s.tenantUserID != userID)) {
 		return "", ErrSubscriptionPaymentUnavailable
 	}
 	var email string
@@ -86,7 +93,7 @@ func (s *SubscriptionBillingService) CreateCheckout(schoolID, termID uuid.UUID, 
 	reusedPending := false
 	planCode = strings.ToLower(strings.TrimSpace(planCode))
 	email = strings.TrimSpace(email)
-	if schoolID == uuid.Nil || termID == uuid.Nil || planCode == "" || email == "" || s.provider == nil {
+	if schoolID == uuid.Nil || !s.tenantMatches(schoolID) || termID == uuid.Nil || planCode == "" || email == "" || s.provider == nil {
 		return result, ErrSubscriptionPaymentUnavailable
 	}
 	now := s.now().UTC()
@@ -190,7 +197,7 @@ func (s *SubscriptionBillingService) CreateCheckout(schoolID, termID uuid.UUID, 
 func (s *SubscriptionBillingService) VerifyCheckout(schoolID uuid.UUID, reference string) (SubscriptionCheckout, error) {
 	var result SubscriptionCheckout
 	reference = strings.TrimSpace(reference)
-	if schoolID == uuid.Nil || reference == "" || s.provider == nil { return result, ErrSubscriptionPaymentInvalid }
+	if schoolID == uuid.Nil || !s.tenantMatches(schoolID) || reference == "" || s.provider == nil { return result, ErrSubscriptionPaymentInvalid }
 	var payment models.SubscriptionPayment
 	err := s.transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("school_id = ? AND reference = ?", schoolID, reference).First(&payment).Error; err != nil {

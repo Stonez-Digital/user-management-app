@@ -330,33 +330,126 @@ func (ac *AuthController) PublicSchool(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"id": school.ID, "name": school.Name, "code": school.Code, "slug": school.Slug, "logo_url": logo})
 }
 
+type authLoginLookup struct {
+	UserID uuid.UUID `gorm:"column:user_id"`
+	SchoolID *uuid.UUID `gorm:"column:school_id"`
+	FullName string `gorm:"column:full_name"`
+	Email string
+	PasswordHash string `gorm:"column:password_hash"`
+	Role string
+	Active bool
+	SchoolStatus string `gorm:"column:school_status"`
+	SchoolCode string `gorm:"column:school_code"`
+	SchoolSlug string `gorm:"column:school_slug"`
+}
+
+type authRefreshLookup struct {
+	TokenID uuid.UUID `gorm:"column:token_id"`
+	FamilyID uuid.UUID `gorm:"column:family_id"`
+	UserID uuid.UUID `gorm:"column:user_id"`
+	TokenExpiresAt time.Time `gorm:"column:token_expires_at"`
+	TokenRevoked bool `gorm:"column:token_revoked"`
+	SessionID uuid.UUID `gorm:"column:session_id"`
+	SessionExpiresAt time.Time `gorm:"column:session_expires_at"`
+	SessionRevoked bool `gorm:"column:session_revoked"`
+	SchoolID *uuid.UUID `gorm:"column:school_id"`
+	FullName string `gorm:"column:full_name"`
+	Email string
+	PasswordHash string `gorm:"column:password_hash"`
+	Role string
+	Active bool
+	SchoolStatus string `gorm:"column:school_status"`
+	SchoolCode string `gorm:"column:school_code"`
+	SchoolSlug string `gorm:"column:school_slug"`
+}
+
+func authLookupSchoolAccess(user models.User, status, code, slug, requestedCode, requestedSlug string) error {
+	if user.Role == authz.RoleSuperAdmin {
+		if strings.TrimSpace(requestedSlug) != "" {
+			return errors.New("platform administrators must use the platform login")
+		}
+		return nil
+	}
+	if user.SchoolID == nil || *user.SchoolID == uuid.Nil || status != models.SchoolStatusActive {
+		return errors.New("school onboarding is pending platform approval")
+	}
+	if value := strings.TrimSpace(requestedCode); value != "" && !strings.EqualFold(value, code) {
+		return errors.New("school code does not match your account")
+	}
+	if value := strings.TrimSpace(requestedSlug); value != "" && !strings.EqualFold(value, slug) {
+		return errors.New("school login does not match your account")
+	}
+	return nil
+}
+
 func (ac *AuthController) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Validation(c, httpx.ValidationErrors(err)); return
+		httpx.Validation(c, httpx.ValidationErrors(err))
+		return
 	}
+
 	var user models.User
-	if err := ac.DB.Where("email = ?", strings.ToLower(strings.TrimSpace(req.Email))).First(&user).Error; err != nil || !user.Active || !auth.CheckPassword(user.PasswordHash, req.Password) {
+	var schoolStatus, schoolCode, schoolSlug string
+	if ac.DB.Dialector.Name() == "postgres" {
+		var lookup authLoginLookup
+		err := ac.DB.Raw("SELECT * FROM stonez_internal.auth_login_lookup(?)", strings.ToLower(strings.TrimSpace(req.Email))).Scan(&lookup).Error
+		if err != nil || lookup.UserID == uuid.Nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+			return
+		}
+		user = models.User{ID: lookup.UserID, SchoolID: lookup.SchoolID, Name: lookup.FullName, Email: lookup.Email, PasswordHash: lookup.PasswordHash, Role: lookup.Role, Active: lookup.Active}
+		schoolStatus, schoolCode, schoolSlug = lookup.SchoolStatus, lookup.SchoolCode, lookup.SchoolSlug
+	} else {
+		if err := ac.DB.Where("email = ?", strings.ToLower(strings.TrimSpace(req.Email))).First(&user).Error; err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+			return
+		}
+	}
+	if !user.Active || !auth.CheckPassword(user.PasswordHash, req.Password) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
-	if err := validateSchoolAccess(ac.DB, user, req.SchoolCode, req.SchoolSlug); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+	var schoolErr error
+	if ac.DB.Dialector.Name() == "postgres" {
+		schoolErr = authLookupSchoolAccess(user, schoolStatus, schoolCode, schoolSlug, req.SchoolCode, req.SchoolSlug)
+	} else {
+		schoolErr = validateSchoolAccess(ac.DB, user, req.SchoolCode, req.SchoolSlug)
+	}
+	if schoolErr != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": schoolErr.Error()})
 		return
+	}
+
+	// Supplying the school context lets the audit writer avoid a second users
+	// table read after the restricted bootstrap lookup.
+	if user.SchoolID != nil && *user.SchoolID != uuid.Nil {
+		c.Set(middleware.SchoolIDKey, user.SchoolID.String())
 	}
 	sessionID := uuid.New()
 	accessToken, err := auth.GenerateTokenForSession(user.ID.String(), user.Role, sessionID.String())
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate access token"}); return }
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate access token"})
+		return
+	}
 	refreshToken, err := auth.GenerateRefreshToken(user.ID.String())
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate refresh token"}); return }
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate refresh token"})
+		return
+	}
 
 	err = ac.DB.Transaction(func(tx *gorm.DB) error {
 		familyID := uuid.New()
 		expiry := time.Now().Add(auth.RefreshTokenTTL)
-		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: auth.HashRefreshToken(refreshToken), ExpiresAt: expiry}).Error; err != nil { return err }
+		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: auth.HashRefreshToken(refreshToken), ExpiresAt: expiry}).Error; err != nil {
+			return err
+		}
 		return tx.Create(&models.Session{ID: sessionID, UserID: user.ID, FamilyID: familyID, RefreshTokenHash: auth.HashRefreshToken(refreshToken), ExpiresAt: expiry, UserAgent: c.Request.UserAgent(), IP: c.ClientIP()}).Error
 	})
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session"}); return }
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session"})
+		return
+	}
 	_ = audit.Record(ac.DB, c, &user.ID, "auth.login", "user", &user.ID, nil)
 	c.JSON(http.StatusOK, gin.H{"access_token": accessToken, "refresh_token": refreshToken})
 }
@@ -364,14 +457,32 @@ func (ac *AuthController) Login(c *gin.Context) {
 func (ac *AuthController) Refresh(c *gin.Context) {
 	var req RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpx.Validation(c, httpx.ValidationErrors(err)); return
-	}
-
-	var stored models.RefreshToken
-	if err := ac.DB.Where("token_hash = ?", auth.HashRefreshToken(req.RefreshToken)).First(&stored).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
+		httpx.Validation(c, httpx.ValidationErrors(err))
 		return
 	}
+	tokenHash := auth.HashRefreshToken(req.RefreshToken)
+
+	var stored models.RefreshToken
+	var user models.User
+	var session models.Session
+	var schoolStatus string
+	if ac.DB.Dialector.Name() == "postgres" {
+		var lookup authRefreshLookup
+		if err := ac.DB.Raw("SELECT * FROM stonez_internal.auth_refresh_lookup(?)", tokenHash).Scan(&lookup).Error; err != nil || lookup.TokenID == uuid.Nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
+			return
+		}
+		stored = models.RefreshToken{ID: lookup.TokenID, FamilyID: lookup.FamilyID, UserID: lookup.UserID, TokenHash: tokenHash, ExpiresAt: lookup.TokenExpiresAt, Revoked: lookup.TokenRevoked}
+		user = models.User{ID: lookup.UserID, SchoolID: lookup.SchoolID, Name: lookup.FullName, Email: lookup.Email, PasswordHash: lookup.PasswordHash, Role: lookup.Role, Active: lookup.Active}
+		session = models.Session{ID: lookup.SessionID, UserID: lookup.UserID, FamilyID: lookup.FamilyID, RefreshTokenHash: tokenHash, ExpiresAt: lookup.SessionExpiresAt, Revoked: lookup.SessionRevoked}
+		schoolStatus = lookup.SchoolStatus
+	} else {
+		if err := ac.DB.Where("token_hash = ?", tokenHash).First(&stored).Error; err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
+			return
+		}
+	}
+
 	if stored.Revoked {
 		_ = ac.DB.Transaction(func(tx *gorm.DB) error {
 			if err := tx.Model(&models.RefreshToken{}).Where("family_id = ?", stored.FamilyID).Updates(map[string]interface{}{"revoked": true}).Error; err != nil {
@@ -379,6 +490,9 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 			}
 			return tx.Model(&models.Session{}).Where("family_id = ?", stored.FamilyID).Updates(map[string]interface{}{"revoked": true}).Error
 		})
+		if user.ID != uuid.Nil && user.SchoolID != nil {
+			c.Set(middleware.SchoolIDKey, user.SchoolID.String())
+		}
 		_ = audit.Record(ac.DB, c, &stored.UserID, "security.refresh_token_reuse", "user", &stored.UserID, map[string]interface{}{"family_id": stored.FamilyID.String()})
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or already used refresh token; session revoked"})
 		return
@@ -387,37 +501,62 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
 		return
 	}
-	var user models.User
-	if err := ac.DB.First(&user, "id = ?", stored.UserID).Error; err != nil || !user.Active {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
-		return
+
+	if ac.DB.Dialector.Name() == "postgres" {
+		if !user.Active || session.ID == uuid.Nil || session.Revoked || time.Now().After(session.ExpiresAt) ||
+			authLookupSchoolAccess(user, schoolStatus, "", "", "", "") != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
+			return
+		}
+		if user.SchoolID != nil {
+			c.Set(middleware.SchoolIDKey, user.SchoolID.String())
+		}
+	} else {
+		if err := ac.DB.First(&user, "id = ?", stored.UserID).Error; err != nil || !user.Active {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
+			return
+		}
+		if err := validateSchoolAccess(ac.DB, user, "", ""); err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
+			return
+		}
+		if err := ac.DB.Where("refresh_token_hash = ? AND user_id = ? AND revoked = false AND expires_at > ?", tokenHash, user.ID, time.Now()).First(&session).Error; err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
+			return
+		}
 	}
 
-	if err := validateSchoolAccess(ac.DB, user, "", ""); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
-		return
-	}
-
-	var session models.Session
-	if err := ac.DB.Where("refresh_token_hash = ? AND user_id = ? AND revoked = false AND expires_at > ?", auth.HashRefreshToken(req.RefreshToken), user.ID, time.Now()).First(&session).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
-		return
-	}
 	accessToken, err := auth.GenerateTokenForSession(user.ID.String(), user.Role, session.ID.String())
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate access token"}); return }
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate access token"})
+		return
+	}
 	newRefreshToken, err := auth.GenerateRefreshToken(user.ID.String())
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate refresh token"}); return }
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate refresh token"})
+		return
+	}
 
 	err = ac.DB.Transaction(func(tx *gorm.DB) error {
 		result := tx.Model(&models.RefreshToken{}).Where("id = ? AND revoked = false", stored.ID).Update("revoked", true)
-		if result.Error != nil { return result.Error }
-		if result.RowsAffected != 1 { return errRefreshReused }
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return errRefreshReused
+		}
 		familyID := stored.FamilyID
 		expiry := time.Now().Add(auth.RefreshTokenTTL)
-		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: auth.HashRefreshToken(newRefreshToken), ExpiresAt: expiry}).Error; err != nil { return err }
-		result = tx.Model(&models.Session{}).Where("id = ? AND refresh_token_hash = ? AND revoked = false", session.ID, auth.HashRefreshToken(req.RefreshToken)).Updates(map[string]interface{}{"refresh_token_hash": auth.HashRefreshToken(newRefreshToken), "expires_at": expiry})
-		if result.Error != nil { return result.Error }
-		if result.RowsAffected != 1 { return errRefreshReused }
+		if err := tx.Create(&models.RefreshToken{ID: uuid.New(), UserID: user.ID, FamilyID: familyID, TokenHash: auth.HashRefreshToken(newRefreshToken), ExpiresAt: expiry}).Error; err != nil {
+			return err
+		}
+		result = tx.Model(&models.Session{}).Where("id = ? AND refresh_token_hash = ? AND revoked = false", session.ID, tokenHash).Updates(map[string]interface{}{"refresh_token_hash": auth.HashRefreshToken(newRefreshToken), "expires_at": expiry})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return errRefreshReused
+		}
 		return nil
 	})
 	if errors.Is(err, errRefreshReused) {
@@ -431,7 +570,10 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or already used refresh token; session revoked"})
 		return
 	}
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rotate refresh token"}); return }
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rotate refresh token"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"access_token": accessToken, "refresh_token": newRefreshToken})
 }
 

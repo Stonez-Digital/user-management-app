@@ -215,6 +215,16 @@ func TestAuthBootstrapFunctionsEnforceRestrictedPostgresBoundary(t *testing.T) {
 		t.Fatalf("revoke refresh family through restricted writer function: %v", err)
 	}
 
+	err = admin.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SET LOCAL ROLE " + sessionOwnerRole).Error; err != nil {
+			return err
+		}
+		return tx.Exec("SELECT token_hash FROM " + tableSchema + ".refresh_tokens").Error
+	})
+	if err == nil {
+		t.Fatal("session writer owner unexpectedly read refresh-token hashes")
+	}
+
 	for _, statement := range []string{
 		"SELECT * FROM " + tableSchema + ".users",
 		"SELECT * FROM " + tableSchema + ".refresh_tokens",

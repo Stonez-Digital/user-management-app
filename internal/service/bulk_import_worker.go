@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/onoja217/users-management-app/internal/database"
 	"github.com/onoja217/users-management-app/internal/models"
+	"github.com/onoja217/users-management-app/internal/security/bulkcontext"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -24,28 +26,27 @@ const bulkImportIdleTimeout = 30 * time.Second
 func (s *BulkImportService) withTenantTransaction(job models.BulkImportJob, fn func(*gorm.DB) error) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		if tx.Dialector.Name() == "postgres" {
-			if err := tx.Exec("SELECT set_config('app.current_school_id', ?, true)", job.SchoolID.String()).Error; err != nil {
+			if s.contextSigner == nil {
+				return errors.New("bulk import PostgreSQL processing requires the signed tenant-context signer")
+			}
+			if job.WorkerID == nil || job.LeaseGeneration <= 0 {
+				return errors.New("bulk import job is missing its claimed worker lease generation")
+			}
+			assertion, err := s.contextSigner.Sign(tx.Statement.Context, bulkcontext.Binding{
+				JobID: job.ID, SchoolID: job.SchoolID, InitiatedBy: job.InitiatedBy,
+				WorkerID: *job.WorkerID, LeaseGeneration: job.LeaseGeneration,
+			}, time.Minute)
+			if err != nil {
+				return fmt.Errorf("sign bulk import tenant context: %w", err)
+			}
+			if err := database.VerifyBulkImportContext(tx, assertion); err != nil {
 				return err
 			}
-			if err := tx.Exec("SELECT set_config('app.current_user_id', ?, true)", job.InitiatedBy.String()).Error; err != nil {
-				return err
-			}
-		}
-
-		// Fence every worker-owned transaction against an expired or replaced
-		// lease. Locking the job row prevents another worker from reclaiming it
-		// while this row/job transaction is in flight, even if it runs longer
-		// than the lease interval. The next transaction must still present the
-		// current worker ID and a non-expired lease.
-		if job.WorkerID != nil {
+		} else if job.WorkerID != nil {
+			// SQLite is used only by local business-logic tests. This check is
+			// not a substitute for PostgreSQL's signed assertion and RLS boundary.
 			var lease models.BulkImportJob
-			leaseClock := time.Now().UTC()
-			if tx.Dialector.Name() == "postgres" {
-				if err := tx.Raw("SELECT clock_timestamp()").Scan(&leaseClock).Error; err != nil {
-					return err
-				}
-			}
-			cutoff := leaseClock.Add(-bulkImportClaimLease)
+			cutoff := time.Now().UTC().Add(-bulkImportClaimLease)
 			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 				Where("id = ? AND school_id = ? AND initiated_by = ? AND worker_id = ? AND status = ? AND claimed_at >= ?",
 					job.ID, job.SchoolID, job.InitiatedBy, *job.WorkerID, models.BulkImportRunning, cutoff).
@@ -148,6 +149,7 @@ func (s *BulkImportService) RunWorker(ctx context.Context) error {
 		mailer:    s.mailer,
 		workerID:  s.workerID,
 		workerOnce: s.workerOnce,
+		contextSigner: s.contextSigner,
 	}
 
 	lastWorkAt := time.Now()

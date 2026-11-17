@@ -87,6 +87,9 @@ func (m *CredentialMailer) SendAccountSetupNotice(name, email, role, eventID str
 	if m.resendAPIKey != "" {
 		return m.sendViaResendWithIdempotency(email, subject, body, "stonez-account-setup-"+eventID)
 	}
+	if strings.EqualFold(m.host, "smtp.resend.com") {
+		return fmt.Errorf("Resend API key is missing; set RESEND_API_KEY or the existing SMTP_PASSWORD")
+	}
 	return m.send(email, subject, body)
 }
 

@@ -129,6 +129,34 @@ BEGIN
             v_table
         );
     END LOOP;
+
+    -- User creation is a constrained import capability, not general account
+    -- provisioning. Revoke the table-level grant and grant only the columns
+    -- emitted by the bulk-import User model.
+    REVOKE INSERT ON public.users FROM stonez_bulk_worker_processing;
+    GRANT INSERT (id, school_id, name, email, password_hash, role, active)
+        ON public.users TO stonez_bulk_worker_processing;
+
+    CREATE OR REPLACE FUNCTION stonez_context_private.bulk_worker_user_role_allowed(p_role text)
+    RETURNS boolean
+    LANGUAGE sql
+    IMMUTABLE
+    PARALLEL SAFE
+    SET search_path = pg_catalog
+    AS $role_guard$
+        SELECT p_role IN ('student', 'teacher', 'parent')
+    $role_guard$;
+    REVOKE ALL ON FUNCTION stonez_context_private.bulk_worker_user_role_allowed(text) FROM PUBLIC;
+    GRANT EXECUTE ON FUNCTION stonez_context_private.bulk_worker_user_role_allowed(text)
+        TO stonez_bulk_worker_processing;
+
+    -- A restrictive policy is ANDed with every permissive INSERT policy,
+    -- so weakening/replacing the tenant policy cannot enable privileged roles.
+    DROP POLICY IF EXISTS bulk_worker_user_role_guard ON public.users;
+    CREATE POLICY bulk_worker_user_role_guard ON public.users
+        AS RESTRICTIVE
+        FOR INSERT TO stonez_bulk_worker_processing
+        WITH CHECK (stonez_context_private.bulk_worker_user_role_allowed(role));
 END
 $policies$;
 

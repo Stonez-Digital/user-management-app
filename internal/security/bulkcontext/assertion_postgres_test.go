@@ -1,7 +1,10 @@
-package bulkcontext
+package bulkcontext_test
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/url"
@@ -12,9 +15,16 @@ import (
 
 	"github.com/google/uuid"
 	appdb "github.com/onoja217/users-management-app/internal/database"
+	"github.com/onoja217/users-management-app/internal/security/bulkcontext"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
+
+type staticKeySource struct { key bulkcontext.Key }
+
+func (s staticKeySource) ActiveSigningKey(context.Context) (bulkcontext.Key, error) {
+	return bulkcontext.Key{ID: s.key.ID, Secret: append([]byte(nil), s.key.Secret...)}, nil
+}
 
 func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	dsn := strings.TrimSpace(os.Getenv("TEST_DATABASE_URL"))
@@ -131,7 +141,7 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 		t.Fatal("processing login unexpectedly SET ROLE to its privilege group")
 	}
 
-	key := Key{ID: "integration-key-1", Secret: []byte("integration-test-key-0123456789abcdef")}
+	key := bulkcontext.Key{ID: "integration-key-1", Secret: []byte("integration-test-key-0123456789abcdef")}
 	if err := admin.Exec("INSERT INTO "+privateSchema+".bulk_context_keys (key_id, secret, enabled) VALUES (?, ?, true)", key.ID, key.Secret).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -163,24 +173,22 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 		t.Fatalf("create RLS tenant fixture: %v", err)
 	}
 
-	keys := testKeys{active: key, byID: map[string]Key{key.ID: key}}
-	signer, err := NewSigner(keys, 2*time.Minute)
+	signer, err := bulkcontext.bulkcontext.NewSigner(staticKeySource{key: key}, 2*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
-	signer.now = time.Now
-	binding := Binding{JobID: jobID, SchoolID: schoolA, InitiatedBy: initiator, WorkerID: workerID, LeaseGeneration: 4}
+	binding := bulkcontext.Binding{JobID: jobID, SchoolID: schoolA, InitiatedBy: initiator, WorkerID: workerID, LeaseGeneration: 4}
 
-	sign := func(tx *gorm.DB, source *Signer, b Binding, ttl time.Duration) (Assertion, error) {
+	sign := func(tx *gorm.DB, source *bulkcontext.Signer, b bulkcontext.Binding, ttl time.Duration) (bulkcontext.Assertion, error) {
 		identity, err := appdb.CurrentBulkImportTransactionIdentity(tx)
 		if err != nil {
-			return Assertion{}, err
+			return bulkcontext.Assertion{}, err
 		}
 		b.BackendPID = identity.BackendPID
 		b.TransactionID = identity.TransactionID
 		return source.Sign(tx.Statement.Context, b, ttl)
 	}
-	verify := func(tx *gorm.DB, a Assertion) error {
+	verify := func(tx *gorm.DB, a bulkcontext.Assertion) error {
 		c := a.Claims
 		return tx.Exec("SELECT "+privateSchema+".verify_bulk_import_context(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			c.KeyID, c.AssertionID, c.JobID, c.SchoolID, c.InitiatedBy,
@@ -191,7 +199,7 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	// A savepoint rollback removes the first verifier row and transaction-local
 	// pointer; the same assertion can then be verified again in that transaction.
 	rollbackMarker := errors.New("intentional rollback")
-	var rolledBackAssertion Assertion
+	var rolledBackAssertion bulkcontext.Assertion
 	err = loginDB.Transaction(func(tx *gorm.DB) error {
 		var signErr error
 		rolledBackAssertion, signErr = sign(tx, signer, binding, time.Minute)
@@ -231,7 +239,7 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	}
 
 	// A committed assertion cannot be transferred to another backend transaction.
-	var committed Assertion
+	var committed bulkcontext.Assertion
 	if err := loginDB.Transaction(func(tx *gorm.DB) error {
 		var signErr error
 		committed, signErr = sign(tx, signer, binding, time.Minute)
@@ -266,13 +274,20 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	}
 
 	// A validly signed but expired assertion is rejected by PostgreSQL.
-	expiredSigner := *signer
-	expiredSigner.now = func() time.Time { return time.Now().UTC().Add(-5 * time.Minute) }
 	if err := loginDB.Transaction(func(tx *gorm.DB) error {
-		expired, err := sign(tx, &expiredSigner, binding, time.Minute)
+		expired, err := sign(tx, signer, binding, time.Minute)
 		if err != nil {
 			return err
 		}
+		expired.Claims.IssuedAt = time.Now().UTC().Add(-5 * time.Minute).Unix()
+		expired.Claims.ExpiresAt = expired.Claims.IssuedAt + 60
+		payload, err := bulkcontext.CanonicalPayload(expired.Claims)
+		if err != nil {
+			return err
+		}
+		mac := hmac.New(sha256.New, key.Secret)
+		_, _ = mac.Write(payload)
+		expired.Signature = base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 		return verify(tx, expired)
 	}); err == nil {
 		t.Fatal("expired assertion was accepted by PostgreSQL")

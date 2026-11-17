@@ -363,6 +363,13 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
             AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','TRUNCATE')
             AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','REFERENCES')
             AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','TRIGGER')
+            AND NOT EXISTS (
+                SELECT 1 FROM pg_attribute AS a
+                 WHERE a.attrelid='public.bulk_import_jobs'::regclass
+                   AND a.attnum>0 AND NOT a.attisdropped
+                   AND (has_column_privilege(session_user,'public.bulk_import_jobs',a.attname,'INSERT')
+                        OR has_column_privilege(session_user,'public.bulk_import_jobs',a.attname,'REFERENCES'))
+            )
             AS worker_privileges_exact
     `
     if err := db.Raw(query).Scan(&ready).Error; err != nil {

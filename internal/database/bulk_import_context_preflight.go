@@ -17,8 +17,8 @@ func ValidateBulkImportContextVerifier(db *gorm.DB) error {
 		ContextExists  bool `gorm:"column:context_exists"`
 		HMACExists     bool `gorm:"column:hmac_exists"`
 		CanVerify      bool `gorm:"column:can_verify"`
-	KeyCheckExists bool `gorm:"column:key_check_exists"
-	CanCheckKey    bool `gorm:"column:can_check_key"`
+		KeyCheckExists bool `gorm:"column:key_check_exists"`
+		CanCheckKey    bool `gorm:"column:can_check_key"`
 	}
 	err := db.Raw(`
 		SELECT
@@ -32,14 +32,15 @@ func ValidateBulkImportContextVerifier(db *gorm.DB) error {
 	if err != nil {
 		return fmt.Errorf("inspect signed bulk import context verifier: %w", err)
 	}
-	if !status.VerifierExists || !status.ContextExists || !status.HMACExists || !status.CanVerify || !status.KeyCheckExists || !status.CanCheckKey {
-		return fmt.Errorf("signed bulk import context verifier is not installed or executable (verifier=%t context=%t pgcrypto_hmac=%t execute=%t)",
-			status.VerifierExists, status.ContextExists, status.HMACExists, status.CanVerify)
+	if !status.VerifierExists || !status.ContextExists || !status.HMACExists ||
+		!status.CanVerify || !status.KeyCheckExists || !status.CanCheckKey {
+		return fmt.Errorf("signed bulk import context verifier is not installed or executable (verifier=%t context=%t pgcrypto_hmac=%t verify_execute=%t key_check=%t key_check_execute=%t)",
+			status.VerifierExists, status.ContextExists, status.HMACExists,
+			status.CanVerify, status.KeyCheckExists, status.CanCheckKey)
 	}
 	return nil
 }
 
- 
 // ValidateBulkImportContextKey confirms that the active Vault key has been
 // provisioned into the private PostgreSQL verifier table without exposing it.
 func ValidateBulkImportContextKey(db *gorm.DB, keyID string) error {

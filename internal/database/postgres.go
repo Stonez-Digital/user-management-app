@@ -44,6 +44,7 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
         IsSuperuser bool
         CanCreateDB bool
         CanCreateRole bool
+        CanReplicate bool
         BypassRLS bool
         Inherits bool
         WorkerGroup bool

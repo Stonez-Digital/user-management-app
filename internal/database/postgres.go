@@ -103,6 +103,7 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
         InitiatorAccessor bool
         JobAccessor bool
         HMAC bool
+        WorkerGroupSafe bool
         QueueSelectPolicy int
         QueueUpdatePolicy int
         VerifierReadPolicy int
@@ -125,6 +126,10 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                    AND proc_entry.proname = 'hmac'
                    AND pg_get_function_identity_arguments(proc_entry.oid) = 'bytea, bytea, text'
             ) AS hmac,
+            EXISTS (SELECT 1 FROM pg_roles
+                     WHERE rolname='stonez_bulk_worker_processing'
+                       AND NOT rolcanlogin AND NOT rolsuper AND NOT rolbypassrls
+                       AND NOT rolcreatedb AND NOT rolcreaterole) AS worker_group_safe,
             (SELECT count(*) FROM pg_policy
               WHERE polname = 'bulk_import_jobs_signed_worker_select'
                 AND polrelid = 'public.bulk_import_jobs'::regclass
@@ -160,7 +165,7 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
         return fmt.Errorf("inspect signed bulk import verifier installation: %w", err)
     }
     if !ready.Verifier || !ready.SchoolAccessor || !ready.InitiatorAccessor ||
-       !ready.JobAccessor || !ready.HMAC ||
+       !ready.JobAccessor || !ready.HMAC || !ready.WorkerGroupSafe ||
        ready.QueueSelectPolicy != 1 || ready.QueueUpdatePolicy != 1 ||
        ready.VerifierReadPolicy != 1 || ready.VerifierLockPolicy != 1 ||
        ready.WorkerSelectPolicies != 9 || ready.WorkerInsertPolicies != 6 {

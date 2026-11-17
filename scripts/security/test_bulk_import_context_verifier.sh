@@ -121,8 +121,8 @@ DECLARE
   ];
 BEGIN
   IF cardinality(v_functions) <> 5 OR EXISTS (
-      SELECT 1 FROM unnest(v_functions) AS function_id
-      JOIN pg_proc AS procedure ON procedure.oid=function_id
+      SELECT 1 FROM unnest(v_functions) AS functions(function_oid)
+      JOIN pg_proc AS procedure ON procedure.oid=functions.function_oid
       WHERE procedure.prosecdef IS DISTINCT FROM true
          OR procedure.proowner IS DISTINCT FROM v_owner
          OR NOT ('search_path=pg_catalog'=ANY(COALESCE(procedure.proconfig,ARRAY[]::text[])))

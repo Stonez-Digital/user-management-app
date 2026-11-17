@@ -52,6 +52,8 @@ func TestSignAndVerifyAssertion(t *testing.T) {
 		assertion.Claims.SchoolID != binding.SchoolID ||
 		assertion.Claims.InitiatedBy != binding.InitiatedBy ||
 		assertion.Claims.WorkerID != binding.WorkerID ||
+		assertion.Claims.BackendPID != binding.BackendPID ||
+		assertion.Claims.TransactionID != binding.TransactionID ||
 		assertion.Claims.LeaseGeneration != binding.LeaseGeneration {
 		t.Fatal("signed claims do not match trusted queue binding")
 	}
@@ -67,6 +69,16 @@ func TestSignRejectsMissingBindingAndInvalidTTL(t *testing.T) {
 	}
 	if _, err := signer.Sign(context.Background(), binding, 3*time.Minute); !errors.Is(err, ErrInvalidTTL) {
 		t.Fatalf("excessive TTL error = %v, want ErrInvalidTTL", err)
+	}
+}
+
+func TestSignRejectsNonCanonicalTransactionID(t *testing.T) {
+	signer, _, binding := testSigner(t)
+	for _, value := range []string{"", "0", "000123", "-1", "not-a-xid"} {
+		binding.TransactionID = value
+		if _, err := signer.Sign(context.Background(), binding, time.Minute); !errors.Is(err, ErrInvalidClaims) {
+			t.Fatalf("transaction ID %q error = %v, want ErrInvalidClaims", value, err)
+		}
 	}
 }
 

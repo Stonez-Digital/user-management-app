@@ -120,11 +120,11 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimGroupRole, apiRuntimeRole,
 	err := db.Raw(`
 		SELECT
 			session_user AS session_role,
-			role.rolcanlogin AS is_login,
-			role.rolsuper AS is_superuser,
-			role.rolbypassrls AS bypass_rls,
-			role.rolcreatedb AS can_create_db,
-			role.rolcreaterole AS can_create_role,
+			session_role.rolcanlogin AS is_login,
+			session_role.rolsuper AS is_superuser,
+			session_role.rolbypassrls AS bypass_rls,
+			session_role.rolcreatedb AS can_create_db,
+			session_role.rolcreaterole AS can_create_role,
 			pg_has_role(session_user, ?::name, 'MEMBER') AS is_claim_group_member,
 			pg_has_role(session_user, ?::name, 'USAGE') AS is_claim_group_effective,
 			pg_has_role(session_user, ?::name, 'SET') AS can_set_claim_group_role,
@@ -137,7 +137,7 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimGroupRole, apiRuntimeRole,
 			), false) AS is_service_role_member,
 			EXISTS (
 				SELECT 1 FROM pg_auth_members AS membership
-				WHERE membership.member = role.oid
+				WHERE membership.member = session_role.oid
 				  AND membership.roleid <> (SELECT oid FROM pg_roles WHERE rolname = ?)
 			) AS has_unexpected_role_membership,
 			EXISTS (
@@ -149,8 +149,8 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimGroupRole, apiRuntimeRole,
 			) AS session_can_assume_privileged_role,
 			has_function_privilege(session_user, ?::regprocedure, 'EXECUTE') AS can_execute_claim,
 			current_user = session_user AS current_role_matches_session
-		FROM pg_roles AS role
-		WHERE role.rolname = session_user
+		FROM pg_roles AS session_role
+		WHERE session_role.rolname = session_user
 	`, claimGroupRole, claimGroupRole, claimGroupRole, apiRuntimeRole, queueOwnerRole, claimGroupRole, claimFunction).Scan(&status).Error
 	if err != nil {
 		return fmt.Errorf("inspect bulk import claim role: %w", err)

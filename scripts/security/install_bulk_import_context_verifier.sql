@@ -22,7 +22,27 @@ BEGIN
         RAISE EXCEPTION 'bulk context roles have unsafe role attributes';
     END IF;
 END
-$$;
+$;
+
+-- Resolve pgcrypto through extension catalog metadata, not a guessed schema.
+DO $extension$
+DECLARE
+    v_schema text;
+BEGIN
+    SELECT namespace.nspname INTO v_schema
+      FROM pg_extension AS extension
+      JOIN pg_namespace AS namespace ON namespace.oid = extension.extnamespace
+      JOIN pg_proc AS procedure ON procedure.pronamespace = namespace.oid
+     WHERE extension.extname = 'pgcrypto'
+       AND procedure.proname = 'hmac'
+       AND pg_get_function_identity_arguments(procedure.oid) = 'bytea, bytea, text'
+     LIMIT 1;
+    IF v_schema IS NULL THEN
+        RAISE EXCEPTION 'pgcrypto.hmac(bytea, bytea, text) must be installed before verifier setup';
+    END IF;
+    EXECUTE format('GRANT USAGE ON SCHEMA %I TO stonez_bulk_context_owner', v_schema);
+END
+$extension$;
 
 -- The operator/table owner grants the verifier owner access to the queue
 -- relation before switching to the dedicated NOLOGIN owner.

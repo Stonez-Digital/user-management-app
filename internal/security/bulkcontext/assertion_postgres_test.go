@@ -76,7 +76,7 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 		"CREATE POLICY tenant_fixture_select ON "+tableSchema+".tenant_fixture FOR SELECT TO "+processRole+" "+
 		"USING (EXISTS (SELECT 1 FROM "+privateSchema+".current_bulk_import_context() ctx WHERE ctx.school_id = tenant_fixture.school_id)); "+
 		"CREATE POLICY tenant_fixture_insert ON "+tableSchema+".tenant_fixture FOR INSERT TO "+processRole+" "+
-		"WITH CHECK (EXISTS (SELECT 1 FROM "+privateSchema+".current_bulk_import_context() ctx WHERE ctx.school_id = school_id)); "+
+		"WITH CHECK (EXISTS (SELECT 1 FROM "+privateSchema+".current_bulk_import_context() ctx WHERE ctx.school_id = tenant_fixture.school_id)); "+
 		"INSERT INTO "+tableSchema+".tenant_fixture (id, school_id) VALUES "+
 		"('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '"+schoolA.String()+"'), "+
 		"('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', '"+schoolB.String()+"')"

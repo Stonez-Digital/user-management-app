@@ -603,21 +603,11 @@ concurrent_pid=$!
 sleep 1
 second_claim="$(psql "$worker_url" -X -q -A -t -v ON_ERROR_STOP=1 -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$CONCURRENT_SECOND_TOKEN'); SELECT event_id FROM stonez_context_private.claim_account_setup_notification(); COMMIT;")"
 wait "$concurrent_pid"
-first_claim="$(grep -E '^[0-9a-f-]{36}
+first_claim="$(grep -E '^[0-9a-f-]{36}$' "$concurrent_output" | head -n 1)"
 rm -f "$concurrent_output"
 if [[ -z "$first_claim" || -n "$second_claim" ]]; then
   echo "Concurrent outbox claims were not mutually exclusive: first=$first_claim second=$second_claim" >&2
   exit 1
 fi
 
-
-echo "Private signed-context credential outbox permission, atomicity, restart, lease-fencing, completion, and idempotency tests passed."
- "$concurrent_output" | head -n 1)"
-rm -f "$concurrent_output"
-if [[ -z "$first_claim" || -n "$second_claim" ]]; then
-  echo "Concurrent outbox claims were not mutually exclusive: first=$first_claim second=$second_claim" >&2
-  exit 1
-fi
-
-
-echo "Private signed-context credential outbox permission, atomicity, restart, lease-fencing, completion, and idempotency tests passed."
+echo "Private signed-context credential outbox permission, atomicity, restart, lease-fencing, completion, concurrency, and idempotency tests passed."

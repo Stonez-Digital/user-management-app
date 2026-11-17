@@ -54,6 +54,13 @@ BEGIN
        OR pg_has_role('stonez_bulk_worker_processing_login', 'stonez_bulk_context_key_admin', 'MEMBER') THEN
         RAISE EXCEPTION 'processing login inherited a forbidden runtime, queue, owner, or key-admin role';
     END IF;
+    IF EXISTS (
+        SELECT 1 FROM pg_auth_members
+         WHERE member = (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing_login')
+           AND roleid <> (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing')
+    ) THEN
+        RAISE EXCEPTION 'processing login must have only the signed-worker group membership';
+    END IF;
 END
 $verify$;
 

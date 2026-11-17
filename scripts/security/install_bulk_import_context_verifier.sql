@@ -23,8 +23,42 @@ BEGIN
         SELECT 1 FROM pg_roles
         WHERE rolname IN ('stonez_bulk_worker_processing','stonez_bulk_context_owner','stonez_bulk_context_key_admin')
           AND (rolcanlogin OR rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole OR rolreplication)
+    ) OR EXISTS (
+        SELECT 1 FROM pg_roles
+        WHERE rolname = 'stonez_bulk_worker_processing' AND NOT rolinherit
+    ) OR EXISTS (
+        SELECT 1 FROM pg_roles
+        WHERE rolname IN ('stonez_bulk_context_owner','stonez_bulk_context_key_admin')
+          AND rolinherit
     ) THEN
-        RAISE EXCEPTION 'bulk context roles have unsafe role attributes';
+        RAISE EXCEPTION 'bulk context roles have unsafe role attributes; processing group must INHERIT and verifier owner/key-admin must be NOINHERIT';
+    END IF;
+
+    -- The verifier owner and key administrator are privilege boundaries,
+    -- not general-purpose groups. Neither may inherit from another role or
+    -- be granted to an arbitrary login/group. On an idempotent reinstall,
+    -- the only permitted incoming membership is the current operator's
+    -- explicit NOINHERIT, SET-capable membership created below.
+    IF EXISTS (
+        SELECT 1
+          FROM pg_auth_members AS membership
+          JOIN pg_roles AS target_role ON target_role.oid = membership.roleid
+         WHERE target_role.rolname IN ('stonez_bulk_context_owner','stonez_bulk_context_key_admin')
+           AND membership.member <> (SELECT oid FROM pg_roles WHERE rolname = current_user)
+    ) OR EXISTS (
+        SELECT 1
+          FROM pg_auth_members AS membership
+          JOIN pg_roles AS member_role ON member_role.oid = membership.member
+         WHERE member_role.rolname IN ('stonez_bulk_context_owner','stonez_bulk_context_key_admin')
+    ) OR EXISTS (
+        SELECT 1
+          FROM pg_auth_members AS membership
+          JOIN pg_roles AS target_role ON target_role.oid = membership.roleid
+         WHERE target_role.rolname IN ('stonez_bulk_context_owner','stonez_bulk_context_key_admin')
+           AND membership.member = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+           AND (membership.admin_option OR membership.inherit_option OR NOT membership.set_option)
+    ) THEN
+        RAISE EXCEPTION 'verifier owner and key-admin roles must have no inherited/delegated memberships; only the current operator may hold a non-inheriting SET membership';
     END IF;
 END
 $roles$;

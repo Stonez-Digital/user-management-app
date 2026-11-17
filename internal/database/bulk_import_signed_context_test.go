@@ -160,6 +160,21 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 		})
 	}
 
+	// A replication-capable login must be rejected even when its other
+	// role attributes and memberships are restricted.
+	if err := runnerDB.Exec(`ALTER ROLE stonez_bulk_worker_processing_test REPLICATION`).Error; err != nil {
+		t.Fatalf("enable replication attribute for negative test: %v", err)
+	}
+	if err := ValidateBulkImportProcessingRole(workerDB); err == nil {
+		t.Fatal("replication-capable processing login was accepted")
+	}
+	if err := runnerDB.Exec(`ALTER ROLE stonez_bulk_worker_processing_test NOREPLICATION`).Error; err != nil {
+		t.Fatalf("remove replication attribute after negative test: %v", err)
+	}
+	if err := ValidateBulkImportProcessingRole(workerDB); err != nil {
+		t.Fatalf("processing login rejected after removing replication capability: %v", err)
+	}
+
 	// PostgreSQL 16+ membership SET options are distinct from INHERIT.
 	// The processing login must inherit the policy group without being able
 	// to SET ROLE into it.

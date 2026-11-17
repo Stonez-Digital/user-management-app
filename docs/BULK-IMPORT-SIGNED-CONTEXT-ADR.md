@@ -57,6 +57,12 @@ All identity and lease claims must be derived from the row returned by the restr
 
 The Go signer must require a key ID and at least 32 bytes of key material. The token lifetime should be short (initial target: 30 seconds, maximum accepted lifetime: 60 seconds). PostgreSQL's clock is authoritative for acceptance; allow only a small, explicit clock-skew tolerance. The signer must generate a new `jti` for every processing transaction.
 
+## Processing-login membership boundary
+
+The processing-group role is exclusive to the dedicated processing login. It must have exactly one direct member, that login; it must not itself inherit another role; and the login must not inherit any additional role, including the context owner, key administrator, API runtime, queue owner, or claim login. Nested membership and ADMIN OPTION are rejected.
+
+This is not only a startup check. PostgreSQL evaluates the membership predicate on every assertion verification and every transaction-bound context accessor. That prevents a login from retaining verified tenant context after its role memberships are changed while the worker process remains running. Startup readiness and login provisioning independently verify the same exclusive membership shape.
+
 ## Database verification and transaction binding
 
 The verifier is a narrowly scoped `SECURITY DEFINER` function with a fixed `pg_catalog` search path and fully schema-qualified object references.

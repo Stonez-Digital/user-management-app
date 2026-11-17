@@ -100,7 +100,7 @@ func TestBulkImportCredentialOutboxWorkerCrashRetry(t *testing.T) {
 
 	// The account, student profile and outbox event commit in one signed
 	// transaction. No plaintext temporary password leaves the row handler.
-	created, skipped, _, temporaryPassword, _, err := worker.processStudent(job, "Imported Student", email, rows[0])
+	created, skipped, _, temporaryPassword, _, err := worker.processStudent(job, "Imported Student", email, rows[0], 2)
 	if err != nil { t.Fatalf("create imported account and durable outbox event: %v", err) }
 	if !created || skipped || temporaryPassword != "" {
 		t.Fatalf("row handler exposed an unexpected credential or creation state: created=%t skipped=%t password=%q", created, skipped, temporaryPassword)
@@ -176,9 +176,9 @@ func TestBulkImportCredentialOutboxWorkerCrashRetry(t *testing.T) {
 	if final.Status != "delivered" || final.AttemptCount != 2 {
 		t.Fatalf("restarted worker did not complete the durable event: %+v", final)
 	}
-	var finalJob struct { Status string; CredentialsSent int; CredentialEmailsFailed int }
-	if err := admin.Raw("SELECT status,credentials_sent,credential_emails_failed FROM public.bulk_import_jobs WHERE id=?", jobID).Scan(&finalJob).Error; err != nil { t.Fatal(err) }
-	if finalJob.Status != models.BulkImportCompleted || finalJob.CredentialsSent != 1 || finalJob.CredentialEmailsFailed != 0 {
+	var finalJob struct { Status string; Created int; Skipped int; CredentialsSent int; CredentialEmailsFailed int }
+	if err := admin.Raw("SELECT status,created,skipped,credentials_sent,credential_emails_failed FROM public.bulk_import_jobs WHERE id=?", jobID).Scan(&finalJob).Error; err != nil { t.Fatal(err) }
+	if finalJob.Status != models.BulkImportCompleted || finalJob.Created != 1 || finalJob.Skipped != 0 || finalJob.CredentialsSent != 1 || finalJob.CredentialEmailsFailed != 0 {
 		t.Fatalf("job summary does not reflect durable delivery: %+v", finalJob)
 	}
 }

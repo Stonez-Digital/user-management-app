@@ -149,6 +149,12 @@ BEGIN
     IF v_school IS NULL OR v_job IS NULL THEN
         RAISE EXCEPTION 'verified worker context is required' USING ERRCODE = '42501';
     END IF;
+    UPDATE stonez_context_private.account_setup_outbox AS expired
+       SET status = 'failed', lease_id = NULL, lease_expires_at = NULL,
+           last_error = 'delivery lease expired after maximum attempts', updated_at = clock_timestamp()
+     WHERE expired.school_id = v_school AND expired.job_id = v_job
+       AND expired.status = 'delivering' AND expired.lease_expires_at <= clock_timestamp()
+       AND expired.attempts >= 8;
     SELECT outbox.event_id INTO v_event
       FROM stonez_context_private.account_setup_outbox AS outbox
      WHERE outbox.school_id = v_school AND outbox.job_id = v_job
@@ -158,8 +164,8 @@ BEGIN
            OR (outbox.status = 'delivering' AND outbox.lease_expires_at <= clock_timestamp())
        )
      ORDER BY outbox.created_at,outbox.event_id
-     FOR UPDATE SKIP LOCKED
-     LIMIT 1;
+     LIMIT 1
+     FOR UPDATE SKIP LOCKED;
     IF v_event IS NULL THEN
         RETURN;
     END IF;
@@ -243,7 +249,7 @@ BEGIN
                updated_at = clock_timestamp()
          WHERE event_id = p_event_id;
     ELSE
-        v_next := clock_timestamp() + make_interval(secs => least(3600,15 * (2 ^ (v_attempts - 1))::integer));
+        v_next := clock_timestamp() + make_interval(secs => least(3600,15 * power(2::numeric,(v_attempts - 1)::numeric)::integer));
         UPDATE stonez_context_private.account_setup_outbox
            SET status = 'retry', next_attempt_at = v_next,
                lease_id = NULL, lease_expires_at = NULL,

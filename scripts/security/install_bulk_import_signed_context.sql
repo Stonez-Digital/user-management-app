@@ -309,10 +309,10 @@ AS $function$
     )
 $function$;
 
-REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text) FROM PUBLIC;
+REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,integer,text,bigint,bigint,bigint,text) FROM PUBLIC;
 REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.current_bulk_import_context() FROM PUBLIC;
 REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.bulk_import_context_key_available(text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text) TO stonez_bulk_process_group;
+GRANT EXECUTE ON FUNCTION stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,integer,text,bigint,bigint,bigint,text) TO stonez_bulk_process_group;
 GRANT EXECUTE ON FUNCTION stonez_internal.current_bulk_import_context() TO stonez_bulk_process_group;
 GRANT EXECUTE ON FUNCTION stonez_internal.bulk_import_context_key_available(text) TO stonez_bulk_process_group;
 
@@ -324,7 +324,7 @@ DECLARE
     v_function regprocedure;
 BEGIN
     FOREACH v_function IN ARRAY ARRAY[
-        'stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text)'::regprocedure,
+        'stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,integer,text,bigint,bigint,bigint,text)'::regprocedure,
         'stonez_internal.current_bulk_import_context()'::regprocedure,
         'stonez_internal.bulk_import_context_key_available(text)'::regprocedure
     ] LOOP
@@ -398,7 +398,7 @@ BEGIN
       INTO v_owner, v_config
       FROM pg_proc AS procedure
       JOIN pg_roles AS owner_role ON owner_role.oid = procedure.proowner
-     WHERE procedure.oid = 'stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text)'::regprocedure;
+     WHERE procedure.oid = 'stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,integer,text,bigint,bigint,bigint,text)'::regprocedure;
     IF v_owner IS DISTINCT FROM 'stonez_bulk_context_owner'
        OR NOT ('search_path=pg_catalog' = ANY(COALESCE(v_config, ARRAY[]::text[]))) THEN
         RAISE EXCEPTION 'signed-context verifier owner or search_path is unsafe';

@@ -65,8 +65,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("configure Vault bulk import key source: %v", err)
 	}
-	if _, err := keySource.ActiveSigningKey(context.Background()); err != nil {
+	activeContextKey, err := keySource.ActiveSigningKey(context.Background())
+	if err != nil {
 		log.Fatalf("load active bulk import context key from Vault: %v", err)
+	}
+	if err := database.ValidateBulkImportContextKey(processingDB, activeContextKey.ID); err != nil {
+		log.Fatal(err)
+	}
+	for i := range activeContextKey.Secret {
+		activeContextKey.Secret[i] = 0
 	}
 	contextSigner, err := bulkcontext.NewSigner(keySource, 2*time.Minute)
 	if err != nil {

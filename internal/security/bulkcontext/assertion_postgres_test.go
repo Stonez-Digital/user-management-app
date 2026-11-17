@@ -50,7 +50,10 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 
 	createQueue := "CREATE TABLE "+tableSchema+".bulk_import_jobs ("+
 		"id uuid PRIMARY KEY, school_id uuid NOT NULL, initiated_by uuid NOT NULL, "+
-		"worker_id uuid, lease_generation bigint NOT NULL DEFAULT 0, status text NOT NULL, claimed_at timestamptz)"
+		"worker_id uuid, lease_generation bigint NOT NULL DEFAULT 0, status text NOT NULL, claimed_at timestamptz, "+
+		"created integer NOT NULL DEFAULT 0, skipped integer NOT NULL DEFAULT 0, failed integer NOT NULL DEFAULT 0, "+
+		"credentials_sent integer NOT NULL DEFAULT 0, credential_emails_failed integer NOT NULL DEFAULT 0, "+
+		"errors_json text NOT NULL DEFAULT '[]', last_error text NOT NULL DEFAULT '', updated_at timestamptz NOT NULL DEFAULT clock_timestamp())"
 	if err := admin.Exec(createQueue).Error; err != nil { cleanup(); t.Fatal(err) }
 
 	scriptBytes, err := os.ReadFile("../../../scripts/security/install_bulk_import_signed_context.sql")

@@ -41,7 +41,7 @@ $$;
 CREATE SCHEMA IF NOT EXISTS stonez_internal;
 REVOKE ALL PRIVILEGES ON SCHEMA stonez_internal FROM PUBLIC;
 GRANT USAGE ON SCHEMA stonez_internal TO stonez_bulk_context_owner, stonez_bulk_process_group;
-GRANT USAGE ON SCHEMA public TO stonez_bulk_context_owner;
+GRANT USAGE ON SCHEMA public TO stonez_bulk_context_owner, stonez_bulk_process_group;
 GRANT USAGE ON SCHEMA extensions TO stonez_bulk_context_owner;
 GRANT EXECUTE ON FUNCTION extensions.hmac(bytea,bytea,text) TO stonez_bulk_context_owner;
 

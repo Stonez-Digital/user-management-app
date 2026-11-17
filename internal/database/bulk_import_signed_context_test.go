@@ -254,6 +254,9 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 			t.Fatalf("grant forbidden %s membership for regression test: %v", roleName, err)
 		}
 		assertVerifierRejects("processing login inherits " + roleName)
+		if err := ValidateBulkImportProcessingRole(workerDB); err == nil {
+			t.Fatalf("startup validation accepted processing login membership in %s", roleName)
+		}
 		if err := runnerDB.Exec("REVOKE " + roleName + " FROM stonez_bulk_worker_processing_test").Error; err != nil {
 			t.Fatalf("revoke forbidden %s membership: %v", roleName, err)
 		}
@@ -271,6 +274,9 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 		t.Fatalf("grant processing group to second login: %v", err)
 	}
 	assertVerifierRejects("second login is a processing-group member");
+	if err := ValidateBulkImportProcessingRole(workerDB); err == nil {
+		t.Fatal("startup validation accepted a second processing-group member")
+	}
 	if err := runnerDB.Exec("REVOKE stonez_bulk_worker_processing FROM stonez_bulk_worker_processing_second_test").Error; err != nil {
 		t.Fatalf("revoke second processing login membership: %v", err)
 	}
@@ -288,6 +294,9 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 		t.Fatalf("grant nested role to processing login: %v", err)
 	}
 	assertVerifierRejects("processing login has nested extra membership");
+	if err := ValidateBulkImportProcessingRole(workerDB); err == nil {
+		t.Fatal("startup validation accepted nested processing-login membership")
+	}
 	if err := runnerDB.Exec("REVOKE stonez_bulk_worker_processing_nested_test FROM stonez_bulk_worker_processing_test").Error; err != nil {
 		t.Fatalf("revoke nested login membership: %v", err)
 	}

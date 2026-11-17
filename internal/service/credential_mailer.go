@@ -62,14 +62,6 @@ func (m *CredentialMailer) Enabled() bool {
 	return m != nil && m.host != "" && m.from != "" && m.loginURL != ""
 }
 
-func (m *CredentialMailer) SendCredentials(name, email, role, password string) error {
-	if !m.Enabled() { return fmt.Errorf("credential email is not configured") }
-	if strings.TrimSpace(email) == "" { return fmt.Errorf("recipient email is missing") }
-	subject := "Your Stonez Digital school portal login"
-	body := fmt.Sprintf("Hello %s,\n\nYour school portal account has been created.\n\nRole: %s\nLogin: %s\nTemporary password: %s\n\nSign in: %s\n\nFor security, change your password after signing in and do not share these credentials.\n\nStonez Digital", name, role, email, password, m.loginURL)
-	return m.send(email, subject, body)
-}
-
 // SendAccountSetupNotice never includes a password or reset token. The
 // recipient starts the existing password-reset flow from the portal login.
 func (m *CredentialMailer) SendAccountSetupNotice(name, email, role, eventID string) error {

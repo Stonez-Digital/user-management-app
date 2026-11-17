@@ -18,9 +18,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// stagingAcceptanceDB uses the disposable PostgreSQL service supplied by CI.
-// Local runs fall back to an isolated in-memory SQLite database. It never reads
-// application DATABASE_URL or any production connection setting.
+// stagingAcceptanceDB defaults to an isolated in-memory SQLite database so the
+// application-level acceptance flow is independent of PostgreSQL security
+// fixtures installed by other tests. An explicitly supplied
+// STAGING_ACCEPTANCE_DATABASE_URL opts into a separately provisioned disposable
+// PostgreSQL database; it never reads application DATABASE_URL or production settings.
 func stagingAcceptanceDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	if err := auth.ConfigureSecret("staging-acceptance-test-secret-at-least-32-characters"); err != nil {
@@ -31,7 +33,7 @@ func stagingAcceptanceDB(t *testing.T) *gorm.DB {
 		db  *gorm.DB
 		err error
 	)
-	if dsn := strings.TrimSpace(os.Getenv("TEST_DATABASE_URL")); dsn != "" {
+	if dsn := strings.TrimSpace(os.Getenv("STAGING_ACCEPTANCE_DATABASE_URL")); dsn != "" {
 		// Give this test its own schema so it cannot collide with other packages
 		// using the same disposable CI database.
 		schema := "staging_acceptance_" + strings.ReplaceAll(uuid.NewString(), "-", "")

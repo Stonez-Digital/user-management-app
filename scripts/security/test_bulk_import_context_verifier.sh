@@ -40,7 +40,7 @@ VALUES ('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-22222222
 '33333333-3333-4333-8333-333333333333','dddddddd-dddd-4ddd-8ddd-dddddddddddd',
 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee','running',clock_timestamp(),false);
 CREATE TABLE public.users(id uuid PRIMARY KEY, school_id uuid, name text, email text, role text, password_hash text, active boolean NOT NULL DEFAULT true);
-CREATE TABLE public.students(id uuid PRIMARY KEY, school_id uuid NOT NULL, admission_number text);
+CREATE TABLE public.students(id uuid PRIMARY KEY, school_id uuid NOT NULL, user_id uuid, admission_number text, date_of_birth date, gender text, guardian_name text, guardian_phone text, guardian_email text, enrollment_status text NOT NULL DEFAULT 'active', created_at timestamptz NOT NULL DEFAULT clock_timestamp(), updated_at timestamptz NOT NULL DEFAULT clock_timestamp());
 INSERT INTO public.students(id,school_id) VALUES
 ('21212121-2121-4212-8212-212121212121','22222222-2222-4222-8222-222222222222'),
 ('23232323-2323-4323-8323-232323232323','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');

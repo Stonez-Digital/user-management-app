@@ -64,6 +64,7 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
                r.rolsuper AS is_superuser,
                r.rolcreatedb AS can_create_db,
                r.rolcreaterole AS can_create_role,
+               r.rolreplication AS can_replicate,
                r.rolbypassrls AS bypass_rls,
                r.rolinherit AS inherits,
                pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE') AS worker_group,
@@ -97,7 +98,7 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
     }
     if role.SessionRole == "" || role.CurrentRole != role.SessionRole ||
        !role.CanLogin || role.IsSuperuser || role.CanCreateDB || role.CanCreateRole ||
-       role.BypassRLS || !role.Inherits || !role.WorkerGroup || role.CanSetWorkerGroup ||
+       role.CanReplicate || role.BypassRLS || !role.Inherits || !role.WorkerGroup || role.CanSetWorkerGroup ||
        role.APIRuntime || role.ClaimLogin || role.QueueOwner || role.ContextOwner || role.KeyAdmin ||
        role.UnexpectedMembership || role.OwnsWorkerTables {
         return fmt.Errorf("bulk import processing login is not a dedicated restricted signed-worker role")

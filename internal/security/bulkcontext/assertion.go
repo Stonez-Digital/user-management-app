@@ -34,6 +34,8 @@ type Binding struct {
 	SchoolID        uuid.UUID
 	InitiatedBy     uuid.UUID
 	WorkerID        uuid.UUID
+	BackendPID      int32
+	TransactionID   uint64
 	LeaseGeneration int64
 }
 
@@ -46,6 +48,8 @@ type Claims struct {
 	SchoolID        uuid.UUID `json:"school_id"`
 	InitiatedBy     uuid.UUID `json:"initiated_by"`
 	WorkerID        uuid.UUID `json:"worker_id"`
+	BackendPID      int32     `json:"backend_pid"`
+	TransactionID   uint64    `json:"transaction_id"`
 	LeaseGeneration int64    `json:"lease_generation"`
 	IssuedAt        int64     `json:"iat"`
 	ExpiresAt       int64     `json:"exp"`
@@ -101,7 +105,7 @@ func (s *Signer) Sign(ctx context.Context, binding Binding, ttl time.Duration) (
 	}
 	if binding.JobID == uuid.Nil || binding.SchoolID == uuid.Nil ||
 		binding.InitiatedBy == uuid.Nil || binding.WorkerID == uuid.Nil ||
-		binding.LeaseGeneration <= 0 {
+		binding.BackendPID <= 0 || binding.TransactionID == 0 || binding.LeaseGeneration <= 0 {
 		return Assertion{}, ErrInvalidClaims
 	}
 
@@ -119,8 +123,8 @@ func (s *Signer) Sign(ctx context.Context, binding Binding, ttl time.Duration) (
 	claims := Claims{
 		KeyID: key.ID, AssertionID: uuid.New(),
 		JobID: binding.JobID, SchoolID: binding.SchoolID,
-		InitiatedBy: binding.InitiatedBy, WorkerID: binding.WorkerID,
-		LeaseGeneration: binding.LeaseGeneration,
+		InitiatedBy: binding.InitiatedBy, WorkerID: binding.WorkerID, BackendPID: binding.BackendPID,
+		TransactionID: binding.TransactionID, LeaseGeneration: binding.LeaseGeneration,
 		IssuedAt: now.Unix(), ExpiresAt: now.Add(ttl).Unix(),
 	}
 	payload, err := CanonicalPayload(claims)
@@ -149,6 +153,8 @@ func CanonicalPayload(c Claims) ([]byte, error) {
 		c.SchoolID.String(),
 		c.InitiatedBy.String(),
 		c.WorkerID.String(),
+		strconv.FormatInt(int64(c.BackendPID), 10),
+		strconv.FormatUint(c.TransactionID, 10),
 		strconv.FormatInt(c.LeaseGeneration, 10),
 		strconv.FormatInt(c.IssuedAt, 10),
 		strconv.FormatInt(c.ExpiresAt, 10),
@@ -210,7 +216,7 @@ func validateClaimsShape(c Claims) error {
 	if !keyIDPattern.MatchString(c.KeyID) ||
 		c.AssertionID == uuid.Nil || c.JobID == uuid.Nil ||
 		c.SchoolID == uuid.Nil || c.InitiatedBy == uuid.Nil ||
-		c.WorkerID == uuid.Nil || c.LeaseGeneration <= 0 ||
+		c.WorkerID == uuid.Nil || c.BackendPID <= 0 || c.TransactionID == 0 || c.LeaseGeneration <= 0 ||
 		c.IssuedAt <= 0 || c.ExpiresAt <= c.IssuedAt {
 		return ErrInvalidClaims
 	}

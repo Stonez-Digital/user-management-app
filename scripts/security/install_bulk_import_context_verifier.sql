@@ -93,4 +93,28 @@ $fn$;
 ALTER FUNCTION stonez_context_private.decode_base64url(text) OWNER TO stonez_bulk_context_owner;
 REVOKE ALL ON FUNCTION stonez_context_private.decode_base64url(text) FROM PUBLIC;
 
+
+CREATE OR REPLACE FUNCTION stonez_context_private.constant_time_equal(p_left bytea, p_right bytea)
+RETURNS boolean
+LANGUAGE plpgsql
+IMMUTABLE
+STRICT
+SET search_path = pg_catalog
+AS $fn$
+DECLARE
+    v_diff integer := 0;
+    v_i integer;
+BEGIN
+    IF length(p_left) <> 32 OR length(p_right) <> 32 THEN
+        RETURN false;
+    END IF;
+    FOR v_i IN 0..31 LOOP
+        v_diff := v_diff | (get_byte(p_left, v_i) # get_byte(p_right, v_i));
+    END LOOP;
+    RETURN v_diff = 0;
+END
+$fn$;
+ALTER FUNCTION stonez_context_private.constant_time_equal(bytea,bytea) OWNER TO stonez_bulk_context_owner;
+REVOKE ALL ON FUNCTION stonez_context_private.constant_time_equal(bytea,bytea) FROM PUBLIC;
+
 COMMIT;

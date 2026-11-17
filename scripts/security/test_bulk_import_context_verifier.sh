@@ -399,7 +399,7 @@ SQL
 # the durable event after the account-creation transaction has committed.
 CLAIM_JTI="36363636-3636-4636-8636-363636363636"
 CLAIM_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload "$CLAIM_JTI" "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
-CLAIM_ROW="$(psql "$worker_url" -X -A -t -F '|' -v ON_ERROR_STOP=1 -v token="$CLAIM_TOKEN" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context(:'token'); SELECT event_id,user_id,recipient_email,delivery_lease,attempt_count FROM stonez_context_private.claim_account_setup_notification(); COMMIT;" | awk -F'|' 'NF==5 {row=$0} END {print row}')"
+CLAIM_ROW="$(psql "$worker_url" -X -A -t -F '|' -v ON_ERROR_STOP=1 -v token="$CLAIM_TOKEN" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$CLAIM_TOKEN'); SELECT event_id,user_id,recipient_email,delivery_lease,attempt_count FROM stonez_context_private.claim_account_setup_notification(); COMMIT;" | awk -F'|' 'NF==5 {row=$0} END {print row}')"
 IFS='|' read -r EVENT_ID CLAIMED_USER CLAIMED_EMAIL OLD_DELIVERY_LEASE ATTEMPT_COUNT <<< "$CLAIM_ROW"
 if [[ -z "$EVENT_ID" || "$CLAIMED_USER" != "$OUTBOX_USER_ID" || "$CLAIMED_EMAIL" != "outbox-student@example.test" || "$ATTEMPT_COUNT" != "1" ]]; then
   echo "Durable outbox event was not claimable after worker restart: $CLAIM_ROW" >&2
@@ -411,7 +411,7 @@ fi
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "UPDATE stonez_context_private.account_setup_outbox SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE event_id='$EVENT_ID'"
 RECLAIM_JTI="37373737-3737-4737-8737-373737373737"
 RECLAIM_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload "$RECLAIM_JTI" "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
-RECLAIM_ROW="$(psql "$worker_url" -X -A -t -F '|' -v ON_ERROR_STOP=1 -v token="$RECLAIM_TOKEN" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context(:'token'); SELECT event_id,delivery_lease,attempt_count FROM stonez_context_private.claim_account_setup_notification(); COMMIT;" | awk -F'|' 'NF==3 {row=$0} END {print row}')"
+RECLAIM_ROW="$(psql "$worker_url" -X -A -t -F '|' -v ON_ERROR_STOP=1 -v token="$RECLAIM_TOKEN" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$RECLAIM_TOKEN'); SELECT event_id,delivery_lease,attempt_count FROM stonez_context_private.claim_account_setup_notification(); COMMIT;" | awk -F'|' 'NF==3 {row=$0} END {print row}')"
 IFS='|' read -r RECLAIMED_EVENT NEW_DELIVERY_LEASE NEW_ATTEMPTS <<< "$RECLAIM_ROW"
 if [[ "$RECLAIMED_EVENT" != "$EVENT_ID" || "$NEW_DELIVERY_LEASE" == "$OLD_DELIVERY_LEASE" || "$NEW_ATTEMPTS" != "2" ]]; then
   echo "Expired lease was not safely reclaimed: $RECLAIM_ROW" >&2
@@ -419,14 +419,14 @@ if [[ "$RECLAIMED_EVENT" != "$EVENT_ID" || "$NEW_DELIVERY_LEASE" == "$OLD_DELIVE
 fi
 STALE_COMPLETE_JTI="38383838-3838-4838-8838-383838383838"
 STALE_COMPLETE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload "$STALE_COMPLETE_JTI" "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
-stale_result="$(psql "$worker_url" -X -A -t -v ON_ERROR_STOP=1 -v token="$STALE_COMPLETE_TOKEN" -v event_id="$EVENT_ID" -v old_lease="$OLD_DELIVERY_LEASE" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context(:'token'); SELECT stonez_context_private.complete_account_setup_notification(:'event_id', :'old_lease', 'stale-provider-id'); COMMIT;" | tail -n 1)"
+stale_result="$(psql "$worker_url" -X -A -t -v ON_ERROR_STOP=1 -v token="$STALE_COMPLETE_TOKEN" -v event_id="$EVENT_ID" -v old_lease="$OLD_DELIVERY_LEASE" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$STALE_COMPLETE_TOKEN'); SELECT stonez_context_private.complete_account_setup_notification('$EVENT_ID', '$OLD_DELIVERY_LEASE', 'stale-provider-id'); COMMIT;" | tail -n 1)"
 if [[ "$stale_result" != "f" ]]; then
   echo "Stale delivery lease unexpectedly completed the event: $stale_result" >&2
   exit 1
 fi
 COMPLETE_JTI="39393939-3939-4939-8939-393939393939"
 COMPLETE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload "$COMPLETE_JTI" "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
-complete_result="$(psql "$worker_url" -X -A -t -v ON_ERROR_STOP=1 -v token="$COMPLETE_TOKEN" -v event_id="$EVENT_ID" -v lease="$NEW_DELIVERY_LEASE" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context(:'token'); SELECT stonez_context_private.complete_account_setup_notification(:'event_id', :'lease', 'provider-test-123'); COMMIT;" | tail -n 1)"
+complete_result="$(psql "$worker_url" -X -A -t -v ON_ERROR_STOP=1 -v token="$COMPLETE_TOKEN" -v event_id="$EVENT_ID" -v lease="$NEW_DELIVERY_LEASE" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$COMPLETE_TOKEN'); SELECT stonez_context_private.complete_account_setup_notification('$EVENT_ID', '$NEW_DELIVERY_LEASE', 'provider-test-123'); COMMIT;" | tail -n 1)"
 if [[ "$complete_result" != "t" ]]; then
   echo "Current delivery lease could not complete event: $complete_result" >&2
   exit 1
@@ -436,7 +436,7 @@ fi
 # create duplicate notifications on a retried account row.
 DUPLICATE_JTI="40404040-4040-4040-8040-404040404040"
 DUPLICATE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload "$DUPLICATE_JTI" "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
-duplicate_id="$(psql "$worker_url" -X -A -t -v ON_ERROR_STOP=1 -v token="$DUPLICATE_TOKEN" -v user_id="$OUTBOX_USER_ID" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context(:'token'); SELECT stonez_context_private.enqueue_account_setup_notification(:'user_id','outbox-student@example.test','Outbox Student','student'); COMMIT;" | tail -n 1)"
+duplicate_id="$(psql "$worker_url" -X -A -t -v ON_ERROR_STOP=1 -v token="$DUPLICATE_TOKEN" -v user_id="$OUTBOX_USER_ID" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$DUPLICATE_TOKEN'); SELECT stonez_context_private.enqueue_account_setup_notification('$OUTBOX_USER_ID','outbox-student@example.test','Outbox Student','student'); COMMIT;" | tail -n 1)"
 if [[ "$duplicate_id" != "$EVENT_ID" ]]; then
   echo "Idempotent enqueue returned a different event ID: $duplicate_id" >&2
   exit 1

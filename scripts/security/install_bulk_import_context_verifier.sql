@@ -504,10 +504,151 @@ EXCEPTION
 END
 $fn$;
 REVOKE ALL ON FUNCTION stonez_context_private.verify_bulk_import_context(text) FROM PUBLIC;
-GRANT SELECT ON public.bulk_import_jobs TO stonez_bulk_context_owner;
-GRANT UPDATE (lease_id) ON public.bulk_import_jobs TO stonez_bulk_context_owner;
+
+CREATE OR REPLACE FUNCTION stonez_context_private.current_worker_school_id()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $fn$
+    SELECT context.school_id
+      FROM stonez_context_private.verified_contexts AS context
+     WHERE context.backend_pid = pg_backend_pid()
+       AND context.transaction_id = pg_current_xact_id()
+       AND pg_has_role(session_user, 'stonez_bulk_worker', 'MEMBER')
+$fn$;
+
+CREATE OR REPLACE FUNCTION stonez_context_private.current_worker_initiator_id()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $fn$
+    SELECT context.initiated_by
+      FROM stonez_context_private.verified_contexts AS context
+     WHERE context.backend_pid = pg_backend_pid()
+       AND context.transaction_id = pg_current_xact_id()
+       AND pg_has_role(session_user, 'stonez_bulk_worker', 'MEMBER')
+$fn$;
+
+CREATE OR REPLACE FUNCTION stonez_context_private.current_worker_job_id()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $fn$
+    SELECT context.job_id
+      FROM stonez_context_private.verified_contexts AS context
+     WHERE context.backend_pid = pg_backend_pid()
+       AND context.transaction_id = pg_current_xact_id()
+       AND pg_has_role(session_user, 'stonez_bulk_worker', 'MEMBER')
+$fn$;
+
+CREATE OR REPLACE FUNCTION stonez_context_private.register_verification_key(
+    p_key_id text, p_key_bytes bytea, p_not_before timestamptz, p_not_after timestamptz DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $fn$
+BEGIN
+    IF NOT pg_has_role(session_user, 'stonez_bulk_context_key_admin', 'MEMBER') THEN
+        RAISE EXCEPTION 'caller is not authorized to register verifier keys' USING ERRCODE = '42501';
+    END IF;
+    IF p_key_id IS NULL OR p_key_id = '' OR length(p_key_id) > 64
+       OR p_key_bytes IS NULL OR octet_length(p_key_bytes) < 32
+       OR p_not_before IS NULL
+       OR (p_not_after IS NOT NULL AND p_not_after <= p_not_before) THEN
+        RAISE EXCEPTION 'invalid verifier key registration parameters' USING ERRCODE = '22023';
+    END IF;
+    INSERT INTO stonez_context_private.verification_keys(key_id,key_bytes,not_before,not_after)
+    VALUES (p_key_id,p_key_bytes,p_not_before,p_not_after);
+END
+$fn$;
+
+CREATE OR REPLACE FUNCTION stonez_context_private.retire_verification_key(
+    p_key_id text, p_not_after timestamptz
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $fn$
+BEGIN
+    IF NOT pg_has_role(session_user, 'stonez_bulk_context_key_admin', 'MEMBER') THEN
+        RAISE EXCEPTION 'caller is not authorized to retire verifier keys' USING ERRCODE = '42501';
+    END IF;
+    UPDATE stonez_context_private.verification_keys
+       SET not_after = p_not_after
+     WHERE key_id = p_key_id AND revoked_at IS NULL AND p_not_after > not_before;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'verifier key not found or retirement time invalid' USING ERRCODE = '22023';
+    END IF;
+END
+$fn$;
+
+CREATE OR REPLACE FUNCTION stonez_context_private.revoke_verification_key(p_key_id text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $fn$
+BEGIN
+    IF NOT pg_has_role(session_user, 'stonez_bulk_context_key_admin', 'MEMBER') THEN
+        RAISE EXCEPTION 'caller is not authorized to revoke verifier keys' USING ERRCODE = '42501';
+    END IF;
+    UPDATE stonez_context_private.verification_keys
+       SET revoked_at = clock_timestamp()
+     WHERE key_id = p_key_id AND revoked_at IS NULL;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'active verifier key not found' USING ERRCODE = '22023';
+    END IF;
+END
+$fn$;
+
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA stonez_context_private FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION stonez_context_private.verify_bulk_import_context(text) TO stonez_bulk_worker;
+GRANT EXECUTE ON FUNCTION stonez_context_private.current_worker_school_id() TO stonez_bulk_worker;
+GRANT EXECUTE ON FUNCTION stonez_context_private.current_worker_initiator_id() TO stonez_bulk_worker;
+GRANT EXECUTE ON FUNCTION stonez_context_private.current_worker_job_id() TO stonez_bulk_worker;
+GRANT EXECUTE ON FUNCTION stonez_context_private.register_verification_key(text,bytea,timestamptz,timestamptz) TO stonez_bulk_context_key_admin;
+GRANT EXECUTE ON FUNCTION stonez_context_private.retire_verification_key(text,timestamptz) TO stonez_bulk_context_key_admin;
+GRANT EXECUTE ON FUNCTION stonez_context_private.revoke_verification_key(text) TO stonez_bulk_context_key_admin;
+
+-- RLS policies must be installed by the application-table owner, not the
+-- verifier function owner. The processing role has no membership in the API
+-- or queue-owner groups, so raw tenant GUC policies cannot act as fallback.
+RESET ROLE;
+ALTER TABLE public.bulk_import_jobs ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, UPDATE ON public.bulk_import_jobs TO stonez_bulk_worker;
 DROP POLICY IF EXISTS bulk_import_jobs_context_verifier_read ON public.bulk_import_jobs;
 CREATE POLICY bulk_import_jobs_context_verifier_read ON public.bulk_import_jobs
     FOR SELECT TO stonez_bulk_context_owner USING (true);
+DROP POLICY IF EXISTS bulk_import_jobs_signed_worker_select ON public.bulk_import_jobs;
+CREATE POLICY bulk_import_jobs_signed_worker_select ON public.bulk_import_jobs
+    FOR SELECT TO stonez_bulk_worker
+    USING (
+        school_id = stonez_context_private.current_worker_school_id()
+        AND initiated_by = stonez_context_private.current_worker_initiator_id()
+    );
+DROP POLICY IF EXISTS bulk_import_jobs_signed_worker_update ON public.bulk_import_jobs;
+CREATE POLICY bulk_import_jobs_signed_worker_update ON public.bulk_import_jobs
+    FOR UPDATE TO stonez_bulk_worker
+    USING (
+        school_id = stonez_context_private.current_worker_school_id()
+        AND initiated_by = stonez_context_private.current_worker_initiator_id()
+        AND id = stonez_context_private.current_worker_job_id()
+    )
+    WITH CHECK (
+        school_id = stonez_context_private.current_worker_school_id()
+        AND initiated_by = stonez_context_private.current_worker_initiator_id()
+        AND id = stonez_context_private.current_worker_job_id()
+    );
+GRANT SELECT ON public.bulk_import_jobs TO stonez_bulk_context_owner;
+GRANT UPDATE (lease_id) ON public.bulk_import_jobs TO stonez_bulk_context_owner;
 
 COMMIT;

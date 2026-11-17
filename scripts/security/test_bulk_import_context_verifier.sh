@@ -357,7 +357,7 @@ echo "PostgreSQL signed-context verifier adversarial tests passed."
 echo "== Private durable account-setup notification outbox =="
 # The installer is intentionally exercised only against this disposable PG17 fixture.
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_credential_outbox.sql
-OUTBOX_KEY_HEX="\${BULK_CONTEXT_TEST_SIGNING_KEY_HEX:-$(printf 'ef%.0s' {1..32})}"
+OUTBOX_KEY_HEX="${BULK_CONTEXT_TEST_SIGNING_KEY_HEX:-$(printf 'ef%.0s' {1..32})}"
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "SELECT stonez_context_private.register_verification_key('ci-outbox-key', decode('$OUTBOX_KEY_HEX','hex'), clock_timestamp()-interval '5 minutes', NULL)"
 if psql "$worker_url" -X -v ON_ERROR_STOP=1 -c "SELECT * FROM stonez_context_private.account_setup_outbox" >/dev/null 2>&1; then
   echo "Processing login unexpectedly read private outbox rows directly" >&2

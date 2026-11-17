@@ -181,22 +181,22 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                 AND polpermissive AND 0::oid = ANY(polroles)) AS public_permissive_policy_count,
             (SELECT count(*) FROM pg_policy
               WHERE polname = 'bulk_import_jobs_signed_worker_select'
-                AND polrelid = 'public.bulk_import_jobs'::regclass
+                AND polrelid = 'public.bulk_import_jobs'::regclass AND polcmd = 'r' AND polpermissive
                 AND (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing') = ANY(polroles)) AS queue_select_policy,
             (SELECT count(*) FROM pg_policy
               WHERE polname = 'bulk_import_jobs_signed_worker_update'
-                AND polrelid = 'public.bulk_import_jobs'::regclass
+                AND polrelid = 'public.bulk_import_jobs'::regclass AND polcmd = 'w' AND polpermissive
                 AND (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing') = ANY(polroles)) AS queue_update_policy,
             (SELECT count(*) FROM pg_policy
               WHERE polname = 'bulk_import_jobs_context_verifier_read'
-                AND polrelid = 'public.bulk_import_jobs'::regclass
+                AND polrelid = 'public.bulk_import_jobs'::regclass AND polcmd = 'r' AND polpermissive
                 AND (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_context_owner') = ANY(polroles)) AS verifier_read_policy,
             (SELECT count(*) FROM pg_policy
               WHERE polname = 'bulk_import_jobs_context_verifier_lock'
-                AND polrelid = 'public.bulk_import_jobs'::regclass
+                AND polrelid = 'public.bulk_import_jobs'::regclass AND polcmd = 'w' AND polpermissive
                 AND (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_context_owner') = ANY(polroles)) AS verifier_lock_policy,
             (SELECT count(*) FROM pg_policy
-              WHERE polname = 'bulk_worker_signed_select'
+              WHERE polname = 'bulk_worker_signed_select' AND polcmd = 'r' AND polpermissive
                 AND (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing') = ANY(polroles)
                 AND polrelid IN ('public.users'::regclass,'public.students'::regclass,
                     'public.teacher_profiles'::regclass,'public.parent_profiles'::regclass,
@@ -204,7 +204,7 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                     'public.sections'::regclass,'public.student_enrollments'::regclass,
                     'public.guardian_relationships'::regclass)) AS worker_select_policies,
             (SELECT count(*) FROM pg_policy
-              WHERE polname = 'bulk_worker_signed_insert'
+              WHERE polname = 'bulk_worker_signed_insert' AND polcmd = 'a' AND polpermissive
                 AND (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing') = ANY(polroles)
                 AND polrelid IN ('public.users'::regclass,'public.students'::regclass,
                     'public.teacher_profiles'::regclass,'public.parent_profiles'::regclass,

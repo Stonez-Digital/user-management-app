@@ -71,6 +71,8 @@ CREATE TABLE IF NOT EXISTS stonez_internal.bulk_context_sessions (
     verified_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     UNIQUE (backend_pid, transaction_id)
 );
+CREATE INDEX IF NOT EXISTS bulk_context_sessions_expires_at_idx
+    ON stonez_internal.bulk_context_sessions (expires_at);
 
 REVOKE ALL PRIVILEGES ON TABLE stonez_internal.bulk_context_keys FROM PUBLIC;
 REVOKE ALL PRIVILEGES ON TABLE stonez_internal.bulk_context_sessions FROM PUBLIC;
@@ -278,6 +280,32 @@ REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.verify_bulk_import_context(tex
 REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.current_bulk_import_context() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text) TO stonez_bulk_process_group;
 GRANT EXECUTE ON FUNCTION stonez_internal.current_bulk_import_context() TO stonez_bulk_process_group;
+
+-- Remove any pre-existing direct EXECUTE grants. Only the dedicated processing
+-- group may call these functions; the NOLOGIN owner retains ownership rights.
+DO $
+DECLARE
+    v_grantee text;
+    v_function regprocedure;
+BEGIN
+    FOREACH v_function IN ARRAY ARRAY[
+        'stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text)'::regprocedure,
+        'stonez_internal.current_bulk_import_context()'::regprocedure
+    ] LOOP
+        FOR v_grantee IN
+            SELECT DISTINCT role_row.rolname
+              FROM pg_proc AS procedure
+              CROSS JOIN LATERAL aclexplode(COALESCE(procedure.proacl, acldefault('f', procedure.proowner))) AS privilege
+              JOIN pg_roles AS role_row ON role_row.oid = privilege.grantee
+             WHERE procedure.oid = v_function
+               AND privilege.privilege_type = 'EXECUTE'
+               AND role_row.rolname NOT IN ('stonez_bulk_context_owner', 'stonez_bulk_process_group')
+        LOOP
+            EXECUTE format('REVOKE ALL PRIVILEGES ON FUNCTION %s FROM %I', v_function, v_grantee);
+        END LOOP;
+    END LOOP;
+END
+$;
 
 -- The processing group can inspect and update only the job's operational
 -- progress fields. It cannot read the stored import payload or change lease

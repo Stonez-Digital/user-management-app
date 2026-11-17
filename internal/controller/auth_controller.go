@@ -666,7 +666,7 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 		return audit.RecordWithSchoolID(tx, c, &stored.UserID, user.SchoolID, "auth.refresh", "user", &stored.UserID, map[string]interface{}{"family_id": familyID.String()})
 	})
 	if errors.Is(err, errRefreshReused) {
-		if err := revokeRefreshFamilyAndAudit(ac.DB, c, stored.UserID, stored.FamilyID, user.SchoolID); err != nil {
+		if err := revokeRefreshFamilyAndAudit(ac.DB, c, stored.UserID, stored.FamilyID, user.SchoolID, ac.authInternalSchema()); err != nil {
 			log.Printf("failed to revoke/audit raced refresh-token reuse for family %s: %v", stored.FamilyID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revoke refresh-token family"})
 			return

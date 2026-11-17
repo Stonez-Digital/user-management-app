@@ -83,7 +83,11 @@ func TestVerifyRejectsModifiedSignature(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertion.Signature = assertion.Signature[:len(assertion.Signature)-1] + "A"
+	if assertion.Signature[0] == 'A' {
+		assertion.Signature = "B" + assertion.Signature[1:]
+	} else {
+		assertion.Signature = "A" + assertion.Signature[1:]
+	}
 	if err := VerifySignature(context.Background(), keys, assertion, time.Unix(1_800_000_030, 0), 2*time.Minute); !errors.Is(err, ErrInvalidMAC) {
 		t.Fatalf("modified signature error = %v, want ErrInvalidMAC", err)
 	}

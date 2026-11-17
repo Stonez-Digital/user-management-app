@@ -37,7 +37,7 @@ func testSigner(t *testing.T) (*Signer, testKeys, Binding) {
 	signer.now = func() time.Time { return time.Unix(1_800_000_000, 0).UTC() }
 	binding := Binding{
 		JobID: uuid.New(), SchoolID: uuid.New(), InitiatedBy: uuid.New(),
-		WorkerID: uuid.New(), LeaseGeneration: 7,
+		WorkerID: uuid.New(), BackendPID: 1234, TransactionID: 987654321, LeaseGeneration: 7,
 	}
 	return signer, keys, binding
 }
@@ -147,13 +147,14 @@ func TestCanonicalPayloadIsStableAndFieldOrdered(t *testing.T) {
 		SchoolID: uuid.MustParse("00000000-0000-4000-8000-000000000003"),
 		InitiatedBy: uuid.MustParse("00000000-0000-4000-8000-000000000004"),
 		WorkerID: uuid.MustParse("00000000-0000-4000-8000-000000000005"),
+		BackendPID: 1234, TransactionID: 987654321,
 		LeaseGeneration: 9, IssuedAt: 1800000000, ExpiresAt: 1800000060,
 	}
 	got, err := CanonicalPayload(claims)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "stonez-bulk-import-context-v1\nkey-1\n00000000-0000-4000-8000-000000000001\n00000000-0000-4000-8000-000000000002\n00000000-0000-4000-8000-000000000003\n00000000-0000-4000-8000-000000000004\n00000000-0000-4000-8000-000000000005\n9\n1800000000\n1800000060"
+	want := "stonez-bulk-import-context-v1\nkey-1\n00000000-0000-4000-8000-000000000001\n00000000-0000-4000-8000-000000000002\n00000000-0000-4000-8000-000000000003\n00000000-0000-4000-8000-000000000004\n00000000-0000-4000-8000-000000000005\n1234\n987654321\n9\n1800000000\n1800000060"
 	if string(got) != want {
 		t.Fatalf("canonical payload mismatch\n got: %q\nwant: %q", got, want)
 	}

@@ -50,6 +50,7 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
         WorkerGroup bool
         CanSetWorkerGroup bool
         CanAdminWorkerGroup bool
+        ExclusiveWorkerGroup bool
         APIRuntime bool
         ClaimLogin bool
         QueueOwner bool
@@ -71,6 +72,15 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
                pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE') AS worker_group,
                pg_has_role(session_user, 'stonez_bulk_worker_processing', 'SET') AS can_set_worker_group,
                EXISTS (SELECT 1 FROM pg_auth_members AS membership WHERE membership.member = r.oid AND membership.roleid = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_worker_processing') AND membership.admin_option) AS can_admin_worker_group,
+               NOT EXISTS (
+                   SELECT 1 FROM pg_auth_members AS membership
+                    WHERE membership.roleid = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_worker_processing')
+                      AND membership.member <> r.oid
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM pg_auth_members AS membership
+                    WHERE membership.member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_worker_processing')
+               ) AS exclusive_worker_group,
                pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER') AS api_runtime,
                pg_has_role(session_user, 'stonez_bulk_worker', 'MEMBER') AS claim_login,
                pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER') AS queue_owner,
@@ -100,7 +110,7 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
     }
     if role.SessionRole == "" || role.CurrentRole != role.SessionRole ||
        !role.CanLogin || role.IsSuperuser || role.CanCreateDB || role.CanCreateRole ||
-       role.CanReplicate || role.BypassRLS || !role.Inherits || !role.WorkerGroup || role.CanSetWorkerGroup || role.CanAdminWorkerGroup ||
+       role.CanReplicate || role.BypassRLS || !role.Inherits || !role.WorkerGroup || role.CanSetWorkerGroup || role.CanAdminWorkerGroup || !role.ExclusiveWorkerGroup ||
        role.APIRuntime || role.ClaimLogin || role.QueueOwner || role.ContextOwner || role.KeyAdmin ||
        role.UnexpectedMembership || role.OwnsWorkerTables {
         return fmt.Errorf("bulk import processing login is not a dedicated restricted signed-worker role")
@@ -122,6 +132,7 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
         JobAccessor bool
         HMAC bool
         WorkerGroupSafe bool
+        EligibilityFunction bool
         QueueRLS bool
         WorkerTableRLSCount int
         PublicPermissivePolicyCount int
@@ -153,6 +164,15 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
             to_regprocedure('stonez_context_private.current_worker_initiator_id()') IS NOT NULL AS initiator_accessor,
             to_regprocedure('stonez_context_private.current_worker_job_id()') IS NOT NULL AS job_accessor,
             EXISTS (
+                SELECT 1 FROM pg_proc AS function_entry
+                JOIN pg_namespace AS namespace ON namespace.oid = function_entry.pronamespace
+                WHERE namespace.nspname = 'stonez_context_private'
+                  AND function_entry.proname = 'is_eligible_processing_login'
+                  AND pg_get_function_identity_arguments(function_entry.oid) = ''
+                  AND function_entry.prosecdef
+                  AND function_entry.proconfig @> ARRAY['search_path=pg_catalog']
+            ) AS eligibility_function,
+            EXISTS (
                 SELECT 1
                   FROM pg_extension AS extension
                   JOIN pg_namespace AS namespace ON namespace.oid = extension.extnamespace
@@ -182,14 +202,27 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                  )
                    AND relation.relrowsecurity
             ) AS worker_table_rls_count,
-            EXISTS (SELECT 1 FROM pg_roles
-                     WHERE rolname='stonez_bulk_worker_processing'
-                       AND NOT rolcanlogin AND NOT rolsuper AND NOT rolbypassrls
-                       AND NOT rolcreatedb AND NOT rolcreaterole
-                       AND NOT EXISTS (
-                           SELECT 1 FROM pg_auth_members AS membership
-                            WHERE membership.member = pg_roles.oid
-                       )) AS worker_group_safe,
+            EXISTS (
+                SELECT 1 FROM pg_roles AS worker_group
+                 WHERE worker_group.rolname='stonez_bulk_worker_processing'
+                   AND NOT worker_group.rolcanlogin AND NOT worker_group.rolsuper
+                   AND NOT worker_group.rolbypassrls AND NOT worker_group.rolcreatedb
+                   AND NOT worker_group.rolcreaterole AND NOT worker_group.rolreplication
+                   AND NOT EXISTS (
+                       SELECT 1 FROM pg_auth_members AS membership
+                        WHERE membership.member = worker_group.oid
+                   )
+                   AND EXISTS (
+                       SELECT 1 FROM pg_auth_members AS membership
+                        WHERE membership.roleid = worker_group.oid
+                          AND membership.member = (SELECT oid FROM pg_roles WHERE rolname=session_user)
+                   )
+                   AND NOT EXISTS (
+                       SELECT 1 FROM pg_auth_members AS membership
+                        WHERE membership.roleid = worker_group.oid
+                          AND membership.member <> (SELECT oid FROM pg_roles WHERE rolname=session_user)
+                   )
+            ) AS worker_group_safe,
             (SELECT count(*) FROM pg_policy
               WHERE polrelid IN ('public.bulk_import_jobs'::regclass,'public.users'::regclass,
                     'public.students'::regclass,'public.teacher_profiles'::regclass,
@@ -381,7 +414,7 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
         return fmt.Errorf("inspect signed bulk import verifier installation: %w", err)
     }
     if !ready.Verifier || !ready.SchoolAccessor || !ready.InitiatorAccessor ||
-       !ready.JobAccessor || !ready.HMAC || !ready.WorkerGroupSafe ||
+       !ready.JobAccessor || !ready.HMAC || !ready.WorkerGroupSafe || !ready.EligibilityFunction ||
        !ready.QueueRLS || ready.WorkerTableRLSCount != 9 ||
        ready.PublicPermissivePolicyCount != 0 ||
        !ready.UserRequiredSelect || !ready.PasswordHashSelectDenied ||

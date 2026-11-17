@@ -96,7 +96,7 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
     }
     if role.SessionRole == "" || role.CurrentRole != role.SessionRole ||
        !role.CanLogin || role.IsSuperuser || role.CanCreateDB || role.CanCreateRole ||
-       role.BypassRLS || !role.Inherits || !role.WorkerGroup ||
+       role.BypassRLS || !role.Inherits || !role.WorkerGroup || role.CanSetWorkerGroup ||
        role.APIRuntime || role.ClaimLogin || role.QueueOwner || role.ContextOwner || role.KeyAdmin ||
        role.UnexpectedMembership || role.OwnsWorkerTables {
         return fmt.Errorf("bulk import processing login is not a dedicated restricted signed-worker role")
@@ -139,6 +139,8 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
         VerifierLockPolicy int
         WorkerSelectPolicies int
         WorkerInsertPolicies int
+        PolicyExpressionsExact bool
+        WorkerPrivilegesExact bool
     }
     query := `
         SELECT
@@ -271,7 +273,95 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                 AND (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing') = ANY(polroles)
                 AND polrelid IN ('public.users'::regclass,'public.students'::regclass,
                     'public.teacher_profiles'::regclass,'public.parent_profiles'::regclass,
-                    'public.student_enrollments'::regclass,'public.guardian_relationships'::regclass)) AS worker_insert_policies
+                    'public.student_enrollments'::regclass,'public.guardian_relationships'::regclass)) AS worker_insert_policies,
+            NOT EXISTS (
+                WITH expected(table_name, policy_name, role_name, command, permissive, using_expr, check_expr) AS (
+                    VALUES
+                    ('bulk_import_jobs','bulk_import_jobs_signed_worker_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id()ANDinitiated_by=stonez_context_private.current_worker_initiator_id()ANDid=stonez_context_private.current_worker_job_id()',''),
+                    ('bulk_import_jobs','bulk_import_jobs_signed_worker_update','stonez_bulk_worker_processing','w',true,'school_id=stonez_context_private.current_worker_school_id()ANDinitiated_by=stonez_context_private.current_worker_initiator_id()ANDid=stonez_context_private.current_worker_job_id()','school_id=stonez_context_private.current_worker_school_id()ANDinitiated_by=stonez_context_private.current_worker_initiator_id()ANDid=stonez_context_private.current_worker_job_id()'),
+                    ('bulk_import_jobs','bulk_import_jobs_context_verifier_read','stonez_bulk_context_owner','r',true,'true',''),
+                    ('bulk_import_jobs','bulk_import_jobs_context_verifier_lock','stonez_bulk_context_owner','w',true,'true','true'),
+                    ('users','bulk_worker_signed_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id()',''),
+                    ('students','bulk_worker_signed_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id()',''),
+                    ('teacher_profiles','bulk_worker_signed_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id()',''),
+                    ('parent_profiles','bulk_worker_signed_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id()',''),
+                    ('academic_sessions','bulk_worker_signed_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id()',''),
+                    ('school_classes','bulk_worker_signed_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id()',''),
+                    ('sections','bulk_worker_signed_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id()',''),
+                    ('student_enrollments','bulk_worker_signed_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id()',''),
+                    ('guardian_relationships','bulk_worker_signed_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id()',''),
+                    ('users','bulk_worker_signed_insert','stonez_bulk_worker_processing','a',true,'','school_id=stonez_context_private.current_worker_school_id()'),
+                    ('students','bulk_worker_signed_insert','stonez_bulk_worker_processing','a',true,'','school_id=stonez_context_private.current_worker_school_id()'),
+                    ('teacher_profiles','bulk_worker_signed_insert','stonez_bulk_worker_processing','a',true,'','school_id=stonez_context_private.current_worker_school_id()'),
+                    ('parent_profiles','bulk_worker_signed_insert','stonez_bulk_worker_processing','a',true,'','school_id=stonez_context_private.current_worker_school_id()'),
+                    ('student_enrollments','bulk_worker_signed_insert','stonez_bulk_worker_processing','a',true,'','school_id=stonez_context_private.current_worker_school_id()'),
+                    ('guardian_relationships','bulk_worker_signed_insert','stonez_bulk_worker_processing','a',true,'','school_id=stonez_context_private.current_worker_school_id()'),
+                    ('users','bulk_worker_user_role_guard','stonez_bulk_worker_processing','a',false,'','stonez_context_private.bulk_worker_user_role_allowedrole')
+                )
+                SELECT 1 FROM expected AS e
+                LEFT JOIN pg_policy AS p
+                  ON p.polrelid=to_regclass(format('public.%I',e.table_name))
+                 AND p.polname=e.policy_name
+                 AND p.polroles=ARRAY[(SELECT oid FROM pg_roles WHERE rolname=e.role_name)]::oid[]
+                WHERE p.oid IS NULL OR p.polcmd<>e.command OR p.polpermissive<>e.permissive
+                   OR regexp_replace(regexp_replace(COALESCE(pg_get_expr(p.polqual,p.polrelid),''),'::[a-zA-Z0-9_.]+','','g'),'[()[:space:]]','','g')<>e.using_expr
+                   OR regexp_replace(regexp_replace(COALESCE(pg_get_expr(p.polwithcheck,p.polrelid),''),'::[a-zA-Z0-9_.]+','','g'),'[()[:space:]]','','g')<>e.check_expr
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM pg_policy AS p
+                 WHERE p.polrelid IN ('public.bulk_import_jobs'::regclass,'public.users'::regclass,
+                    'public.students'::regclass,'public.teacher_profiles'::regclass,
+                    'public.parent_profiles'::regclass,'public.academic_sessions'::regclass,
+                    'public.school_classes'::regclass,'public.sections'::regclass,
+                    'public.student_enrollments'::regclass,'public.guardian_relationships'::regclass)
+                   AND (0::oid=ANY(p.polroles) OR (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing')=ANY(p.polroles))
+                   AND p.polname NOT IN ('bulk_import_jobs_signed_worker_select','bulk_import_jobs_signed_worker_update',
+                     'bulk_import_jobs_context_verifier_read','bulk_import_jobs_context_verifier_lock',
+                     'bulk_worker_signed_select','bulk_worker_signed_insert','bulk_worker_user_role_guard')
+            ) AS policy_expressions_exact,
+            NOT EXISTS (
+                WITH expected(table_name, select_columns, insert_columns, table_insert) AS (
+                    VALUES
+                    ('users',ARRAY['id','school_id','email','role']::text[],ARRAY['id','school_id','name','email','password_hash','role','active']::text[],false),
+                    ('students',ARRAY['id','school_id','admission_number']::text[],ARRAY[]::text[],true),
+                    ('teacher_profiles',ARRAY['id','school_id','staff_id']::text[],ARRAY[]::text[],true),
+                    ('parent_profiles',ARRAY['id','school_id','parent_identifier','user_id']::text[],ARRAY[]::text[],true),
+                    ('academic_sessions',ARRAY['id','school_id','name','status']::text[],ARRAY[]::text[],false),
+                    ('school_classes',ARRAY['id','school_id','name']::text[],ARRAY[]::text[],false),
+                    ('sections',ARRAY['id','school_id','class_id','name']::text[],ARRAY[]::text[],false),
+                    ('student_enrollments',ARRAY['id','school_id','student_id','academic_session_id','status']::text[],ARRAY[]::text[],true),
+                    ('guardian_relationships',ARRAY['id','school_id','guardian_user_id','student_id']::text[],ARRAY[]::text[],true)
+                )
+                SELECT 1 FROM expected AS e
+                JOIN pg_class AS c ON c.oid=to_regclass(format('public.%I',e.table_name))
+                JOIN pg_attribute AS a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
+                WHERE has_column_privilege('stonez_bulk_worker_processing',c.oid,a.attname,'SELECT')
+                          IS DISTINCT FROM (a.attname=ANY(e.select_columns))
+                   OR has_table_privilege('stonez_bulk_worker_processing',c.oid,'INSERT') IS DISTINCT FROM e.table_insert
+                   OR has_column_privilege('stonez_bulk_worker_processing',c.oid,a.attname,'INSERT')
+                          IS DISTINCT FROM (e.table_insert OR a.attname=ANY(e.insert_columns))
+                   OR has_column_privilege('stonez_bulk_worker_processing',c.oid,a.attname,'UPDATE')
+                   OR has_column_privilege('stonez_bulk_worker_processing',c.oid,a.attname,'REFERENCES')
+                   OR has_table_privilege('stonez_bulk_worker_processing',c.oid,'UPDATE')
+                   OR has_table_privilege('stonez_bulk_worker_processing',c.oid,'DELETE')
+                   OR has_table_privilege('stonez_bulk_worker_processing',c.oid,'TRUNCATE')
+                   OR has_table_privilege('stonez_bulk_worker_processing',c.oid,'REFERENCES')
+                   OR has_table_privilege('stonez_bulk_worker_processing',c.oid,'TRIGGER')
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM pg_class AS c
+                JOIN pg_attribute AS a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
+                WHERE c.oid='public.bulk_import_jobs'::regclass
+                  AND has_column_privilege('stonez_bulk_worker_processing',c.oid,a.attname,'UPDATE')
+                    IS DISTINCT FROM (a.attname=ANY(ARRAY['status','total','valid','created','updated','skipped','failed','credentials_sent','credential_emails_failed','errors_json','claimed_at','worker_id','last_error']::text[]))
+            )
+            AND has_table_privilege('stonez_bulk_worker_processing','public.bulk_import_jobs','SELECT')
+            AND NOT has_table_privilege('stonez_bulk_worker_processing','public.bulk_import_jobs','INSERT')
+            AND NOT has_table_privilege('stonez_bulk_worker_processing','public.bulk_import_jobs','DELETE')
+            AND NOT has_table_privilege('stonez_bulk_worker_processing','public.bulk_import_jobs','TRUNCATE')
+            AND NOT has_table_privilege('stonez_bulk_worker_processing','public.bulk_import_jobs','REFERENCES')
+            AND NOT has_table_privilege('stonez_bulk_worker_processing','public.bulk_import_jobs','TRIGGER')
+            AS worker_privileges_exact
     `
     if err := db.Raw(query).Scan(&ready).Error; err != nil {
         return fmt.Errorf("inspect signed bulk import verifier installation: %w", err)
@@ -288,7 +378,8 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
        !ready.JobInsertDeleteDenied ||
        ready.QueueSelectPolicy != 1 || ready.QueueUpdatePolicy != 1 ||
        ready.VerifierReadPolicy != 1 || ready.VerifierLockPolicy != 1 ||
-       ready.WorkerSelectPolicies != 9 || ready.WorkerInsertPolicies != 6 {
+       ready.WorkerSelectPolicies != 9 || ready.WorkerInsertPolicies != 6 ||
+       !ready.PolicyExpressionsExact || !ready.WorkerPrivilegesExact {
         return fmt.Errorf("signed bulk import verifier or required worker RLS policies are incomplete: %+v", ready)
     }
     return nil

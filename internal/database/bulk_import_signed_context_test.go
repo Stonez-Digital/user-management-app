@@ -39,6 +39,30 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 	if err := ValidateBulkImportProcessingRole(workerDB); err != nil {
 		t.Fatalf("dedicated processing login rejected: %v", err)
 	}
+	var catalogPolicies []struct {
+		Table string
+		Name string
+		Roles string
+		Command string
+		Permissive bool
+		Using string
+		Check string
+	}
+	if err := workerDB.Raw(`SELECT relation.relname AS table, policy.polname AS name,
+		policy.polroles::text AS roles, policy.polcmd::text AS command,
+		policy.polpermissive AS permissive,
+		COALESCE(pg_get_expr(policy.polqual,policy.polrelid),'') AS using,
+		COALESCE(pg_get_expr(policy.polwithcheck,policy.polrelid),'') AS check
+		FROM pg_policy AS policy JOIN pg_class AS relation ON relation.oid=policy.polrelid
+		WHERE relation.oid IN ('public.bulk_import_jobs'::regclass,'public.users'::regclass,
+			'public.students'::regclass,'public.teacher_profiles'::regclass,
+			'public.parent_profiles'::regclass,'public.academic_sessions'::regclass,
+			'public.school_classes'::regclass,'public.sections'::regclass,
+			'public.student_enrollments'::regclass,'public.guardian_relationships'::regclass)
+		ORDER BY relation.relname,policy.polname`).Scan(&catalogPolicies).Error; err != nil {
+		t.Fatalf("inspect installed worker policy catalog: %v", err)
+	}
+	t.Logf("installed worker policy catalog: %+v", catalogPolicies)
 	if err := ValidateBulkImportSignedContextReady(workerDB); err != nil {
 		t.Fatalf("processing login cannot inspect verifier readiness: %v", err)
 	}

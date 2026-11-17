@@ -285,38 +285,48 @@ func (s *BulkImportService) processClaimed(job models.BulkImportJob, workerID uu
 		return
 	}
 	// Recompute immutable upload validation errors on every attempt. Runtime
-	// row failures from an earlier worker attempt must remain retryable.
+	// row failures remain retryable; successful rows are durably checkpointed
+	// inside their account/profile transaction.
 	errs, _ := s.Validate(job.SchoolID, job.InitiatedBy, job.Kind, rows)
 	validRows := map[int]bool{}
 	for _, item := range errs {
 		validRows[item.Row] = true
 	}
+	processedRows := map[int]bool{}
+	if strings.TrimSpace(job.ProcessedRowsJSON) != "" {
+		var indexes []int
+		if err := json.Unmarshal([]byte(job.ProcessedRowsJSON), &indexes); err != nil {
+			fail(fmt.Errorf("invalid processed-row checkpoint: %w", err))
+			return
+		}
+		for _, rowNumber := range indexes {
+			processedRows[rowNumber] = true
+		}
+	}
 
-	skippedCount := job.Skipped
 	failedCount := 0
 	credentialsSent, credentialFailures := job.CredentialsSent, 0
 	for index, row := range rows {
 		rowNumber := index + 2
-		if validRows[rowNumber] {
+		if validRows[rowNumber] || processedRows[rowNumber] {
 			continue
 		}
-		_, skipped, _, _, _, rowErr := s.processRow(job, row)
-		if skipped && job.Attempts <= 1 {
-			skippedCount++
-		}
+		_, _, _, _, _, rowErr := s.processRow(job, row, rowNumber)
 		if rowErr != nil {
 			failedCount++
 			errs = append(errs, BulkError{Row: rowNumber, Message: rowErr.Error()})
+		} else {
+			processedRows[rowNumber] = true
 		}
 
 		values := map[string]any{
-			"skipped": skippedCount, "failed": failedCount,
+			"failed": failedCount,
 			"credentials_sent": credentialsSent, "credential_emails_failed": credentialFailures,
 			"errors_json": mustJSON(errs), "claimed_at": time.Now().UTC(),
 		}
 		if err := s.updateClaimedJob(job, workerID, values); err != nil {
 			// The row transaction has committed. A later queue reclaim will
-			// observe the durable outbox event and resume delivery.
+			// observe its durable processed-row checkpoint and outbox event.
 			return
 		}
 	}
@@ -340,7 +350,7 @@ func (s *BulkImportService) processClaimed(job models.BulkImportJob, workerID uu
 		credentialFailures = counts.FailedCount
 		if counts.PendingCount > 0 {
 			_ = s.updateClaimedJob(job, workerID, map[string]any{
-				"skipped": skippedCount, "failed": failedCount,
+				"failed": failedCount,
 				"credentials_sent": credentialsSent, "credential_emails_failed": credentialFailures,
 				"errors_json": mustJSON(errs),
 				"last_error": "account-setup notifications pending retry",
@@ -356,7 +366,7 @@ func (s *BulkImportService) processClaimed(job models.BulkImportJob, workerID uu
 	}
 	_ = s.updateClaimedJob(job, workerID, map[string]any{
 		"status": status, "errors_json": mustJSON(errs),
-		"skipped": skippedCount, "failed": failedCount,
+		"failed": failedCount,
 		"credentials_sent": credentialsSent, "credential_emails_failed": credentialFailures,
 		"worker_id": nil, "claimed_at": nil, "last_error": "",
 	})

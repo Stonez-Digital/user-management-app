@@ -113,11 +113,11 @@ DECLARE
   v_processing oid := (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing');
   v_table oid := 'stonez_context_private.account_setup_outbox'::regclass;
   v_functions oid[] := ARRAY[
-    'stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)'::regprocedure,
-    'stonez_context_private.claim_account_setup_notification()'::regprocedure,
-    'stonez_context_private.complete_account_setup_notification(uuid,uuid,text)'::regprocedure,
-    'stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)'::regprocedure,
-    'stonez_context_private.account_setup_notification_counts()'::regprocedure
+    'stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)'::regprocedure::oid,
+    'stonez_context_private.claim_account_setup_notification()'::regprocedure::oid,
+    'stonez_context_private.complete_account_setup_notification(uuid,uuid,text)'::regprocedure::oid,
+    'stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)'::regprocedure::oid,
+    'stonez_context_private.account_setup_notification_counts()'::regprocedure::oid
   ];
 BEGIN
   IF cardinality(v_functions) <> 5 OR EXISTS (

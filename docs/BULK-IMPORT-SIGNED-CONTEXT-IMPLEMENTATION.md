@@ -32,10 +32,11 @@ Exact field order:
 4. job ID (UUID)
 5. school ID (UUID)
 6. initiating user ID (UUID)
-7. worker ID (UUID)
-8. lease generation (base-10 uint64)
-9. issued-at (base-10 Unix seconds)
-10. expires-at (base-10 Unix seconds)
+7. PostgreSQL backend PID (positive base-10 integer)
+8. PostgreSQL transaction ID (positive canonical base-10 xid8 value)
+9. lease generation (positive base-10 integer)
+10. issued-at (base-10 Unix seconds)
+11. expires-at (base-10 Unix seconds)
 
 The signature is the 32-byte HMAC encoded using unpadded base64url. Go and PostgreSQL must reconstruct identical bytes. Do not sign JSON serialization or locale-dependent timestamps.
 

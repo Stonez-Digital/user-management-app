@@ -77,11 +77,12 @@ func TestBulkWorkerReplacedLeaseGenerationIsFenced(t *testing.T) {
 		t.Fatal("reclaim reused the previous lease generation")
 	}
 
+	callbackCalled := false
 	err = oldWorker.withTenantTransaction(staleSnapshot, func(*gorm.DB) error {
-		t.Fatal("stale worker transaction callback must not execute")
+		callbackCalled = true
 		return nil
 	})
-	if err == nil {
+	if err == nil || callbackCalled {
 		t.Fatal("stale worker with replaced lease generation was accepted")
 	}
 }

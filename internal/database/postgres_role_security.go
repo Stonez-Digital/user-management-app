@@ -87,6 +87,7 @@ type BulkImportClaimRoleStatus struct {
 	IsAPIRuntimeMember bool `gorm:"column:is_api_runtime_member"`
 	IsQueueOwnerMember bool `gorm:"column:is_queue_owner_member"`
 	IsServiceRoleMember bool `gorm:"column:is_service_role_member"`
+	HasUnexpectedRoleMembership bool `gorm:"column:has_unexpected_role_membership"`
 	SessionCanAssumePrivilegedRole bool `gorm:"column:session_can_assume_privileged_role"`
 	CanExecuteClaim bool `gorm:"column:can_execute_claim"`
 	CurrentRoleMatchesSession bool `gorm:"column:current_role_matches_session"`
@@ -135,6 +136,11 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimGroupRole, apiRuntimeRole,
 				WHERE service_role.rolname = 'service_role'
 			), false) AS is_service_role_member,
 			EXISTS (
+				SELECT 1 FROM pg_auth_members AS membership
+				WHERE membership.member = role.oid
+				  AND membership.roleid <> (SELECT oid FROM pg_roles WHERE rolname = ?)
+			) AS has_unexpected_role_membership,
+			EXISTS (
 				SELECT 1
 				FROM pg_roles AS privileged
 				WHERE (privileged.rolsuper OR privileged.rolbypassrls)
@@ -145,7 +151,7 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimGroupRole, apiRuntimeRole,
 			current_user = session_user AS current_role_matches_session
 		FROM pg_roles AS role
 		WHERE role.rolname = session_user
-	`, claimGroupRole, claimGroupRole, claimGroupRole, apiRuntimeRole, queueOwnerRole, claimFunction).Scan(&status).Error
+	`, claimGroupRole, claimGroupRole, claimGroupRole, apiRuntimeRole, queueOwnerRole, claimGroupRole, claimFunction).Scan(&status).Error
 	if err != nil {
 		return fmt.Errorf("inspect bulk import claim role: %w", err)
 	}
@@ -156,7 +162,7 @@ func validateBulkImportClaimRoleStatus(status *BulkImportClaimRoleStatus) error 
 	if status == nil || status.SessionRole == "" || !status.IsLogin || status.IsSuperuser || status.BypassRLS ||
 		status.CanCreateDB || status.CanCreateRole ||
 		!status.IsClaimGroupMember || !status.IsClaimGroupEffective || status.CanSetClaimGroupRole ||
-		status.IsAPIRuntimeMember || status.IsQueueOwnerMember || status.IsServiceRoleMember ||
+		status.IsAPIRuntimeMember || status.IsQueueOwnerMember || status.IsServiceRoleMember || status.HasUnexpectedRoleMembership ||
 		status.SessionCanAssumePrivilegedRole || !status.CanExecuteClaim || !status.CurrentRoleMatchesSession {
 		role := ""
 		if status != nil {

@@ -303,7 +303,7 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                   ON p.polrelid=to_regclass(format('public.%I',e.table_name))
                  AND p.polname=e.policy_name
                  AND p.polroles=ARRAY[(SELECT oid FROM pg_roles WHERE rolname=e.role_name)]::oid[]
-                WHERE p.oid IS NULL OR p.polcmd<>e.command OR p.polpermissive<>e.permissive
+                WHERE p.oid IS NULL OR p.polcmd::text<>e.command OR p.polpermissive<>e.permissive
                    OR regexp_replace(regexp_replace(COALESCE(pg_get_expr(p.polqual,p.polrelid),''),'::[a-zA-Z0-9_.]+','','g'),'[()[:space:]]','','g')<>e.using_expr
                    OR regexp_replace(regexp_replace(COALESCE(pg_get_expr(p.polwithcheck,p.polrelid),''),'::[a-zA-Z0-9_.]+','','g'),'[()[:space:]]','','g')<>e.check_expr
             )

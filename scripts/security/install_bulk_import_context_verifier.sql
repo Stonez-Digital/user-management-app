@@ -364,7 +364,7 @@ BEGIN
     IF NOT pg_has_role(session_user, 'stonez_bulk_context_key_admin', 'MEMBER') THEN
         RAISE EXCEPTION 'caller is not authorized to register verifier keys' USING ERRCODE = '42501';
     END IF;
-    IF p_key_id IS NULL OR p_key_id = '' OR length(p_key_id) > 64
+    IF p_key_id IS NULL OR p_key_id = '' OR length(p_key_id) > 64 OR p_key_id ~ '[[:space:]]'
        OR p_key_bytes IS NULL OR octet_length(p_key_bytes) < 32
        OR p_not_before IS NULL
        OR (p_not_after IS NOT NULL AND p_not_after <= p_not_before) THEN

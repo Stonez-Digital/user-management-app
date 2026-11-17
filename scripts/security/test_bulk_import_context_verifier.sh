@@ -34,8 +34,8 @@ SQL
 
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_context_verifier.sql
 psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'
-CREATE ROLE stonez_bulk_worker_test LOGIN PASSWORD 'bulk_context_worker_ci_password' NOSUPERUSER NOBYPASSRLS INHERIT;
-GRANT stonez_bulk_worker TO stonez_bulk_worker_test;
+CREATE ROLE stonez_bulk_worker_processing_test LOGIN PASSWORD 'bulk_context_worker_ci_password' NOSUPERUSER NOBYPASSRLS INHERIT;
+GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_test;
 SELECT stonez_context_private.register_verification_key(
   'ci-key-1', decode(repeat('ab',32),'hex'), clock_timestamp() - interval '5 minutes', NULL
 );

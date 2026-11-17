@@ -42,7 +42,7 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 	}
 
 	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
-	tableSchema, privateSchema := "auth_handler_"+suffix, "stonez_internal"
+	tableSchema, privateSchema := "auth_handler_"+suffix, "auth_private_"+suffix
 	ownerRole, sessionOwnerRole, apiRole := "auth_handler_owner_"+suffix, "auth_handler_session_owner_"+suffix, "auth_handler_api_"+suffix
 	loginRole := "auth_handler_login_"+suffix
 	loginPassword := uuid.NewString()
@@ -51,7 +51,8 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 	}
 	cleanup := func() {
 		_ = admin.Exec("REVOKE " + apiRole + " FROM " + loginRole).Error
-				_ = admin.Exec("DROP SCHEMA IF EXISTS " + tableSchema + " CASCADE").Error
+		_ = admin.Exec("DROP SCHEMA IF EXISTS " + privateSchema + " CASCADE").Error
+		_ = admin.Exec("DROP SCHEMA IF EXISTS " + tableSchema + " CASCADE").Error
 		for _, role := range []string{loginRole, apiRole, ownerRole, sessionOwnerRole} {
 			_ = admin.Exec("DROP OWNED BY " + role).Error
 			_ = admin.Exec("REVOKE " + role + " FROM CURRENT_USER").Error
@@ -66,7 +67,7 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 		"CREATE ROLE " + loginRole + " LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS PASSWORD '" + loginPassword + "'",
 		"GRANT " + ownerRole + ", " + apiRole + " TO CURRENT_USER",
 		"GRANT " + apiRole + " TO " + loginRole,
-		"CREATE SCHEMA IF NOT EXISTS " + privateSchema,
+		"CREATE SCHEMA " + privateSchema,
 	} {
 		if err := admin.Exec(statement).Error; err != nil {
 			t.Fatalf("provision isolated handler roles: %v", err)
@@ -105,6 +106,7 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 		script = strings.ReplaceAll(script, "stonez_auth_bootstrap_owner", ownerRole)
 		script = strings.ReplaceAll(script, "stonez_auth_session_owner", sessionOwnerRole)
 		script = strings.ReplaceAll(script, "stonez_api_runtime", apiRole)
+		script = strings.ReplaceAll(script, "stonez_internal", privateSchema)
 		return strings.ReplaceAll(script, "public", tableSchema)
 	}
 	for _, name := range []string{"provision_auth_bootstrap_roles.sql", "install_auth_bootstrap_functions.sql", "verify_auth_bootstrap_boundary.sql"} {

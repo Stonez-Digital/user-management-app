@@ -24,6 +24,7 @@ type BulkImportProcessingRoleStatus struct {
 	SessionIsQueueOwnerMember      bool   `gorm:"column:session_is_queue_owner_member"`
 	SessionIsServiceRoleMember     bool   `gorm:"column:session_is_service_role_member"`
 	SessionIsProcessingGroupMember bool   `gorm:"column:session_is_processing_group_member"`
+	SessionCanSetProcessingGroup bool `gorm:"column:session_can_set_processing_group"`
 }
 
 // InspectBulkImportProcessingRole inspects the authenticated processing
@@ -53,7 +54,8 @@ func InspectBulkImportProcessingRole(db *gorm.DB) (*BulkImportProcessingRoleStat
 		       pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER') AS session_is_api_runtime_member,
 		       pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER') AS session_is_queue_owner_member,
 		       pg_has_role(session_user, 'service_role', 'MEMBER') AS session_is_service_role_member,
-		       pg_has_role(session_user, 'stonez_bulk_process_group', 'USAGE') AS session_is_processing_group_member
+		       pg_has_role(session_user, 'stonez_bulk_process_group', 'USAGE') AS session_is_processing_group_member,
+		       pg_has_role(session_user, 'stonez_bulk_process_group', 'SET') AS session_can_set_processing_group
 		  FROM pg_roles cr
 		  JOIN pg_roles sr ON sr.rolname = session_user
 		 WHERE cr.rolname = current_user
@@ -77,7 +79,7 @@ func ValidateBulkImportProcessingRole(status *BulkImportProcessingRoleStatus) er
 		status.SessionCanCreateDB || status.SessionCanCreateRole ||
 		status.SessionCanAssumePrivilegedRole ||
 		status.SessionIsAPIRuntimeMember || status.SessionIsQueueOwnerMember ||
-		status.SessionIsServiceRoleMember || !status.SessionIsProcessingGroupMember {
+		status.SessionIsServiceRoleMember || !status.SessionIsProcessingGroupMember || status.SessionCanSetProcessingGroup {
 		role := "<unavailable>"
 		if status != nil && status.SessionRole != "" {
 			role = status.SessionRole

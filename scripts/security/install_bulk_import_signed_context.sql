@@ -88,7 +88,7 @@ BEGIN
     END IF;
 END
 $$;
-DO $
+DO $$
 DECLARE
     v_role text;
 BEGIN
@@ -102,7 +102,7 @@ BEGIN
         END IF;
     END LOOP;
 END
-$;
+$$;
 
 GRANT SELECT ON TABLE stonez_internal.bulk_context_keys TO stonez_bulk_context_owner;
 GRANT SELECT, INSERT ON TABLE stonez_internal.bulk_context_sessions TO stonez_bulk_context_owner;
@@ -318,7 +318,7 @@ GRANT EXECUTE ON FUNCTION stonez_internal.bulk_import_context_key_available(text
 
 -- Remove any pre-existing direct EXECUTE grants. Only the dedicated processing
 -- group may call these functions; the NOLOGIN owner retains ownership rights.
-DO $
+DO $$
 DECLARE
     v_grantee text;
     v_function regprocedure;
@@ -341,7 +341,7 @@ BEGIN
         END LOOP;
     END LOOP;
 END
-$;
+$$;
 
 -- The processing group can inspect and update only the job's operational
 -- progress fields. It cannot read the stored import payload or change lease

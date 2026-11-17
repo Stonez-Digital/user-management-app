@@ -110,6 +110,41 @@ psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_context_worker_policies.sql
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_account_setup_outbox.sql
 psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'
+DO $outbox_privileges$
+DECLARE
+  v_owner oid := (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_context_owner');
+  v_processing oid := (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing');
+  v_table oid := 'stonez_context_private.account_setup_outbox'::regclass;
+BEGIN
+  IF (SELECT prosecdef FROM pg_proc WHERE oid='stonez_context_private.enqueue_account_setup_notice(uuid)'::regprocedure) IS DISTINCT FROM true
+     OR (SELECT prosecdef FROM pg_proc WHERE oid='stonez_context_private.claim_account_setup_notice()'::regprocedure) IS DISTINCT FROM true
+     OR (SELECT prosecdef FROM pg_proc WHERE oid='stonez_context_private.complete_account_setup_notice(uuid,uuid,text)'::regprocedure) IS DISTINCT FROM true
+     OR (SELECT prosecdef FROM pg_proc WHERE oid='stonez_context_private.fail_account_setup_notice(uuid,uuid,text)'::regprocedure) IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'outbox entry points must all be SECURITY DEFINER';
+  END IF;
+  IF (SELECT proowner FROM pg_proc WHERE oid='stonez_context_private.enqueue_account_setup_notice(uuid)'::regprocedure) <> v_owner
+     OR (SELECT relowner FROM pg_class WHERE oid=v_table) <> v_owner THEN
+    RAISE EXCEPTION 'outbox table and entry points must be owned by the dedicated context owner';
+  END IF;
+  IF has_table_privilege(v_processing,v_table,'SELECT')
+     OR has_table_privilege(v_processing,v_table,'INSERT')
+     OR has_table_privilege(v_processing,v_table,'UPDATE')
+     OR has_table_privilege(v_processing,v_table,'DELETE') THEN
+    RAISE EXCEPTION 'processing group has direct outbox table privileges';
+  END IF;
+  IF NOT has_function_privilege(v_processing,'stonez_context_private.enqueue_account_setup_notice(uuid)','EXECUTE')
+     OR NOT has_function_privilege(v_processing,'stonez_context_private.claim_account_setup_notice()','EXECUTE')
+     OR NOT has_function_privilege(v_processing,'stonez_context_private.complete_account_setup_notice(uuid,uuid,text)','EXECUTE')
+     OR NOT has_function_privilege(v_processing,'stonez_context_private.fail_account_setup_notice(uuid,uuid,text)','EXECUTE') THEN
+    RAISE EXCEPTION 'processing group is missing a scoped outbox function grant';
+  END IF;
+  IF has_function_privilege('public','stonez_context_private.enqueue_account_setup_notice(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'PUBLIC can execute outbox enqueue';
+  END IF;
+END
+$outbox_privileges$;
+SQL
+psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE ROLE stonez_bulk_worker_processing_test LOGIN PASSWORD 'bulk_context_worker_ci_password' NOSUPERUSER NOBYPASSRLS INHERIT;
 GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_test WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
 DO $role_check$

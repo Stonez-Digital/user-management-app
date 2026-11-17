@@ -1,10 +1,14 @@
 package database
 
 import (
+	"bytes"
 	"os"
 	"strings"
+	"time"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/onoja217/users-management-app/internal/security/bulkimportcontext"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -198,6 +202,23 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 	}
 	if err := ValidateBulkImportProcessingRole(workerDB); err == nil {
 		t.Fatal("processing login with worker-group ADMIN OPTION was accepted")
+	}
+	signer, err := bulkimportcontext.NewSigner("ci-key-1", bytes.Repeat([]byte{0xab}, 32), 30*time.Second)
+	if err != nil {
+		t.Fatalf("create verifier ADMIN OPTION regression signer: %v", err)
+	}
+	assertion, err := signer.Sign(bulkimportcontext.Context{
+		JobID: uuid.MustParse("11111111-1111-4111-8111-111111111111"),
+		SchoolID: uuid.MustParse("22222222-2222-4222-8222-222222222222"),
+		InitiatedBy: uuid.MustParse("33333333-3333-4333-8333-333333333333"),
+		WorkerID: uuid.MustParse("44444444-4444-4444-8444-444444444444"),
+		LeaseID: uuid.MustParse("55555555-5555-4555-8555-555555555555"),
+	})
+	if err != nil {
+		t.Fatalf("sign verifier ADMIN OPTION regression assertion: %v", err)
+	}
+	if err := workerDB.Exec("SELECT stonez_context_private.verify_bulk_import_context(?)", assertion).Error; err == nil {
+		t.Fatal("PostgreSQL verifier accepted a processing login with worker-group ADMIN OPTION")
 	}
 	if err := runnerDB.Exec(`GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_test WITH ADMIN FALSE, INHERIT TRUE, SET FALSE`).Error; err != nil {
 		t.Fatalf("restore worker-group membership without ADMIN OPTION: %v", err)

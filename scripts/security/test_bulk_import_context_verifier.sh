@@ -132,6 +132,13 @@ BEGIN
   IF (SELECT relowner FROM pg_class WHERE oid=v_table) IS DISTINCT FROM v_owner THEN
     RAISE EXCEPTION 'outbox table must be owned by the dedicated context owner';
   END IF;
+  IF EXISTS (
+      SELECT 1 FROM pg_attribute
+       WHERE attrelid=v_table AND attnum>0 AND NOT attisdropped
+         AND attname IN ('password','password_hash','temporary_password','reset_token','token','signed_assertion')
+  ) THEN
+    RAISE EXCEPTION 'outbox schema must never contain password or bearer-token material';
+  END IF;
   IF has_table_privilege(v_processing,v_table,'SELECT')
      OR has_table_privilege(v_processing,v_table,'INSERT')
      OR has_table_privilege(v_processing,v_table,'UPDATE')

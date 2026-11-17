@@ -29,7 +29,7 @@ BEGIN
         RAISE EXCEPTION 'processing group role attributes are unsafe';
     END IF;
     IF to_regprocedure('extensions.hmac(bytea,bytea,text)') IS NULL
-       OR to_regprocedure('stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text)') IS NULL
+       OR to_regprocedure('stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,integer,text,bigint,bigint,bigint,text)') IS NULL
        OR to_regprocedure('stonez_internal.current_bulk_import_context()') IS NULL
        OR to_regprocedure('stonez_internal.bulk_import_context_key_available(text)') IS NULL THEN
         RAISE EXCEPTION 'pgcrypto or signed-context functions are missing';
@@ -39,7 +39,7 @@ BEGIN
       INTO v_verifier_owner, v_config
       FROM pg_proc procedure
       JOIN pg_roles owner_role ON owner_role.oid = procedure.proowner
-     WHERE procedure.oid = 'stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text)'::regprocedure;
+     WHERE procedure.oid = 'stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,integer,text,bigint,bigint,bigint,text)'::regprocedure;
     IF v_verifier_owner IS DISTINCT FROM 'stonez_bulk_context_owner'
        OR NOT ('search_path=pg_catalog' = ANY(COALESCE(v_config, ARRAY[]::text[]))) THEN
         RAISE EXCEPTION 'verifier owner or fixed search_path is unsafe';
@@ -58,7 +58,7 @@ BEGIN
         RAISE EXCEPTION 'context helper or key availability function has an unexpected owner';
     END IF;
 
-    IF NOT has_function_privilege('stonez_bulk_process_group', 'stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text)', 'EXECUTE')
+    IF NOT has_function_privilege('stonez_bulk_process_group', 'stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,integer,text,bigint,bigint,bigint,text)', 'EXECUTE')
        OR NOT has_function_privilege('stonez_bulk_process_group', 'stonez_internal.current_bulk_import_context()', 'EXECUTE')
        OR NOT has_function_privilege('stonez_bulk_process_group', 'stonez_internal.bulk_import_context_key_available(text)', 'EXECUTE') THEN
         RAISE EXCEPTION 'processing group is missing required signed-context function access';
@@ -68,7 +68,7 @@ BEGIN
           FROM pg_proc procedure
           CROSS JOIN LATERAL aclexplode(COALESCE(procedure.proacl, acldefault('f', procedure.proowner))) AS privilege
          WHERE procedure.oid IN (
-             'stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text)'::regprocedure,
+             'stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,integer,text,bigint,bigint,bigint,text)'::regprocedure,
              'stonez_internal.current_bulk_import_context()'::regprocedure,
              'stonez_internal.bulk_import_context_key_available(text)'::regprocedure
          )
@@ -112,7 +112,7 @@ $$;
 
 SELECT
     current_user AS inspected_as,
-    to_regprocedure('stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text)') IS NOT NULL AS verifier_installed,
+    to_regprocedure('stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,integer,text,bigint,bigint,bigint,text)') IS NOT NULL AS verifier_installed,
     to_regprocedure('stonez_internal.current_bulk_import_context()') IS NOT NULL AS context_helper_installed,
-    has_function_privilege('stonez_bulk_process_group', 'stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text)', 'EXECUTE') AS process_group_can_verify,
+    has_function_privilege('stonez_bulk_process_group', 'stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,integer,text,bigint,bigint,bigint,text)', 'EXECUTE') AS process_group_can_verify,
     has_table_privilege('stonez_bulk_process_group', 'stonez_internal.bulk_context_keys', 'SELECT') AS process_group_can_read_keys;

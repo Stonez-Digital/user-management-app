@@ -32,14 +32,17 @@ CREATE TABLE public.bulk_import_jobs (
     credentials_sent integer NOT NULL DEFAULT 0, credential_emails_failed integer NOT NULL DEFAULT 0,
     errors_json jsonb NOT NULL DEFAULT '[]'::jsonb, last_error text NOT NULL DEFAULT ''
 );
-INSERT INTO public.bulk_import_jobs(id,school_id,initiated_by,worker_id,lease_id,status,claimed_at)
+INSERT INTO public.bulk_import_jobs(id,school_id,initiated_by,worker_id,lease_id,status,claimed_at,send_credentials)
 VALUES ('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',
 '33333333-3333-4333-8333-333333333333','44444444-4444-4444-8444-444444444444',
-'55555555-5555-4555-8555-555555555555','running',clock_timestamp()),
+'55555555-5555-4555-8555-555555555555','running',clock_timestamp(),true),
 ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','22222222-2222-4222-8222-222222222222',
 '33333333-3333-4333-8333-333333333333','dddddddd-dddd-4ddd-8ddd-dddddddddddd',
 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee','running',clock_timestamp());
 CREATE TABLE public.users(id uuid PRIMARY KEY, school_id uuid, name text, email text, role text, password_hash text, active boolean NOT NULL DEFAULT true);
+INSERT INTO public.users(id,school_id,name,email,role,password_hash) VALUES
+('34343434-3434-4434-8434-343434343434','22222222-2222-4222-8222-222222222222','Outbox Fixture','outbox-fixture@example.test','student','test-hash'),
+('35353535-3535-4535-8535-353535353535','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','Other Tenant','other-tenant@example.test','student','test-hash');
 CREATE TABLE public.students(id uuid PRIMARY KEY, school_id uuid NOT NULL, admission_number text);
 INSERT INTO public.students(id,school_id) VALUES
 ('21212121-2121-4212-8212-212121212121','22222222-2222-4222-8222-222222222222'),
@@ -105,6 +108,7 @@ done
 
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_context_verifier.sql
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_context_worker_policies.sql
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_account_setup_outbox.sql
 psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE ROLE stonez_bulk_worker_processing_test LOGIN PASSWORD 'bulk_context_worker_ci_password' NOSUPERUSER NOBYPASSRLS INHERIT;
 GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_test WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;

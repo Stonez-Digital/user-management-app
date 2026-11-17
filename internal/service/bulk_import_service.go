@@ -18,6 +18,7 @@ import (
  "unicode"
  "github.com/google/uuid"
  "github.com/onoja217/users-management-app/internal/auth"
+ "github.com/onoja217/users-management-app/internal/security/bulkimportcontext"
  "github.com/onoja217/users-management-app/internal/authz"
  "github.com/onoja217/users-management-app/internal/models"
  "gorm.io/gorm"
@@ -29,7 +30,7 @@ type BulkRow map[string]string
 type BulkError struct { Row int `json:"row"`; Field string `json:"field,omitempty"`; Message string `json:"message"` }
 type BulkImportPreview struct { Job models.BulkImportJob `json:"job"`; Preview []BulkRow `json:"preview"`; Errors []BulkError `json:"errors"` }
 
-type BulkImportService struct { db *gorm.DB; claimDB *gorm.DB; mu sync.Mutex; mailer *CredentialMailer; workerID uuid.UUID; workerOnce *sync.Once }
+type BulkImportService struct { db *gorm.DB; claimDB *gorm.DB; mu sync.Mutex; mailer *CredentialMailer; workerID uuid.UUID; workerOnce *sync.Once; assertionSigner *bulkimportcontext.Signer; requireSignedContext bool }
 func NewBulkImportService(db *gorm.DB, mailer *CredentialMailer)*BulkImportService{return &BulkImportService{db:db,claimDB:db,mailer:mailer,workerID:uuid.New(),workerOnce:&sync.Once{}}}
 // NewBulkImportServiceWithClaimDB separates the narrowly privileged queue-claim
 // connection from the application connection used to process claimed jobs.
@@ -39,7 +40,16 @@ func NewBulkImportServiceWithClaimDB(db, claimDB *gorm.DB, mailer *CredentialMai
  if claimDB.Dialector.Name()!="postgres" && !(db.Dialector.Name()=="sqlite" && claimDB.Dialector.Name()=="sqlite"){return nil,errors.New("bulk import claim database must use PostgreSQL (SQLite is permitted only for SQLite tests)")}
  return &BulkImportService{db:db,claimDB:claimDB,mailer:mailer,workerID:uuid.New(),workerOnce:&sync.Once{}},nil
 }
-func(s *BulkImportService)WithDB(db *gorm.DB)*BulkImportService{return &BulkImportService{db:db,claimDB:s.claimDB,mailer:s.mailer,workerID:s.workerID,workerOnce:s.workerOnce}}
+func(s *BulkImportService)WithDB(db *gorm.DB)*BulkImportService{return &BulkImportService{db:db,claimDB:s.claimDB,mailer:s.mailer,workerID:s.workerID,workerOnce:s.workerOnce,assertionSigner:s.assertionSigner,requireSignedContext:s.requireSignedContext}}
+
+// RequireSignedContext enables PostgreSQL verification for every worker-owned transaction.
+// It is configured only when the processing login and worker RLS policies are provisioned.
+func(s *BulkImportService)RequireSignedContext(signer *bulkimportcontext.Signer) error {
+ if s==nil || signer==nil { return errors.New("signed bulk import context requires a configured assertion signer") }
+ s.assertionSigner=signer
+ s.requireSignedContext=true
+ return nil
+}
 func(s *BulkImportService)DB()*gorm.DB{return s.db}
 
 func parseUpload(fh *multipart.FileHeader)([]BulkRow,error){

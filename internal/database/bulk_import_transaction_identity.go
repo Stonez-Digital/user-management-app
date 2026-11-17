@@ -12,7 +12,7 @@ import (
 // backend session or transaction.
 type BulkImportTransactionIdentity struct {
 	BackendPID    int32
-	TransactionID uint64
+	TransactionID string
 }
 
 func CurrentBulkImportTransactionIdentity(tx *gorm.DB) (BulkImportTransactionIdentity, error) {
@@ -30,5 +30,5 @@ func CurrentBulkImportTransactionIdentity(tx *gorm.DB) (BulkImportTransactionIde
 	if err != nil || raw.BackendPID <= 0 || transactionID == 0 {
 		return BulkImportTransactionIdentity{}, fmt.Errorf("PostgreSQL returned an invalid transaction identity")
 	}
-	return BulkImportTransactionIdentity{BackendPID: raw.BackendPID, TransactionID: transactionID}, nil
+	return BulkImportTransactionIdentity{BackendPID: raw.BackendPID, TransactionID: raw.TransactionID}, nil
 }

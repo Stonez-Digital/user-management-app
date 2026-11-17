@@ -159,7 +159,7 @@ func TestCanonicalPayloadIsStableAndFieldOrdered(t *testing.T) {
 		SchoolID: uuid.MustParse("00000000-0000-4000-8000-000000000003"),
 		InitiatedBy: uuid.MustParse("00000000-0000-4000-8000-000000000004"),
 		WorkerID: uuid.MustParse("00000000-0000-4000-8000-000000000005"),
-		BackendPID: 1234, TransactionID: 987654321,
+		BackendPID: 1234, TransactionID: "987654321",
 		LeaseGeneration: 9, IssuedAt: 1800000000, ExpiresAt: 1800000060,
 	}
 	got, err := CanonicalPayload(claims)

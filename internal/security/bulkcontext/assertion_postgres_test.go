@@ -71,9 +71,10 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	tenantDDL := "CREATE TABLE "+tableSchema+".tenant_fixture (id uuid PRIMARY KEY, school_id uuid NOT NULL); "+
 		"ALTER TABLE "+tableSchema+".tenant_fixture ENABLE ROW LEVEL SECURITY; "+
 		"ALTER TABLE "+tableSchema+".tenant_fixture FORCE ROW LEVEL SECURITY; "+
+		"GRANT USAGE ON SCHEMA "+tableSchema+" TO "+processRole+"; "+
 		"GRANT SELECT, INSERT ON "+tableSchema+".tenant_fixture TO "+processRole+"; "+
 		"CREATE POLICY tenant_fixture_select ON "+tableSchema+".tenant_fixture FOR SELECT TO "+processRole+" "+
-		"USING (EXISTS (SELECT 1 FROM "+privateSchema+".current_bulk_import_context() ctx WHERE ctx.school_id = school_id)); "+
+		"USING (EXISTS (SELECT 1 FROM "+privateSchema+".current_bulk_import_context() ctx WHERE ctx.school_id = tenant_fixture.school_id)); "+
 		"CREATE POLICY tenant_fixture_insert ON "+tableSchema+".tenant_fixture FOR INSERT TO "+processRole+" "+
 		"WITH CHECK (EXISTS (SELECT 1 FROM "+privateSchema+".current_bulk_import_context() ctx WHERE ctx.school_id = school_id)); "+
 		"INSERT INTO "+tableSchema+".tenant_fixture (id, school_id) VALUES "+

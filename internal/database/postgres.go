@@ -156,6 +156,8 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
         WorkerInsertPolicies int
         PolicyExpressionsExact bool
         WorkerPrivilegesExact bool
+        OutboxFunctions bool
+        OutboxDirectAccessDenied bool
     }
     query := `
         SELECT
@@ -410,7 +412,30 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                    AND (has_column_privilege(session_user,'public.bulk_import_jobs',a.attname,'INSERT')
                         OR has_column_privilege(session_user,'public.bulk_import_jobs',a.attname,'REFERENCES'))
             )
-            AS worker_privileges_exact
+            AS worker_privileges_exact,
+            (
+                to_regprocedure('stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)') IS NOT NULL
+                AND to_regprocedure('stonez_context_private.claim_account_setup_notification()') IS NOT NULL
+                AND to_regprocedure('stonez_context_private.complete_account_setup_notification(uuid,uuid,text)') IS NOT NULL
+                AND to_regprocedure('stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)') IS NOT NULL
+                AND to_regprocedure('stonez_context_private.account_setup_notification_counts()') IS NOT NULL
+                AND EXISTS (
+                    SELECT 1 FROM pg_proc AS p
+                    JOIN pg_namespace AS n ON n.oid=p.pronamespace
+                    JOIN pg_roles AS owner_role ON owner_role.oid=p.proowner
+                    WHERE n.nspname='stonez_context_private'
+                      AND p.proname='enqueue_account_setup_notification'
+                      AND p.prosecdef
+                      AND p.proconfig @> ARRAY['search_path=pg_catalog']
+                      AND owner_role.rolname='stonez_bulk_context_owner'
+                )
+            ) AS outbox_functions,
+            CASE WHEN to_regclass('stonez_context_private.account_setup_outbox') IS NULL THEN false
+                 ELSE NOT has_table_privilege('stonez_bulk_worker_processing',to_regclass('stonez_context_private.account_setup_outbox'),'SELECT')
+                  AND NOT has_table_privilege('stonez_bulk_worker_processing',to_regclass('stonez_context_private.account_setup_outbox'),'INSERT')
+                  AND NOT has_table_privilege('stonez_bulk_worker_processing',to_regclass('stonez_context_private.account_setup_outbox'),'UPDATE')
+                  AND NOT has_table_privilege('stonez_bulk_worker_processing',to_regclass('stonez_context_private.account_setup_outbox'),'DELETE')
+            END AS outbox_direct_access_denied
     `
     if err := db.Raw(query).Scan(&ready).Error; err != nil {
         return fmt.Errorf("inspect signed bulk import verifier installation: %w", err)
@@ -428,7 +453,8 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
        ready.QueueSelectPolicy != 1 || ready.QueueUpdatePolicy != 1 ||
        ready.VerifierReadPolicy != 1 || ready.VerifierLockPolicy != 1 ||
        ready.WorkerSelectPolicies != 9 || ready.WorkerInsertPolicies != 6 ||
-       !ready.PolicyExpressionsExact || !ready.WorkerPrivilegesExact {
+       !ready.PolicyExpressionsExact || !ready.WorkerPrivilegesExact ||
+       !ready.OutboxFunctions || !ready.OutboxDirectAccessDenied {
         return fmt.Errorf("signed bulk import verifier or required worker RLS policies are incomplete: %+v", ready)
     }
     return nil

@@ -38,17 +38,6 @@ func (s *BulkImportService) withTenantTransaction(job models.BulkImportJob, fn f
 		// than the lease interval. The next transaction must still present the
 		// current worker ID and a non-expired lease.
 		if job.WorkerID != nil {
-			if job.LeaseID != nil {
-				// The lease generation changes on every claim/reclaim. A worker
-				// holding an older generation must not continue after replacement.
-				var currentLease uuid.UUID
-				if err := tx.Raw("SELECT lease_id FROM bulk_import_jobs WHERE id = ? AND school_id = ? AND initiated_by = ? AND worker_id = ?", job.ID, job.SchoolID, job.InitiatedBy, *job.WorkerID).Scan(&currentLease).Error; err != nil {
-					return err
-				}
-				if currentLease != *job.LeaseID {
-					return errors.New("bulk import worker lease generation was replaced")
-				}
-			}
 			var lease models.BulkImportJob
 			leaseClock := time.Now().UTC()
 			if tx.Dialector.Name() == "postgres" {
@@ -57,10 +46,15 @@ func (s *BulkImportService) withTenantTransaction(job models.BulkImportJob, fn f
 				}
 			}
 			cutoff := leaseClock.Add(-bulkImportClaimLease)
-			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			leaseQuery := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 				Where("id = ? AND school_id = ? AND initiated_by = ? AND worker_id = ? AND status = ? AND claimed_at >= ?",
-					job.ID, job.SchoolID, job.InitiatedBy, *job.WorkerID, models.BulkImportRunning, cutoff).
-				First(&lease).Error
+					job.ID, job.SchoolID, job.InitiatedBy, *job.WorkerID, models.BulkImportRunning, cutoff)
+			if job.LeaseID != nil {
+				// The lease generation changes on every claim/reclaim. Include it
+				// in the locked predicate so replacement cannot race verification.
+				leaseQuery = leaseQuery.Where("lease_id = ?", *job.LeaseID)
+			}
+			err := leaseQuery.First(&lease).Error
 			if err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					return errors.New("bulk import worker lease was lost or expired")
@@ -113,12 +107,13 @@ func (s *BulkImportService) claimNextJob() (*models.BulkImportJob, error) {
 		}
 		now := time.Now().UTC()
 		workerID := s.workerID
+		leaseID := uuid.New()
 		result := tx.Model(&models.BulkImportJob{}).
 			Where("id = ? AND school_id = ? AND initiated_by = ?", job.ID, job.SchoolID, job.InitiatedBy).
 			Updates(map[string]any{
 				"status": models.BulkImportRunning,
 				"worker_id": workerID,
-				"lease_id": uuid.New(),
+				"lease_id": leaseID,
 				"claimed_at": now,
 				"attempts": gorm.Expr("attempts + 1"),
 				"last_error": "",
@@ -131,7 +126,6 @@ func (s *BulkImportService) claimNextJob() (*models.BulkImportJob, error) {
 		}
 		job.Status = models.BulkImportRunning
 		job.WorkerID = &workerID
-		leaseID := uuid.New()
 		job.LeaseID = &leaseID
 		job.ClaimedAt = &now
 		job.Attempts++

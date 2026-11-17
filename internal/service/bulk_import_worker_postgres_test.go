@@ -313,6 +313,69 @@ func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T)
 	if err == nil { t.Fatal("queue owner unexpectedly updated protected payload columns") }
 }
 
+func TestBulkWorkerRejectsLeaseThatExpiresWhileWaitingForRowLock(t *testing.T) {
+	db, _, _, _, _ := openBulkWorkerPostgres(t)
+	job := models.BulkImportJob{
+		SchoolID: uuid.New(), InitiatedBy: uuid.New(), Kind: "students",
+		FileName: "lock-wait-expiry.csv", Status: models.BulkImportQueued,
+	}
+	if err := db.Create(&job).Error; err != nil {
+		t.Fatalf("create queued job: %v", err)
+	}
+	worker := NewBulkImportService(db, nil)
+	claim, err := worker.claimNextJob()
+	if err != nil || claim == nil || claim.LeaseID == nil {
+		t.Fatalf("claim job with lease generation: job=%+v err=%v", claim, err)
+	}
+
+	// The lease is still valid when validation starts, but expires while the
+	// worker waits behind another transaction's row lock.
+	nearExpiry := time.Now().UTC().Add(-bulkImportClaimLease + time.Second)
+	if err := db.Model(&models.BulkImportJob{}).Where("id = ?", job.ID).Update("claimed_at", nearExpiry).Error; err != nil {
+		t.Fatalf("age lease to just before expiry: %v", err)
+	}
+	lockTx := db.Begin()
+	if lockTx.Error != nil {
+		t.Fatalf("begin row-lock transaction: %v", lockTx.Error)
+	}
+	defer lockTx.Rollback()
+	var locked models.BulkImportJob
+	if err := lockTx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", job.ID).First(&locked).Error; err != nil {
+		t.Fatalf("lock claimed job: %v", err)
+	}
+
+	callbackCalled := make(chan struct{}, 1)
+	resultCh := make(chan error, 1)
+	go func() {
+		resultCh <- worker.withTenantTransaction(*claim, func(*gorm.DB) error {
+			callbackCalled <- struct{}{}
+			return nil
+		})
+	}()
+
+	// Prove the worker is blocked on the row lock before allowing the lease to
+	// expire. The old pre-lock clock check would incorrectly accept this claim.
+	select {
+	case err := <-resultCh:
+		t.Fatalf("worker did not wait for the row lock (result=%v)", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	time.Sleep(1200 * time.Millisecond)
+	if err := lockTx.Commit().Error; err != nil {
+		t.Fatalf("release row lock: %v", err)
+	}
+
+	err = <-resultCh
+	if err == nil {
+		t.Fatal("worker accepted a lease that expired while waiting for the row lock")
+	}
+	select {
+	case <-callbackCalled:
+		t.Fatal("tenant callback ran for an expired lease")
+	default:
+	}
+}
+
 func TestBulkWorkerPostgresClaimFunctionReclaimsOnlyExpiredLeases(t *testing.T) {
 	db, _, _, _, _ := openBulkWorkerPostgres(t)
 	schoolID, actor := uuid.New(), uuid.New()

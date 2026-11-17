@@ -24,11 +24,16 @@ BEGIN
 END
 $$;
 
-CREATE SCHEMA IF NOT EXISTS stonez_context_private AUTHORIZATION stonez_bulk_context_owner;
+-- The role creator receives a non-inheriting membership. Switch into the
+-- dedicated owner before creating any private object or SECURITY DEFINER code.
+GRANT stonez_bulk_context_owner TO CURRENT_USER WITH INHERIT FALSE, SET TRUE;
+SET LOCAL ROLE stonez_bulk_context_owner;
+
+CREATE SCHEMA IF NOT EXISTS stonez_context_private AUTHORIZATION CURRENT_USER;
+ALTER SCHEMA stonez_context_private OWNER TO CURRENT_USER;
 REVOKE ALL ON SCHEMA stonez_context_private FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO stonez_bulk_context_owner;
 GRANT USAGE ON SCHEMA stonez_context_private TO stonez_bulk_worker, stonez_bulk_context_key_admin;
-GRANT CREATE ON SCHEMA stonez_context_private TO stonez_bulk_context_owner;
 
 CREATE TABLE IF NOT EXISTS stonez_context_private.verification_keys (
     key_id text PRIMARY KEY CHECK (key_id <> '' AND length(key_id) <= 64),
@@ -54,8 +59,6 @@ CREATE TABLE IF NOT EXISTS stonez_context_private.verified_contexts (
     CONSTRAINT verified_contexts_assertion_id_unique UNIQUE (assertion_id)
 );
 
-ALTER TABLE stonez_context_private.verification_keys OWNER TO stonez_bulk_context_owner;
-ALTER TABLE stonez_context_private.verified_contexts OWNER TO stonez_bulk_context_owner;
 REVOKE ALL ON ALL TABLES IN SCHEMA stonez_context_private FROM PUBLIC, stonez_bulk_worker, stonez_bulk_context_key_admin;
 GRANT SELECT ON stonez_context_private.verification_keys TO stonez_bulk_context_owner;
 GRANT SELECT, INSERT ON stonez_context_private.verified_contexts TO stonez_bulk_context_owner;
@@ -90,7 +93,6 @@ BEGIN
     RETURN v_decoded;
 END
 $fn$;
-ALTER FUNCTION stonez_context_private.decode_base64url(text) OWNER TO stonez_bulk_context_owner;
 REVOKE ALL ON FUNCTION stonez_context_private.decode_base64url(text) FROM PUBLIC;
 
 
@@ -114,7 +116,6 @@ BEGIN
     RETURN v_diff = 0;
 END
 $fn$;
-ALTER FUNCTION stonez_context_private.constant_time_equal(bytea,bytea) OWNER TO stonez_bulk_context_owner;
 REVOKE ALL ON FUNCTION stonez_context_private.constant_time_equal(bytea,bytea) FROM PUBLIC;
 
 
@@ -285,7 +286,6 @@ EXCEPTION
         RAISE EXCEPTION 'bulk worker assertion replay or duplicate transaction context' USING ERRCODE = '28000';
 END
 $fn$;
-ALTER FUNCTION stonez_context_private.verify_bulk_import_context(text) OWNER TO stonez_bulk_context_owner;
 REVOKE ALL ON FUNCTION stonez_context_private.verify_bulk_import_context(text) FROM PUBLIC;
 GRANT SELECT ON public.bulk_import_jobs TO stonez_bulk_context_owner;
 GRANT UPDATE (lease_id) ON public.bulk_import_jobs TO stonez_bulk_context_owner;

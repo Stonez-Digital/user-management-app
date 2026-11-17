@@ -32,10 +32,10 @@ BEGIN
     SELECT namespace.nspname INTO v_schema
       FROM pg_extension AS extension
       JOIN pg_namespace AS namespace ON namespace.oid = extension.extnamespace
-      JOIN pg_proc AS procedure ON procedure.pronamespace = namespace.oid
+      JOIN pg_proc AS proc_entry ON proc_entry.pronamespace = namespace.oid
      WHERE extension.extname = 'pgcrypto'
-       AND procedure.proname = 'hmac'
-       AND pg_get_function_identity_arguments(procedure.oid) = 'bytea, bytea, text'
+       AND proc_entry.proname = 'hmac'
+       AND pg_get_function_identity_arguments(proc_entry.oid) = 'bytea, bytea, text'
      LIMIT 1;
     IF v_schema IS NULL THEN
         RAISE EXCEPTION 'pgcrypto.hmac(bytea, bytea, text) must be installed before verifier setup';
@@ -272,9 +272,9 @@ BEGIN
     SELECT namespace.nspname INTO v_ext_schema
       FROM pg_extension AS extension
       JOIN pg_namespace AS namespace ON namespace.oid = extension.extnamespace
-      JOIN pg_proc AS procedure ON procedure.pronamespace = namespace.oid
-     WHERE extension.extname = 'pgcrypto' AND procedure.proname = 'hmac'
-       AND pg_get_function_identity_arguments(procedure.oid) = 'bytea, bytea, text'
+      JOIN pg_proc AS proc_entry ON proc_entry.pronamespace = namespace.oid
+     WHERE extension.extname = 'pgcrypto' AND proc_entry.proname = 'hmac'
+       AND pg_get_function_identity_arguments(proc_entry.oid) = 'bytea, bytea, text'
      LIMIT 1;
     IF v_ext_schema IS NULL THEN
         RAISE EXCEPTION 'pgcrypto.hmac(bytea, bytea, text) is unavailable' USING ERRCODE = '55000';
@@ -323,6 +323,9 @@ GRANT UPDATE (lease_id) ON public.bulk_import_jobs TO stonez_bulk_context_owner;
 DROP POLICY IF EXISTS bulk_import_jobs_context_verifier_read ON public.bulk_import_jobs;
 CREATE POLICY bulk_import_jobs_context_verifier_read ON public.bulk_import_jobs
     FOR SELECT TO stonez_bulk_context_owner USING (true);
+DROP POLICY IF EXISTS bulk_import_jobs_context_verifier_lock ON public.bulk_import_jobs;
+CREATE POLICY bulk_import_jobs_context_verifier_lock ON public.bulk_import_jobs
+    FOR UPDATE TO stonez_bulk_context_owner USING (true) WITH CHECK (true);
 
 
 CREATE OR REPLACE FUNCTION stonez_context_private.current_worker_school_id()

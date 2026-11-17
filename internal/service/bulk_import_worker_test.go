@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 	"github.com/onoja217/users-management-app/internal/models"
 )
 
@@ -46,6 +47,43 @@ func TestBulkWorkerReclaimsExpiredLease(t *testing.T) {
 	if claimed.ID != job.ID { t.Fatalf("claimed wrong job: %s", claimed.ID) }
 	if claimed.Attempts != 2 { t.Fatalf("expected attempt 2, got %d", claimed.Attempts) }
 	if claimed.WorkerID == nil || *claimed.WorkerID != worker.workerID { t.Fatal("expired lease was not reassigned") }
+}
+
+func TestBulkWorkerReplacedLeaseGenerationIsFenced(t *testing.T) {
+	db := bulkTestDB(t)
+	job := models.BulkImportJob{
+		SchoolID: uuid.New(), InitiatedBy: uuid.New(), Kind: "students",
+		FileName: "lease-generation.csv", Status: models.BulkImportQueued,
+	}
+	if err := db.Create(&job).Error; err != nil { t.Fatal(err) }
+
+	oldWorker := NewBulkImportService(db, nil)
+	oldClaim, err := oldWorker.claimNextJob()
+	if err != nil || oldClaim == nil || oldClaim.LeaseID == nil {
+		t.Fatalf("initial claim must include a lease generation: job=%+v err=%v", oldClaim, err)
+	}
+	staleSnapshot := *oldClaim
+
+	expired := time.Now().UTC().Add(-2 * bulkImportClaimLease)
+	if err := db.Model(&models.BulkImportJob{}).Where("id = ?", job.ID).Update("claimed_at", expired).Error; err != nil {
+		t.Fatal(err)
+	}
+	newWorker := NewBulkImportService(db, nil)
+	newClaim, err := newWorker.claimNextJob()
+	if err != nil || newClaim == nil || newClaim.LeaseID == nil {
+		t.Fatalf("replacement claim must include a lease generation: job=%+v err=%v", newClaim, err)
+	}
+	if *newClaim.LeaseID == *staleSnapshot.LeaseID {
+		t.Fatal("reclaim reused the previous lease generation")
+	}
+
+	err = oldWorker.withTenantTransaction(staleSnapshot, func(*gorm.DB) error {
+		t.Fatal("stale worker transaction callback must not execute")
+		return nil
+	})
+	if err == nil {
+		t.Fatal("stale worker with replaced lease generation was accepted")
+	}
 }
 
 func TestBulkWorkerRejectsInitiatorFromDifferentSchool(t *testing.T) {

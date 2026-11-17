@@ -314,7 +314,9 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                     'public.parent_profiles'::regclass,'public.academic_sessions'::regclass,
                     'public.school_classes'::regclass,'public.sections'::regclass,
                     'public.student_enrollments'::regclass,'public.guardian_relationships'::regclass)
-                   AND (0::oid=ANY(p.polroles) OR (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing')=ANY(p.polroles))
+                   AND (0::oid=ANY(p.polroles)
+                        OR (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing')=ANY(p.polroles)
+                        OR (SELECT oid FROM pg_roles WHERE rolname=session_user)=ANY(p.polroles))
                    AND p.polname NOT IN ('bulk_import_jobs_signed_worker_select','bulk_import_jobs_signed_worker_update',
                      'bulk_import_jobs_context_verifier_read','bulk_import_jobs_context_verifier_lock',
                      'bulk_worker_signed_select','bulk_worker_signed_insert','bulk_worker_user_role_guard')
@@ -335,32 +337,32 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                 SELECT 1 FROM expected AS e
                 JOIN pg_class AS c ON c.oid=to_regclass(format('public.%I',e.table_name))
                 JOIN pg_attribute AS a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
-                WHERE has_column_privilege('stonez_bulk_worker_processing',c.oid,a.attname,'SELECT')
+                WHERE has_column_privilege(session_user,c.oid,a.attname,'SELECT')
                           IS DISTINCT FROM (a.attname=ANY(e.select_columns))
-                   OR has_table_privilege('stonez_bulk_worker_processing',c.oid,'INSERT') IS DISTINCT FROM e.table_insert
-                   OR has_column_privilege('stonez_bulk_worker_processing',c.oid,a.attname,'INSERT')
+                   OR has_table_privilege(session_user,c.oid,'INSERT') IS DISTINCT FROM e.table_insert
+                   OR has_column_privilege(session_user,c.oid,a.attname,'INSERT')
                           IS DISTINCT FROM (e.table_insert OR a.attname=ANY(e.insert_columns))
-                   OR has_column_privilege('stonez_bulk_worker_processing',c.oid,a.attname,'UPDATE')
-                   OR has_column_privilege('stonez_bulk_worker_processing',c.oid,a.attname,'REFERENCES')
-                   OR has_table_privilege('stonez_bulk_worker_processing',c.oid,'UPDATE')
-                   OR has_table_privilege('stonez_bulk_worker_processing',c.oid,'DELETE')
-                   OR has_table_privilege('stonez_bulk_worker_processing',c.oid,'TRUNCATE')
-                   OR has_table_privilege('stonez_bulk_worker_processing',c.oid,'REFERENCES')
-                   OR has_table_privilege('stonez_bulk_worker_processing',c.oid,'TRIGGER')
+                   OR has_column_privilege(session_user,c.oid,a.attname,'UPDATE')
+                   OR has_column_privilege(session_user,c.oid,a.attname,'REFERENCES')
+                   OR has_table_privilege(session_user,c.oid,'UPDATE')
+                   OR has_table_privilege(session_user,c.oid,'DELETE')
+                   OR has_table_privilege(session_user,c.oid,'TRUNCATE')
+                   OR has_table_privilege(session_user,c.oid,'REFERENCES')
+                   OR has_table_privilege(session_user,c.oid,'TRIGGER')
             )
             AND NOT EXISTS (
                 SELECT 1 FROM pg_class AS c
                 JOIN pg_attribute AS a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
                 WHERE c.oid='public.bulk_import_jobs'::regclass
-                  AND has_column_privilege('stonez_bulk_worker_processing',c.oid,a.attname,'UPDATE')
+                  AND has_column_privilege(session_user,c.oid,a.attname,'UPDATE')
                     IS DISTINCT FROM (a.attname=ANY(ARRAY['status','total','valid','created','updated','skipped','failed','credentials_sent','credential_emails_failed','errors_json','claimed_at','worker_id','last_error']::text[]))
             )
-            AND has_table_privilege('stonez_bulk_worker_processing','public.bulk_import_jobs','SELECT')
-            AND NOT has_table_privilege('stonez_bulk_worker_processing','public.bulk_import_jobs','INSERT')
-            AND NOT has_table_privilege('stonez_bulk_worker_processing','public.bulk_import_jobs','DELETE')
-            AND NOT has_table_privilege('stonez_bulk_worker_processing','public.bulk_import_jobs','TRUNCATE')
-            AND NOT has_table_privilege('stonez_bulk_worker_processing','public.bulk_import_jobs','REFERENCES')
-            AND NOT has_table_privilege('stonez_bulk_worker_processing','public.bulk_import_jobs','TRIGGER')
+            AND has_table_privilege(session_user,'public.bulk_import_jobs','SELECT')
+            AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','INSERT')
+            AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','DELETE')
+            AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','TRUNCATE')
+            AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','REFERENCES')
+            AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','TRIGGER')
             AS worker_privileges_exact
     `
     if err := db.Raw(query).Scan(&ready).Error; err != nil {

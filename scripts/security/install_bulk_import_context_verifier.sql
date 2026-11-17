@@ -182,6 +182,10 @@ DECLARE
     v_jti uuid;
     v_queue public.bulk_import_jobs%ROWTYPE;
 BEGIN
+    IF p_token IS NULL OR length(p_token) > 4096 OR p_token ~ '[[:space:]]' THEN
+        RAISE EXCEPTION 'invalid compact JWS token length or whitespace' USING ERRCODE = '22023';
+    END IF;
+
     IF NOT pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE')
        OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = session_user AND rolcanlogin AND rolinherit
                       AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcreaterole AND NOT rolcreatedb)

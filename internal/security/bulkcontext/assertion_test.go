@@ -37,7 +37,7 @@ func testSigner(t *testing.T) (*Signer, testKeys, Binding) {
 	signer.now = func() time.Time { return time.Unix(1_800_000_000, 0).UTC() }
 	binding := Binding{
 		JobID: uuid.New(), SchoolID: uuid.New(), InitiatedBy: uuid.New(),
-		WorkerID: uuid.New(), BackendPID: 1234, TransactionID: 987654321, LeaseGeneration: 7,
+		WorkerID: uuid.New(), BackendPID: 1234, TransactionID: "987654321", LeaseGeneration: 7,
 	}
 	return signer, keys, binding
 }

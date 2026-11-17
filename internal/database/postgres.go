@@ -216,7 +216,9 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                        SELECT 1 FROM pg_auth_members AS membership
                         WHERE membership.roleid = worker_group.oid
                           AND membership.member = (SELECT oid FROM pg_roles WHERE rolname=session_user)
+                          AND NOT membership.admin_option
                    )
+                   AND NOT pg_has_role(session_user, 'stonez_bulk_worker_processing', 'SET')
                    AND NOT EXISTS (
                        SELECT 1 FROM pg_auth_members AS membership
                         WHERE membership.roleid = worker_group.oid

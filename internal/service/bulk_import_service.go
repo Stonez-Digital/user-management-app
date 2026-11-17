@@ -117,6 +117,12 @@ func(s *BulkImportService)processRow(j models.BulkImportJob,row BulkRow)(bool,bo
  if j.Kind=="parents"{return s.processParent(j,name,email,row)}
  return s.processTeacher(j,name,email,row)
 }
+func(s *BulkImportService)recordCreatedBulkImportRow(tx *gorm.DB,j models.BulkImportJob)error{
+ result:=tx.Model(&models.BulkImportJob{}).Where("id=? AND school_id=? AND initiated_by=?",j.ID,j.SchoolID,j.InitiatedBy).UpdateColumn("created",gorm.Expr("created + 1"))
+ if result.Error!=nil{return result.Error}
+ if result.RowsAffected!=1{return errors.New("bulk import job progress row is no longer available")}
+ return nil
+}
 func(s *BulkImportService)createUser(tx *gorm.DB,schoolID uuid.UUID,name,email,role string)(models.User,string,bool,error){
  if email==""{return models.User{},"",false,errors.New("email is required for account setup")}
  var u models.User
@@ -150,6 +156,8 @@ func(s *BulkImportService)processStudent(j models.BulkImportJob,name,email strin
   if v:=row["gender"];v!=""{st.Gender=v}
   if e=tx.Create(&st).Error;e!=nil{return e}
   if e=s.maybeEnroll(tx,j.SchoolID,st.ID,row);e!=nil{return e}
+  if created { if e=s.recordCreatedBulkImportRow(tx,j);e!=nil{return e} }
+  if created { if e:=s.recordCreatedBulkImportRow(tx,j);e!=nil{return e} }
   if created&&j.SendCredentials{return s.enqueueAccountSetupNotification(tx,u.ID,u.Email,name,role)}
   return nil
  })
@@ -170,6 +178,7 @@ func(s *BulkImportService)processTeacher(j models.BulkImportJob,name,email strin
   if e!=nil{return e}
   p=models.TeacherProfile{SchoolID:j.SchoolID,UserID:u.ID,StaffID:staff,Phone:row["phone"],Gender:row["gender"],Department:row["department"],Designation:row["designation"],Subjects:row["subjects"],Classes:row["classes"],Status:row["status"]}
   if e=tx.Create(&p).Error;e!=nil{return e}
+  if created { if e=s.recordCreatedBulkImportRow(tx,j);e!=nil{return e} }
   if created&&j.SendCredentials{return s.enqueueAccountSetupNotification(tx,u.ID,u.Email,name,role)}
   return nil
  })

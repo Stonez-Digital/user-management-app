@@ -149,12 +149,20 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimGroupRole, apiRuntimeRole,
 	if err != nil {
 		return fmt.Errorf("inspect bulk import claim role: %w", err)
 	}
-	if status.SessionRole == "" || !status.IsLogin || status.IsSuperuser || status.BypassRLS ||
+	return validateBulkImportClaimRoleStatus(&status)
+}
+
+func validateBulkImportClaimRoleStatus(status *BulkImportClaimRoleStatus) error {
+	if status == nil || status.SessionRole == "" || !status.IsLogin || status.IsSuperuser || status.BypassRLS ||
 		status.CanCreateDB || status.CanCreateRole ||
 		!status.IsClaimGroupMember || !status.IsClaimGroupEffective || status.CanSetClaimGroupRole ||
 		status.IsAPIRuntimeMember || status.IsQueueOwnerMember || status.IsServiceRoleMember ||
 		status.SessionCanAssumePrivilegedRole || !status.CanExecuteClaim || !status.CurrentRoleMatchesSession {
-		return fmt.Errorf("bulk import claim connection role %q does not satisfy the dedicated claim-only login boundary", status.SessionRole)
+		role := ""
+		if status != nil {
+			role = status.SessionRole
+		}
+		return fmt.Errorf("bulk import claim connection role %q does not satisfy the dedicated claim-only login boundary", role)
 	}
 	return nil
 }

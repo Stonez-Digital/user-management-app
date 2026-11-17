@@ -66,8 +66,14 @@ func (ac *AuthController) requestTenantDB(c *gin.Context) (*gorm.DB, bool) {
 
 type AuthController struct {
 	DB *gorm.DB
+	internalSchema string
 	Mailer PasswordResetMailer
 	LogoStorage *service.SchoolLogoStorage
+}
+
+func (ac *AuthController) authInternalSchema() string {
+	if strings.TrimSpace(ac.internalSchema) != "" { return ac.internalSchema }
+	return "stonez_internal"
 }
 
 func NewAuthController(db *gorm.DB) *AuthController {
@@ -126,7 +132,7 @@ func (ac *AuthController) ForgotPassword(c *gin.Context) {
 			Email string
 			SchoolID *uuid.UUID `gorm:"column:school_id"`
 		}
-		if err := ac.DB.Raw("SELECT * FROM stonez_internal.auth_password_reset_lookup(?)", email).Scan(&rows).Error; err != nil {
+		if err := ac.DB.Raw("SELECT * FROM " + ac.authInternalSchema() + ".auth_password_reset_lookup(?)", email).Scan(&rows).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process password reset"})
 			return
 		}
@@ -147,7 +153,7 @@ func (ac *AuthController) ForgotPassword(c *gin.Context) {
 	}
 	reset := models.PasswordResetToken{ID: uuid.New(), UserID: user.ID, TokenHash: auth.HashResetToken(token), ExpiresAt: time.Now().Add(15 * time.Minute)}
 	if ac.DB.Dialector.Name() == "postgres" {
-		err = ac.DB.Exec("SELECT stonez_internal.auth_create_password_reset(?, ?, ?, ?)", reset.ID, reset.UserID, reset.TokenHash, reset.ExpiresAt).Error
+		err = ac.DB.Exec("SELECT " + ac.authInternalSchema() + ".auth_create_password_reset(?, ?, ?, ?)", reset.ID, reset.UserID, reset.TokenHash, reset.ExpiresAt).Error
 	} else {
 		err = ac.DB.Create(&reset).Error
 	}
@@ -162,7 +168,7 @@ func (ac *AuthController) ForgotPassword(c *gin.Context) {
 		var disableErr error
 		if ac.DB.Dialector.Name() == "postgres" {
 			var disabled bool
-			disableErr = ac.DB.Raw("SELECT stonez_internal.auth_disable_password_reset(?)", reset.ID).Scan(&disabled).Error
+			disableErr = ac.DB.Raw("SELECT " + ac.authInternalSchema() + ".auth_disable_password_reset(?)", reset.ID).Scan(&disabled).Error
 			if disableErr == nil && !disabled {
 				disableErr = errors.New("reset token was not invalidated")
 			}
@@ -204,7 +210,7 @@ func (ac *AuthController) ResetPassword(c *gin.Context) {
 				UserID uuid.UUID `gorm:"column:user_id"`
 				SchoolID *uuid.UUID `gorm:"column:school_id"`
 			}
-			if err := tx.Raw("SELECT * FROM stonez_internal.auth_consume_password_reset(?, ?)", auth.HashResetToken(req.Token), passwordHash).Scan(&rows).Error; err != nil {
+			if err := tx.Raw("SELECT * FROM " + ac.authInternalSchema() + ".auth_consume_password_reset(?, ?)", auth.HashResetToken(req.Token), passwordHash).Scan(&rows).Error; err != nil {
 				return err
 			}
 			if len(rows) != 1 || rows[0].UserID == uuid.Nil {
@@ -451,7 +457,7 @@ func (ac *AuthController) Login(c *gin.Context) {
 	var schoolStatus, schoolCode, schoolSlug string
 	if ac.DB.Dialector.Name() == "postgres" {
 		var lookup authLoginLookup
-		err := ac.DB.Raw("SELECT * FROM stonez_internal.auth_login_lookup(?)", strings.ToLower(strings.TrimSpace(req.Email))).Scan(&lookup).Error
+		err := ac.DB.Raw("SELECT * FROM " + ac.authInternalSchema() + ".auth_login_lookup(?)", strings.ToLower(strings.TrimSpace(req.Email))).Scan(&lookup).Error
 		if err != nil || lookup.UserID == uuid.Nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 			return
@@ -501,7 +507,7 @@ func (ac *AuthController) Login(c *gin.Context) {
 		expiry := time.Now().Add(auth.RefreshTokenTTL)
 		refreshHash := auth.HashRefreshToken(refreshToken)
 		if tx.Dialector.Name() == "postgres" {
-			if err := tx.Exec("SELECT stonez_internal.auth_create_session(?, ?, ?, ?, ?, ?, ?, ?)",
+			if err := tx.Exec("SELECT " + ac.authInternalSchema() + ".auth_create_session(?, ?, ?, ?, ?, ?, ?, ?)",
 				uuid.New(), user.ID, familyID, refreshHash, expiry, sessionID, c.Request.UserAgent(), c.ClientIP()).Error; err != nil {
 				return err
 			}
@@ -522,9 +528,9 @@ func (ac *AuthController) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"access_token": accessToken, "refresh_token": refreshToken})
 }
 
-func revokeRefreshFamily(db *gorm.DB, familyID uuid.UUID) error {
+func revokeRefreshFamily(db *gorm.DB, familyID uuid.UUID, internalSchema string) error {
 	if db.Dialector.Name() == "postgres" {
-		return db.Exec("SELECT stonez_internal.auth_revoke_refresh_family(?)", familyID).Error
+		return db.Exec("SELECT " + internalSchema + ".auth_revoke_refresh_family(?)", familyID).Error
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&models.RefreshToken{}).Where("family_id = ?", familyID).Updates(map[string]interface{}{"revoked": true}).Error; err != nil {
@@ -534,9 +540,9 @@ func revokeRefreshFamily(db *gorm.DB, familyID uuid.UUID) error {
 	})
 }
 
-func revokeRefreshFamilyAndAudit(db *gorm.DB, c *gin.Context, userID, familyID uuid.UUID, schoolID *uuid.UUID) error {
+func revokeRefreshFamilyAndAudit(db *gorm.DB, c *gin.Context, userID, familyID uuid.UUID, schoolID *uuid.UUID, internalSchema string) error {
 	return db.Transaction(func(tx *gorm.DB) error {
-		if err := revokeRefreshFamily(tx, familyID); err != nil {
+		if err := revokeRefreshFamily(tx, familyID, internalSchema); err != nil {
 			return err
 		}
 		return audit.RecordWithSchoolID(tx, c, &userID, schoolID, "security.refresh_token_reuse", "user", &userID,
@@ -558,7 +564,7 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 	var schoolStatus string
 	if ac.DB.Dialector.Name() == "postgres" {
 		var lookup authRefreshLookup
-		if err := ac.DB.Raw("SELECT * FROM stonez_internal.auth_refresh_lookup(?)", tokenHash).Scan(&lookup).Error; err != nil || lookup.TokenID == uuid.Nil {
+		if err := ac.DB.Raw("SELECT * FROM " + ac.authInternalSchema() + ".auth_refresh_lookup(?)", tokenHash).Scan(&lookup).Error; err != nil || lookup.TokenID == uuid.Nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
 			return
 		}
@@ -577,7 +583,7 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 		if user.ID != uuid.Nil && user.SchoolID != nil {
 			c.Set(middleware.SchoolIDKey, user.SchoolID.String())
 		}
-		if err := revokeRefreshFamilyAndAudit(ac.DB, c, stored.UserID, stored.FamilyID, user.SchoolID); err != nil {
+		if err := revokeRefreshFamilyAndAudit(ac.DB, c, stored.UserID, stored.FamilyID, user.SchoolID, ac.authInternalSchema()); err != nil {
 			log.Printf("failed to revoke/audit reused refresh-token family %s: %v", stored.FamilyID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revoke refresh-token family"})
 			return
@@ -631,7 +637,7 @@ func (ac *AuthController) Refresh(c *gin.Context) {
 		newHash := auth.HashRefreshToken(newRefreshToken)
 		if tx.Dialector.Name() == "postgres" {
 			var rotated bool
-			if err := tx.Raw("SELECT stonez_internal.auth_rotate_refresh(?, ?, ?, ?, ?, ?, ?, ?)",
+			if err := tx.Raw("SELECT " + ac.authInternalSchema() + ".auth_rotate_refresh(?, ?, ?, ?, ?, ?, ?, ?)",
 				stored.ID, tokenHash, uuid.New(), user.ID, familyID, newHash, expiry, session.ID).Scan(&rotated).Error; err != nil {
 				return err
 			}
@@ -693,7 +699,7 @@ func (ac *AuthController) ChangePassword(c *gin.Context) {
 			PasswordHash string `gorm:"column:password_hash"`
 			SchoolID *uuid.UUID `gorm:"column:school_id"`
 		}
-		if err := ac.DB.Raw("SELECT * FROM stonez_internal.auth_password_change_lookup(?)", userID).Scan(&rows).Error; err != nil || len(rows) != 1 {
+		if err := ac.DB.Raw("SELECT * FROM " + ac.authInternalSchema() + ".auth_password_change_lookup(?)", userID).Scan(&rows).Error; err != nil || len(rows) != 1 {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "current password is incorrect"})
 			return
 		}
@@ -714,7 +720,7 @@ func (ac *AuthController) ChangePassword(c *gin.Context) {
 	err = ac.DB.Transaction(func(tx *gorm.DB) error {
 		if tx.Dialector.Name() == "postgres" {
 			var changed bool
-			if err := tx.Raw("SELECT stonez_internal.auth_change_password(?, ?, ?)", user.ID, user.PasswordHash, hash).Scan(&changed).Error; err != nil {
+			if err := tx.Raw("SELECT " + ac.authInternalSchema() + ".auth_change_password(?, ?, ?)", user.ID, user.PasswordHash, hash).Scan(&changed).Error; err != nil {
 				return err
 			}
 			if !changed {
@@ -770,7 +776,7 @@ func (ac *AuthController) RevokeSession(c *gin.Context) {
 	err = ac.DB.Transaction(func(tx *gorm.DB) error {
 		if tx.Dialector.Name() == "postgres" {
 			var revoked bool
-			if err := tx.Raw("SELECT stonez_internal.auth_revoke_session(?, ?)", sessionID, userID).Scan(&revoked).Error; err != nil {
+			if err := tx.Raw("SELECT " + ac.authInternalSchema() + ".auth_revoke_session(?, ?)", sessionID, userID).Scan(&revoked).Error; err != nil {
 				return err
 			}
 			if !revoked {
@@ -815,7 +821,7 @@ func (ac *AuthController) Logout(c *gin.Context) {
 				UserID uuid.UUID `gorm:"column:user_id"`
 				SchoolID *uuid.UUID `gorm:"column:school_id"`
 			}
-			if err := tx.Raw("SELECT user_id, school_id FROM stonez_internal.auth_logout(?)", tokenHash).Scan(&rows).Error; err != nil {
+			if err := tx.Raw("SELECT user_id, school_id FROM " + ac.authInternalSchema() + ".auth_logout(?)", tokenHash).Scan(&rows).Error; err != nil {
 				return err
 			}
 			if len(rows) != 1 || rows[0].UserID == uuid.Nil {
@@ -865,7 +871,7 @@ func (ac *AuthController) LogoutAll(c *gin.Context) {
 	}
 	err = ac.DB.Transaction(func(tx *gorm.DB) error {
 		if tx.Dialector.Name() == "postgres" {
-			if err := tx.Exec("SELECT stonez_internal.auth_logout_all(?)", userID).Error; err != nil {
+			if err := tx.Exec("SELECT " + ac.authInternalSchema() + ".auth_logout_all(?)", userID).Error; err != nil {
 				return err
 			}
 		} else {

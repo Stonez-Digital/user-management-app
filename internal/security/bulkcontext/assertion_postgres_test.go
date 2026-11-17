@@ -105,7 +105,7 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read verifier script: %v", err)
 	}
-	script := strings.TrimPrefix(string(scriptBytes), "\\set ON_ERROR_STOP on\n")
+	script := strings.ReplaceAll(string(scriptBytes), "\\set ON_ERROR_STOP on\n", "")
 	script = strings.ReplaceAll(script, "stonez_bulk_context_owner", ownerRole)
 	script = strings.ReplaceAll(script, "stonez_bulk_process_group", processRole)
 	script = strings.ReplaceAll(script, "stonez_internal", privateSchema)

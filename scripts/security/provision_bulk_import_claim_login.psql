@@ -1,0 +1,89 @@
+\set ON_ERROR_STOP on
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_claim_login') THEN
+        RAISE EXCEPTION 'stonez_bulk_claim_login already exists; refusing to alter an existing login';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_claim_group') THEN
+        RAISE EXCEPTION 'stonez_bulk_claim_group is missing; provision and verify queue roles first';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner') THEN
+        RAISE EXCEPTION 'stonez_bulk_queue_owner is missing; install the queue function boundary first';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_api_runtime') THEN
+        RAISE EXCEPTION 'stonez_api_runtime is missing; install the API runtime role first';
+    END IF;
+END
+$$;
+
+CREATE ROLE stonez_bulk_claim_login
+    LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS
+    CONNECTION LIMIT 5;
+
+-- psql hides both password prompts and sends only the encrypted verifier.
+\password stonez_bulk_claim_login
+
+-- The login inherits only the claim capability. It cannot SET ROLE into the
+-- group, administer it, or inherit the API/queue-owner/service roles.
+GRANT stonez_bulk_claim_group TO stonez_bulk_claim_login
+    WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_roles
+         WHERE rolname = 'stonez_bulk_claim_login'
+           AND rolcanlogin
+           AND NOT rolsuper
+           AND NOT rolcreatedb
+           AND NOT rolcreaterole
+           AND NOT rolbypassrls
+           AND rolinherit
+    ) THEN
+        RAISE EXCEPTION 'stonez_bulk_claim_login role attributes are not restricted';
+    END IF;
+    IF NOT pg_has_role('stonez_bulk_claim_login', 'stonez_bulk_claim_group', 'USAGE')
+       OR pg_has_role('stonez_bulk_claim_login', 'stonez_bulk_claim_group', 'SET') THEN
+        RAISE EXCEPTION 'claim login must inherit but must not SET ROLE to the claim group';
+    END IF;
+    IF pg_has_role('stonez_bulk_claim_login', 'stonez_api_runtime', 'MEMBER')
+       OR pg_has_role('stonez_bulk_claim_login', 'stonez_bulk_queue_owner', 'MEMBER') THEN
+        RAISE EXCEPTION 'claim login must not belong to API runtime or queue owner';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM pg_roles AS privileged
+         WHERE (privileged.rolsuper OR privileged.rolbypassrls)
+           AND privileged.rolname <> 'stonez_bulk_claim_group'
+           AND pg_has_role('stonez_bulk_claim_login', privileged.oid, 'MEMBER')
+    ) THEN
+        RAISE EXCEPTION 'claim login belongs to another privileged role';
+    END IF;
+    IF NOT has_function_privilege('stonez_bulk_claim_login', 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'claim login cannot execute the restricted queue function';
+    END IF;
+    IF has_table_privilege('stonez_bulk_claim_login', 'public.bulk_import_jobs', 'SELECT')
+       OR has_table_privilege('stonez_bulk_claim_login', 'public.bulk_import_jobs', 'INSERT')
+       OR has_table_privilege('stonez_bulk_claim_login', 'public.bulk_import_jobs', 'UPDATE')
+       OR has_table_privilege('stonez_bulk_claim_login', 'public.bulk_import_jobs', 'DELETE')
+       OR has_any_column_privilege('stonez_bulk_claim_login', 'public.bulk_import_jobs', 'SELECT')
+       OR has_any_column_privilege('stonez_bulk_claim_login', 'public.bulk_import_jobs', 'INSERT')
+       OR has_any_column_privilege('stonez_bulk_claim_login', 'public.bulk_import_jobs', 'UPDATE') THEN
+        RAISE EXCEPTION 'claim login must not have direct queue table privileges';
+    END IF;
+END
+$$;
+
+SELECT
+    rolname,
+    rolcanlogin,
+    rolsuper,
+    rolcreatedb,
+    rolcreaterole,
+    rolbypassrls,
+    rolinherit,
+    pg_has_role('stonez_bulk_claim_login', 'stonez_bulk_claim_group', 'USAGE') AS inherits_claim_group,
+    pg_has_role('stonez_bulk_claim_login', 'stonez_bulk_claim_group', 'SET') AS can_set_claim_group,
+    pg_has_role('stonez_bulk_claim_login', 'stonez_api_runtime', 'MEMBER') AS is_api_runtime_member,
+    pg_has_role('stonez_bulk_claim_login', 'stonez_bulk_queue_owner', 'MEMBER') AS is_queue_owner_member
+FROM pg_roles
+WHERE rolname = 'stonez_bulk_claim_login';

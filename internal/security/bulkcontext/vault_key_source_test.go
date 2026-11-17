@@ -29,8 +29,7 @@ func TestVaultKVKeySourceLoadsActiveAndRetiringKeys(t *testing.T) {
 	defer server.Close()
 
 	tokenFile := filepath.Join(t.TempDir(), "vault-token")
-	if err := os.WriteFile(tokenFile, []byte("test-vault-agent-token
-"), 0600); err != nil {
+	if err := os.WriteFile(tokenFile, []byte("test-vault-agent-token"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	source, err := NewVaultKVKeySource(server.URL, tokenFile, "secret", "stonez/bulk-import-context", server.Client(), time.Minute)

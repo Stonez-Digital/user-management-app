@@ -39,9 +39,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes postgresql-client
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
       - name: Run disposable PostgreSQL 17 verifier tests
         env:
           BULK_CONTEXT_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/bulk_context_test?sslmode=disable
           BULK_CONTEXT_TEST_WORKER_URL: postgres://stonez_bulk_worker_processing_test:bulk_context_worker_ci_password@localhost:5432/bulk_context_test?sslmode=disable
           BULK_CONTEXT_TEST_DATABASE: bulk_context_test
-        run: bash scripts/security/test_bulk_import_context_verifier.sh
+        run: |
+          bash scripts/security/test_bulk_import_context_verifier.sh
+          go test ./internal/database -run '^TestBulkImportSignedContextReadinessAndProcessingRole
+ -count=1

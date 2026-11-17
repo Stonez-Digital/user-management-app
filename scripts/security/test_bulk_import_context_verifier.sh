@@ -162,4 +162,49 @@ sleep 0.3
 expect_rejected "$CONCURRENT" "concurrent replay after row-lock serialization"
 wait "$first_pid"
 
+echo "== Verify private key custody and GUC-independent access =="
+if psql "$worker_url" -X -v ON_ERROR_STOP=1 -c "SELECT key_bytes FROM stonez_context_private.verification_keys" >/dev/null 2>&1; then
+  echo "Worker unexpectedly read verifier key material" >&2
+  exit 1
+fi
+if psql "$worker_url" -X -v ON_ERROR_STOP=1 -c "SELECT * FROM stonez_context_private.verified_contexts" >/dev/null 2>&1; then
+  echo "Worker unexpectedly read verified context rows" >&2
+  exit 1
+fi
+no_context_rows="$(psql "$worker_url" -X -A -t -v ON_ERROR_STOP=1 -c "BEGIN; SELECT set_config('app.current_school_id','$SCHOOL_ID',true); SELECT count(*) FROM public.students; COMMIT;" | tail -n 1)"
+if [[ "$no_context_rows" != "0" ]]; then
+  echo "A raw tenant GUC unexpectedly granted worker row access: $no_context_rows" >&2
+  exit 1
+fi
+
+echo "== Verify key overlap, retirement, emergency revocation, and audit trail =="
+KEY2_HEX="$(printf 'cd%.0s' {1..32})"
+psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'
+SELECT stonez_context_private.register_verification_key(
+  'ci-key-2', decode(repeat('cd',32),'hex'), clock_timestamp() - interval '5 minutes', NULL
+);
+SQL
+KEY2_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-2","typ":"JWT"}' "$(payload '19191919-1919-4919-8919-191919191919' "$NOW" "$((NOW+30))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY2_HEX")"
+psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$KEY2_TOKEN" <<'SQL' >/dev/null
+BEGIN;
+SELECT stonez_context_private.verify_bulk_import_context(:'token');
+COMMIT;
+SQL
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "SELECT stonez_context_private.retire_verification_key('ci-key-1', clock_timestamp() - interval '1 second')"
+OLD_KEY_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '20202020-2020-4020-8020-202020202020' "$NOW" "$((NOW+30))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+expect_rejected "$OLD_KEY_TOKEN" "retired verification key"
+KEY2_AFTER_RETIRE="$(make_token '{"alg":"HS256","kid":"ci-key-2","typ":"JWT"}' "$(payload '21212121-2121-4121-8121-212121212121' "$NOW" "$((NOW+30))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY2_HEX")"
+psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$KEY2_AFTER_RETIRE" <<'SQL' >/dev/null
+BEGIN;
+SELECT stonez_context_private.verify_bulk_import_context(:'token');
+COMMIT;
+SQL
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "SELECT stonez_context_private.revoke_verification_key('ci-key-2')"
+expect_rejected "$KEY2_AFTER_RETIRE" "emergency-revoked verification key"
+audit_events="$(psql "$runner_url" -X -A -t -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM stonez_context_private.key_management_events")"
+if [[ "$audit_events" != "4" ]]; then
+  echo "Expected four key-management audit events, got '$audit_events'" >&2
+  exit 1
+fi
+
 echo "PostgreSQL signed-context verifier adversarial tests passed."

@@ -75,6 +75,22 @@ A transaction must establish context before touching tenant tables. Missing, inv
 
 The verifier must use a row lock that prevents lease replacement until the protected transaction ends. The implementation must explicitly test lock ordering and avoid deadlocks with worker progress updates and claim/reclaim operations.
 
+## User-role insertion ceiling
+
+The worker's `users` INSERT privilege is column-scoped to the fields emitted
+by the bulk-import model. A separate restrictive RLS policy permits only the
+`student`, `teacher`, and `parent` roles. Because the policy is restrictive,
+it is ANDed with permissive tenant policies and remains an independent role
+ceiling even if the tenant-scoping INSERT policy is later weakened.
+
+The immutable `stonez_context_private.bulk_worker_user_role_allowed(text)`
+predicate is checked by the startup readiness gate, including its function
+body and the deparsed restrictive-policy expression. Readiness also rejects
+table-level INSERT on `public.users` and requires the approved column-level
+INSERT grants. PostgreSQL 17 adversarial tests prove that student insertion
+works, privileged-role insertion fails, and readiness rejects a weakened
+role-policy expression.
+
 ## Processing-role separation
 
 The worker's processing connection must use a dedicated non-privileged login/group role, distinct from the normal API runtime login and from the queue-claim login. The existing worker entrypoint already accepts separate processing and claim database URLs; the processing URL must be provisioned for this worker-only role before verifier-backed RLS is enabled.

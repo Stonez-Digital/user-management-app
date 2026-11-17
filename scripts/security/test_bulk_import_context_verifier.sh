@@ -129,16 +129,16 @@ BEGIN
      OR has_table_privilege(v_processing,v_table,'DELETE') THEN
     RAISE EXCEPTION 'processing group has direct outbox table privileges';
   END IF;
-  IF NOT has_function_privilege(v_processing,'stonez_context_private.enqueue_account_setup_notice(uuid)','EXECUTE')
-     OR NOT has_function_privilege(v_processing,'stonez_context_private.claim_account_setup_notice()','EXECUTE')
-     OR NOT has_function_privilege(v_processing,'stonez_context_private.complete_account_setup_notice(uuid,uuid,text)','EXECUTE')
+  IF NOT has_function_privilege(v_processing,'stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)','EXECUTE')
+     OR NOT has_function_privilege(v_processing,'stonez_context_private.claim_account_setup_notification()','EXECUTE')
+     OR NOT has_function_privilege(v_processing,'stonez_context_private.complete_account_setup_notification(uuid,uuid,text)','EXECUTE')
      OR NOT has_function_privilege(v_processing,'stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)','EXECUTE') THEN
     RAISE EXCEPTION 'processing group is missing a scoped outbox function grant';
   END IF;
   IF EXISTS (
       SELECT 1 FROM pg_proc AS procedure
       CROSS JOIN LATERAL aclexplode(COALESCE(procedure.proacl,acldefault('f',procedure.proowner))) AS privilege
-      WHERE procedure.oid='stonez_context_private.enqueue_account_setup_notice(uuid)'::regprocedure
+      WHERE procedure.oid='stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)'::regprocedure
         AND privilege.grantee=0 AND privilege.privilege_type='EXECUTE'
   ) THEN
     RAISE EXCEPTION 'PUBLIC can execute outbox enqueue';

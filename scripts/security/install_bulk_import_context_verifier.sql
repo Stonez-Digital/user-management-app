@@ -205,18 +205,24 @@ BEGIN
     v_nbf := (v_payload->>'nbf')::numeric;
     v_exp := (v_payload->>'exp')::numeric;
 
-    IF (v_payload->>'job_id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
-
-       OR (v_payload->>'school_id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
-
-       OR (v_payload->>'initiated_by') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
-
-       OR (v_payload->>'worker_id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
-
-       OR (v_payload->>'lease_id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
-
-       OR (v_payload->>'jti') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
- THEN
+    IF json_typeof(v_payload->'job_id') IS DISTINCT FROM 'string'
+       OR json_typeof(v_payload->'school_id') IS DISTINCT FROM 'string'
+       OR json_typeof(v_payload->'initiated_by') IS DISTINCT FROM 'string'
+       OR json_typeof(v_payload->'worker_id') IS DISTINCT FROM 'string'
+       OR json_typeof(v_payload->'lease_id') IS DISTINCT FROM 'string'
+       OR json_typeof(v_payload->'jti') IS DISTINCT FROM 'string'
+       OR length(v_payload->>'job_id') <> 36
+       OR (v_payload->>'job_id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+       OR length(v_payload->>'school_id') <> 36
+       OR (v_payload->>'school_id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+       OR length(v_payload->>'initiated_by') <> 36
+       OR (v_payload->>'initiated_by') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+       OR length(v_payload->>'worker_id') <> 36
+       OR (v_payload->>'worker_id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+       OR length(v_payload->>'lease_id') <> 36
+       OR (v_payload->>'lease_id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+       OR length(v_payload->>'jti') <> 36
+       OR (v_payload->>'jti') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' THEN
         RAISE EXCEPTION 'invalid canonical UUID assertion claim' USING ERRCODE = '22023';
     END IF;
     v_job := (v_payload->>'job_id')::uuid;

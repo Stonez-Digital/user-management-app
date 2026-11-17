@@ -36,12 +36,12 @@ func (s *BulkImportService) enqueueAccountSetupNotification(tx *gorm.DB, userID 
 		return errors.New("account-setup notification requires a user ID")
 	}
 	var eventID uuid.UUID
-	result := tx.Raw(
+	row := tx.Raw(
 		"SELECT stonez_context_private.enqueue_account_setup_notification(?, ?, ?, ?)",
 		userID, email, name, role,
-	).Scan(&eventID)
-	if result.Error != nil {
-		return fmt.Errorf("enqueue durable account-setup notification: %w", result.Error)
+	).Row()
+	if err := row.Scan(&eventID); err != nil {
+		return fmt.Errorf("enqueue durable account-setup notification: %w", err)
 	}
 	if eventID == uuid.Nil {
 		return errors.New("database did not return an account-setup notification ID")

@@ -49,6 +49,7 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
         WorkerGroup bool
         CanSetWorkerGroup bool
         APIRuntime bool
+        ClaimLogin bool
         QueueOwner bool
         ContextOwner bool
         KeyAdmin bool
@@ -67,6 +68,7 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
                pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE') AS worker_group,
                pg_has_role(session_user, 'stonez_bulk_worker_processing', 'SET') AS can_set_worker_group,
                pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER') AS api_runtime,
+               pg_has_role(session_user, 'stonez_bulk_worker', 'MEMBER') AS claim_login,
                pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER') AS queue_owner,
                pg_has_role(session_user, 'stonez_bulk_context_owner', 'MEMBER') AS context_owner,
                pg_has_role(session_user, 'stonez_bulk_context_key_admin', 'MEMBER') AS key_admin,
@@ -95,7 +97,7 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
     if role.SessionRole == "" || role.CurrentRole != role.SessionRole ||
        !role.CanLogin || role.IsSuperuser || role.CanCreateDB || role.CanCreateRole ||
        role.BypassRLS || !role.Inherits || !role.WorkerGroup ||
-       role.APIRuntime || role.QueueOwner || role.ContextOwner || role.KeyAdmin ||
+       role.APIRuntime || role.ClaimLogin || role.QueueOwner || role.ContextOwner || role.KeyAdmin ||
        role.UnexpectedMembership || role.OwnsWorkerTables {
         return fmt.Errorf("bulk import processing login is not a dedicated restricted signed-worker role")
     }

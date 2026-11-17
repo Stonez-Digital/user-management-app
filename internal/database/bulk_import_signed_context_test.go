@@ -47,12 +47,16 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 		Permissive bool
 		UsingExpr string
 		CheckExpr string
+		UsingNormalized string
+		CheckNormalized string
 	}
 	if err := workerDB.Raw(`SELECT relation.relname AS table_name, policy.polname AS name,
 		policy.polroles::text AS roles, policy.polcmd::text AS command,
 		policy.polpermissive AS permissive,
 		COALESCE(pg_get_expr(policy.polqual,policy.polrelid),'') AS using_expr,
-		COALESCE(pg_get_expr(policy.polwithcheck,policy.polrelid),'') AS check_expr
+		COALESCE(pg_get_expr(policy.polwithcheck,policy.polrelid),'') AS check_expr,
+		regexp_replace(regexp_replace(COALESCE(pg_get_expr(policy.polqual,policy.polrelid),''),'::[a-zA-Z0-9_.]+','','g'),'[()[:space:]]','','g') AS using_normalized,
+		regexp_replace(regexp_replace(COALESCE(pg_get_expr(policy.polwithcheck,policy.polrelid),''),'::[a-zA-Z0-9_.]+','','g'),'[()[:space:]]','','g') AS check_normalized
 		FROM pg_policy AS policy JOIN pg_class AS relation ON relation.oid=policy.polrelid
 		WHERE relation.oid IN ('public.bulk_import_jobs'::regclass,'public.users'::regclass,
 			'public.students'::regclass,'public.teacher_profiles'::regclass,

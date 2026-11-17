@@ -185,7 +185,7 @@ wait "$lock_pid"
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "UPDATE public.bulk_import_jobs SET claimed_at=clock_timestamp() WHERE id='$JOB_ID'"
 
 LOCK_NOW="$(date +%s)"
-EXPIRING_ASSERTION="$(make_token '{\"alg\":\"HS256\",\"kid\":\"ci-key-1\",\"typ\":\"JWT\"}' "$(payload '15151515-1515-4515-8515-151515151515' "$LOCK_NOW" "$((LOCK_NOW+1))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+EXPIRING_ASSERTION="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '15151515-1515-4515-8515-151515151515' "$LOCK_NOW" "$((LOCK_NOW+1))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
 (psql "$runner_url" -X -v ON_ERROR_STOP=1 <<SQL
 BEGIN;
 SELECT id FROM public.bulk_import_jobs WHERE id='$JOB_ID' FOR UPDATE;

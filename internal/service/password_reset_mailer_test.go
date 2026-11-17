@@ -67,3 +67,57 @@ func TestSendPasswordResetDoesNotUseBlockedResendSMTPPorts(t *testing.T) {
 		t.Fatalf("expected actionable missing API key error, got %v", err)
 	}
 }
+
+func TestSendAccountSetupNoticeUsesStableIdempotencyKeyAndNoCredentials(t *testing.T) {
+	var gotKey string
+	var gotPayload map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotKey = r.Header.Get("Idempotency-Key")
+		if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
+			t.Errorf("decode account-setup payload: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"email_setup_123"}`))
+	}))
+	defer server.Close()
+
+	mailer := &CredentialMailer{
+		host: "smtp.example.test", from: "noreply@stonezdigital.com.ng",
+		loginURL: "https://app.stonezdigital.com.ng/login",
+		resendAPIKey: "re_test_key", resendAPIURL: server.URL,
+		httpClient: server.Client(),
+	}
+	if err := mailer.SendAccountSetupNotice("Imported Student", "student@example.test", "student", "event-123"); err != nil {
+		t.Fatal(err)
+	}
+	if gotKey != "stonez-account-setup-event-123" {
+		t.Fatalf("unexpected idempotency key: %q", gotKey)
+	}
+	body, _ := gotPayload["text"].(string)
+	for _, forbidden := range []string{"Temporary password:", "reset token", "one-time-token", "password_hash"} {
+		if strings.Contains(strings.ToLower(body), strings.ToLower(forbidden)) {
+			t.Fatalf("account-setup notice contains forbidden credential material %q", forbidden)
+		}
+	}
+	if !strings.Contains(body, "Forgot password") || !strings.Contains(body, "https://app.stonezdigital.com.ng/login") {
+		t.Fatal("account-setup notice does not direct the recipient to the existing password-reset flow")
+	}
+}
+
+func TestSendAccountSetupNoticePropagatesProviderFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("temporary provider outage"))
+	}))
+	defer server.Close()
+	mailer := &CredentialMailer{
+		host: "smtp.example.test", from: "noreply@stonezdigital.com.ng",
+		loginURL: "https://app.stonezdigital.com.ng/login",
+		resendAPIKey: "re_test_key", resendAPIURL: server.URL,
+		httpClient: server.Client(),
+	}
+	if err := mailer.SendAccountSetupNotice("Imported Student", "student@example.test", "student", "event-456"); err == nil {
+		t.Fatal("expected provider failure to be returned for durable retry")
+	}
+}

@@ -70,6 +70,24 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'processing login must have only the signed-worker group membership';
     END IF;
+    IF pg_has_role('stonez_bulk_worker_processing_login', 'stonez_bulk_worker_processing', 'SET')
+       OR NOT EXISTS (
+           SELECT 1 FROM pg_auth_members
+            WHERE member = (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing_login')
+              AND roleid = (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing')
+              AND NOT admin_option
+       )
+       OR EXISTS (
+           SELECT 1 FROM pg_auth_members
+            WHERE roleid = (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing')
+              AND member <> (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing_login')
+       )
+       OR EXISTS (
+           SELECT 1 FROM pg_auth_members
+            WHERE member = (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing')
+       ) THEN
+        RAISE EXCEPTION 'processing group membership must remain exclusive, non-delegating, and non-nested';
+    END IF;
 END
 $verify$;
 

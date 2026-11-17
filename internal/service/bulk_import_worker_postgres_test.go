@@ -196,7 +196,7 @@ $function$`, schema, schema, claimGroupRole, claimGroupRole, apiRole, ownerRole,
 }
 
 func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T) {
-	db, schema, ownerRole, apiRole, otherRole := openBulkWorkerPostgres(t)
+	db, claimDB, schema, ownerRole, apiRole, claimGroupRole, otherRole := openBulkWorkerPostgres(t)
 	schoolA, schoolB := uuid.New(), uuid.New()
 	actorA, actorB := uuid.New(), uuid.New()
 	jobA := models.BulkImportJob{
@@ -264,20 +264,26 @@ func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T)
 	})
 	if err == nil { t.Fatal("API role unexpectedly inserted a job without tenant context") }
 
-	// Global claim is the only cross-tenant queue operation and is available
-	// through the SECURITY DEFINER function even without tenant GUCs.
-	workerID := uuid.New()
-	var claimed models.BulkImportJob
+	// The API runtime may access tenant-scoped queue rows, but it cannot
+	// execute the global claim function.
 	err = db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("SET LOCAL ROLE " + apiRole).Error; err != nil { return err }
-		result := tx.Raw("SELECT * FROM stonez_internal.claim_next_bulk_import_job(?)", workerID).Scan(&claimed)
-		if result.Error != nil { return result.Error }
-		if result.RowsAffected != 1 { return fmt.Errorf("expected one claimed job, got %d", result.RowsAffected) }
-		return nil
+		var denied models.BulkImportJob
+		return tx.Raw("SELECT * FROM stonez_internal.claim_next_bulk_import_job(?)", uuid.New()).Scan(&denied).Error
 	})
-	if err != nil { t.Fatalf("restricted role could not execute queue claim function: %v", err) }
+	if err == nil { t.Fatal("API runtime unexpectedly executed the global claim function") }
+
+	// Only the separate claim login can execute the SECURITY DEFINER function.
+	workerID := uuid.New()
+	var claimed models.BulkImportJob
+	result := claimDB.Raw("SELECT * FROM stonez_internal.claim_next_bulk_import_job(?)", workerID).Scan(&claimed)
+	if result.Error != nil { t.Fatalf("claim-only login could not execute queue claim function: %v", result.Error) }
+	if result.RowsAffected != 1 { t.Fatalf("expected one claimed job, got %d", result.RowsAffected) }
 	if claimed.ID != jobA.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID || claimed.LeaseGeneration != 1 {
 		t.Fatalf("claim function returned unexpected job/worker: %+v", claimed)
+	}
+	if err := database.ValidateBulkImportClaimRoleFor(claimDB, claimGroupRole, apiRole, ownerRole, "stonez_internal.claim_next_bulk_import_job(uuid)"); err != nil {
+		t.Fatalf("claim login no longer satisfies its startup boundary: %v", err)
 	}
 
 	for _, statement := range []string{
@@ -315,7 +321,7 @@ func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T)
 }
 
 func TestBulkWorkerPostgresClaimFunctionReclaimsOnlyExpiredLeases(t *testing.T) {
-	db, _, _, _, _ := openBulkWorkerPostgres(t)
+	db, claimDB, _, _, _, _, _ := openBulkWorkerPostgres(t)
 	schoolID, actor := uuid.New(), uuid.New()
 	oldWorker, legacyWorker, activeWorker := uuid.New(), uuid.New(), uuid.New()
 	now := time.Now().UTC()
@@ -333,7 +339,7 @@ func TestBulkWorkerPostgresClaimFunctionReclaimsOnlyExpiredLeases(t *testing.T) 
 	for i := range jobs {
 		if err := db.Create(&jobs[i]).Error; err != nil { t.Fatalf("create lease fixture %d: %v", i, err) }
 	}
-	worker := NewBulkImportService(db, nil)
+	worker := NewBulkImportServiceWithClaimDB(db, claimDB, nil)
 	first, err := worker.claimNextJob()
 	if err != nil { t.Fatalf("claim expired lease: %v", err) }
 	if first == nil || first.ID != jobs[0].ID || first.Attempts != 2 || first.LeaseGeneration != 5 {
@@ -528,7 +534,7 @@ CREATE TABLE %s.bulk_import_jobs (
 }
 
 func TestBulkWorkerPostgresConcurrentClaimsSkipLockedJobs(t *testing.T) {
-	db, _, _, _, _ := openBulkWorkerPostgres(t)
+	db, claimDB, _, _, _, _, _ := openBulkWorkerPostgres(t)
 	schoolID, actor := uuid.New(), uuid.New()
 	first := models.BulkImportJob{
 		SchoolID: schoolID, InitiatedBy: actor, Kind: "students",
@@ -560,8 +566,8 @@ func TestBulkWorkerPostgresConcurrentClaimsSkipLockedJobs(t *testing.T) {
 		t.Fatalf("lock oldest queued job: %v", err)
 	}
 
-	workerA := NewBulkImportService(db, nil)
-	workerB := NewBulkImportService(db, nil)
+	workerA := NewBulkImportServiceWithClaimDB(db, claimDB, nil)
+	workerB := NewBulkImportServiceWithClaimDB(db, claimDB, nil)
 	type claimResult struct {
 		job *models.BulkImportJob
 		err error

@@ -53,6 +53,10 @@ BEGIN
                AND pg_has_role('stonez_api_runtime', privileged.oid, 'MEMBER')
        )
        OR EXISTS (
+            SELECT 1 FROM pg_auth_members
+             WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_claim_group')
+       )
+       OR EXISTS (
             SELECT 1 FROM pg_roles AS privileged
              WHERE (privileged.rolsuper OR privileged.rolbypassrls)
                AND privileged.rolname <> 'stonez_bulk_queue_owner'
@@ -193,6 +197,11 @@ BEGIN
            AND NOT pg_has_role(session_user, 'stonez_bulk_claim_group', 'SET')
            AND NOT pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER')
            AND NOT pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')
+           AND NOT EXISTS (
+                SELECT 1 FROM pg_auth_members AS membership
+                 WHERE membership.member = (SELECT oid FROM pg_roles WHERE rolname = session_user)
+                   AND membership.roleid <> (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_claim_group')
+           )
            AND NOT EXISTS (
                 SELECT 1 FROM pg_roles AS privileged
                  WHERE (privileged.rolsuper OR privileged.rolbypassrls)

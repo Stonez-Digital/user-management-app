@@ -112,16 +112,25 @@ DECLARE
   v_owner oid := (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_context_owner');
   v_processing oid := (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing');
   v_table oid := 'stonez_context_private.account_setup_outbox'::regclass;
+  v_functions oid[] := ARRAY[
+    'stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)'::regprocedure,
+    'stonez_context_private.claim_account_setup_notification()'::regprocedure,
+    'stonez_context_private.complete_account_setup_notification(uuid,uuid,text)'::regprocedure,
+    'stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)'::regprocedure,
+    'stonez_context_private.account_setup_notification_counts()'::regprocedure
+  ];
 BEGIN
-  IF (SELECT prosecdef FROM pg_proc WHERE oid='stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)'::regprocedure) IS DISTINCT FROM true
-     OR (SELECT prosecdef FROM pg_proc WHERE oid='stonez_context_private.claim_account_setup_notification()'::regprocedure) IS DISTINCT FROM true
-     OR (SELECT prosecdef FROM pg_proc WHERE oid='stonez_context_private.complete_account_setup_notification(uuid,uuid,text)'::regprocedure) IS DISTINCT FROM true
-     OR (SELECT prosecdef FROM pg_proc WHERE oid='stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)'::regprocedure) IS DISTINCT FROM true THEN
-    RAISE EXCEPTION 'outbox entry points must all be SECURITY DEFINER';
+  IF cardinality(v_functions) <> 5 OR EXISTS (
+      SELECT 1 FROM unnest(v_functions) AS function_id
+      JOIN pg_proc AS procedure ON procedure.oid=function_id
+      WHERE procedure.prosecdef IS DISTINCT FROM true
+         OR procedure.proowner IS DISTINCT FROM v_owner
+         OR NOT ('search_path=pg_catalog'=ANY(COALESCE(procedure.proconfig,ARRAY[]::text[])))
+  ) THEN
+    RAISE EXCEPTION 'all outbox entry points must be SECURITY DEFINER functions owned by the context owner with a fixed search_path';
   END IF;
-  IF (SELECT proowner FROM pg_proc WHERE oid='stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)'::regprocedure) <> v_owner
-     OR (SELECT relowner FROM pg_class WHERE oid=v_table) <> v_owner THEN
-    RAISE EXCEPTION 'outbox table and entry points must be owned by the dedicated context owner';
+  IF (SELECT relowner FROM pg_class WHERE oid=v_table) IS DISTINCT FROM v_owner THEN
+    RAISE EXCEPTION 'outbox table must be owned by the dedicated context owner';
   END IF;
   IF has_table_privilege(v_processing,v_table,'SELECT')
      OR has_table_privilege(v_processing,v_table,'INSERT')
@@ -132,16 +141,17 @@ BEGIN
   IF NOT has_function_privilege(v_processing,'stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)','EXECUTE')
      OR NOT has_function_privilege(v_processing,'stonez_context_private.claim_account_setup_notification()','EXECUTE')
      OR NOT has_function_privilege(v_processing,'stonez_context_private.complete_account_setup_notification(uuid,uuid,text)','EXECUTE')
-     OR NOT has_function_privilege(v_processing,'stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)','EXECUTE') THEN
+     OR NOT has_function_privilege(v_processing,'stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)','EXECUTE')
+     OR NOT has_function_privilege(v_processing,'stonez_context_private.account_setup_notification_counts()','EXECUTE') THEN
     RAISE EXCEPTION 'processing group is missing a scoped outbox function grant';
   END IF;
   IF EXISTS (
       SELECT 1 FROM pg_proc AS procedure
       CROSS JOIN LATERAL aclexplode(COALESCE(procedure.proacl,acldefault('f',procedure.proowner))) AS privilege
-      WHERE procedure.oid='stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)'::regprocedure
+      WHERE procedure.oid=ANY(v_functions)
         AND privilege.grantee=0 AND privilege.privilege_type='EXECUTE'
   ) THEN
-    RAISE EXCEPTION 'PUBLIC can execute outbox enqueue';
+    RAISE EXCEPTION 'PUBLIC can execute an outbox entry point';
   END IF;
 END
 $outbox_privileges$;
@@ -397,7 +407,7 @@ echo "PostgreSQL signed-context verifier adversarial tests passed."
 
 echo "== Private durable account-setup notification outbox =="
 # The installer is intentionally exercised only against this disposable PG17 fixture.
-psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_credential_outbox.sql
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_account_setup_outbox.sql
 OUTBOX_KEY_HEX="${BULK_CONTEXT_TEST_SIGNING_KEY_HEX:-$(printf 'ef%.0s' {1..32})}"
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "SELECT stonez_context_private.register_verification_key('ci-outbox-key', decode('$OUTBOX_KEY_HEX','hex'), clock_timestamp()-interval '5 minutes', NULL)"
 if psql "$worker_url" -X -v ON_ERROR_STOP=1 -c "SELECT * FROM stonez_context_private.account_setup_outbox" >/dev/null 2>&1; then

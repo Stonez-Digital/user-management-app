@@ -110,8 +110,10 @@ func (s *Signer) Sign(ctx context.Context, binding Binding, ttl time.Duration) (
 		return Assertion{}, fmt.Errorf("load active bulk import signing key: %w", err)
 	}
 	if err := validateKey(key); err != nil {
+		zeroSecret(key.Secret)
 		return Assertion{}, err
 	}
+	defer zeroSecret(key.Secret)
 
 	now := s.now().UTC().Truncate(time.Second)
 	claims := Claims{
@@ -181,8 +183,10 @@ func VerifySignature(ctx context.Context, keys VerificationKeySource, assertion 
 		return fmt.Errorf("load bulk import verification key: %w", err)
 	}
 	if err := validateKey(key); err != nil || key.ID != assertion.Claims.KeyID {
+		zeroSecret(key.Secret)
 		return ErrInvalidKey
 	}
+	defer zeroSecret(key.Secret)
 	payload, err := CanonicalPayload(assertion.Claims)
 	if err != nil {
 		return err

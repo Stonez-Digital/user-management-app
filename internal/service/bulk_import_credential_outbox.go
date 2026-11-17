@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/google/uuid"
@@ -99,6 +100,14 @@ func (s *BulkImportService) accountSetupNotificationCounts(job models.BulkImport
 	return counts, err
 }
 
+func accountSetupFailureCode(err error) string {
+	var networkError net.Error
+	if errors.As(err, &networkError) && networkError.Timeout() {
+		return "provider_timeout"
+	}
+	return "provider_rejected"
+}
+
 func accountSetupRetryDelay(attempt int) time.Duration {
 	if attempt < 1 {
 		attempt = 1
@@ -137,7 +146,7 @@ func (s *BulkImportService) deliverAccountSetupNotifications(job models.BulkImpo
 			notification.AccountRole,
 			notification.EventID.String(),
 		); err != nil {
-			if retryErr := s.retryAccountSetupNotification(job, notification, "provider_rejected"); retryErr != nil {
+			if retryErr := s.retryAccountSetupNotification(job, notification, accountSetupFailureCode(err)); retryErr != nil {
 				return accountSetupNotificationCounts{}, retryErr
 			}
 			continue

@@ -51,5 +51,5 @@ jobs:
           BULK_CONTEXT_TEST_DATABASE: bulk_context_test
         run: |
           bash scripts/security/test_bulk_import_context_verifier.sh
-          go test ./internal/database -run '^TestBulkImportSignedContextReadinessAndProcessingRole
+          go test ./internal/database -run TestBulkImportSignedContextReadinessAndProcessingRole -count=1
  -count=1

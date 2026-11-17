@@ -275,7 +275,7 @@ func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T)
 		return nil
 	})
 	if err != nil { t.Fatalf("restricted role could not execute queue claim function: %v", err) }
-	if claimed.ID != jobA.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID {
+	if claimed.ID != jobA.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID || claimed.LeaseGeneration != 1 {
 		t.Fatalf("claim function returned unexpected job/worker: %+v", claimed)
 	}
 
@@ -335,12 +335,12 @@ func TestBulkWorkerPostgresClaimFunctionReclaimsOnlyExpiredLeases(t *testing.T) 
 	worker := NewBulkImportService(db, nil)
 	first, err := worker.claimNextJob()
 	if err != nil { t.Fatalf("claim expired lease: %v", err) }
-	if first == nil || first.ID != jobs[0].ID || first.Attempts != 2 {
+	if first == nil || first.ID != jobs[0].ID || first.Attempts != 2 || first.LeaseGeneration != 1 {
 		t.Fatalf("expected expired lease to be reclaimed and attempts incremented: %+v", first)
 	}
 	second, err := worker.claimNextJob()
 	if err != nil { t.Fatalf("claim legacy lease: %v", err) }
-	if second == nil || second.ID != jobs[1].ID || second.Attempts != 3 {
+	if second == nil || second.ID != jobs[1].ID || second.Attempts != 3 || second.LeaseGeneration != 1 {
 		t.Fatalf("expected legacy unleased job to be reclaimed: %+v", second)
 	}
 	third, err := worker.claimNextJob()
@@ -416,6 +416,7 @@ CREATE TABLE %s.bulk_import_jobs (
     worker_id uuid,
     claimed_at timestamptz,
     attempts integer NOT NULL DEFAULT 0,
+    lease_generation bigint NOT NULL DEFAULT 0,
     last_error text NOT NULL DEFAULT '',
     rows_json text NOT NULL DEFAULT '[]',
     errors_json text NOT NULL DEFAULT '[]',
@@ -513,7 +514,7 @@ CREATE TABLE %s.bulk_import_jobs (
 	result := loginDB.Raw("SELECT * FROM " + privateSchema + ".claim_next_bulk_import_job(?)", workerID).Scan(&claimed)
 	if result.Error != nil { t.Fatalf("execute installed claim function as restricted login: %v", result.Error) }
 	if result.RowsAffected != 1 { t.Fatalf("expected one row from installed claim function, got %d", result.RowsAffected) }
-	if claimed.ID != job.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID {
+	if claimed.ID != job.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID || claimed.LeaseGeneration != 1 {
 		t.Fatalf("installed claim function returned unexpected job: %+v", claimed)
 	}
 

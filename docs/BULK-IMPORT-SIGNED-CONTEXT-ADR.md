@@ -61,11 +61,11 @@ The Go signer must require a key ID and at least 32 bytes of key material. The t
 
 The verifier is a narrowly scoped `SECURITY DEFINER` function with a fixed `pg_catalog` search path and fully schema-qualified object references.
 
-1. Parse and validate the compact JWS structure and fixed header.
-2. Load the active verification key by `kid` from a private key store.
-3. Verify HS256 over the exact compact-JWS signing input using `pgcrypto.hmac`.
-4. Validate issuer, audience, required claims, UUID formats, issued-at, not-before, expiry and maximum token lifetime using database time.
-5. Lock and inspect the current queue row; compare job, school, initiator, worker and current lease generation. A replaced or expired lease must fail.
+1. Parse exactly three non-empty compact-JWS segments; require canonical unpadded base64url, an object header/payload, the fixed `HS256` algorithm and a known `kid`. Reject duplicate JSON keys, unsupported critical headers and unexpected header members.
+2. Load the active verification key by `kid` from a private key store, holding a shared lock so retirement cannot race an in-flight verification.
+3. Verify HS256 over the exact compact-JWS signing input using the discovered, schema-qualified `pgcrypto.hmac` function. Compare the fixed 32-byte signatures in constant time.
+4. Validate issuer, audience, subject, required claims, canonical UUID formats, issued-at, not-before, expiry, clock skew and maximum token lifetime using database time.
+5. Lock and inspect the current queue row; only after acquiring the row lock, read `clock_timestamp()` and compare job, school, initiator, worker, lease generation and lease expiry. A replaced or expired lease must fail.
 6. Insert the assertion ID into a private table with a unique constraint, together with the current backend PID and transaction ID. The insert and all application writes occur in the same transaction.
 7. Expose validated tenant/user claims only through narrow `SECURITY DEFINER` accessors that match both `pg_backend_pid()` and `pg_current_xact_id()`. RLS policies used by the bulk-worker processing role must consume these accessors, never raw GUC values.
 

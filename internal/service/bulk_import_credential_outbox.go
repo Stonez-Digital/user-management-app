@@ -75,16 +75,13 @@ func (s *BulkImportService) completeAccountSetupNotification(job models.BulkImpo
 	return completed, err
 }
 
-func (s *BulkImportService) retryAccountSetupNotification(job models.BulkImportJob, notification accountSetupNotification, deliveryErr error) error {
+func (s *BulkImportService) retryAccountSetupNotification(job models.BulkImportJob, notification accountSetupNotification, failureCode string) error {
 	delay := accountSetupRetryDelay(notification.AttemptCount)
-	// Do not persist provider response bodies or arbitrary error text. Those
-	// responses may contain recipient data or provider diagnostics.
-	const safeFailure = "account-setup notification delivery failed"
 	return s.withTenantTransaction(job, func(tx *gorm.DB) error {
 		var status string
 		result := tx.Raw(
 			"SELECT stonez_context_private.retry_account_setup_notification(?, ?, ?, ?)",
-			notification.EventID, notification.DeliveryLease, safeFailure, int(delay.Seconds()),
+			notification.EventID, notification.DeliveryLease, failureCode, int(delay.Seconds()),
 		).Scan(&status)
 		return result.Error
 	})
@@ -125,7 +122,7 @@ func (s *BulkImportService) deliverAccountSetupNotifications(job models.BulkImpo
 			break
 		}
 		if s.mailer == nil || !s.mailer.Enabled() {
-			if err := s.retryAccountSetupNotification(job, notification, errors.New("mailer unavailable")); err != nil {
+			if err := s.retryAccountSetupNotification(job, notification, "mailer_unconfigured"); err != nil {
 				return accountSetupNotificationCounts{}, err
 			}
 			continue
@@ -136,7 +133,7 @@ func (s *BulkImportService) deliverAccountSetupNotifications(job models.BulkImpo
 			notification.AccountRole,
 			notification.EventID.String(),
 		); err != nil {
-			if retryErr := s.retryAccountSetupNotification(job, notification, err); retryErr != nil {
+			if retryErr := s.retryAccountSetupNotification(job, notification, "provider_rejected"); retryErr != nil {
 				return accountSetupNotificationCounts{}, retryErr
 			}
 			continue

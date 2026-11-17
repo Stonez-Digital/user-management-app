@@ -42,7 +42,7 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 	}
 
 	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
-	tableSchema, privateSchema := "auth_handler_"+suffix, "stonez_internal"
+	tableSchema, privateSchema := "auth_handler_"+suffix, "auth_private_"+suffix
 	ownerRole, sessionOwnerRole, apiRole := "auth_handler_owner_"+suffix, "auth_handler_session_owner_"+suffix, "auth_handler_api_"+suffix
 	loginRole := "auth_handler_login_"+suffix
 	loginPassword := uuid.NewString()
@@ -149,6 +149,7 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 	}
 
 	ac := NewAuthController(runtimeDB)
+	ac.internalSchema = privateSchema
 	loginBody := fmt.Sprintf(`{"email":%q,"password":"password123","school_code":%q,"school_slug":%q}`, email, "SCH-"+suffix, "school-"+suffix)
 
 	// Login session creation and its audit event must commit or roll back together.

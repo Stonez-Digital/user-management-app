@@ -29,6 +29,9 @@ BEGIN
        OR pg_has_role('stonez_bulk_claim_group', 'stonez_bulk_queue_owner', 'MEMBER') THEN
         RAISE EXCEPTION 'claim group must not belong to API runtime or queue owner';
     END IF;
+    IF EXISTS (SELECT 1 FROM pg_auth_members WHERE member = claim_role.oid) THEN
+        RAISE EXCEPTION 'claim group must not inherit any other role';
+    END IF;
     IF EXISTS (
         SELECT 1 FROM pg_roles AS privileged
          WHERE (privileged.rolsuper OR privileged.rolbypassrls)
@@ -199,7 +202,12 @@ BEGIN
            OR NOT pg_has_role('stonez_bulk_claim_login', 'stonez_bulk_claim_group', 'USAGE')
            OR pg_has_role('stonez_bulk_claim_login', 'stonez_bulk_claim_group', 'SET')
            OR pg_has_role('stonez_bulk_claim_login', 'stonez_api_runtime', 'MEMBER')
-           OR pg_has_role('stonez_bulk_claim_login', 'stonez_bulk_queue_owner', 'MEMBER') THEN
+           OR pg_has_role('stonez_bulk_claim_login', 'stonez_bulk_queue_owner', 'MEMBER')
+           OR EXISTS (
+                SELECT 1 FROM pg_auth_members AS membership
+                 WHERE membership.member = claim_login.oid
+                   AND membership.roleid <> claim_role.oid
+           ) THEN
             RAISE EXCEPTION 'claim login role boundary is unsafe';
         END IF;
     END IF;

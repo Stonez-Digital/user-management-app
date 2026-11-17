@@ -132,6 +132,17 @@ This work may add Go code, SQL source files, and disposable PostgreSQL integrati
 Before staging installation, separately verify extension availability, key provisioning, table/column privileges, all RLS policies, worker SQL side effects, and the restricted role membership graph. Production cutover requires a separate explicit approval after staging evidence is reviewed.
 
 
+## Key rotation procedure
+
+1. Generate a new independent 256-bit key outside the database and store it in the worker secret manager.
+2. Register the new key ID and raw key bytes through a parameterized call to `stonez_context_private.register_verification_key`; the key-admin function records the actor and action without recording key material.
+3. Deploy the dedicated worker with the new key ID and matching base64url key. During the overlap, both old and new keys remain valid.
+4. Confirm all worker instances use the new key, then call `retire_verification_key` for the old key with an effective timestamp.
+5. For suspected compromise, call `revoke_verification_key` immediately. Revocation blocks new assertions signed with that key; already verified transactions hold a shared key-row lock until they finish.
+6. Run the key-admin-only replay-ledger pruning command periodically. Never grant the processing login access to key-management functions or key bytes.
+
+Do not put key material in shell history, source control, issue comments, CI logs, or SQL text logs. Use a parameterized client and a secret manager for registration and worker configuration.
+
 ## Implementation status — draft branch only
 
 The first PostgreSQL verifier slice is implemented as operator-run SQL, with no automatic application migration:

@@ -146,7 +146,11 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
             EXISTS (SELECT 1 FROM pg_roles
                      WHERE rolname='stonez_bulk_worker_processing'
                        AND NOT rolcanlogin AND NOT rolsuper AND NOT rolbypassrls
-                       AND NOT rolcreatedb AND NOT rolcreaterole) AS worker_group_safe,
+                       AND NOT rolcreatedb AND NOT rolcreaterole
+                       AND NOT EXISTS (
+                           SELECT 1 FROM pg_auth_members AS membership
+                            WHERE membership.member = pg_roles.oid
+                       )) AS worker_group_safe,
             (SELECT count(*) FROM pg_policy
               WHERE polrelid IN ('public.bulk_import_jobs'::regclass,'public.users'::regclass,
                     'public.students'::regclass,'public.teacher_profiles'::regclass,

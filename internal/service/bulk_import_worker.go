@@ -109,6 +109,7 @@ func (s *BulkImportService) claimNextJob() (*models.BulkImportJob, error) {
 				"worker_id": workerID,
 				"claimed_at": now,
 				"attempts": gorm.Expr("attempts + 1"),
+				"lease_generation": gorm.Expr("lease_generation + 1"),
 				"last_error": "",
 			})
 		if result.Error != nil {
@@ -121,6 +122,7 @@ func (s *BulkImportService) claimNextJob() (*models.BulkImportJob, error) {
 		job.WorkerID = &workerID
 		job.ClaimedAt = &now
 		job.Attempts++
+		job.LeaseGeneration++
 		claimed = &job
 		return nil
 	})

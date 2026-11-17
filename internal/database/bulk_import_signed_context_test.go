@@ -223,7 +223,119 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 	if err := runnerDB.Exec(`GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_test WITH ADMIN FALSE, INHERIT TRUE, SET FALSE`).Error; err != nil {
 		t.Fatalf("restore worker-group membership without ADMIN OPTION: %v", err)
 	}
+
 	if err := ValidateBulkImportProcessingRole(workerDB); err != nil {
 		t.Fatalf("processing login rejected after removing ADMIN OPTION: %v", err)
+	}
+
+	newAssertion := func() string {
+		t.Helper()
+		token, signErr := signer.Sign(bulkimportcontext.Context{
+			JobID: uuid.MustParse("11111111-1111-4111-8111-111111111111"),
+			SchoolID: uuid.MustParse("22222222-2222-4222-8222-222222222222"),
+			InitiatedBy: uuid.MustParse("33333333-3333-4333-8333-333333333333"),
+			WorkerID: uuid.MustParse("44444444-4444-4444-8444-444444444444"),
+			LeaseID: uuid.MustParse("55555555-5555-4555-8555-555555555555"),
+		})
+		if signErr != nil { t.Fatalf("sign membership regression assertion: %v", signErr) }
+		return token
+	}
+	assertVerifierRejects := func(label string) {
+		t.Helper()
+		if err := workerDB.Exec("SELECT stonez_context_private.verify_bulk_import_context(?)", newAssertion()).Error; err == nil {
+			t.Fatalf("SQL verifier accepted forbidden membership: %s", label)
+		}
+	}
+
+	// Privileged verifier roles are rejected by the database boundary, even
+	// after startup validation has already succeeded.
+	for _, roleName := range []string{"stonez_bulk_context_owner", "stonez_bulk_context_key_admin"} {
+		if err := runnerDB.Exec("GRANT " + roleName + " TO stonez_bulk_worker_processing_test").Error; err != nil {
+			t.Fatalf("grant forbidden %s membership for regression test: %v", roleName, err)
+		}
+		assertVerifierRejects("processing login inherits " + roleName)
+		if err := runnerDB.Exec("REVOKE " + roleName + " FROM stonez_bulk_worker_processing_test").Error; err != nil {
+			t.Fatalf("revoke forbidden %s membership: %v", roleName, err)
+		}
+		if err := ValidateBulkImportProcessingRole(workerDB); err != nil {
+			t.Fatalf("processing login rejected after removing %s: %v", roleName, err)
+		}
+	}
+
+	// A second login cannot join the processing group, even if the original
+	// worker login passed startup validation earlier.
+	if err := runnerDB.Exec("CREATE ROLE stonez_bulk_worker_processing_second_test LOGIN NOSUPERUSER NOBYPASSRLS INHERIT").Error; err != nil {
+		t.Fatalf("create second processing login: %v", err)
+	}
+	if err := runnerDB.Exec("GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_second_test WITH ADMIN FALSE, INHERIT TRUE, SET FALSE").Error; err != nil {
+		t.Fatalf("grant processing group to second login: %v", err)
+	}
+	assertVerifierRejects("second login is a processing-group member");
+	if err := runnerDB.Exec("REVOKE stonez_bulk_worker_processing FROM stonez_bulk_worker_processing_second_test").Error; err != nil {
+		t.Fatalf("revoke second processing login membership: %v", err)
+	}
+	if err := runnerDB.Exec("DROP ROLE stonez_bulk_worker_processing_second_test").Error; err != nil {
+		t.Fatalf("drop second processing login: %v", err)
+	}
+
+	// Both directions of nested membership are forbidden: the login cannot
+	// inherit an intermediate role, and the processing group cannot inherit
+	// another role or accept an intermediate role as a member.
+	if err := runnerDB.Exec("CREATE ROLE stonez_bulk_worker_processing_nested_test NOLOGIN").Error; err != nil {
+		t.Fatalf("create nested membership role: %v", err)
+	}
+	if err := runnerDB.Exec("GRANT stonez_bulk_worker_processing_nested_test TO stonez_bulk_worker_processing_test WITH ADMIN FALSE, INHERIT TRUE, SET FALSE").Error; err != nil {
+		t.Fatalf("grant nested role to processing login: %v", err)
+	}
+	assertVerifierRejects("processing login has nested extra membership");
+	if err := runnerDB.Exec("REVOKE stonez_bulk_worker_processing_nested_test FROM stonez_bulk_worker_processing_test").Error; err != nil {
+		t.Fatalf("revoke nested login membership: %v", err)
+	}
+	if err := runnerDB.Exec("GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_nested_test WITH ADMIN FALSE, INHERIT TRUE, SET FALSE").Error; err != nil {
+		t.Fatalf("grant processing group to nested role: %v", err)
+	}
+	assertVerifierRejects("nested role is a processing-group member");
+	if err := runnerDB.Exec("REVOKE stonez_bulk_worker_processing FROM stonez_bulk_worker_processing_nested_test").Error; err != nil {
+		t.Fatalf("revoke nested group membership: %v", err)
+	}
+	if err := runnerDB.Exec("GRANT stonez_bulk_worker_processing_nested_test TO stonez_bulk_worker_processing WITH ADMIN FALSE, INHERIT TRUE, SET FALSE").Error; err != nil {
+		t.Fatalf("make processing group inherit nested role: %v", err)
+	}
+	assertVerifierRejects("processing group inherits another role");
+	if err := runnerDB.Exec("REVOKE stonez_bulk_worker_processing_nested_test FROM stonez_bulk_worker_processing").Error; err != nil {
+		t.Fatalf("revoke processing-group parent role: %v", err)
+	}
+	if err := runnerDB.Exec("DROP ROLE stonez_bulk_worker_processing_nested_test").Error; err != nil {
+		t.Fatalf("drop nested membership role: %v", err)
+	}
+	if err := ValidateBulkImportProcessingRole(workerDB); err != nil {
+		t.Fatalf("processing login rejected after restoring exclusive membership: %v", err)
+	}
+
+	// Membership is checked again by accessors within an already verified
+	// transaction, not only once at startup or at assertion verification.
+	accessorTx := workerDB.Begin()
+	if accessorTx.Error != nil { t.Fatalf("begin accessor membership transaction: %v", accessorTx.Error) }
+	if err := accessorTx.Exec("SELECT stonez_context_private.verify_bulk_import_context(?)", newAssertion()).Error; err != nil {
+		_ = accessorTx.Rollback().Error
+		t.Fatalf("verify assertion before live membership change: %v", err)
+	}
+	if err := runnerDB.Exec("GRANT stonez_bulk_context_key_admin TO stonez_bulk_worker_processing_test").Error; err != nil {
+		_ = accessorTx.Rollback().Error
+		t.Fatalf("grant key-admin role after startup and verification: %v", err)
+	}
+	var accessorSchool *uuid.UUID
+	if err := accessorTx.Raw("SELECT stonez_context_private.current_worker_school_id()").Scan(&accessorSchool).Error; err != nil {
+		t.Fatalf("call accessor after live membership change: %v", err)
+	}
+	if accessorSchool != nil {
+		t.Fatal("transaction-bound accessor retained tenant context after forbidden membership was added")
+	}
+	if err := runnerDB.Exec("REVOKE stonez_bulk_context_key_admin FROM stonez_bulk_worker_processing_test").Error; err != nil {
+		t.Fatalf("revoke key-admin role after accessor regression: %v", err)
+	}
+	_ = accessorTx.Rollback().Error
+	if err := ValidateBulkImportProcessingRole(workerDB); err != nil {
+		t.Fatalf("processing login rejected after restoring membership: %v", err)
 	}
 }

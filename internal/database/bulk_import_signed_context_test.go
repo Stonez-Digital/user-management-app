@@ -291,6 +291,21 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 	if err := runnerDB.Exec("REVOKE stonez_bulk_worker_processing_nested_test FROM stonez_bulk_worker_processing_test").Error; err != nil {
 		t.Fatalf("revoke nested login membership: %v", err)
 	}
+	// A privileged role inherited through an intermediate role must be
+	// rejected just like a direct context-owner/key-admin membership.
+	if err := runnerDB.Exec("GRANT stonez_bulk_context_owner TO stonez_bulk_worker_processing_nested_test").Error; err != nil {
+		t.Fatalf("grant context-owner role to nested role: %v", err)
+	}
+	if err := runnerDB.Exec("GRANT stonez_bulk_worker_processing_nested_test TO stonez_bulk_worker_processing_test WITH ADMIN FALSE, INHERIT TRUE, SET FALSE").Error; err != nil {
+		t.Fatalf("grant privileged nested role to processing login: %v", err)
+	}
+	assertVerifierRejects("processing login inherits context-owner through a nested role");
+	if err := runnerDB.Exec("REVOKE stonez_bulk_worker_processing_nested_test FROM stonez_bulk_worker_processing_test").Error; err != nil {
+		t.Fatalf("revoke privileged nested role from processing login: %v", err)
+	}
+	if err := runnerDB.Exec("REVOKE stonez_bulk_context_owner FROM stonez_bulk_worker_processing_nested_test").Error; err != nil {
+		t.Fatalf("revoke context-owner role from nested role: %v", err)
+	}
 	if err := runnerDB.Exec("GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_nested_test WITH ADMIN FALSE, INHERIT TRUE, SET FALSE").Error; err != nil {
 		t.Fatalf("grant processing group to nested role: %v", err)
 	}
@@ -324,11 +339,11 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 		_ = accessorTx.Rollback().Error
 		t.Fatalf("grant key-admin role after startup and verification: %v", err)
 	}
-	var accessorSchool *uuid.UUID
-	if err := accessorTx.Raw("SELECT stonez_context_private.current_worker_school_id()").Scan(&accessorSchool).Error; err != nil {
+	var accessorResult struct { SchoolID *uuid.UUID }
+	if err := accessorTx.Raw("SELECT stonez_context_private.current_worker_school_id() AS school_id").Scan(&accessorResult).Error; err != nil {
 		t.Fatalf("call accessor after live membership change: %v", err)
 	}
-	if accessorSchool != nil {
+	if accessorResult.SchoolID != nil {
 		t.Fatal("transaction-bound accessor retained tenant context after forbidden membership was added")
 	}
 	if err := runnerDB.Exec("REVOKE stonez_bulk_context_key_admin FROM stonez_bulk_worker_processing_test").Error; err != nil {

@@ -158,6 +158,65 @@ $fn$;
 REVOKE ALL ON FUNCTION stonez_context_private.constant_time_equal(bytea,bytea) FROM PUBLIC;
 
 
+-- This predicate is evaluated on every verifier and accessor call, not only
+-- at worker startup. The processing group must have exactly one direct member
+-- (the current dedicated login), must not itself inherit another role, and
+-- that login may not inherit any additional role or privileged verifier role.
+CREATE OR REPLACE FUNCTION stonez_context_private.is_eligible_processing_login()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $fn$
+SELECT COALESCE((
+    SELECT role_entry.rolcanlogin
+       AND role_entry.rolinherit
+       AND NOT role_entry.rolsuper
+       AND NOT role_entry.rolbypassrls
+       AND NOT role_entry.rolcreatedb
+       AND NOT role_entry.rolcreaterole
+       AND NOT role_entry.rolreplication
+       AND pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE')
+       AND NOT pg_has_role(session_user, 'stonez_bulk_worker_processing', 'SET')
+       AND NOT pg_has_role(session_user, 'stonez_bulk_context_owner', 'MEMBER')
+       AND NOT pg_has_role(session_user, 'stonez_bulk_context_key_admin', 'MEMBER')
+       AND NOT pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER')
+       AND NOT pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')
+       AND NOT pg_has_role(session_user, 'stonez_bulk_worker', 'MEMBER')
+       -- No direct or nested extra memberships for the processing login.
+       AND NOT EXISTS (
+           SELECT 1 FROM pg_auth_members AS membership
+            WHERE membership.member = role_entry.oid
+              AND membership.roleid <> processing_role.oid
+       )
+       -- No second login, nested role, or delegating role may be a member
+       -- of the processing group.
+       AND NOT EXISTS (
+           SELECT 1 FROM pg_auth_members AS membership
+            WHERE membership.roleid = processing_role.oid
+              AND membership.member <> role_entry.oid
+       )
+       -- The processing group itself must not inherit another role.
+       AND NOT EXISTS (
+           SELECT 1 FROM pg_auth_members AS membership
+            WHERE membership.member = processing_role.oid
+       )
+       -- ADMIN OPTION is forbidden even if the membership is otherwise valid.
+       AND NOT EXISTS (
+           SELECT 1 FROM pg_auth_members AS membership
+            WHERE membership.member = role_entry.oid
+              AND membership.roleid = processing_role.oid
+              AND membership.admin_option
+       )
+      FROM pg_roles AS role_entry
+      CROSS JOIN pg_roles AS processing_role
+     WHERE role_entry.rolname = session_user
+       AND processing_role.rolname = 'stonez_bulk_worker_processing'
+), false)
+$fn$;
+REVOKE ALL ON FUNCTION stonez_context_private.is_eligible_processing_login() FROM PUBLIC;
+
 CREATE OR REPLACE FUNCTION stonez_context_private.verify_bulk_import_context(p_token text)
 RETURNS void
 LANGUAGE plpgsql
@@ -191,19 +250,7 @@ BEGIN
         RAISE EXCEPTION 'invalid compact JWS token length or whitespace' USING ERRCODE = '22023';
     END IF;
 
-    IF NOT pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE')
-       OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = session_user AND rolcanlogin AND rolinherit
-                      AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication)
-       OR pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER')
-       OR pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')
-       OR pg_has_role(session_user, 'stonez_bulk_worker', 'MEMBER')
-       OR pg_has_role(session_user, 'stonez_bulk_worker_processing', 'SET')
-       OR EXISTS (
-            SELECT 1 FROM pg_auth_members AS membership
-             WHERE membership.member = (SELECT oid FROM pg_roles WHERE rolname = session_user)
-               AND membership.roleid = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_worker_processing')
-               AND membership.admin_option
-       ) THEN
+    IF NOT stonez_context_private.is_eligible_processing_login() THEN
         RAISE EXCEPTION 'login is not an eligible restricted bulk worker' USING ERRCODE = '42501';
     END IF;
     IF p_token IS NULL OR length(p_token) > 4096 THEN
@@ -363,7 +410,7 @@ AS $fn$
 SELECT context.school_id FROM stonez_context_private.verified_contexts AS context
  WHERE context.backend_pid = pg_backend_pid()
    AND context.transaction_id = pg_current_xact_id()
-   AND pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE')
+   AND stonez_context_private.is_eligible_processing_login()
 $fn$;
 
 CREATE OR REPLACE FUNCTION stonez_context_private.current_worker_initiator_id()
@@ -372,7 +419,7 @@ AS $fn$
 SELECT context.initiated_by FROM stonez_context_private.verified_contexts AS context
  WHERE context.backend_pid = pg_backend_pid()
    AND context.transaction_id = pg_current_xact_id()
-   AND pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE')
+   AND stonez_context_private.is_eligible_processing_login()
 $fn$;
 
 CREATE OR REPLACE FUNCTION stonez_context_private.current_worker_job_id()
@@ -381,7 +428,7 @@ AS $fn$
 SELECT context.job_id FROM stonez_context_private.verified_contexts AS context
  WHERE context.backend_pid = pg_backend_pid()
    AND context.transaction_id = pg_current_xact_id()
-   AND pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE')
+   AND stonez_context_private.is_eligible_processing_login()
 $fn$;
 
 CREATE OR REPLACE FUNCTION stonez_context_private.register_verification_key(
@@ -455,6 +502,7 @@ END
 $fn$;
 
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA stonez_context_private FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION stonez_context_private.is_eligible_processing_login() TO stonez_bulk_worker_processing;
 GRANT EXECUTE ON FUNCTION stonez_context_private.verify_bulk_import_context(text) TO stonez_bulk_worker_processing;
 GRANT EXECUTE ON FUNCTION stonez_context_private.current_worker_school_id() TO stonez_bulk_worker_processing;
 GRANT EXECUTE ON FUNCTION stonez_context_private.current_worker_initiator_id() TO stonez_bulk_worker_processing;

@@ -113,6 +113,16 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	if err := admin.Exec(script).Error; err != nil {
 		t.Fatalf("install verifier in isolated schema: %v", err)
 	}
+	verifyBytes, err := os.ReadFile("../../../scripts/security/verify_bulk_import_signed_context.sql")
+	if err != nil { t.Fatalf("read verifier verification script: %v", err) }
+	verifyScript := string(verifyBytes)
+	verifyScript = strings.ReplaceAll(verifyScript, "stonez_bulk_context_owner", ownerRole)
+	verifyScript = strings.ReplaceAll(verifyScript, "stonez_bulk_process_group", processRole)
+	verifyScript = strings.ReplaceAll(verifyScript, "stonez_internal", privateSchema)
+	verifyScript = strings.ReplaceAll(verifyScript, "public", tableSchema)
+	if err := admin.Exec(verifyScript).Error; err != nil {
+		t.Fatalf("verify isolated signed-context installation: %v", err)
+	}
 
 	if err := admin.Exec("CREATE ROLE "+loginRole+" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS PASSWORD '"+loginPassword+"'").Error; err != nil {
 		t.Fatalf("create restricted processing login: %v", err)

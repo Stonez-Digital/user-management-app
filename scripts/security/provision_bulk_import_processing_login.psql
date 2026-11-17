@@ -12,6 +12,12 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_worker') THEN
         RAISE EXCEPTION 'the separate queue-claim login stonez_bulk_worker must already exist';
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_api_runtime')
+       OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner')
+       OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_context_owner')
+       OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_context_key_admin') THEN
+        RAISE EXCEPTION 'API, queue, verifier-owner, and key-admin roles must be installed first';
+    END IF;
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_worker_processing_login') THEN
         RAISE EXCEPTION 'stonez_bulk_worker_processing_login already exists; refusing to alter an existing login';
     END IF;
@@ -43,6 +49,7 @@ BEGIN
     END IF;
     IF pg_has_role('stonez_bulk_worker_processing_login', 'stonez_api_runtime', 'MEMBER')
        OR pg_has_role('stonez_bulk_worker_processing_login', 'stonez_bulk_queue_owner', 'MEMBER')
+       OR pg_has_role('stonez_bulk_worker_processing_login', 'stonez_bulk_worker', 'MEMBER')
        OR pg_has_role('stonez_bulk_worker_processing_login', 'stonez_bulk_context_owner', 'MEMBER')
        OR pg_has_role('stonez_bulk_worker_processing_login', 'stonez_bulk_context_key_admin', 'MEMBER') THEN
         RAISE EXCEPTION 'processing login inherited a forbidden runtime, queue, owner, or key-admin role';

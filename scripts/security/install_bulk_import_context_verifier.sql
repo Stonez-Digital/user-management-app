@@ -60,4 +60,37 @@ REVOKE ALL ON ALL TABLES IN SCHEMA stonez_context_private FROM PUBLIC, stonez_bu
 GRANT SELECT ON stonez_context_private.verification_keys TO stonez_bulk_context_owner;
 GRANT SELECT, INSERT ON stonez_context_private.verified_contexts TO stonez_bulk_context_owner;
 
+
+CREATE OR REPLACE FUNCTION stonez_context_private.decode_base64url(p_value text)
+RETURNS bytea
+LANGUAGE plpgsql
+IMMUTABLE
+STRICT
+SET search_path = pg_catalog
+AS $fn$
+DECLARE
+    v_decoded bytea;
+    v_canonical text;
+BEGIN
+    IF p_value = '' OR p_value !~ '^[A-Za-z0-9_-]+
+ OR length(p_value) % 4 = 1 THEN
+        RAISE EXCEPTION 'invalid compact JWS base64url segment' USING ERRCODE = '22023';
+    END IF;
+    v_decoded := decode(
+        translate(p_value, '-_', '+/') || repeat('=', (4 - length(p_value) % 4) % 4),
+        'base64'
+    );
+    v_canonical := rtrim(
+        translate(replace(encode(v_decoded, 'base64'), E'\n', ''), '+/', '-_'),
+        '='
+    );
+    IF v_canonical <> p_value THEN
+        RAISE EXCEPTION 'non-canonical compact JWS base64url segment' USING ERRCODE = '22023';
+    END IF;
+    RETURN v_decoded;
+END
+$fn$;
+ALTER FUNCTION stonez_context_private.decode_base64url(text) OWNER TO stonez_bulk_context_owner;
+REVOKE ALL ON FUNCTION stonez_context_private.decode_base64url(text) FROM PUBLIC;
+
 COMMIT;

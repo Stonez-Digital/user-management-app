@@ -38,7 +38,7 @@ VALUES ('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-22222222
 '55555555-5555-4555-8555-555555555555','running',clock_timestamp(),true),
 ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','22222222-2222-4222-8222-222222222222',
 '33333333-3333-4333-8333-333333333333','dddddddd-dddd-4ddd-8ddd-dddddddddddd',
-'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee','running',clock_timestamp());
+'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee','running',clock_timestamp(),false);
 CREATE TABLE public.users(id uuid PRIMARY KEY, school_id uuid, name text, email text, role text, password_hash text, active boolean NOT NULL DEFAULT true);
 INSERT INTO public.users(id,school_id,name,email,role,password_hash) VALUES
 ('34343434-3434-4434-8434-343434343434','22222222-2222-4222-8222-222222222222','Outbox Fixture','outbox-fixture@example.test','student','test-hash'),

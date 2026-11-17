@@ -143,6 +143,27 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                    AND proc_entry.proname = 'hmac'
                    AND pg_get_function_identity_arguments(proc_entry.oid) = 'bytea, bytea, text'
             ) AS hmac,
+            COALESCE((
+                SELECT relation.relrowsecurity
+                  FROM pg_class AS relation
+                 WHERE relation.oid = to_regclass('public.bulk_import_jobs')
+            ), false) AS queue_rls,
+            (
+                SELECT count(*)
+                  FROM pg_class AS relation
+                 WHERE relation.oid IN (
+                    to_regclass('public.users'),
+                    to_regclass('public.students'),
+                    to_regclass('public.teacher_profiles'),
+                    to_regclass('public.parent_profiles'),
+                    to_regclass('public.academic_sessions'),
+                    to_regclass('public.school_classes'),
+                    to_regclass('public.sections'),
+                    to_regclass('public.student_enrollments'),
+                    to_regclass('public.guardian_relationships')
+                 )
+                   AND relation.relrowsecurity
+            ) AS worker_table_rls_count,
             EXISTS (SELECT 1 FROM pg_roles
                      WHERE rolname='stonez_bulk_worker_processing'
                        AND NOT rolcanlogin AND NOT rolsuper AND NOT rolbypassrls

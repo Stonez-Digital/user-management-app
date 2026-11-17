@@ -32,9 +32,14 @@ func (s *BulkImportService) withTenantTransaction(job models.BulkImportJob, fn f
 			if job.WorkerID == nil || job.LeaseGeneration <= 0 {
 				return errors.New("bulk import job is missing its claimed worker lease generation")
 			}
+			transactionIdentity, err := database.CurrentBulkImportTransactionIdentity(tx)
+			if err != nil {
+				return err
+			}
 			assertion, err := s.contextSigner.Sign(tx.Statement.Context, bulkcontext.Binding{
 				JobID: job.ID, SchoolID: job.SchoolID, InitiatedBy: job.InitiatedBy,
-				WorkerID: *job.WorkerID, LeaseGeneration: job.LeaseGeneration,
+				WorkerID: *job.WorkerID, BackendPID: transactionIdentity.BackendPID,
+				TransactionID: transactionIdentity.TransactionID, LeaseGeneration: job.LeaseGeneration,
 			}, time.Minute)
 			if err != nil {
 				return fmt.Errorf("sign bulk import tenant context: %w", err)

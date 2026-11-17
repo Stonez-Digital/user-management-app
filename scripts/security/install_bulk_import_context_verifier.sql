@@ -75,7 +75,7 @@ DECLARE
     v_decoded bytea;
     v_canonical text;
 BEGIN
-    IF p_value = '' OR p_value !~ '^[A-Za-z0-9_-]+
+    IF p_value = '' OR p_value ~ '[^A-Za-z0-9_-]' OR length(p_value) % 4 = 1 THEN
         RAISE EXCEPTION 'invalid compact JWS base64url segment' USING ERRCODE = '22023';
     END IF;
     v_decoded := decode(
@@ -190,15 +190,9 @@ BEGIN
        OR v_payload->>'aud' <> 'stonez-postgres-bulk-import-context' THEN
         RAISE EXCEPTION 'invalid assertion issuer or audience' USING ERRCODE = '22023';
     END IF;
-    IF json_typeof(v_payload->'iat') <> 'number'
-       OR json_typeof(v_payload->'nbf') <> 'number'
-       OR json_typeof(v_payload->'exp') <> 'number'
-       OR (v_payload->>'iat') !~ '^[0-9]+([.][0-9]+)?
-
-       OR (v_payload->>'nbf') !~ '^[0-9]+([.][0-9]+)?
-
-       OR (v_payload->>'exp') !~ '^[0-9]+([.][0-9]+)?
- THEN
+    IF json_typeof(v_payload->'iat') IS DISTINCT FROM 'number'
+       OR json_typeof(v_payload->'nbf') IS DISTINCT FROM 'number'
+       OR json_typeof(v_payload->'exp') IS DISTINCT FROM 'number' THEN
         RAISE EXCEPTION 'invalid assertion time claims' USING ERRCODE = '22023';
     END IF;
     v_iat := (v_payload->>'iat')::numeric;

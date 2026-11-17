@@ -85,7 +85,7 @@ SQL
   echo "Rejected $2"
 }
 NOW="$(date +%s)"
-TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '66666666-6666-4666-8666-666666666666' "$NOW" "$((NOW+30))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '66666666-6666-4666-8666-666666666666' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
 
 echo "== Valid assertion, transaction binding, rollback retry, and tenant isolation =="
 psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$TOKEN" <<'SQL'
@@ -118,7 +118,7 @@ $$;
 SQL
 
 echo "== Replay, forgery, expiry, and key selection =="
-REPLAY="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '77777777-7777-4777-8777-777777777777' "$NOW" "$((NOW+30))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+REPLAY="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '77777777-7777-4777-8777-777777777777' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
 psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$REPLAY" <<'SQL' >/dev/null
 BEGIN;
 SELECT stonez_context_private.verify_bulk_import_context(:'token');
@@ -129,19 +129,19 @@ FORGED="$(printf '%s' "$TOKEN" | sed 's/.$/A/')"
 expect_rejected "$FORGED" "modified signature"
 EXPIRED="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '88888888-8888-4888-8888-888888888888' "$((NOW-120))" "$((NOW-90))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
 expect_rejected "$EXPIRED" "expired assertion"
-UNKNOWN="$(make_token '{"alg":"HS256","kid":"unknown-key","typ":"JWT"}' "$(payload '99999999-9999-4999-8999-999999999999' "$NOW" "$((NOW+30))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+UNKNOWN="$(make_token '{"alg":"HS256","kid":"unknown-key","typ":"JWT"}' "$(payload '99999999-9999-4999-8999-999999999999' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
 expect_rejected "$UNKNOWN" "unknown key ID"
-DUP_HEADER="$(make_token '{"alg":"HS256","kid":"ci-key-1","kid":"ci-key-1","typ":"JWT"}' "$(payload '22222222-2222-4222-8222-222222222222' "$NOW" "$((NOW+30))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+DUP_HEADER="$(make_token '{"alg":"HS256","kid":"ci-key-1","kid":"ci-key-1","typ":"JWT"}' "$(payload '22222222-2222-4222-8222-222222222222' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
 expect_rejected "$DUP_HEADER" "duplicate JWS header member"
-DUP_PAYLOAD="$(printf '{"iss":"stonez-bulk-import-worker","sub":"%s","aud":"stonez-postgres-bulk-import-context","jti":"23232323-2323-4323-8323-232323232323","iat":%s,"nbf":%s,"exp":%s,"job_id":"%s","school_id":"%s","school_id":"%s","initiated_by":"%s","worker_id":"%s","lease_id":"%s"}' "$WORKER_ID" "$NOW" "$NOW" "$((NOW+30))" "$JOB_ID" "$SCHOOL_ID" "$SCHOOL_ID" "$INITIATOR_ID" "$WORKER_ID" "$LEASE_ID")"
+DUP_PAYLOAD="$(printf '{"iss":"stonez-bulk-import-worker","sub":"%s","aud":"stonez-postgres-bulk-import-context","jti":"23232323-2323-4323-8323-232323232323","iat":%s,"nbf":%s,"exp":%s,"job_id":"%s","school_id":"%s","school_id":"%s","initiated_by":"%s","worker_id":"%s","lease_id":"%s"}' "$WORKER_ID" "$NOW" "$NOW" "$((NOW+60))" "$JOB_ID" "$SCHOOL_ID" "$SCHOOL_ID" "$INITIATOR_ID" "$WORKER_ID" "$LEASE_ID")"
 DUP_CLAIM="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$DUP_PAYLOAD" "$KEY_HEX")"
 expect_rejected "$DUP_CLAIM" "duplicate JSON claim member"
-ALG_NONE="$(make_token '{"alg":"none","kid":"ci-key-1","typ":"JWT"}' "$(payload '10101010-1010-4010-8010-101010101010' "$NOW" "$((NOW+30))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+ALG_NONE="$(make_token '{"alg":"none","kid":"ci-key-1","typ":"JWT"}' "$(payload '10101010-1010-4010-8010-101010101010' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
 expect_rejected "$ALG_NONE" "algorithm substitution"
 ALT_KEY_HEX="$(printf 'cd%.0s' {1..32})"
-WRONG_KEY="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '11111111-1111-4111-8111-111111111112' "$NOW" "$((NOW+30))" "$SCHOOL_ID" "$LEASE_ID")" "$ALT_KEY_HEX")"
+WRONG_KEY="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '11111111-1111-4111-8111-111111111112' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$ALT_KEY_HEX")"
 expect_rejected "$WRONG_KEY" "untrusted signing key"
-CROSS_TENANT="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '12121212-1212-4212-8212-121212121212' "$NOW" "$((NOW+30))" 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' "$LEASE_ID")" "$KEY_HEX")"
+CROSS_TENANT="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '12121212-1212-4212-8212-121212121212' "$NOW" "$((NOW+60))" 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' "$LEASE_ID")" "$KEY_HEX")"
 expect_rejected "$CROSS_TENANT" "cross-tenant school claim"
 if psql "$worker_url" -X -v ON_ERROR_STOP=1 -c "INSERT INTO public.students(id,school_id) VALUES ('24242424-2424-4424-8424-242424242424','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')" >/dev/null 2>&1; then
   echo "Worker unexpectedly inserted a cross-tenant student" >&2
@@ -149,12 +149,12 @@ if psql "$worker_url" -X -v ON_ERROR_STOP=1 -c "INSERT INTO public.students(id,s
 fi
 echo "Rejected cross-tenant INSERT by worker RLS"
 
-STALE_LEASE="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '13131313-1313-4313-8313-131313131313' "$NOW" "$((NOW+30))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+STALE_LEASE="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '13131313-1313-4313-8313-131313131313' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "UPDATE public.bulk_import_jobs SET lease_id='25252525-2525-4525-8525-252525252525' WHERE id='$JOB_ID'"
 expect_rejected "$STALE_LEASE" "replaced lease generation"
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "UPDATE public.bulk_import_jobs SET lease_id='$LEASE_ID', claimed_at=clock_timestamp() - interval '4 minutes 59 seconds' WHERE id='$JOB_ID'"
 
-EXPIRING="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '24242424-2424-4424-8424-242424242424' "$NOW" "$((NOW+30))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+EXPIRING="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '24242424-2424-4424-8424-242424242424' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
 (psql "$runner_url" -X -v ON_ERROR_STOP=1 <<SQL
 BEGIN;
 SELECT id FROM public.bulk_import_jobs WHERE id='$JOB_ID' FOR UPDATE;
@@ -168,7 +168,7 @@ expect_rejected "$EXPIRING" "lease expiry during row-lock wait"
 wait "$lock_pid"
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "UPDATE public.bulk_import_jobs SET claimed_at=clock_timestamp() WHERE id='$JOB_ID'"
 
-CONCURRENT="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '14141414-1414-4414-8414-141414141414' "$NOW" "$((NOW+30))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+CONCURRENT="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '14141414-1414-4414-8414-141414141414' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
 (psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$CONCURRENT" <<'SQL'
 BEGIN;
 SELECT stonez_context_private.verify_bulk_import_context(:'token');
@@ -203,16 +203,16 @@ SELECT stonez_context_private.register_verification_key(
   'ci-key-2', decode(repeat('cd',32),'hex'), clock_timestamp() - interval '5 minutes', NULL
 );
 SQL
-KEY2_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-2","typ":"JWT"}' "$(payload '19191919-1919-4919-8919-191919191919' "$NOW" "$((NOW+30))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY2_HEX")"
+KEY2_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-2","typ":"JWT"}' "$(payload '19191919-1919-4919-8919-191919191919' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY2_HEX")"
 psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$KEY2_TOKEN" <<'SQL' >/dev/null
 BEGIN;
 SELECT stonez_context_private.verify_bulk_import_context(:'token');
 COMMIT;
 SQL
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "SELECT stonez_context_private.retire_verification_key('ci-key-1', clock_timestamp() - interval '1 second')"
-OLD_KEY_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '20202020-2020-4020-8020-202020202020' "$NOW" "$((NOW+30))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+OLD_KEY_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '20202020-2020-4020-8020-202020202020' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
 expect_rejected "$OLD_KEY_TOKEN" "retired verification key"
-KEY2_AFTER_RETIRE="$(make_token '{"alg":"HS256","kid":"ci-key-2","typ":"JWT"}' "$(payload '21212121-2121-4121-8121-212121212121' "$NOW" "$((NOW+30))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY2_HEX")"
+KEY2_AFTER_RETIRE="$(make_token '{"alg":"HS256","kid":"ci-key-2","typ":"JWT"}' "$(payload '21212121-2121-4121-8121-212121212121' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY2_HEX")"
 psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$KEY2_AFTER_RETIRE" <<'SQL' >/dev/null
 BEGIN;
 SELECT stonez_context_private.verify_bulk_import_context(:'token');

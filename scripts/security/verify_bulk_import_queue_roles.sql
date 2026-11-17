@@ -1,5 +1,5 @@
--- Read-only role-preparation assertions. Run after provisioning but BEFORE
--- install_bulk_import_claim_function.sql, using a role that can inspect ACLs.
+-- Read-only role assertions. Run once after role provisioning (before function
+-- installation) and again after function/login provisioning to verify final ACLs.
 DO $$
 DECLARE
     owner_role pg_roles%ROWTYPE;

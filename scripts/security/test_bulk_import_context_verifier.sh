@@ -35,18 +35,18 @@ VALUES ('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-22222222
 ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','22222222-2222-4222-8222-222222222222',
 '33333333-3333-4333-8333-333333333333','dddddddd-dddd-4ddd-8ddd-dddddddddddd',
 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee','running',clock_timestamp());
-CREATE TABLE public.users(id uuid PRIMARY KEY, school_id uuid, email text);
-CREATE TABLE public.students(id uuid PRIMARY KEY, school_id uuid NOT NULL);
+CREATE TABLE public.users(id uuid PRIMARY KEY, school_id uuid, email text, role text, password_hash text);
+CREATE TABLE public.students(id uuid PRIMARY KEY, school_id uuid NOT NULL, admission_number text);
 INSERT INTO public.students(id,school_id) VALUES
 ('21212121-2121-4212-8212-212121212121','22222222-2222-4222-8222-222222222222'),
 ('23232323-2323-4323-8323-232323232323','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
-CREATE TABLE public.teacher_profiles(id uuid PRIMARY KEY, school_id uuid NOT NULL);
-CREATE TABLE public.parent_profiles(id uuid PRIMARY KEY, school_id uuid NOT NULL);
-CREATE TABLE public.academic_sessions(id uuid PRIMARY KEY, school_id uuid NOT NULL);
-CREATE TABLE public.school_classes(id uuid PRIMARY KEY, school_id uuid NOT NULL);
-CREATE TABLE public.sections(id uuid PRIMARY KEY, school_id uuid NOT NULL);
-CREATE TABLE public.student_enrollments(id uuid PRIMARY KEY, school_id uuid NOT NULL);
-CREATE TABLE public.guardian_relationships(id uuid PRIMARY KEY, school_id uuid NOT NULL);
+CREATE TABLE public.teacher_profiles(id uuid PRIMARY KEY, school_id uuid NOT NULL, staff_id text);
+CREATE TABLE public.parent_profiles(id uuid PRIMARY KEY, school_id uuid NOT NULL, parent_identifier text, user_id uuid);
+CREATE TABLE public.academic_sessions(id uuid PRIMARY KEY, school_id uuid NOT NULL, name text, status text);
+CREATE TABLE public.school_classes(id uuid PRIMARY KEY, school_id uuid NOT NULL, name text);
+CREATE TABLE public.sections(id uuid PRIMARY KEY, school_id uuid NOT NULL, class_id uuid, name text);
+CREATE TABLE public.student_enrollments(id uuid PRIMARY KEY, school_id uuid NOT NULL, student_id uuid, academic_session_id uuid, status text);
+CREATE TABLE public.guardian_relationships(id uuid PRIMARY KEY, school_id uuid NOT NULL, guardian_user_id uuid, student_id uuid);
 SQL
 
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_context_verifier.sql

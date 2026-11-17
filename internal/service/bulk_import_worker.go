@@ -242,7 +242,7 @@ func (s *BulkImportService) updateClaimedJob(job models.BulkImportJob, workerID 
 		if workerID != uuid.Nil {
 			query = query.Where("worker_id = ?", workerID)
 		}
-		result := query.Updates(values)
+		result := query.UpdateColumns(values)
 		if result.Error != nil {
 			return result.Error
 		}

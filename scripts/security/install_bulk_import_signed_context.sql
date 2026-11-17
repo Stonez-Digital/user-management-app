@@ -276,10 +276,29 @@ AS $function$
        )
 $function$;
 
+CREATE OR REPLACE FUNCTION stonez_internal.bulk_import_context_key_available(p_key_id text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog
+SET row_security = on
+AS $function$
+    SELECT EXISTS (
+        SELECT 1
+          FROM stonez_internal.bulk_context_keys AS key_row
+         WHERE key_row.key_id = p_key_id
+           AND key_row.enabled
+           AND octet_length(key_row.secret) >= 32
+    )
+$function$;
+
 REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text) FROM PUBLIC;
 REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.current_bulk_import_context() FROM PUBLIC;
+REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.bulk_import_context_key_available(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text) TO stonez_bulk_process_group;
 GRANT EXECUTE ON FUNCTION stonez_internal.current_bulk_import_context() TO stonez_bulk_process_group;
+GRANT EXECUTE ON FUNCTION stonez_internal.bulk_import_context_key_available(text) TO stonez_bulk_process_group;
 
 -- Remove any pre-existing direct EXECUTE grants. Only the dedicated processing
 -- group may call these functions; the NOLOGIN owner retains ownership rights.
@@ -290,7 +309,8 @@ DECLARE
 BEGIN
     FOREACH v_function IN ARRAY ARRAY[
         'stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text)'::regprocedure,
-        'stonez_internal.current_bulk_import_context()'::regprocedure
+        'stonez_internal.current_bulk_import_context()'::regprocedure,
+        'stonez_internal.bulk_import_context_key_available(text)'::regprocedure
     ] LOOP
         FOR v_grantee IN
             SELECT DISTINCT role_row.rolname

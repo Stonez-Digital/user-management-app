@@ -30,9 +30,19 @@ INSERT INTO public.bulk_import_jobs(id,school_id,initiated_by,worker_id,lease_id
 VALUES ('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222',
 '33333333-3333-4333-8333-333333333333','44444444-4444-4444-8444-444444444444',
 '55555555-5555-4555-8555-555555555555','running',clock_timestamp());
+CREATE TABLE public.users(id uuid PRIMARY KEY, school_id uuid, email text);
+CREATE TABLE public.students(id uuid PRIMARY KEY, school_id uuid NOT NULL);
+CREATE TABLE public.teacher_profiles(id uuid PRIMARY KEY, school_id uuid NOT NULL);
+CREATE TABLE public.parent_profiles(id uuid PRIMARY KEY, school_id uuid NOT NULL);
+CREATE TABLE public.academic_sessions(id uuid PRIMARY KEY, school_id uuid NOT NULL);
+CREATE TABLE public.school_classes(id uuid PRIMARY KEY, school_id uuid NOT NULL);
+CREATE TABLE public.sections(id uuid PRIMARY KEY, school_id uuid NOT NULL);
+CREATE TABLE public.student_enrollments(id uuid PRIMARY KEY, school_id uuid NOT NULL);
+CREATE TABLE public.guardian_relationships(id uuid PRIMARY KEY, school_id uuid NOT NULL);
 SQL
 
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_context_verifier.sql
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_context_worker_policies.sql
 psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE ROLE stonez_bulk_worker_processing_test LOGIN PASSWORD 'bulk_context_worker_ci_password' NOSUPERUSER NOBYPASSRLS INHERIT;
 GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_test;

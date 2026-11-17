@@ -121,6 +121,14 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
         QueueRLS bool
         WorkerTableRLSCount int
         PublicPermissivePolicyCount int
+        UserRequiredSelect bool
+        PasswordHashSelectDenied bool
+        StudentInsert bool
+        StudentUpdateDenied bool
+        JobSelect bool
+        JobStatusUpdate bool
+        JobLeaseUpdateDenied bool
+        JobInsertDeleteDenied bool
         QueueSelectPolicy int
         QueueUpdatePolicy int
         VerifierReadPolicy int
@@ -179,6 +187,21 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                     'public.school_classes'::regclass,'public.sections'::regclass,
                     'public.student_enrollments'::regclass,'public.guardian_relationships'::regclass)
                 AND polpermissive AND 0::oid = ANY(polroles)) AS public_permissive_policy_count,
+            (
+                has_column_privilege(session_user,'public.users','id','SELECT')
+                AND has_column_privilege(session_user,'public.users','school_id','SELECT')
+                AND has_column_privilege(session_user,'public.users','email','SELECT')
+                AND has_column_privilege(session_user,'public.users','role','SELECT')
+            ) AS user_required_select,
+            NOT has_column_privilege(session_user,'public.users','password_hash','SELECT') AS password_hash_select_denied,
+            has_table_privilege(session_user,'public.students','INSERT') AS student_insert,
+            NOT has_table_privilege(session_user,'public.students','UPDATE')
+                AND NOT has_table_privilege(session_user,'public.students','DELETE') AS student_update_denied,
+            has_table_privilege(session_user,'public.bulk_import_jobs','SELECT') AS job_select,
+            has_column_privilege(session_user,'public.bulk_import_jobs','status','UPDATE') AS job_status_update,
+            NOT has_column_privilege(session_user,'public.bulk_import_jobs','lease_id','UPDATE') AS job_lease_update_denied,
+            NOT has_table_privilege(session_user,'public.bulk_import_jobs','INSERT')
+                AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','DELETE') AS job_insert_delete_denied,
             (SELECT count(*) FROM pg_policy
               WHERE polname = 'bulk_import_jobs_signed_worker_select'
                 AND polrelid = 'public.bulk_import_jobs'::regclass AND polcmd = 'r' AND polpermissive
@@ -217,6 +240,10 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
        !ready.JobAccessor || !ready.HMAC || !ready.WorkerGroupSafe ||
        !ready.QueueRLS || ready.WorkerTableRLSCount != 9 ||
        ready.PublicPermissivePolicyCount != 0 ||
+       !ready.UserRequiredSelect || !ready.PasswordHashSelectDenied ||
+       !ready.StudentInsert || !ready.StudentUpdateDenied ||
+       !ready.JobSelect || !ready.JobStatusUpdate || !ready.JobLeaseUpdateDenied ||
+       !ready.JobInsertDeleteDenied ||
        ready.QueueSelectPolicy != 1 || ready.QueueUpdatePolicy != 1 ||
        ready.VerifierReadPolicy != 1 || ready.VerifierLockPolicy != 1 ||
        ready.WorkerSelectPolicies != 9 || ready.WorkerInsertPolicies != 6 {

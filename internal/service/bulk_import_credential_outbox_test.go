@@ -167,7 +167,7 @@ func TestBulkImportCredentialOutboxWorkerCrashRetry(t *testing.T) {
 func TestAccountSetupRetryDelayIsBounded(t *testing.T) {
 	cases := []struct { attempt int; want time.Duration }{
 		{0, 30*time.Second}, {1, 30*time.Second}, {2, 60*time.Second},
-		{3, 120*time.Second}, {7, 3600*time.Second}, {20, 3600*time.Second},
+		{3, 120*time.Second}, {7, 1920*time.Second}, {8, 3600*time.Second}, {20, 3600*time.Second},
 	}
 	for _, tc := range cases {
 		if got := accountSetupRetryDelay(tc.attempt); got != tc.want {

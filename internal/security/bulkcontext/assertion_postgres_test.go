@@ -173,7 +173,7 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 		t.Fatalf("create RLS tenant fixture: %v", err)
 	}
 
-	signer, err := bulkcontext.bulkcontext.NewSigner(staticKeySource{key: key}, 2*time.Minute)
+	signer, err := bulkcontext.NewSigner(staticKeySource{key: key}, 2*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}

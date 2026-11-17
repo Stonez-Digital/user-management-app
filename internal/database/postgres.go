@@ -47,6 +47,7 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
         BypassRLS bool
         Inherits bool
         WorkerGroup bool
+        CanSetWorkerGroup bool
         APIRuntime bool
         QueueOwner bool
         ContextOwner bool
@@ -64,6 +65,7 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
                r.rolbypassrls AS bypass_rls,
                r.rolinherit AS inherits,
                pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE') AS worker_group,
+               pg_has_role(session_user, 'stonez_bulk_worker_processing', 'SET') AS can_set_worker_group,
                pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER') AS api_runtime,
                pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER') AS queue_owner,
                pg_has_role(session_user, 'stonez_bulk_context_owner', 'MEMBER') AS context_owner,

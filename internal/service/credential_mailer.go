@@ -70,6 +70,26 @@ func (m *CredentialMailer) SendCredentials(name, email, role, password string) e
 	return m.send(email, subject, body)
 }
 
+// SendAccountSetupNotice never includes a password or reset token. The
+// recipient starts the existing password-reset flow from the portal login.
+func (m *CredentialMailer) SendAccountSetupNotice(name, email, role, eventID string) error {
+	if !m.Enabled() { return fmt.Errorf("account-setup email is not configured") }
+	if strings.TrimSpace(email) == "" || strings.TrimSpace(eventID) == "" {
+		return fmt.Errorf("account-setup recipient and event ID are required")
+	}
+	greeting := strings.TrimSpace(name)
+	if greeting == "" { greeting = "there" }
+	subject := "Your Stonez Digital school portal account is ready"
+	body := fmt.Sprintf(
+		"Hello %s,\\n\\nYour school portal account has been created.\\n\\nRole: %s\\nEmail: %s\\n\\nTo choose your password, visit %s and select Forgot password. We will send a separate, time-limited password-reset link to this email address.\\n\\nFor your security, never share password-reset links or verification codes.\\n\\nStonez Digital",
+		greeting, role, email, m.loginURL,
+	)
+	if m.resendAPIKey != "" {
+		return m.sendViaResendWithIdempotency(email, subject, body, "stonez-account-setup-"+eventID)
+	}
+	return m.send(email, subject, body)
+}
+
 // BuildPasswordResetURL adds the one-time token without discarding existing URL parameters.
 func BuildPasswordResetURL(baseURL, token string) (string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(baseURL))
@@ -103,7 +123,7 @@ func (m *CredentialMailer) SendPasswordReset(name, email, token string) error {
 	return m.send(email, subject, body)
 }
 
-func (m *CredentialMailer) sendViaResend(email, subject, body string) error {
+func (m *CredentialMailer) sendViaResend(email, subject, body string) error {\n\treturn m.sendViaResendWithIdempotency(email, subject, body, \"\")\n}\n\nfunc (m *CredentialMailer) sendViaResendWithIdempotency(email, subject, body, idempotencyKey string) error {
 	if strings.ContainsAny(email, "\r\n") { return fmt.Errorf("invalid recipient email") }
 	payload := struct {
 		From string `json:"from"`
@@ -120,7 +140,7 @@ func (m *CredentialMailer) sendViaResend(email, subject, body string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded))
 	if err != nil { return fmt.Errorf("create Resend request: %w", err) }
 	req.Header.Set("Authorization", "Bearer "+m.resendAPIKey)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/json")\n\tif idempotencyKey != "" { req.Header.Set("Idempotency-Key", idempotencyKey) }
 	client := m.httpClient
 	if client == nil { client = &http.Client{Timeout: 12*time.Second} }
 	resp, err := client.Do(req)

@@ -482,6 +482,7 @@ CREATE TABLE %s.bulk_import_jobs (
     attempts integer NOT NULL DEFAULT 0,
     last_error text NOT NULL DEFAULT '',
     rows_json text NOT NULL DEFAULT '[]',
+    processed_rows_json jsonb NOT NULL DEFAULT '[]'::jsonb,
     errors_json text NOT NULL DEFAULT '[]',
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp()

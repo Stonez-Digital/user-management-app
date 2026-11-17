@@ -407,6 +407,24 @@ BEGIN
 END
 $fn$;
 
+CREATE OR REPLACE FUNCTION stonez_context_private.prune_expired_contexts()
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+AS $fn$
+DECLARE
+    v_deleted bigint;
+BEGIN
+    IF NOT pg_has_role(session_user, 'stonez_bulk_context_key_admin', 'MEMBER') THEN
+        RAISE EXCEPTION 'caller is not authorized to prune verifier contexts' USING ERRCODE = '42501';
+    END IF;
+    -- Assertions expire within 60 seconds (+ five seconds skew). Ten minutes
+    -- preserves a generous replay window while bounding the context ledger.
+    DELETE FROM stonez_context_private.verified_contexts
+     WHERE verified_at < clock_timestamp() - interval '10 minutes';
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    RETURN v_deleted;
+END
+$fn$;
+
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA stonez_context_private FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION stonez_context_private.verify_bulk_import_context(text) TO stonez_bulk_worker_processing;
 GRANT EXECUTE ON FUNCTION stonez_context_private.current_worker_school_id() TO stonez_bulk_worker_processing;
@@ -415,6 +433,7 @@ GRANT EXECUTE ON FUNCTION stonez_context_private.current_worker_job_id() TO ston
 GRANT EXECUTE ON FUNCTION stonez_context_private.register_verification_key(text,bytea,timestamptz,timestamptz) TO stonez_bulk_context_key_admin;
 GRANT EXECUTE ON FUNCTION stonez_context_private.retire_verification_key(text,timestamptz) TO stonez_bulk_context_key_admin;
 GRANT EXECUTE ON FUNCTION stonez_context_private.revoke_verification_key(text) TO stonez_bulk_context_key_admin;
+GRANT EXECUTE ON FUNCTION stonez_context_private.prune_expired_contexts() TO stonez_bulk_context_key_admin;
 
 RESET ROLE;
 COMMIT;

@@ -41,4 +41,19 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 	if err := ValidateBulkImportSignedContextReady(workerDB); err != nil {
 		t.Fatalf("processing login cannot inspect verifier readiness: %v", err)
 	}
+
+	// The readiness gate must inspect the actual restrictive policy expression,
+	// not merely accept a policy with the expected name and command.
+	if err := runnerDB.Exec(`ALTER POLICY bulk_worker_user_role_guard ON public.users WITH CHECK (true)`).Error; err != nil {
+		t.Fatalf("weaken role guard for readiness regression test: %v", err)
+	}
+	if err := ValidateBulkImportSignedContextReady(workerDB); err == nil {
+		t.Fatal("readiness accepted a weakened user-role policy expression")
+	}
+	if err := runnerDB.Exec(`ALTER POLICY bulk_worker_user_role_guard ON public.users WITH CHECK (stonez_context_private.bulk_worker_user_role_allowed(role))`).Error; err != nil {
+		t.Fatalf("restore user-role guard after readiness regression test: %v", err)
+	}
+	if err := ValidateBulkImportSignedContextReady(workerDB); err != nil {
+		t.Fatalf("readiness rejected restored user-role guard: %v", err)
+	}
 }

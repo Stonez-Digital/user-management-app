@@ -67,8 +67,8 @@ func (s *BulkImportService) completeAccountSetupNotification(job models.BulkImpo
 	var completed bool
 	err := s.withTenantTransaction(job, func(tx *gorm.DB) error {
 		result := tx.Raw(
-			"SELECT stonez_context_private.complete_account_setup_notification(?, ?, ?)",
-			notification.EventID, notification.DeliveryLease, "",
+			"SELECT stonez_context_private.complete_account_setup_notification(?, ?, NULL)",
+			notification.EventID, notification.DeliveryLease,
 		).Scan(&completed)
 		return result.Error
 	})

@@ -29,10 +29,11 @@ jobs:
           --health-retries 5
     env:
       TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/usersdb_test?sslmode=disable
-      BULK_QUEUE_SCRIPT_TEST_DATABASE_URL: postgres://bq_script_runner:queue_script_runner_ci_password@localhost:5432/usersdb_test?sslmode=disable
-      BULK_QUEUE_SCRIPT_TEST_RUNTIME_URL: postgres://stonez_bulk_worker:queue_script_worker_ci_password@localhost:5432/usersdb_test?sslmode=disable
-      BULK_QUEUE_SCRIPT_TEST_OUTSIDER_URL: postgres://bq_script_outsider:queue_script_outsider_ci_password@localhost:5432/usersdb_test?sslmode=disable
-      BULK_QUEUE_SCRIPT_TEST_DATABASE: usersdb_test
+      BULK_QUEUE_SCRIPT_TEST_DATABASE_URL: postgres://bq_script_runner:queue_script_runner_ci_password@localhost:5432/bulk_queue_scripts_test?sslmode=disable
+      BULK_QUEUE_SCRIPT_TEST_RUNTIME_URL: postgres://stonez_bulk_worker:queue_script_worker_ci_password@localhost:5432/bulk_queue_scripts_test?sslmode=disable
+      BULK_QUEUE_SCRIPT_TEST_CLAIM_URL: postgres://stonez_bulk_claim_login:queue_script_claim_ci_password@localhost:5432/bulk_queue_scripts_test?sslmode=disable
+      BULK_QUEUE_SCRIPT_TEST_OUTSIDER_URL: postgres://bq_script_outsider:queue_script_outsider_ci_password@localhost:5432/bulk_queue_scripts_test?sslmode=disable
+      BULK_QUEUE_SCRIPT_TEST_DATABASE: bulk_queue_scripts_test
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,9 +41,10 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: |
-          psql -h localhost -U postgres -d usersdb_test -v ON_ERROR_STOP=1 <<'SQL'
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE bulk_queue_scripts_test"
+          psql -h localhost -U postgres -d bulk_queue_scripts_test -v ON_ERROR_STOP=1 <<'SQL'
           CREATE ROLE bq_script_runner LOGIN CREATEROLE NOSUPERUSER NOBYPASSRLS PASSWORD 'queue_script_runner_ci_password';
-          GRANT CREATE ON DATABASE usersdb_test TO bq_script_runner;
+          GRANT CREATE ON DATABASE bulk_queue_scripts_test TO bq_script_runner;
           ALTER SCHEMA public OWNER TO bq_script_runner;
           SQL
       - name: Execute actual bulk-import queue SQL scripts against disposable PostgreSQL
@@ -53,4 +55,4 @@ jobs:
           go-version: '1.26.x'
           cache: true
       - name: Test
-        run: go test ./...
+        run: go test -p 1 ./...

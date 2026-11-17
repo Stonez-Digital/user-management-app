@@ -106,7 +106,8 @@ func TestBulkImportCredentialOutboxWorkerCrashRetry(t *testing.T) {
 		t.Fatalf("row handler exposed an unexpected credential or creation state: created=%t skipped=%t password=%q", created, skipped, temporaryPassword)
 	}
 	var accountID uuid.UUID
-	if err := admin.Raw("SELECT id FROM public.users WHERE email=?", email).Scan(&accountID).Error; err != nil { t.Fatal(err) }
+	accountRow := admin.Raw("SELECT id FROM public.users WHERE email=?", email).Row()
+	if err := accountRow.Scan(&accountID); err != nil { t.Fatal(err) }
 	if accountID == uuid.Nil { t.Fatal("account transaction did not persist the imported user") }
 	var eventID string
 	if err := admin.Raw("SELECT event_id::text FROM stonez_context_private.account_setup_outbox WHERE job_id=? AND user_id=?", jobID, accountID).Scan(&eventID).Error; err != nil { t.Fatal(err) }

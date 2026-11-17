@@ -261,10 +261,16 @@ AS $function$
              WHERE job.id = session_row.job_id
                AND job.school_id = session_row.school_id
                AND job.initiated_by = session_row.initiated_by
-               AND job.worker_id = session_row.worker_id
                AND job.lease_generation = session_row.lease_generation
-               AND job.status = 'running'
-               AND job.claimed_at >= clock_timestamp() - interval '5 minutes'
+               AND (
+                    (job.status = 'running'
+                     AND job.worker_id = session_row.worker_id
+                     AND job.claimed_at >= clock_timestamp() - interval '5 minutes')
+                    OR
+                    (job.status IN ('completed', 'completed_with_errors', 'failed')
+                     AND job.worker_id IS NULL
+                     AND job.claimed_at IS NULL)
+               )
        )
 $function$;
 
@@ -272,6 +278,48 @@ REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.verify_bulk_import_context(tex
 REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.current_bulk_import_context() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text) TO stonez_bulk_process_group;
 GRANT EXECUTE ON FUNCTION stonez_internal.current_bulk_import_context() TO stonez_bulk_process_group;
+
+-- The processing group can inspect and update only the job's operational
+-- progress fields. It cannot read the stored import payload or change lease
+-- ownership/generation.
+GRANT SELECT ON TABLE public.bulk_import_jobs TO stonez_bulk_process_group;
+GRANT UPDATE (
+    status, created, skipped, failed, credentials_sent,
+    credential_emails_failed, errors_json, claimed_at, worker_id,
+    last_error, updated_at
+) ON TABLE public.bulk_import_jobs TO stonez_bulk_process_group;
+
+DROP POLICY IF EXISTS bulk_import_jobs_processing_select ON public.bulk_import_jobs;
+CREATE POLICY bulk_import_jobs_processing_select
+    ON public.bulk_import_jobs FOR SELECT TO stonez_bulk_process_group
+    USING (
+        EXISTS (
+            SELECT 1 FROM stonez_internal.current_bulk_import_context() AS ctx
+             WHERE ctx.job_id = bulk_import_jobs.id
+               AND ctx.school_id = bulk_import_jobs.school_id
+               AND ctx.initiated_by = bulk_import_jobs.initiated_by
+        )
+    );
+
+DROP POLICY IF EXISTS bulk_import_jobs_processing_update ON public.bulk_import_jobs;
+CREATE POLICY bulk_import_jobs_processing_update
+    ON public.bulk_import_jobs FOR UPDATE TO stonez_bulk_process_group
+    USING (
+        EXISTS (
+            SELECT 1 FROM stonez_internal.current_bulk_import_context() AS ctx
+             WHERE ctx.job_id = bulk_import_jobs.id
+               AND ctx.school_id = bulk_import_jobs.school_id
+               AND ctx.initiated_by = bulk_import_jobs.initiated_by
+        )
+    )
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM stonez_internal.current_bulk_import_context() AS ctx
+             WHERE ctx.job_id = bulk_import_jobs.id
+               AND ctx.school_id = bulk_import_jobs.school_id
+               AND ctx.initiated_by = bulk_import_jobs.initiated_by
+        )
+    );
 
 RESET ROLE;
 REVOKE stonez_bulk_context_owner FROM CURRENT_USER;

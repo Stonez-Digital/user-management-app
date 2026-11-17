@@ -42,16 +42,9 @@ func (s *BulkImportService) withTenantTransaction(job models.BulkImportJob, fn f
 				return errors.New("bulk import worker lease generation is missing")
 			}
 			var lease models.BulkImportJob
-			leaseClock := time.Now().UTC()
-			if tx.Dialector.Name() == "postgres" {
-				if err := tx.Raw("SELECT clock_timestamp()").Scan(&leaseClock).Error; err != nil {
-					return err
-				}
-			}
-			cutoff := leaseClock.Add(-bulkImportClaimLease)
 			leaseQuery := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-				Where("id = ? AND school_id = ? AND initiated_by = ? AND worker_id = ? AND status = ? AND claimed_at >= ?",
-					job.ID, job.SchoolID, job.InitiatedBy, *job.WorkerID, models.BulkImportRunning, cutoff)
+				Where("id = ? AND school_id = ? AND initiated_by = ? AND worker_id = ? AND status = ?",
+					job.ID, job.SchoolID, job.InitiatedBy, *job.WorkerID, models.BulkImportRunning)
 			// The lease generation changes on every claim/reclaim. Include it
 			// in the locked predicate so replacement cannot race verification.
 			leaseQuery = leaseQuery.Where("lease_id = ?", *job.LeaseID)
@@ -61,6 +54,18 @@ func (s *BulkImportService) withTenantTransaction(job models.BulkImportJob, fn f
 					return errors.New("bulk import worker lease was lost or expired")
 				}
 				return err
+			}
+			// Check expiry only after acquiring the row lock. A timestamp
+			// captured before a lock wait could otherwise authorize a lease
+			// that expired while this transaction was blocked.
+			leaseClock := time.Now().UTC()
+			if tx.Dialector.Name() == "postgres" {
+				if err := tx.Raw("SELECT clock_timestamp()").Scan(&leaseClock).Error; err != nil {
+					return err
+				}
+			}
+			if lease.ClaimedAt == nil || lease.ClaimedAt.Before(leaseClock.Add(-bulkImportClaimLease)) {
+				return errors.New("bulk import worker lease was lost or expired")
 			}
 		}
 		return fn(tx)

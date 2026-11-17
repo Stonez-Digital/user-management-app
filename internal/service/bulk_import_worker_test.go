@@ -55,7 +55,7 @@ func TestBulkWorkerRejectsInitiatorFromDifferentSchool(t *testing.T) {
 	if err := db.Create(&user).Error; err != nil { t.Fatal(err) }
 	job := models.BulkImportJob{
 		ID: uuid.New(), SchoolID: schoolID, InitiatedBy: actor, Kind: "students", FileName: "bad.csv",
-		Status: models.BulkImportRunning, WorkerID: &workerID, ClaimedAt: timePtr(time.Now().UTC()),
+		Status: models.BulkImportRunning, WorkerID: &workerID, LeaseID: uuidPtr(uuid.New()), ClaimedAt: timePtr(time.Now().UTC()),
 	}
 	if err := db.Create(&job).Error; err != nil { t.Fatal(err) }
 	worker := NewBulkImportService(db, nil)
@@ -66,6 +66,7 @@ func TestBulkWorkerRejectsInitiatorFromDifferentSchool(t *testing.T) {
 }
 
 func timePtr(v time.Time) *time.Time { return &v }
+func uuidPtr(v uuid.UUID) *uuid.UUID { return &v }
 
 func TestBulkWorkerRecoveryDoesNotDuplicatePreviouslyImportedStudent(t *testing.T) {
 	db := bulkTestDB(t)
@@ -114,7 +115,7 @@ func TestBulkWorkerExpiredLeaseCannotCommitAnotherRow(t *testing.T) {
 	if err := db.Create(&actorUser).Error; err != nil { t.Fatal(err) }
 	rows, _ := json.Marshal([]BulkRow{{"name":"Stale Worker Student","email":"stale-worker@example.com","admission_number":"STALE-001"}})
 	expired := time.Now().UTC().Add(-2 * bulkImportClaimLease)
-	job := models.BulkImportJob{SchoolID: schoolID, InitiatedBy: actor, Kind: "students", FileName: "stale.csv", Status: models.BulkImportRunning, RowsJSON: string(rows), WorkerID: &staleWorker, ClaimedAt: &expired, Attempts: 1}
+	job := models.BulkImportJob{SchoolID: schoolID, InitiatedBy: actor, Kind: "students", FileName: "stale.csv", Status: models.BulkImportRunning, RowsJSON: string(rows), WorkerID: &staleWorker, LeaseID: uuidPtr(uuid.New()), ClaimedAt: &expired, Attempts: 1}
 	if err := db.Create(&job).Error; err != nil { t.Fatal(err) }
 	NewBulkImportService(db, nil).processClaimed(job, staleWorker)
 	var users int64

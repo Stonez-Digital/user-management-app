@@ -177,6 +177,13 @@ func TestBulkImportCredentialOutboxWorkerCrashRetry(t *testing.T) {
 	if final.Status != "delivered" || final.AttemptCount != 2 {
 		t.Fatalf("restarted worker did not complete the durable event: %+v", final)
 	}
+	var userCount, studentCount, eventCount int
+	if err := admin.Raw("SELECT count(*) FROM public.users WHERE email=?", email).Scan(&userCount).Error; err != nil { t.Fatal(err) }
+	if err := admin.Raw("SELECT count(*) FROM public.students WHERE school_id=? AND admission_number='OUTBOX-001'", schoolID).Scan(&studentCount).Error; err != nil { t.Fatal(err) }
+	if err := admin.Raw("SELECT count(*) FROM stonez_context_private.account_setup_outbox WHERE job_id=? AND user_id=?", jobID, accountID).Scan(&eventCount).Error; err != nil { t.Fatal(err) }
+	if userCount != 1 || studentCount != 1 || eventCount != 1 {
+		t.Fatalf("worker restart duplicated durable import state: users=%d students=%d events=%d", userCount, studentCount, eventCount)
+	}
 	var finalJob struct { Status string; Created int; Skipped int; CredentialsSent int; CredentialEmailsFailed int }
 	if err := admin.Raw("SELECT status,created,skipped,credentials_sent,credential_emails_failed FROM public.bulk_import_jobs WHERE id=?", jobID).Scan(&finalJob).Error; err != nil { t.Fatal(err) }
 	if finalJob.Status != models.BulkImportCompleted || finalJob.Created != 1 || finalJob.Skipped != 0 || finalJob.CredentialsSent != 1 || finalJob.CredentialEmailsFailed != 0 {

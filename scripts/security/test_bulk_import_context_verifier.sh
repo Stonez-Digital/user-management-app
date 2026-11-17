@@ -607,6 +607,24 @@ if [[ "$failed_enqueue_user_count" != "0" ]]; then
   exit 1
 fi
 
+# The SECURITY DEFINER identity lookup is itself tenant-scoped by RLS.
+FOREIGN_USER_ID="96969696-9696-4969-8969-969696969696"
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "INSERT INTO public.users(id,school_id,name,email,password_hash,role,active) VALUES ('$FOREIGN_USER_ID','99999999-9999-4999-8999-999999999999','Foreign Student','foreign-user@example.test','non-secret-test-hash','student',true)"
+FOREIGN_ENQUEUE_JTI="95959595-9595-4959-8959-959595959595"
+FOREIGN_ENQUEUE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-outbox-key","typ":"JWT"}' "$(payload "$FOREIGN_ENQUEUE_JTI" "$OUTBOX_NOW" "$((OUTBOX_NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$OUTBOX_KEY_HEX")"
+if psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$FOREIGN_ENQUEUE_TOKEN" -v user_id="$FOREIGN_USER_ID" <<'SQL' >/dev/null 2>&1
+BEGIN;
+SELECT stonez_context_private.verify_bulk_import_context(:'token');
+SELECT stonez_context_private.enqueue_account_setup_notification(
+    :'user_id','foreign-user@example.test','Foreign Student','student'
+);
+COMMIT;
+SQL
+then
+  echo "Verified school context unexpectedly enqueued a different school's user" >&2
+  exit 1
+fi
+
 # Claims and counts are bound to both the verified school and exact job.
 FOREIGN_EVENT_ID="48484848-4848-4848-8484-484848484848"
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "INSERT INTO stonez_context_private.account_setup_outbox(event_id,school_id,job_id,user_id,recipient_email,account_role) VALUES ('$FOREIGN_EVENT_ID','99999999-9999-4999-8999-999999999999','98989898-9898-4989-8989-989898989898','97979797-9797-4979-8979-979797979797','foreign@example.test','student')"

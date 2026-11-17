@@ -150,7 +150,7 @@ func stagingAcceptanceDB(t *testing.T) *gorm.DB {
 			script = strings.ReplaceAll(script, "stonez_auth_session_owner", sessionOwnerRole)
 			script = strings.ReplaceAll(script, "stonez_api_runtime", apiRole)
 			script = strings.ReplaceAll(script, "public", schema)
-			return strings.ReplaceAll(script, "\\set ON_ERROR_STOP on\\n", "")
+			return strings.ReplaceAll(script, "\\set ON_ERROR_STOP on\n", "")
 		}
 		for _, name := range []string{"provision_auth_bootstrap_roles.sql", "install_auth_bootstrap_functions.sql", "verify_auth_bootstrap_boundary.sql"} {
 			if err := bootstrap.Exec(readScript(name)).Error; err != nil {

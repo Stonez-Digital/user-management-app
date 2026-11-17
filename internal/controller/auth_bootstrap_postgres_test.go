@@ -51,6 +51,7 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 	}
 	cleanup := func() {
 		_ = admin.Exec("REVOKE " + apiRole + " FROM " + loginRole).Error
+		_ = admin.Exec("DROP SCHEMA IF EXISTS " + privateSchema + " CASCADE").Error
 		_ = admin.Exec("DROP SCHEMA IF EXISTS " + tableSchema + " CASCADE").Error
 		for _, role := range []string{loginRole, apiRole, ownerRole, sessionOwnerRole} {
 			_ = admin.Exec("DROP OWNED BY " + role).Error

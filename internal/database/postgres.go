@@ -419,15 +419,22 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                 AND to_regprocedure('stonez_context_private.complete_account_setup_notification(uuid,uuid,text)') IS NOT NULL
                 AND to_regprocedure('stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)') IS NOT NULL
                 AND to_regprocedure('stonez_context_private.account_setup_notification_counts()') IS NOT NULL
-                AND EXISTS (
-                    SELECT 1 FROM pg_proc AS p
-                    JOIN pg_namespace AS n ON n.oid=p.pronamespace
-                    JOIN pg_roles AS owner_role ON owner_role.oid=p.proowner
-                    WHERE n.nspname='stonez_context_private'
-                      AND p.proname='enqueue_account_setup_notification'
-                      AND p.prosecdef
-                      AND p.proconfig @> ARRAY['search_path=pg_catalog']
-                      AND owner_role.rolname='stonez_bulk_context_owner'
+                AND (
+                    SELECT count(*)=5
+                       AND bool_and(p.prosecdef
+                           AND p.proconfig @> ARRAY['search_path=pg_catalog']
+                           AND owner_role.rolname='stonez_bulk_context_owner')
+                      FROM pg_proc AS p
+                      JOIN pg_namespace AS n ON n.oid=p.pronamespace
+                      JOIN pg_roles AS owner_role ON owner_role.oid=p.proowner
+                     WHERE n.nspname='stonez_context_private'
+                       AND p.proname=ANY(ARRAY[
+                           'enqueue_account_setup_notification',
+                           'claim_account_setup_notification',
+                           'complete_account_setup_notification',
+                           'retry_account_setup_notification',
+                           'account_setup_notification_counts'
+                       ]::text[])
                 )
             ) AS outbox_functions,
             CASE WHEN to_regclass('stonez_context_private.account_setup_outbox') IS NULL THEN false

@@ -124,7 +124,7 @@ func (m *CredentialMailer) SendPasswordReset(name, email, token string) error {
 }
 
 func (m *CredentialMailer) sendViaResend(email, subject, body string) error {
-	return m.sendViaResendWithIdempotency(email, subject, body, \"\")
+	return m.sendViaResendWithIdempotency(email, subject, body, "")
 }
 
 func (m *CredentialMailer) sendViaResendWithIdempotency(email, subject, body, idempotencyKey string) error {
@@ -144,7 +144,8 @@ func (m *CredentialMailer) sendViaResendWithIdempotency(email, subject, body, id
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded))
 	if err != nil { return fmt.Errorf("create Resend request: %w", err) }
 	req.Header.Set("Authorization", "Bearer "+m.resendAPIKey)
-	req.Header.Set("Content-Type", "application/json")\n\tif idempotencyKey != "" { req.Header.Set("Idempotency-Key", idempotencyKey) }
+	req.Header.Set("Content-Type", "application/json")
+	if idempotencyKey != "" { req.Header.Set("Idempotency-Key", idempotencyKey) }
 	client := m.httpClient
 	if client == nil { client = &http.Client{Timeout: 12*time.Second} }
 	resp, err := client.Do(req)

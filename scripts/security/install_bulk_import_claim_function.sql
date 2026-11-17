@@ -20,6 +20,14 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'stonez_api_runtime is missing or has unsafe attributes';
     END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_roles
+        WHERE rolname = 'stonez_bulk_claim_group'
+          AND rolcanlogin = false AND rolsuper = false AND rolbypassrls = false
+          AND rolcreatedb = false AND rolcreaterole = false AND rolinherit = true
+    ) THEN
+        RAISE EXCEPTION 'stonez_bulk_claim_group is missing or has unsafe attributes';
+    END IF;
 
     IF pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_owner', 'MEMBER')
        OR EXISTS (
@@ -99,7 +107,7 @@ BEGIN
     END IF;
 END
 $$;
-GRANT USAGE ON SCHEMA stonez_internal TO stonez_api_runtime;
+GRANT USAGE ON SCHEMA stonez_internal TO stonez_api_runtime, stonez_bulk_claim_group;
 
 -- Normal school-facing API operations keep tenant-scoped table access. The
 -- global worker claim remains isolated behind the SECURITY DEFINER function.
@@ -162,8 +170,8 @@ DECLARE
 BEGIN
     -- MEMBER alone is insufficient: PostgreSQL 16+ gives a CREATEROLE
     -- creator a non-inheriting, non-SET ADMIN membership in roles it creates.
-    -- Require effective inherited runtime privileges and a non-privileged
-    -- login; explicitly reject queue-owner membership.
+    -- Require the dedicated inherited claim capability and a non-privileged
+    -- login; explicitly reject API-runtime and queue-owner memberships.
     IF NOT EXISTS (
         SELECT 1
           FROM pg_roles AS caller
@@ -173,8 +181,16 @@ BEGIN
            AND NOT caller.rolbypassrls
            AND NOT caller.rolcreatedb
            AND NOT caller.rolcreaterole
-           AND pg_has_role(session_user, 'stonez_api_runtime', 'USAGE')
+           AND pg_has_role(session_user, 'stonez_bulk_claim_group', 'USAGE')
+           AND NOT pg_has_role(session_user, 'stonez_bulk_claim_group', 'SET')
+           AND NOT pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER')
            AND NOT pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')
+           AND NOT EXISTS (
+                SELECT 1 FROM pg_roles AS privileged
+                 WHERE (privileged.rolsuper OR privileged.rolbypassrls)
+                   AND privileged.rolname <> 'stonez_bulk_claim_group'
+                   AND pg_has_role(session_user, privileged.oid, 'MEMBER')
+           )
     ) THEN
         RAISE EXCEPTION 'caller is not an authorized non-privileged API runtime login';
     END IF;
@@ -222,7 +238,7 @@ BEGIN
           CROSS JOIN LATERAL aclexplode(COALESCE(procedure.proacl, acldefault('f', procedure.proowner))) AS function_privilege
           JOIN pg_roles AS grantee_role ON grantee_role.oid = function_privilege.grantee
          WHERE procedure.oid = 'stonez_internal.claim_next_bulk_import_job(uuid)'::regprocedure
-           AND grantee_role.rolname NOT IN ('stonez_bulk_queue_owner', 'stonez_api_runtime')
+           AND grantee_role.rolname NOT IN ('stonez_bulk_queue_owner', 'stonez_bulk_claim_group')
     LOOP
         EXECUTE format(
             'REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) FROM %I',
@@ -231,7 +247,7 @@ BEGIN
     END LOOP;
 END
 $$;
-GRANT EXECUTE ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) TO stonez_api_runtime;
+GRANT EXECUTE ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) TO stonez_bulk_claim_group;
 
 RESET ROLE;
 -- Remove only the temporary self-membership used for SET ROLE. PostgreSQL's
@@ -270,7 +286,7 @@ BEGIN
                AND (function_privilege.grantee = 0
                     OR function_privilege.grantee NOT IN (
                         procedure.proowner,
-                        (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime')
+                        (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_claim_group')
                     ))
        )
        OR EXISTS (
@@ -282,6 +298,7 @@ BEGIN
                     OR schema_privilege.grantee NOT IN (
                         private_schema.nspowner,
                         (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime'),
+                        (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_claim_group'),
                         (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner')
                     ))
        )
@@ -289,7 +306,11 @@ BEGIN
        OR has_schema_privilege('stonez_api_runtime', 'stonez_internal', 'CREATE')
        OR has_schema_privilege('stonez_api_runtime', 'public', 'CREATE')
        OR has_schema_privilege('stonez_bulk_queue_owner', 'stonez_internal', 'CREATE')
-       OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE')
+       OR NOT has_function_privilege('stonez_bulk_claim_group', 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE')
+       OR has_function_privilege('stonez_api_runtime', 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE')
+       OR NOT has_schema_privilege('stonez_bulk_claim_group', 'stonez_internal', 'USAGE')
+       OR NOT has_schema_privilege('stonez_bulk_claim_group', 'public', 'USAGE')
+       OR has_schema_privilege('stonez_bulk_claim_group', 'public', 'CREATE')
        OR NOT EXISTS (
             SELECT 1 FROM pg_class
              WHERE oid = 'public.bulk_import_jobs'::regclass

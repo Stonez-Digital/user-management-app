@@ -110,29 +110,21 @@ func(s *BulkImportService)ResumePending(){if s.workerOnce==nil{s.workerOnce=&syn
 func(s *BulkImportService)Start(schoolID,actor,jobID uuid.UUID)error{var j models.BulkImportJob;if e:=s.db.Where("id=? AND school_id=? AND initiated_by=?",jobID,schoolID,actor).First(&j).Error;e!=nil{return e};if j.Status!=models.BulkImportPending{return errors.New("import job is not pending")};if j.SendCredentials&&(s.mailer==nil||!s.mailer.Enabled()){return errors.New("credential email is not configured on the server")};result:=s.db.Model(&models.BulkImportJob{}).Where("id=? AND school_id=? AND initiated_by=? AND status=?",jobID,schoolID,actor,models.BulkImportPending).Update("status",models.BulkImportQueued);if result.Error!=nil{return result.Error};if result.RowsAffected!=1{return errors.New("import job is not pending")};return nil}
 func mustJSON(v any)string{b,_:=json.Marshal(v);return string(b)}
 
-func(s *BulkImportService)processRow(j models.BulkImportJob,row BulkRow)(bool,bool,string,string,string,error){
+func(s *BulkImportService)processRow(j models.BulkImportJob,row BulkRow,rowNumber int)(bool,bool,string,string,string,error){
  name:=strings.TrimSpace(row["name"]);if name==""{name=strings.TrimSpace(strings.Join([]string{row["first_name"],row["last_name"]}," "))}
  email:=strings.ToLower(strings.TrimSpace(row["email"]))
- if j.Kind=="students"{return s.processStudent(j,name,email,row)}
- if j.Kind=="parents"{return s.processParent(j,name,email,row)}
- return s.processTeacher(j,name,email,row)
-}
-func(s *BulkImportService)recordCreatedBulkImportRow(tx *gorm.DB,j models.BulkImportJob)error{
- result:=tx.Model(&models.BulkImportJob{}).Where("id=? AND school_id=? AND initiated_by=?",j.ID,j.SchoolID,j.InitiatedBy).UpdateColumn("created",gorm.Expr("created + 1"))
- if result.Error!=nil{return result.Error}
- if result.RowsAffected!=1{return errors.New("bulk import job progress row is no longer available")}
- return nil
+ if j.Kind=="students"{return s.processStudent(j,name,email,row,rowNumber)}
+ if j.Kind=="parents"{return s.processParent(j,name,email,row,rowNumber)}
+ return s.processTeacher(j,name,email,row,rowNumber)
 }
 func(s *BulkImportService)createUser(tx *gorm.DB,schoolID uuid.UUID,name,email,role string)(models.User,string,bool,error){
  if email==""{return models.User{},"",false,errors.New("email is required for account setup")}
  var u models.User
- if e:=tx.Select("id", "school_id", "email", "role").Where("LOWER(email)=?",email).First(&u).Error;e==nil {
-  if u.SchoolID==nil || *u.SchoolID!=schoolID{return u,"",false,fmt.Errorf("email %q already belongs to another tenant",email)}
+ if e:=tx.Select("id","school_id","email","role").Where("LOWER(email)=?",email).First(&u).Error;e==nil{
+  if u.SchoolID==nil||*u.SchoolID!=schoolID{return u,"",false,fmt.Errorf("email %q already belongs to another tenant",email)}
   if u.Role!=role{return u,"",false,fmt.Errorf("email %q already belongs to a user with role %q",email,u.Role)}
   return u,"",false,nil
- } else if !errors.Is(e,gorm.ErrRecordNotFound){return u,"",false,e}
- // Create a random, unusable-to-the-recipient initial secret hash. The
- // plaintext is discarded here and is never returned, queued, logged or mailed.
+ }else if !errors.Is(e,gorm.ErrRecordNotFound){return u,"",false,e}
  password,e:=GenerateTemporaryPassword();if e!=nil{return u,"",false,e}
  hash,e:=auth.HashPassword(password);if e!=nil{return u,"",false,e}
  password=""
@@ -140,14 +132,35 @@ func(s *BulkImportService)createUser(tx *gorm.DB,schoolID uuid.UUID,name,email,r
  if e=tx.Create(&u).Error;e!=nil{return u,"",false,e}
  return u,"",true,nil
 }
-func(s *BulkImportService)processStudent(j models.BulkImportJob,name,email string,row BulkRow)(bool,bool,string,string,string,error){
+func(s *BulkImportService)recordProcessedBulkImportRow(tx *gorm.DB,j models.BulkImportJob,rowNumber int,created,skipped bool)error{
+ if rowNumber<2{return errors.New("bulk import row number is invalid")}
+ var progress struct{ProcessedRowsJSON string}
+ if e:=tx.Model(&models.BulkImportJob{}).Select("processed_rows_json").Where("id=? AND school_id=? AND initiated_by=?",j.ID,j.SchoolID,j.InitiatedBy).First(&progress).Error;e!=nil{return e}
+ processed:=[]int{}
+ if strings.TrimSpace(progress.ProcessedRowsJSON)!=""{
+  if e:=json.Unmarshal([]byte(progress.ProcessedRowsJSON),&processed);e!=nil{return fmt.Errorf("decode processed-row progress: %w",e)}
+ }
+ for _,existing:=range processed{if existing==rowNumber{return nil}}
+ processed=append(processed,rowNumber)
+ values:=map[string]any{"processed_rows_json":mustJSON(processed)}
+ if created{values["created"]=gorm.Expr("created + 1")}
+ if skipped{values["skipped"]=gorm.Expr("skipped + 1")}
+ result:=tx.Model(&models.BulkImportJob{}).Where("id=? AND school_id=? AND initiated_by=?",j.ID,j.SchoolID,j.InitiatedBy).Updates(values)
+ if result.Error!=nil{return result.Error}
+ if result.RowsAffected!=1{return errors.New("bulk import job progress row is no longer available")}
+ return nil
+}
+func(s *BulkImportService)processStudent(j models.BulkImportJob,name,email string,row BulkRow,rowNumber int)(bool,bool,string,string,string,error){
  var created,skipped bool
  userEmail:=email
  role:=authz.RoleStudent
  e:=s.withTenantTransaction(j,func(tx *gorm.DB)error{
   var st models.Student
   ad:=strings.TrimSpace(row["admission_number"])
-  if e:=tx.Select("id").Where("school_id=? AND admission_number=?",j.SchoolID,ad).First(&st).Error;e==nil{skipped=true;return nil}else if !errors.Is(e,gorm.ErrRecordNotFound){return e}
+  if e:=tx.Select("id").Where("school_id=? AND admission_number=?",j.SchoolID,ad).First(&st).Error;e==nil{
+   skipped=true
+   return s.recordProcessedBulkImportRow(tx,j,rowNumber,false,true)
+  }else if !errors.Is(e,gorm.ErrRecordNotFound){return e}
   u,_,wasCreated,e:=s.createUser(tx,j.SchoolID,name,email,authz.RoleStudent)
   created=wasCreated
   userEmail=u.Email
@@ -156,35 +169,52 @@ func(s *BulkImportService)processStudent(j models.BulkImportJob,name,email strin
   if v:=row["gender"];v!=""{st.Gender=v}
   if e=tx.Create(&st).Error;e!=nil{return e}
   if e=s.maybeEnroll(tx,j.SchoolID,st.ID,row);e!=nil{return e}
-  if created { if e=s.recordCreatedBulkImportRow(tx,j);e!=nil{return e} }
-  if created { if e:=s.recordCreatedBulkImportRow(tx,j);e!=nil{return e} }
+  if e=s.recordProcessedBulkImportRow(tx,j,rowNumber,created,false);e!=nil{return e}
   if created&&j.SendCredentials{return s.enqueueAccountSetupNotification(tx,u.ID,u.Email,name,role)}
   return nil
  })
  return created,skipped,userEmail,"",role,e
 }
-func(s *BulkImportService)maybeEnroll(tx *gorm.DB,schoolID,studentID uuid.UUID,row BulkRow)error{sn:=strings.TrimSpace(row["session"]);cn:=strings.TrimSpace(row["class"]);sec:=strings.TrimSpace(row["section"]);if sn==""&&cn==""&&sec==""{return nil};var ses models.AcademicSession;if e:=tx.Select("id", "status").Where("school_id=? AND name=?",schoolID,sn).First(&ses).Error;e!=nil{return fmt.Errorf("academic session %q not found",sn)};if ses.Status==models.AcademicStatusClosed||ses.Status==models.AcademicStatusArchived{return fmt.Errorf("academic session %q is closed or archived",sn)};var cl models.SchoolClass;if e:=tx.Select("id").Where("school_id=? AND lower(name)=lower(?)",schoolID,cn).First(&cl).Error;e!=nil{return fmt.Errorf("class %q not found",cn)};var se models.Section;if e:=tx.Select("id").Where("school_id=? AND class_id=? AND name=?",schoolID,cl.ID,sec).First(&se).Error;e!=nil{return fmt.Errorf("section %q not found",sec)};var exists models.StudentEnrollment;if e:=tx.Select("id").Where("school_id=? AND student_id=? AND academic_session_id=?",schoolID,studentID,ses.ID).First(&exists).Error;e==nil{return nil};var active models.StudentEnrollment;if e:=tx.Select("id").Where("school_id=? AND student_id=? AND status=? AND academic_session_id<>?",schoolID,studentID,models.EnrollmentStatusActive,ses.ID).First(&active).Error;e==nil{return fmt.Errorf("student already has an active enrollment in another academic session")};return tx.Create(&models.StudentEnrollment{SchoolID:schoolID,StudentID:studentID,AcademicSessionID:ses.ID,ClassID:cl.ID,SectionID:se.ID,Status:models.EnrollmentStatusActive,EnrolledAt:time.Now().UTC()}).Error}
-func(s *BulkImportService)processTeacher(j models.BulkImportJob,name,email string,row BulkRow)(bool,bool,string,string,string,error){
+func(s *BulkImportService)maybeEnroll(tx *gorm.DB,schoolID,studentID uuid.UUID,row BulkRow)error{
+ sn:=strings.TrimSpace(row["session"]);cn:=strings.TrimSpace(row["class"]);sec:=strings.TrimSpace(row["section"])
+ if sn==""&&cn==""&&sec==""{return nil}
+ var ses models.AcademicSession
+ if e:=tx.Select("id","status").Where("school_id=? AND name=?",schoolID,sn).First(&ses).Error;e!=nil{return fmt.Errorf("academic session %q not found",sn)}
+ if ses.Status==models.AcademicStatusClosed||ses.Status==models.AcademicStatusArchived{return fmt.Errorf("academic session %q is closed or archived",sn)}
+ var cl models.SchoolClass
+ if e:=tx.Select("id").Where("school_id=? AND lower(name)=lower(?)",schoolID,cn).First(&cl).Error;e!=nil{return fmt.Errorf("class %q not found",cn)}
+ var se models.Section
+ if e:=tx.Select("id").Where("school_id=? AND class_id=? AND name=?",schoolID,cl.ID,sec).First(&se).Error;e!=nil{return fmt.Errorf("section %q not found",sec)}
+ var exists models.StudentEnrollment
+ if e:=tx.Select("id").Where("school_id=? AND student_id=? AND academic_session_id=?",schoolID,studentID,ses.ID).First(&exists).Error;e==nil{return nil}
+ var active models.StudentEnrollment
+ if e:=tx.Select("id").Where("school_id=? AND student_id=? AND status=? AND academic_session_id<>?",schoolID,studentID,models.EnrollmentStatusActive,ses.ID).First(&active).Error;e==nil{return fmt.Errorf("student already has an active enrollment in another academic session")}
+ return tx.Create(&models.StudentEnrollment{SchoolID:schoolID,StudentID:studentID,AcademicSessionID:ses.ID,ClassID:cl.ID,SectionID:se.ID,Status:models.EnrollmentStatusActive,EnrolledAt:time.Now().UTC()}).Error
+}
+func(s *BulkImportService)processTeacher(j models.BulkImportJob,name,email string,row BulkRow,rowNumber int)(bool,bool,string,string,string,error){
  var created,skipped bool
  userEmail:=email
  role:=authz.RoleTeacher
  e:=s.withTenantTransaction(j,func(tx *gorm.DB)error{
   staff:=strings.TrimSpace(row["staff_id"])
   var p models.TeacherProfile
-  if e:=tx.Select("id").Where("school_id=? AND staff_id=?",j.SchoolID,staff).First(&p).Error;e==nil{skipped=true;return nil}else if !errors.Is(e,gorm.ErrRecordNotFound){return e}
+  if e:=tx.Select("id").Where("school_id=? AND staff_id=?",j.SchoolID,staff).First(&p).Error;e==nil{
+   skipped=true
+   return s.recordProcessedBulkImportRow(tx,j,rowNumber,false,true)
+  }else if !errors.Is(e,gorm.ErrRecordNotFound){return e}
   u,_,wasCreated,e:=s.createUser(tx,j.SchoolID,name,email,authz.RoleTeacher)
   created=wasCreated
   userEmail=u.Email
   if e!=nil{return e}
   p=models.TeacherProfile{SchoolID:j.SchoolID,UserID:u.ID,StaffID:staff,Phone:row["phone"],Gender:row["gender"],Department:row["department"],Designation:row["designation"],Subjects:row["subjects"],Classes:row["classes"],Status:row["status"]}
   if e=tx.Create(&p).Error;e!=nil{return e}
-  if created { if e=s.recordCreatedBulkImportRow(tx,j);e!=nil{return e} }
+  if e=s.recordProcessedBulkImportRow(tx,j,rowNumber,created,false);e!=nil{return e}
   if created&&j.SendCredentials{return s.enqueueAccountSetupNotification(tx,u.ID,u.Email,name,role)}
   return nil
  })
  return created,skipped,userEmail,"",role,e
 }
-func(s *BulkImportService)processParent(j models.BulkImportJob,name,email string,row BulkRow)(bool,bool,string,string,string,error){
+func(s *BulkImportService)processParent(j models.BulkImportJob,name,email string,row BulkRow,rowNumber int)(bool,bool,string,string,string,error){
  var created,skipped bool
  userEmail:=email
  role:=authz.RoleParent
@@ -226,6 +256,7 @@ func(s *BulkImportService)processParent(j models.BulkImportJob,name,email string
     if e=tx.Create(&models.GuardianRelationship{SchoolID:j.SchoolID,GuardianUserID:u.ID,StudentID:st.ID,Relationship:strings.TrimSpace(row["relationship"]),Primary:strings.EqualFold(row["primary"],"true")||strings.EqualFold(row["primary"],"yes"),Active:true}).Error;e!=nil{return e}
    }else if e!=nil{return e}
   }
+  if e:=s.recordProcessedBulkImportRow(tx,j,rowNumber,created,skipped);e!=nil{return e}
   if created&&j.SendCredentials{return s.enqueueAccountSetupNotification(tx,u.ID,u.Email,name,role)}
   return nil
  })

@@ -220,6 +220,30 @@ BEGIN
 END
 $fn$;
 
+CREATE OR REPLACE FUNCTION stonez_context_private.account_setup_notification_counts()
+RETURNS TABLE(delivered_count integer, failed_count integer, pending_count integer)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $fn$
+BEGIN
+    IF NOT stonez_context_private.is_eligible_processing_login() THEN
+        RAISE EXCEPTION 'caller is not an eligible signed bulk worker' USING ERRCODE='42501';
+    END IF;
+    RETURN QUERY
+    SELECT
+        count(*) FILTER (WHERE outbox.status='delivered')::integer,
+        count(*) FILTER (WHERE outbox.status='failed')::integer,
+        count(*) FILTER (WHERE outbox.status IN ('pending','claimed'))::integer
+      FROM stonez_context_private.account_setup_outbox AS outbox
+     WHERE outbox.school_id=stonez_context_private.current_worker_school_id()
+       AND outbox.job_id=stonez_context_private.current_worker_job_id();
+END
+$fn$;
+
+REVOKE ALL ON FUNCTION stonez_context_private.account_setup_notification_counts() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION stonez_context_private.account_setup_notification_counts() TO stonez_bulk_worker_processing;
+
 REVOKE ALL ON FUNCTION stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION stonez_context_private.claim_account_setup_notification() FROM PUBLIC;
 REVOKE ALL ON FUNCTION stonez_context_private.complete_account_setup_notification(uuid,uuid,text) FROM PUBLIC;

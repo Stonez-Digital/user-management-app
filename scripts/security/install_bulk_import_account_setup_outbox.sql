@@ -21,10 +21,25 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_class WHERE oid = to_regclass('public.users')) THEN
         RAISE EXCEPTION 'public.users is required';
     END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_class AS relation
+         WHERE relation.oid = 'public.users'::regclass
+           AND relation.relowner = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+    ) THEN
+        RAISE EXCEPTION 'current role % must own public.users to install the restricted identity-read policy', current_user;
+    END IF;
 END
 $preflight$;
 
 GRANT stonez_bulk_context_owner TO CURRENT_USER WITH INHERIT FALSE, SET TRUE;
+-- Install the narrow identity-read boundary while running as the application
+-- table owner; CREATE POLICY and GRANT require that ownership boundary.
+GRANT USAGE ON SCHEMA public TO stonez_bulk_context_owner;
+GRANT SELECT (id,school_id,email,name,role) ON public.users TO stonez_bulk_context_owner;
+DROP POLICY IF EXISTS bulk_worker_outbox_owner_user_read ON public.users;
+CREATE POLICY bulk_worker_outbox_owner_user_read ON public.users
+    FOR SELECT TO stonez_bulk_context_owner USING (true);
+
 SET LOCAL ROLE stonez_bulk_context_owner;
 
 CREATE TABLE IF NOT EXISTS stonez_context_private.account_setup_outbox (
@@ -65,14 +80,6 @@ REVOKE ALL ON stonez_context_private.account_setup_outbox
     FROM PUBLIC, stonez_bulk_worker_processing, stonez_bulk_context_key_admin;
 GRANT SELECT, INSERT, UPDATE ON stonez_context_private.account_setup_outbox
     TO stonez_bulk_context_owner;
-
--- The SECURITY DEFINER owner needs a narrow, read-only identity check so
--- callers cannot turn a valid job assertion into arbitrary email delivery.
-GRANT USAGE ON SCHEMA public TO stonez_bulk_context_owner;
-GRANT SELECT (id,school_id,email,name,role) ON public.users TO stonez_bulk_context_owner;
-DROP POLICY IF EXISTS bulk_worker_outbox_owner_user_read ON public.users;
-CREATE POLICY bulk_worker_outbox_owner_user_read ON public.users
-    FOR SELECT TO stonez_bulk_context_owner USING (true);
 
 CREATE OR REPLACE FUNCTION stonez_context_private.enqueue_account_setup_notice(p_user_id uuid)
 RETURNS uuid

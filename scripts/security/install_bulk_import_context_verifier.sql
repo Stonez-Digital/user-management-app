@@ -22,7 +22,7 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_roles
         WHERE rolname IN ('stonez_bulk_worker_processing','stonez_bulk_context_owner','stonez_bulk_context_key_admin')
-          AND (rolcanlogin OR rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole)
+          AND (rolcanlogin OR rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole OR rolreplication)
     ) THEN
         RAISE EXCEPTION 'bulk context roles have unsafe role attributes';
     END IF;

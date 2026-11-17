@@ -104,6 +104,8 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
         JobAccessor bool
         HMAC bool
         WorkerGroupSafe bool
+        QueueRLS bool
+        WorkerTableRLSCount int
         QueueSelectPolicy int
         QueueUpdatePolicy int
         VerifierReadPolicy int
@@ -166,6 +168,7 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
     }
     if !ready.Verifier || !ready.SchoolAccessor || !ready.InitiatorAccessor ||
        !ready.JobAccessor || !ready.HMAC || !ready.WorkerGroupSafe ||
+       !ready.QueueRLS || ready.WorkerTableRLSCount != 9 ||
        ready.QueueSelectPolicy != 1 || ready.QueueUpdatePolicy != 1 ||
        ready.VerifierReadPolicy != 1 || ready.VerifierLockPolicy != 1 ||
        ready.WorkerSelectPolicies != 9 || ready.WorkerInsertPolicies != 6 {

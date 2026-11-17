@@ -30,6 +30,57 @@ func Connect() (*gorm.DB, error) {
     default: return nil,fmt.Errorf("unsupported DB_DRIVER %q",driver)
     }
 }
+// ValidateBulkImportProcessingRole rejects shared API/claim credentials and any
+// privileged login. The processing connection must inherit only the signed-worker
+// policy group and must not SET ROLE into it or any owner/admin role.
+func ValidateBulkImportProcessingRole(db *gorm.DB) error {
+    if db == nil || db.Dialector.Name() != "postgres" {
+        return fmt.Errorf("bulk import processing role validation requires PostgreSQL")
+    }
+    var role struct {
+        SessionRole string
+        CurrentRole string
+        CanLogin bool
+        IsSuperuser bool
+        CanCreateDB bool
+        CanCreateRole bool
+        BypassRLS bool
+        Inherits bool
+        WorkerGroup bool
+        APIRuntime bool
+        QueueOwner bool
+        ContextOwner bool
+        KeyAdmin bool
+    }
+    query := `
+        SELECT session_user::text AS session_role,
+               current_user::text AS current_role,
+               r.rolcanlogin AS can_login,
+               r.rolsuper AS is_superuser,
+               r.rolcreatedb AS can_create_db,
+               r.rolcreaterole AS can_create_role,
+               r.rolbypassrls AS bypass_rls,
+               r.rolinherit AS inherits,
+               pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE') AS worker_group,
+               pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER') AS api_runtime,
+               pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER') AS queue_owner,
+               pg_has_role(session_user, 'stonez_bulk_context_owner', 'MEMBER') AS context_owner,
+               pg_has_role(session_user, 'stonez_bulk_context_key_admin', 'MEMBER') AS key_admin
+          FROM pg_roles AS r
+         WHERE r.rolname = session_user
+    `
+    if err := db.Raw(query).Scan(&role).Error; err != nil {
+        return fmt.Errorf("inspect bulk import processing login: %w", err)
+    }
+    if role.SessionRole == "" || role.CurrentRole != role.SessionRole ||
+       !role.CanLogin || role.IsSuperuser || role.CanCreateDB || role.CanCreateRole ||
+       role.BypassRLS || !role.Inherits || !role.WorkerGroup ||
+       role.APIRuntime || role.QueueOwner || role.ContextOwner || role.KeyAdmin {
+        return fmt.Errorf("bulk import processing login is not a dedicated restricted signed-worker role")
+    }
+    return nil
+}
+
 // ConnectPostgresURL opens a PostgreSQL connection using an explicit DSN.
 // It does not run migrations or log the supplied connection string.
 func ConnectPostgresURL(dsn string) (*gorm.DB, error) {

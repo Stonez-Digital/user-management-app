@@ -13,7 +13,7 @@ END
 $$;
 
 CREATE ROLE stonez_bulk_process_login
-    LOGIN INHERIT
+    LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS
     CONNECTION LIMIT 5;
 
 -- psql hides password input; no password is embedded in this script.

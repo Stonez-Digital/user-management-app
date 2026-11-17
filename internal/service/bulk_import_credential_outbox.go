@@ -83,7 +83,11 @@ func (s *BulkImportService) retryAccountSetupNotification(job models.BulkImportJ
 			"SELECT stonez_context_private.retry_account_setup_notification(?, ?, ?, ?)",
 			notification.EventID, notification.DeliveryLease, failureCode, int(delay.Seconds()),
 		).Scan(&status)
-		return result.Error
+		if result.Error != nil { return result.Error }
+		if status == "stale_lease" || status == "" {
+			return errors.New("account-setup notification delivery lease was lost")
+		}
+		return nil
 	})
 }
 

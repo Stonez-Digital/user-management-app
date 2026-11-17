@@ -12,6 +12,7 @@ func TestValidateBulkImportProcessingRole(t *testing.T) {
 		CurrentRoleMatchesSession: true,
 		SessionCanLogin: true,
 		SessionIsProcessingGroupMember: true,
+		SessionCanSetProcessingGroup: false,
 	}
 	tests := []struct {
 		name string
@@ -30,6 +31,7 @@ func TestValidateBulkImportProcessingRole(t *testing.T) {
 		{name: "queue owner membership rejected", mutate: func(s *BulkImportProcessingRoleStatus) { s.SessionIsQueueOwnerMember = true }, wantErr: true},
 		{name: "service role membership rejected", mutate: func(s *BulkImportProcessingRoleStatus) { s.SessionIsServiceRoleMember = true }, wantErr: true},
 		{name: "processing group membership required", mutate: func(s *BulkImportProcessingRoleStatus) { s.SessionIsProcessingGroupMember = false }, wantErr: true},
+		{name: "SET ROLE to processing group rejected", mutate: func(s *BulkImportProcessingRoleStatus) { s.SessionCanSetProcessingGroup = true }, wantErr: true},
 		{name: "login required", mutate: func(s *BulkImportProcessingRoleStatus) { s.SessionCanLogin = false }, wantErr: true},
 	}
 	for _, tt := range tests {

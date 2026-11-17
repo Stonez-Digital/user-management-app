@@ -1,6 +1,6 @@
 -- Install signed-context RLS policies for the isolated bulk worker.
--- Run as the owner of the listed application tables after installing the
--- private verifier functions. This does not change the API runtime policies.
+-- Run as the owner of the listed application tables after application migrations
+-- (including processed_rows_json) and the private verifier. API runtime policies are unchanged.
 BEGIN;
 
 DO $owner_check$
@@ -24,6 +24,13 @@ BEGIN
             RAISE EXCEPTION 'current role % must own public.% before installing worker policies', current_user, v_table;
         END IF;
     END LOOP;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_attribute
+         WHERE attrelid='public.bulk_import_jobs'::regclass
+           AND attname='processed_rows_json' AND attnum>0 AND NOT attisdropped
+    ) THEN
+        RAISE EXCEPTION 'apply the bulk-import application migration that adds processed_rows_json before installing worker policies';
+    END IF;
 END
 $owner_check$;
 
@@ -52,7 +59,7 @@ ALTER TABLE public.bulk_import_jobs ENABLE ROW LEVEL SECURITY;
 GRANT SELECT ON public.bulk_import_jobs TO stonez_bulk_context_owner;
 GRANT UPDATE (lease_id) ON public.bulk_import_jobs TO stonez_bulk_context_owner;
 GRANT SELECT ON public.bulk_import_jobs TO stonez_bulk_worker_processing;
-GRANT UPDATE (status,total,valid,created,updated,skipped,failed,credentials_sent,credential_emails_failed,errors_json,claimed_at,worker_id,last_error,processed_rows_json,updated_at)
+GRANT UPDATE (status,total,valid,created,updated,skipped,failed,credentials_sent,credential_emails_failed,errors_json,claimed_at,worker_id,last_error,processed_rows_json)
     ON public.bulk_import_jobs TO stonez_bulk_worker_processing;
 
 DROP POLICY IF EXISTS bulk_import_jobs_context_verifier_read ON public.bulk_import_jobs;

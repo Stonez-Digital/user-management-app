@@ -335,13 +335,13 @@ func TestBulkWorkerPostgresClaimFunctionReclaimsOnlyExpiredLeases(t *testing.T) 
 	worker := NewBulkImportService(db, nil)
 	first, err := worker.claimNextJob()
 	if err != nil { t.Fatalf("claim expired lease: %v", err) }
-	if first == nil || first.ID != jobs[0].ID || first.Attempts != 2 {
-		t.Fatalf("expected expired lease to be reclaimed and attempts incremented: %+v", first)
+	if first == nil || first.ID != jobs[0].ID || first.Attempts != 2 || first.LeaseID == nil || *first.LeaseID == uuid.Nil {
+		t.Fatalf("expected expired lease to be reclaimed with a fresh generation: %+v", first)
 	}
 	second, err := worker.claimNextJob()
 	if err != nil { t.Fatalf("claim legacy lease: %v", err) }
-	if second == nil || second.ID != jobs[1].ID || second.Attempts != 3 {
-		t.Fatalf("expected legacy unleased job to be reclaimed: %+v", second)
+	if second == nil || second.ID != jobs[1].ID || second.Attempts != 3 || second.LeaseID == nil || *second.LeaseID == uuid.Nil || *second.LeaseID == *first.LeaseID {
+		t.Fatalf("expected legacy unleased job to receive a distinct generation: %+v", second)
 	}
 	third, err := worker.claimNextJob()
 	if err != nil { t.Fatalf("check active lease: %v", err) }

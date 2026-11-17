@@ -81,6 +81,79 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
     return nil
 }
 
+// ValidateBulkImportSignedContextReady confirms the verifier, accessors, pgcrypto
+// primitive, and the complete worker-only policy inventory are installed before
+// the opt-in worker mode is allowed to start.
+func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
+    if db == nil || db.Dialector.Name() != "postgres" {
+        return fmt.Errorf("signed bulk import context readiness requires PostgreSQL")
+    }
+    var ready struct {
+        Verifier bool
+        SchoolAccessor bool
+        InitiatorAccessor bool
+        JobAccessor bool
+        HMAC bool
+        QueueSelectPolicy int
+        QueueUpdatePolicy int
+        VerifierReadPolicy int
+        VerifierLockPolicy int
+        WorkerSelectPolicies int
+        WorkerInsertPolicies int
+    }
+    query := `
+        SELECT
+            to_regprocedure('stonez_context_private.verify_bulk_import_context(text)') IS NOT NULL AS verifier,
+            to_regprocedure('stonez_context_private.current_worker_school_id()') IS NOT NULL AS school_accessor,
+            to_regprocedure('stonez_context_private.current_worker_initiator_id()') IS NOT NULL AS initiator_accessor,
+            to_regprocedure('stonez_context_private.current_worker_job_id()') IS NOT NULL AS job_accessor,
+            EXISTS (
+                SELECT 1
+                  FROM pg_extension AS extension
+                  JOIN pg_namespace AS namespace ON namespace.oid = extension.extnamespace
+                  JOIN pg_proc AS proc_entry ON proc_entry.pronamespace = namespace.oid
+                 WHERE extension.extname = 'pgcrypto'
+                   AND proc_entry.proname = 'hmac'
+                   AND pg_get_function_identity_arguments(proc_entry.oid) = 'bytea, bytea, text'
+            ) AS hmac,
+            (SELECT count(*) FROM pg_policy
+              WHERE polname = 'bulk_import_jobs_signed_worker_select'
+                AND polrelid = 'public.bulk_import_jobs'::regclass) AS queue_select_policy,
+            (SELECT count(*) FROM pg_policy
+              WHERE polname = 'bulk_import_jobs_signed_worker_update'
+                AND polrelid = 'public.bulk_import_jobs'::regclass) AS queue_update_policy,
+            (SELECT count(*) FROM pg_policy
+              WHERE polname = 'bulk_import_jobs_context_verifier_read'
+                AND polrelid = 'public.bulk_import_jobs'::regclass) AS verifier_read_policy,
+            (SELECT count(*) FROM pg_policy
+              WHERE polname = 'bulk_import_jobs_context_verifier_lock'
+                AND polrelid = 'public.bulk_import_jobs'::regclass) AS verifier_lock_policy,
+            (SELECT count(*) FROM pg_policy
+              WHERE polname = 'bulk_worker_signed_select'
+                AND polrelid IN ('public.users'::regclass,'public.students'::regclass,
+                    'public.teacher_profiles'::regclass,'public.parent_profiles'::regclass,
+                    'public.academic_sessions'::regclass,'public.school_classes'::regclass,
+                    'public.sections'::regclass,'public.student_enrollments'::regclass,
+                    'public.guardian_relationships'::regclass)) AS worker_select_policies,
+            (SELECT count(*) FROM pg_policy
+              WHERE polname = 'bulk_worker_signed_insert'
+                AND polrelid IN ('public.users'::regclass,'public.students'::regclass,
+                    'public.teacher_profiles'::regclass,'public.parent_profiles'::regclass,
+                    'public.student_enrollments'::regclass,'public.guardian_relationships'::regclass)) AS worker_insert_policies
+    `
+    if err := db.Raw(query).Scan(&ready).Error; err != nil {
+        return fmt.Errorf("inspect signed bulk import verifier installation: %w", err)
+    }
+    if !ready.Verifier || !ready.SchoolAccessor || !ready.InitiatorAccessor ||
+       !ready.JobAccessor || !ready.HMAC ||
+       ready.QueueSelectPolicy != 1 || ready.QueueUpdatePolicy != 1 ||
+       ready.VerifierReadPolicy != 1 || ready.VerifierLockPolicy != 1 ||
+       ready.WorkerSelectPolicies != 9 || ready.WorkerInsertPolicies != 6 {
+        return fmt.Errorf("signed bulk import verifier or required worker RLS policies are incomplete")
+    }
+    return nil
+}
+
 // ConnectPostgresURL opens a PostgreSQL connection using an explicit DSN.
 // It does not run migrations or log the supplied connection string.
 func ConnectPostgresURL(dsn string) (*gorm.DB, error) {

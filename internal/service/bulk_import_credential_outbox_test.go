@@ -43,28 +43,28 @@ func TestBulkImportCredentialOutboxWorkerCrashRetry(t *testing.T) {
 	workerSQL.SetMaxOpenConns(2)
 	defer workerSQL.Close()
 
-	schoolID, initiatorID, accountID := uuid.New(), uuid.New(), uuid.New()
+	schoolID, initiatorID := uuid.New(), uuid.New()
 	jobID, workerID, leaseID := uuid.New(), uuid.New(), uuid.New()
 	email := "outbox-recovery-" + uuid.NewString() + "@example.test"
 	if err := admin.Exec(
 		"INSERT INTO public.users(id,school_id,name,email,password_hash,role,active) VALUES (?,?,?,?,?,?,true)",
 		initiatorID, schoolID, "Fixture Administrator", "admin-"+uuid.NewString()+"@example.test", "test-only-hash", "school_admin",
 	).Error; err != nil { t.Fatalf("create initiating user: %v", err) }
-	if err := admin.Exec(
-		"INSERT INTO public.users(id,school_id,name,email,password_hash,role,active) VALUES (?,?,?,?,?,?,true)",
-		accountID, schoolID, "Imported Student", email, "test-only-unusable-hash", "student",
-	).Error; err != nil { t.Fatalf("create imported account: %v", err) }
 
 	job := models.BulkImportJob{
 		ID: jobID, SchoolID: schoolID, InitiatedBy: initiatorID,
 		Kind: "students", FileName: "recovery.csv", Status: models.BulkImportRunning,
-		SendCredentials: true, RowsJSON: "[]", ErrorsJSON: "[]",
+		SendCredentials: true, RowsJSON: "", ErrorsJSON: "[]",
 		WorkerID: &workerID, LeaseID: &leaseID, ClaimedAt: timePtr(time.Now().UTC()),
 		Attempts: 1,
 	}
 	insertJob := "INSERT INTO public.bulk_import_jobs " +
 		"(id,school_id,initiated_by,kind,file_name,status,send_credentials,rows_json,errors_json,worker_id,lease_id,claimed_at,attempts,created_at,updated_at) " +
 		"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,clock_timestamp(),clock_timestamp())"
+	rows := []BulkRow{{"name":"Imported Student","email":email,"admission_number":"OUTBOX-001"}}
+	rowsJSON, err := json.Marshal(rows)
+	if err != nil { t.Fatal(err) }
+	job.RowsJSON = string(rowsJSON)
 	if err := admin.Exec(insertJob,
 		job.ID, job.SchoolID, job.InitiatedBy, job.Kind, job.FileName, job.Status,
 		job.SendCredentials, job.RowsJSON, job.ErrorsJSON, workerID, leaseID, job.ClaimedAt, job.Attempts,
@@ -98,11 +98,16 @@ func TestBulkImportCredentialOutboxWorkerCrashRetry(t *testing.T) {
 	worker := NewBulkImportService(workerDB, mailer)
 	if err := worker.RequireSignedContext(signer); err != nil { t.Fatalf("enable signed worker context: %v", err) }
 
-	// The account and outbox event are committed before delivery starts. This
-	// models a worker restart after the account transaction but before email.
-	if err := worker.withTenantTransaction(job, func(tx *gorm.DB) error {
-		return worker.enqueueAccountSetupNotification(tx, accountID, email, "Imported Student", "student")
-	}); err != nil { t.Fatalf("commit account-setup outbox event: %v", err) }
+	// The account, student profile and outbox event commit in one signed
+	// transaction. No plaintext temporary password leaves the row handler.
+	created, skipped, _, temporaryPassword, _, err := worker.processStudent(job, "Imported Student", email, rows[0])
+	if err != nil { t.Fatalf("create imported account and durable outbox event: %v", err) }
+	if !created || skipped || temporaryPassword != "" {
+		t.Fatalf("row handler exposed an unexpected credential or creation state: created=%t skipped=%t password=%q", created, skipped, temporaryPassword)
+	}
+	var accountID uuid.UUID
+	if err := admin.Raw("SELECT id FROM public.users WHERE email=?", email).Scan(&accountID).Error; err != nil { t.Fatal(err) }
+	if accountID == uuid.Nil { t.Fatal("account transaction did not persist the imported user") }
 	var eventID string
 	if err := admin.Raw("SELECT event_id::text FROM stonez_context_private.account_setup_outbox WHERE job_id=? AND user_id=?", jobID, accountID).Scan(&eventID).Error; err != nil { t.Fatal(err) }
 
@@ -117,6 +122,7 @@ func TestBulkImportCredentialOutboxWorkerCrashRetry(t *testing.T) {
 	if outboxState.Status != "pending" || outboxState.AttemptCount != 1 {
 		t.Fatalf("provider failure was not durably scheduled for retry: %+v", outboxState)
 	}
+	if err := admin.First(&job, "id = ?", jobID).Error; err != nil { t.Fatalf("reload persisted job progress: %v", err) }
 
 	// Reclaim the still-running job with a fresh worker/lease, as happens after
 	// the previous worker process exits or crashes.

@@ -52,6 +52,7 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
         ContextOwner bool
         KeyAdmin bool
         UnexpectedMembership bool
+        OwnsWorkerTables bool
     }
     query := `
         SELECT session_user::text AS session_role,
@@ -73,7 +74,16 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
                       AND membership.roleid <> (
                           SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_worker_processing'
                       )
-               ) AS unexpected_membership
+               ) AS unexpected_membership,
+               EXISTS (
+                   SELECT 1 FROM pg_class AS relation
+                    JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+                    WHERE namespace.nspname = 'public'
+                      AND relation.relname IN ('bulk_import_jobs','users','students','teacher_profiles',
+                          'parent_profiles','academic_sessions','school_classes','sections',
+                          'student_enrollments','guardian_relationships')
+                      AND relation.relowner = r.oid
+               ) AS owns_worker_tables
           FROM pg_roles AS r
          WHERE r.rolname = session_user
     `
@@ -84,7 +94,7 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
        !role.CanLogin || role.IsSuperuser || role.CanCreateDB || role.CanCreateRole ||
        role.BypassRLS || !role.Inherits || !role.WorkerGroup ||
        role.APIRuntime || role.QueueOwner || role.ContextOwner || role.KeyAdmin ||
-       role.UnexpectedMembership {
+       role.UnexpectedMembership || role.OwnsWorkerTables {
         return fmt.Errorf("bulk import processing login is not a dedicated restricted signed-worker role")
     }
     return nil
@@ -106,6 +116,7 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
         WorkerGroupSafe bool
         QueueRLS bool
         WorkerTableRLSCount int
+        PublicPermissivePolicyCount int
         QueueSelectPolicy int
         QueueUpdatePolicy int
         VerifierReadPolicy int
@@ -132,6 +143,13 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                      WHERE rolname='stonez_bulk_worker_processing'
                        AND NOT rolcanlogin AND NOT rolsuper AND NOT rolbypassrls
                        AND NOT rolcreatedb AND NOT rolcreaterole) AS worker_group_safe,
+            (SELECT count(*) FROM pg_policy
+              WHERE polrelid IN ('public.bulk_import_jobs'::regclass,'public.users'::regclass,
+                    'public.students'::regclass,'public.teacher_profiles'::regclass,
+                    'public.parent_profiles'::regclass,'public.academic_sessions'::regclass,
+                    'public.school_classes'::regclass,'public.sections'::regclass,
+                    'public.student_enrollments'::regclass,'public.guardian_relationships'::regclass)
+                AND polpermissive AND 0::oid = ANY(polroles)) AS public_permissive_policy_count,
             (SELECT count(*) FROM pg_policy
               WHERE polname = 'bulk_import_jobs_signed_worker_select'
                 AND polrelid = 'public.bulk_import_jobs'::regclass
@@ -169,6 +187,7 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
     if !ready.Verifier || !ready.SchoolAccessor || !ready.InitiatorAccessor ||
        !ready.JobAccessor || !ready.HMAC || !ready.WorkerGroupSafe ||
        !ready.QueueRLS || ready.WorkerTableRLSCount != 9 ||
+       ready.PublicPermissivePolicyCount != 0 ||
        ready.QueueSelectPolicy != 1 || ready.QueueUpdatePolicy != 1 ||
        ready.VerifierReadPolicy != 1 || ready.VerifierLockPolicy != 1 ||
        ready.WorkerSelectPolicies != 9 || ready.WorkerInsertPolicies != 6 {

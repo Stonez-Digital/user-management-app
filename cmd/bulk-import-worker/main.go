@@ -50,6 +50,9 @@ func main() {
 	if err := database.ValidateBulkImportProcessingRole(processingRole); err != nil {
 		log.Fatal(err)
 	}
+	if err := database.ValidateBulkImportContextVerifier(processingDB); err != nil {
+		log.Fatal(err)
+	}
 
 	vaultAddress := strings.TrimSpace(os.Getenv("BULK_IMPORT_CONTEXT_VAULT_ADDR"))
 	vaultTokenFile := strings.TrimSpace(os.Getenv("BULK_IMPORT_CONTEXT_VAULT_TOKEN_FILE"))

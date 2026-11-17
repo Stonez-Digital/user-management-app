@@ -49,6 +49,56 @@ CREATE TABLE public.student_enrollments(id uuid PRIMARY KEY, school_id uuid NOT 
 CREATE TABLE public.guardian_relationships(id uuid PRIMARY KEY, school_id uuid NOT NULL, guardian_user_id uuid, student_id uuid);
 SQL
 
+# Exercise installer preflight against deliberately unsafe pre-existing roles.
+# Each failed installer run is transactional; no verifier objects are left behind.
+expect_role_preflight_rejection() {
+  local label="$1"
+  if psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_context_verifier.sql >/dev/null 2>&1; then
+    echo "Verifier installer accepted unsafe pre-existing role state: $label" >&2
+    exit 1
+  fi
+  echo "Rejected unsafe pre-existing role state: $label"
+}
+psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'
+CREATE ROLE stonez_bulk_context_owner NOLOGIN NOSUPERUSER NOBYPASSRLS INHERIT;
+SQL
+expect_role_preflight_rejection "context owner INHERIT"
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "DROP ROLE stonez_bulk_context_owner"
+
+psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'
+CREATE ROLE stonez_bulk_context_key_admin NOLOGIN NOSUPERUSER NOBYPASSRLS INHERIT;
+SQL
+expect_role_preflight_rejection "key-admin INHERIT"
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "DROP ROLE stonez_bulk_context_key_admin"
+
+for protected_role in stonez_bulk_context_owner stonez_bulk_context_key_admin; do
+  # A protected role must not inherit another role.
+  psql "$runner_url" -X -v ON_ERROR_STOP=1 <<SQL
+CREATE ROLE $protected_role NOLOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT;
+CREATE ROLE verifier_preflight_parent NOLOGIN;
+GRANT verifier_preflight_parent TO $protected_role;
+SQL
+  expect_role_preflight_rejection "$protected_role inherits a parent role"
+  psql "$runner_url" -X -v ON_ERROR_STOP=1 <<SQL
+REVOKE verifier_preflight_parent FROM $protected_role;
+DROP ROLE verifier_preflight_parent;
+DROP ROLE $protected_role;
+SQL
+
+  # No unrelated login/group may receive a protected owner/admin role.
+  psql "$runner_url" -X -v ON_ERROR_STOP=1 <<SQL
+CREATE ROLE $protected_role NOLOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT;
+CREATE ROLE verifier_preflight_member NOLOGIN;
+GRANT $protected_role TO verifier_preflight_member;
+SQL
+  expect_role_preflight_rejection "$protected_role granted to an unrelated role"
+  psql "$runner_url" -X -v ON_ERROR_STOP=1 <<SQL
+REVOKE $protected_role FROM verifier_preflight_member;
+DROP ROLE verifier_preflight_member;
+DROP ROLE $protected_role;
+SQL
+done
+
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_context_verifier.sql
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_context_worker_policies.sql
 psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'

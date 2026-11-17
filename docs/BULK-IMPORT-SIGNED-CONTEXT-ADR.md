@@ -102,7 +102,7 @@ The exact production secret-manager and database provisioning mechanism must be 
 - Each successful queue claim must assign a fresh `lease_id`; reclaiming a job must replace it atomically.
 - The assertion is bound to that lease ID, not merely to job ID or worker ID.
 - The verifier locks the job row and validates the current lease and expiry.
-- A unique assertion-ID constraint serializes concurrent attempts to consume the same assertion.
+- A unique assertion-ID constraint serializes concurrent attempts to consume the same assertion. A key-admin-only pruning function removes committed context rows older than ten minutes; this exceeds the maximum assertion lifetime plus clock-skew allowance, while uncommitted rows remain invisible to cleanup.
 - A lease replacement cannot occur while a valid processing transaction holds the verifier's job-row lock; after replacement, old assertions fail.
 - The worker must stop processing and must not update progress after losing its lease.
 

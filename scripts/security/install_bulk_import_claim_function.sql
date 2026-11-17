@@ -1,4 +1,4 @@
--- Install the global queue claim function after provisioning the two roles.
+-- Install the global queue claim function after provisioning the queue-owner, API-runtime, and claim-group roles.
 -- This script is operator-run and must be applied before deploying the Go worker
 -- version that calls claim_next_bulk_import_job. It is not an app-startup migration.
 BEGIN;

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -28,7 +29,13 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
 	tableSchema, privateSchema := "bulk_ctx_"+suffix, "bulk_ctx_private_"+suffix
 	ownerRole, processRole := "bulk_ctx_owner_"+suffix, "bulk_ctx_process_"+suffix
+	loginRole, loginPassword := "bulk_ctx_login_"+suffix, uuid.NewString()
+	var loginDB *gorm.DB
 	cleanup := func() {
+		if loginDB != nil { if sqlDB, err := loginDB.DB(); err == nil { _ = sqlDB.Close() } }
+		_ = admin.Exec("REVOKE "+processRole+" FROM "+loginRole).Error
+		_ = admin.Exec("DROP OWNED BY "+loginRole).Error
+		_ = admin.Exec("DROP ROLE IF EXISTS "+loginRole).Error
 		_ = admin.Exec("DROP SCHEMA IF EXISTS "+privateSchema+" CASCADE").Error
 		_ = admin.Exec("DROP SCHEMA IF EXISTS "+tableSchema+" CASCADE").Error
 		_ = admin.Exec("REVOKE "+ownerRole+", "+processRole+" FROM CURRENT_USER").Error
@@ -64,7 +71,24 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	script = strings.ReplaceAll(script, "stonez_internal", privateSchema)
 	script = strings.ReplaceAll(script, "public", tableSchema)
 	if err := admin.Exec(script).Error; err != nil { cleanup(); t.Fatalf("install verifier in isolated schema: %v", err) }
+
+	if err := admin.Exec("CREATE ROLE "+loginRole+" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS PASSWORD '"+loginPassword+"'").Error; err != nil {
+		cleanup(); t.Fatalf("create restricted processing login: %v", err)
+	}
+	if err := admin.Exec("GRANT "+processRole+" TO "+loginRole+" WITH ADMIN FALSE, INHERIT TRUE, SET FALSE").Error; err != nil {
+		cleanup(); t.Fatalf("grant processing group to restricted login: %v", err)
+	}
+	parsedDSN, err := url.Parse(dsn)
+	if err != nil { cleanup(); t.Fatal(err) }
+	parsedDSN.User = url.UserPassword(loginRole, loginPassword)
+	loginDB, err = gorm.Open(postgres.Open(parsedDSN.String()), &gorm.Config{})
+	if err != nil { cleanup(); t.Fatalf("connect with restricted processing login: %v", err) }
 	t.Cleanup(cleanup)
+
+	var sessionUser, currentUser string
+	if err := loginDB.Raw("SELECT session_user, current_user").Row().Scan(&sessionUser, &currentUser); err != nil { t.Fatal(err) }
+	if sessionUser != loginRole || currentUser != loginRole { t.Fatalf("expected authenticated processing login, got session=%q current=%q", sessionUser, currentUser) }
+	if err := loginDB.Exec("SET ROLE "+processRole).Error; err == nil { t.Fatal("processing login unexpectedly SET ROLE to its privilege group") }
 
 	key := Key{ID:"integration-key-1", Secret:[]byte("integration-test-key-0123456789abcdef")}
 	if err := admin.Exec("INSERT INTO "+privateSchema+".bulk_context_keys (key_id, secret, enabled) VALUES (?, ?, true)", key.ID, key.Secret).Error; err != nil { t.Fatal(err) }
@@ -102,7 +126,7 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	}
 
 	rollbackMarker := errors.New("intentional rollback")
-	err = admin.Transaction(func(tx *gorm.DB) error {
+	err = loginDB.Transaction(func(tx *gorm.DB) error {
 		if err := verify(tx, assertion); err != nil { return err }
 		var visible int64
 		if err := tx.Table(tableSchema+".tenant_fixture").Count(&visible).Error; err != nil { return err }
@@ -112,7 +136,7 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	if !errors.Is(err, rollbackMarker) { t.Fatalf("expected intentional rollback, got %v", err) }
 
 	// Rollback must undo assertion consumption as well as the context row.
-	err = admin.Transaction(func(tx *gorm.DB) error {
+	err = loginDB.Transaction(func(tx *gorm.DB) error {
 		if err := verify(tx, assertion); err != nil { return err }
 		var visible int64
 		if err := tx.Table(tableSchema+".tenant_fixture").Count(&visible).Error; err != nil { return err }

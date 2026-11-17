@@ -124,6 +124,34 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	if err := admin.Transaction(func(tx *gorm.DB) error { return verify(tx, committed) }); err != nil { t.Fatalf("commit valid assertion: %v", err) }
 	if err := admin.Transaction(func(tx *gorm.DB) error { return verify(tx, committed) }); err == nil { t.Fatal("committed assertion replay was accepted") }
 
+	// A transaction can install only one verified assertion context.
+	secondContext, err := signer.Sign(context.Background(), binding, time.Minute)
+	if err != nil { t.Fatal(err) }
+	err = admin.Transaction(func(tx *gorm.DB) error {
+		if err := verify(tx, secondContext); err != nil { return err }
+		thirdContext, signErr := signer.Sign(context.Background(), binding, time.Minute)
+		if signErr != nil { return signErr }
+		return verify(tx, thirdContext)
+	})
+	if err == nil { t.Fatal("a second assertion context in the same transaction was accepted") }
+
+	// A validly signed but expired assertion is rejected by PostgreSQL.
+	expiredSigner := *signer
+	expiredSigner.now = func() time.Time { return time.Now().UTC().Add(-5 * time.Minute) }
+	expiredAssertion, err := expiredSigner.Sign(context.Background(), binding, time.Minute)
+	if err != nil { t.Fatal(err) }
+	if err := admin.Transaction(func(tx *gorm.DB) error { return verify(tx, expiredAssertion) }); err == nil {
+		t.Fatal("expired assertion was accepted by PostgreSQL")
+	}
+
+	// A changed signature is rejected before any context row is created.
+	tampered, err := signer.Sign(context.Background(), binding, time.Minute)
+	if err != nil { t.Fatal(err) }
+	if tampered.Signature[0] == 'A' { tampered.Signature = "B" + tampered.Signature[1:] } else { tampered.Signature = "A" + tampered.Signature[1:] }
+	if err := admin.Transaction(func(tx *gorm.DB) error { return verify(tx, tampered) }); err == nil {
+		t.Fatal("tampered signature was accepted by PostgreSQL")
+	}
+
 	// A caller-controlled GUC without a verifier-created row grants no visibility.
 	err = admin.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("SET LOCAL ROLE "+processRole).Error; err != nil { return err }
@@ -134,6 +162,17 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 		return nil
 	})
 	if err != nil { t.Fatalf("forged GUC test failed: %v", err) }
+
+	// A pointer copied from a committed assertion cannot authorize a new transaction.
+	err = admin.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SET LOCAL ROLE "+processRole).Error; err != nil { return err }
+		if err := tx.Exec("SELECT set_config('stonez.bulk_context_id', ?, true)", committed.Claims.AssertionID.String()).Error; err != nil { return err }
+		var visible int64
+		if err := tx.Table(tableSchema+".tenant_fixture").Count(&visible).Error; err != nil { return err }
+		if visible != 0 { return fmt.Errorf("prior transaction assertion exposed %d rows in a new transaction", visible) }
+		return nil
+	})
+	if err != nil { t.Fatalf("cross-transaction context pointer test failed: %v", err) }
 
 	// The processing group cannot read key material directly.
 	err = admin.Transaction(func(tx *gorm.DB) error {

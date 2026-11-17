@@ -70,6 +70,25 @@ func TestSignRejectsMissingBindingAndInvalidTTL(t *testing.T) {
 	}
 }
 
+func TestSignRejectsSubsecondTTL(t *testing.T) {
+	signer, _, binding := testSigner(t)
+	if _, err := signer.Sign(context.Background(), binding, 500*time.Millisecond); !errors.Is(err, ErrInvalidTTL) {
+		t.Fatalf("subsecond TTL error = %v, want ErrInvalidTTL", err)
+	}
+}
+
+func TestVerifyRejectsModifiedSignature(t *testing.T) {
+	signer, keys, binding := testSigner(t)
+	assertion, err := signer.Sign(context.Background(), binding, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertion.Signature = assertion.Signature[:len(assertion.Signature)-1] + "A"
+	if err := VerifySignature(context.Background(), keys, assertion, time.Unix(1_800_000_030, 0), 2*time.Minute); !errors.Is(err, ErrInvalidMAC) {
+		t.Fatalf("modified signature error = %v, want ErrInvalidMAC", err)
+	}
+}
+
 func TestVerifyRejectsTamperedClaims(t *testing.T) {
 	signer, keys, binding := testSigner(t)
 	assertion, err := signer.Sign(context.Background(), binding, time.Minute)

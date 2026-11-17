@@ -22,6 +22,10 @@ CREATE EXTENSION pgcrypto WITH SCHEMA pgcrypto_probe;
 CREATE TABLE public.bulk_import_jobs (
     id uuid PRIMARY KEY, school_id uuid NOT NULL, initiated_by uuid NOT NULL,
     worker_id uuid, lease_id uuid, status text NOT NULL, claimed_at timestamptz,
+    kind text NOT NULL DEFAULT 'students', file_name text NOT NULL DEFAULT 'fixture.csv',
+    send_credentials boolean NOT NULL DEFAULT false, rows_json text NOT NULL DEFAULT '[]',
+    attempts integer NOT NULL DEFAULT 0, created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     total integer NOT NULL DEFAULT 0, valid integer NOT NULL DEFAULT 0,
     created integer NOT NULL DEFAULT 0, updated integer NOT NULL DEFAULT 0,
     skipped integer NOT NULL DEFAULT 0, failed integer NOT NULL DEFAULT 0,
@@ -353,8 +357,8 @@ echo "PostgreSQL signed-context verifier adversarial tests passed."
 echo "== Private durable account-setup notification outbox =="
 # The installer is intentionally exercised only against this disposable PG17 fixture.
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_credential_outbox.sql
-OUTBOX_KEY_HEX="$(printf 'ef%.0s' {1..32})"
-psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "SELECT stonez_context_private.register_verification_key('ci-outbox-key', decode(repeat('ef',32),'hex'), clock_timestamp()-interval '5 minutes', NULL)"
+OUTBOX_KEY_HEX="\${BULK_CONTEXT_TEST_SIGNING_KEY_HEX:-$(printf 'ef%.0s' {1..32})}"
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "SELECT stonez_context_private.register_verification_key('ci-outbox-key', decode('$OUTBOX_KEY_HEX','hex'), clock_timestamp()-interval '5 minutes', NULL)"
 if psql "$worker_url" -X -v ON_ERROR_STOP=1 -c "SELECT * FROM stonez_context_private.account_setup_outbox" >/dev/null 2>&1; then
   echo "Processing login unexpectedly read private outbox rows directly" >&2
   exit 1

@@ -14,6 +14,7 @@ import (
  "github.com/onoja217/users-management-app/internal/security/bulkimportcontext"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+ "gorm.io/gorm/logger"
 )
 
 const bulkImportPollInterval = 2 * time.Second
@@ -36,8 +37,11 @@ func (s *BulkImportService) withTenantTransaction(job models.BulkImportJob, fn f
 				if err != nil {
 					return fmt.Errorf("sign bulk worker transaction context: %w", err)
 				}
-				if err := tx.Exec("SELECT stonez_context_private.verify_bulk_import_context(?)", assertion).Error; err != nil {
-					return fmt.Errorf("verify bulk worker transaction context: %w", err)
+				// Assertions are short-lived bearer credentials. Suppress ORM query
+				// logging for this call so the token is never interpolated into logs.
+				verifierTx := tx.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)})
+				if err := verifierTx.Exec("SELECT stonez_context_private.verify_bulk_import_context(?)", assertion).Error; err != nil {
+					return fmt.Errorf("verify bulk worker transaction context failed: %w", err)
 				}
 			} else {
 				// Legacy mode remains for the existing worker login until the

@@ -15,8 +15,8 @@ import (
 	"time"
 )
 
-// VaultKVKeySource reads versioned HMAC keys from a Vault KV v2 secret.
-// The token is read from a Vault Agent token file and is never logged.
+// VaultKVKeySource exposes only the active signing key. Retiring verification
+// keys remain in PostgreSQL and are never returned to the worker process.
 type VaultKVKeySource struct {
 	address   string
 	tokenFile string
@@ -26,15 +26,14 @@ type VaultKVKeySource struct {
 	cacheTTL  time.Duration
 
 	mu        sync.RWMutex
-	activeID  string
-	keys      map[string][]byte
+	active    Key
 	expiresAt time.Time
 }
 
 func NewVaultKVKeySource(address, tokenFile, mount, secretPath string, client *http.Client, cacheTTL time.Duration) (*VaultKVKeySource, error) {
 	parsed, err := url.Parse(strings.TrimSpace(address))
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return nil, errors.New("Vault address must be an HTTPS URL without user info, query, or fragment")
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+		return nil, errors.New("Vault address must be an HTTPS origin without user info, path, query, or fragment")
 	}
 	if strings.TrimSpace(tokenFile) == "" || !validVaultPath(mount) || !validVaultPath(secretPath) {
 		return nil, errors.New("Vault token file, KV mount, and secret path are required")
@@ -56,7 +55,6 @@ func NewVaultKVKeySource(address, tokenFile, mount, secretPath string, client *h
 		path: strings.Trim(secretPath, "/"),
 		client: &clientCopy,
 		cacheTTL: cacheTTL,
-		keys: make(map[string][]byte),
 	}, nil
 }
 
@@ -85,29 +83,12 @@ func (v *VaultKVKeySource) ActiveSigningKey(ctx context.Context) (Key, error) {
 	}
 	v.mu.RLock()
 	defer v.mu.RUnlock()
-	secret, ok := v.keys[v.activeID]
-	if !ok {
-		return Key{}, ErrInvalidKey
-	}
-	return Key{ID: v.activeID, Secret: append([]byte(nil), secret...)}, nil
-}
-
-func (v *VaultKVKeySource) VerificationKey(ctx context.Context, keyID string) (Key, error) {
-	if err := v.refresh(ctx); err != nil {
-		return Key{}, err
-	}
-	v.mu.RLock()
-	defer v.mu.RUnlock()
-	secret, ok := v.keys[keyID]
-	if !ok {
-		return Key{}, fmt.Errorf("Vault does not contain bulk import verification key %q", keyID)
-	}
-	return Key{ID: keyID, Secret: append([]byte(nil), secret...)}, nil
+	return Key{ID: v.active.ID, Secret: append([]byte(nil), v.active.Secret...)}, nil
 }
 
 func (v *VaultKVKeySource) refresh(ctx context.Context) error {
 	v.mu.RLock()
-	fresh := time.Now().Before(v.expiresAt) && v.activeID != "" && len(v.keys) > 0
+	fresh := time.Now().Before(v.expiresAt) && v.active.ID != "" && len(v.active.Secret) >= minimumKeyBytes
 	v.mu.RUnlock()
 	if fresh {
 		return nil
@@ -132,17 +113,17 @@ func (v *VaultKVKeySource) refresh(ctx context.Context) error {
 
 	resp, err := v.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("request bulk import signing keys from Vault: %w", err)
+		return fmt.Errorf("request bulk import signing key from Vault: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("Vault key request returned HTTP %d", resp.StatusCode)
+		return fmt.Errorf("Vault signing-key request returned HTTP %d", resp.StatusCode)
 	}
 
 	var payload map[string]any
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&payload); err != nil {
-		return fmt.Errorf("decode Vault key response: %w", err)
+		return fmt.Errorf("decode Vault signing-key response: %w", err)
 	}
 	outerData, ok := payload["data"].(map[string]any)
 	if !ok {
@@ -156,37 +137,21 @@ func (v *VaultKVKeySource) refresh(ctx context.Context) error {
 	if !ok || !keyIDPattern.MatchString(activeID) {
 		return ErrInvalidKey
 	}
-	rawKeys, ok := secretData["keys"].(map[string]any)
-	if !ok || len(rawKeys) == 0 {
+	encoded, ok := secretData["active_key"].(string)
+	if !ok {
 		return ErrInvalidKey
 	}
-
-	next := make(map[string][]byte, len(rawKeys))
-	for id, value := range rawKeys {
-		encoded, ok := value.(string)
-		if !ok || !keyIDPattern.MatchString(id) {
-			zeroKeys(next)
-			return ErrInvalidKey
-		}
-		secret, err := base64.RawStdEncoding.DecodeString(encoded)
-		if err != nil || len(secret) < minimumKeyBytes {
-			zeroKeys(next)
-			return ErrInvalidKey
-		}
-		next[id] = secret
-	}
-	if _, ok := next[activeID]; !ok {
-		zeroKeys(next)
+	secret, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(secret) < minimumKeyBytes {
 		return ErrInvalidKey
 	}
 
 	v.mu.Lock()
-	old := v.keys
-	v.keys = next
-	v.activeID = activeID
+	old := v.active.Secret
+	v.active = Key{ID: activeID, Secret: secret}
 	v.expiresAt = time.Now().Add(v.cacheTTL)
 	v.mu.Unlock()
-	zeroKeys(old)
+	zeroSecret(old)
 	return nil
 }
 
@@ -198,10 +163,8 @@ func escapeVaultPath(value string) string {
 	return strings.Join(segments, "/")
 }
 
-func zeroKeys(keys map[string][]byte) {
-	for _, secret := range keys {
-		for i := range secret {
-			secret[i] = 0
-		}
+func zeroSecret(secret []byte) {
+	for i := range secret {
+		secret[i] = 0
 	}
 }

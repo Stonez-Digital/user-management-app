@@ -3,7 +3,7 @@
 -- Do not run against staging or production until the verifier and role tests pass.
 BEGIN;
 
-DO $$
+DO $roles$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_worker') THEN
         CREATE ROLE stonez_bulk_worker NOLOGIN NOSUPERUSER NOBYPASSRLS INHERIT;
@@ -22,7 +22,7 @@ BEGIN
         RAISE EXCEPTION 'bulk context roles have unsafe role attributes';
     END IF;
 END
-$;
+$roles$;
 
 -- Resolve pgcrypto through extension catalog metadata, not a guessed schema.
 DO $extension$

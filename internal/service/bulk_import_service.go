@@ -145,7 +145,7 @@ func(s *BulkImportService)recordProcessedBulkImportRow(tx *gorm.DB,j models.Bulk
  values:=map[string]any{"processed_rows_json":mustJSON(processed)}
  if created{values["created"]=gorm.Expr("created + 1")}
  if skipped{values["skipped"]=gorm.Expr("skipped + 1")}
- result:=tx.Model(&models.BulkImportJob{}).Where("id=? AND school_id=? AND initiated_by=?",j.ID,j.SchoolID,j.InitiatedBy).Updates(values)
+ result:=tx.Model(&models.BulkImportJob{}).Where("id=? AND school_id=? AND initiated_by=?",j.ID,j.SchoolID,j.InitiatedBy).UpdateColumns(values)
  if result.Error!=nil{return result.Error}
  if result.RowsAffected!=1{return errors.New("bulk import job progress row is no longer available")}
  return nil

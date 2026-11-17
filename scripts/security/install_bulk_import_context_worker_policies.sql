@@ -52,7 +52,7 @@ ALTER TABLE public.bulk_import_jobs ENABLE ROW LEVEL SECURITY;
 GRANT SELECT ON public.bulk_import_jobs TO stonez_bulk_context_owner;
 GRANT UPDATE (lease_id) ON public.bulk_import_jobs TO stonez_bulk_context_owner;
 GRANT SELECT ON public.bulk_import_jobs TO stonez_bulk_worker_processing;
-GRANT UPDATE (status,total,valid,created,updated,skipped,failed,credentials_sent,credential_emails_failed,errors_json,claimed_at,worker_id,last_error,processed_rows_json)
+GRANT UPDATE (status,total,valid,created,updated,skipped,failed,credentials_sent,credential_emails_failed,errors_json,claimed_at,worker_id,last_error,processed_rows_json,updated_at)
     ON public.bulk_import_jobs TO stonez_bulk_worker_processing;
 
 DROP POLICY IF EXISTS bulk_import_jobs_context_verifier_read ON public.bulk_import_jobs;

@@ -133,7 +133,7 @@ SELECT stonez_context_private.verify_bulk_import_context(:'token');
 COMMIT;
 SQL
 expect_rejected "$REPLAY" "committed replay"
-FORGED="$(printf '%s' "$TOKEN" | sed 's/.$/A/')"
+FORGED="$(printf '%s' "$TOKEN" | awk -F. '{ first=substr($3,1,1); replacement=(first=="A"?"B":"A"); print $1 "." $2 "." replacement substr($3,2) }')"
 expect_rejected "$FORGED" "modified signature"
 EXPIRED="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '88888888-8888-4888-8888-888888888888' "$((NOW-120))" "$((NOW-90))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
 expect_rejected "$EXPIRED" "expired assertion"

@@ -78,7 +78,6 @@ printf "%s\n%s\n" "queue_script_claim_ci_password" "queue_script_claim_ci_passwo
 
 echo "== Verify final role and function grants =="
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/verify_bulk_import_queue_roles.sql
-printf '%s\n%s\n' 'queue_script_worker_ci_password' 'queue_script_worker_ci_password' | psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/provision_bulk_import_worker_login.psql
 
 echo "== Create unrelated login and seed one job =="
 psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'

@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/onoja217/users-management-app/internal/models"
+ "github.com/onoja217/users-management-app/internal/security/bulkimportcontext"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -24,11 +25,30 @@ const bulkImportIdleTimeout = 30 * time.Second
 func (s *BulkImportService) withTenantTransaction(job models.BulkImportJob, fn func(*gorm.DB) error) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		if tx.Dialector.Name() == "postgres" {
-			if err := tx.Exec("SELECT set_config('app.current_school_id', ?, true)", job.SchoolID.String()).Error; err != nil {
-				return err
-			}
-			if err := tx.Exec("SELECT set_config('app.current_user_id', ?, true)", job.InitiatedBy.String()).Error; err != nil {
-				return err
+			if s.requireSignedContext {
+				if s.assertionSigner == nil || job.WorkerID == nil || job.LeaseID == nil || *job.LeaseID == uuid.Nil {
+					return errors.New("signed bulk worker context is required but signer or lease identity is missing")
+				}
+				assertion, err := s.assertionSigner.Sign(bulkimportcontext.Context{
+					JobID: job.ID, SchoolID: job.SchoolID, InitiatedBy: job.InitiatedBy,
+					WorkerID: *job.WorkerID, LeaseID: *job.LeaseID,
+				})
+				if err != nil {
+					return fmt.Errorf("sign bulk worker transaction context: %w", err)
+				}
+				if err := tx.Exec("SELECT stonez_context_private.verify_bulk_import_context(?)", assertion).Error; err != nil {
+					return fmt.Errorf("verify bulk worker transaction context: %w", err)
+				}
+			} else {
+				// Legacy mode remains for the existing worker login until the
+				// dedicated processing role and every required worker RLS policy
+				// have been installed and verified.
+				if err := tx.Exec("SELECT set_config('app.current_school_id', ?, true)", job.SchoolID.String()).Error; err != nil {
+					return err
+				}
+				if err := tx.Exec("SELECT set_config('app.current_user_id', ?, true)", job.InitiatedBy.String()).Error; err != nil {
+					return err
+				}
 			}
 		}
 
@@ -160,6 +180,8 @@ func (s *BulkImportService) RunWorker(ctx context.Context) error {
 		mailer:    s.mailer,
 		workerID:  s.workerID,
 		workerOnce: s.workerOnce,
+		assertionSigner: s.assertionSigner,
+		requireSignedContext: s.requireSignedContext,
 	}
 
 	lastWorkAt := time.Now()

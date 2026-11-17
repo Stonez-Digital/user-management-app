@@ -100,14 +100,27 @@ BEGIN
        OR has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'REFERENCES') THEN
         RAISE EXCEPTION 'queue owner has unexpected write privileges';
     END IF;
-    IF has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'SELECT')
-       OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'INSERT')
-       OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'UPDATE')
-       OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'REFERENCES')
+    IF has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'REFERENCES')
        OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'DELETE')
        OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'TRUNCATE')
        OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'TRIGGER') THEN
-        RAISE EXCEPTION 'API runtime has direct queue-table privileges';
+        RAISE EXCEPTION 'API runtime has forbidden queue-table privileges';
+    END IF;
+    IF to_regprocedure('stonez_internal.claim_next_bulk_import_job(uuid)') IS NULL THEN
+        IF has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'SELECT')
+           OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'INSERT')
+           OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'UPDATE')
+           OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'SELECT')
+           OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'INSERT')
+           OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'UPDATE') THEN
+            RAISE EXCEPTION 'API runtime has queue-table privileges before the claim installer';
+        END IF;
+    ELSE
+        IF NOT has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'SELECT')
+           OR NOT has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'INSERT')
+           OR NOT has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'UPDATE') THEN
+            RAISE EXCEPTION 'API runtime is missing tenant-policy-controlled queue SELECT/INSERT/UPDATE privileges';
+        END IF;
     END IF;
     -- PostgreSQL 16+ automatically grants the CREATEROLE actor ADMIN OPTION
     -- on roles it creates, with INHERIT FALSE and SET FALSE. Permit only that

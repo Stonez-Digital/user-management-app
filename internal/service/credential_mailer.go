@@ -81,7 +81,7 @@ func (m *CredentialMailer) SendAccountSetupNotice(name, email, role, eventID str
 	if greeting == "" { greeting = "there" }
 	subject := "Your Stonez Digital school portal account is ready"
 	body := fmt.Sprintf(
-		"Hello %s,\\n\\nYour school portal account has been created.\\n\\nRole: %s\\nEmail: %s\\n\\nTo choose your password, visit %s and select Forgot password. We will send a separate, time-limited password-reset link to this email address.\\n\\nFor your security, never share password-reset links or verification codes.\\n\\nStonez Digital",
+		"Hello %s,\n\nYour school portal account has been created.\n\nRole: %s\nEmail: %s\n\nTo choose your password, visit %s and select Forgot password. We will send a separate, time-limited password-reset link to this email address.\n\nFor your security, never share password-reset links or verification codes.\n\nStonez Digital",
 		greeting, role, email, m.loginURL,
 	)
 	if m.resendAPIKey != "" {
@@ -123,7 +123,11 @@ func (m *CredentialMailer) SendPasswordReset(name, email, token string) error {
 	return m.send(email, subject, body)
 }
 
-func (m *CredentialMailer) sendViaResend(email, subject, body string) error {\n\treturn m.sendViaResendWithIdempotency(email, subject, body, \"\")\n}\n\nfunc (m *CredentialMailer) sendViaResendWithIdempotency(email, subject, body, idempotencyKey string) error {
+func (m *CredentialMailer) sendViaResend(email, subject, body string) error {
+	return m.sendViaResendWithIdempotency(email, subject, body, \"\")
+}
+
+func (m *CredentialMailer) sendViaResendWithIdempotency(email, subject, body, idempotencyKey string) error {
 	if strings.ContainsAny(email, "\r\n") { return fmt.Errorf("invalid recipient email") }
 	payload := struct {
 		From string `json:"from"`

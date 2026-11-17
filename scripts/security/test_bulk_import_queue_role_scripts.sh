@@ -48,6 +48,7 @@ CREATE TABLE public.bulk_import_jobs (
     credentials_sent integer NOT NULL DEFAULT 0,
     credential_emails_failed integer NOT NULL DEFAULT 0,
     worker_id uuid,
+    lease_id uuid,
     claimed_at timestamptz,
     attempts integer NOT NULL DEFAULT 0,
     last_error text NOT NULL DEFAULT '',

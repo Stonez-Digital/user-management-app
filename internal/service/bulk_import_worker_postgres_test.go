@@ -485,7 +485,8 @@ func TestBulkImportQueueRoleScriptsInstallInIsolatedPostgres(t *testing.T) {
 	if err := claimDB.Raw("SELECT count(*) FROM " + tableSchema + ".bulk_import_jobs").Scan(new(int64)).Error; err == nil {
 		t.Fatal("claim login unexpectedly had direct queue-table SELECT privileges")
 	}
-	if err := apiDB.Raw("SELECT * FROM " + privateSchema + ".claim_next_bulk_import_job(?)", uuid.New()).Error; err == nil {
+	var apiDenied models.BulkImportJob
+	if err := apiDB.Raw("SELECT * FROM " + privateSchema + ".claim_next_bulk_import_job(?)", uuid.New()).Scan(&apiDenied).Error; err == nil {
 		t.Fatal("API runtime login unexpectedly executed the global claim function")
 	}
 

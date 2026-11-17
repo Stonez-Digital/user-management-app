@@ -426,14 +426,14 @@ if [[ "$RECLAIMED_EVENT" != "$EVENT_ID" || "$NEW_DELIVERY_LEASE" == "$OLD_DELIVE
 fi
 STALE_COMPLETE_JTI="38383838-3838-4838-8838-383838383838"
 STALE_COMPLETE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-outbox-key","typ":"JWT"}' "$(payload "$STALE_COMPLETE_JTI" "$OUTBOX_NOW" "$((OUTBOX_NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$OUTBOX_KEY_HEX")"
-stale_result="$(psql "$worker_url" -X -A -t -v ON_ERROR_STOP=1 -v token="$STALE_COMPLETE_TOKEN" -v event_id="$EVENT_ID" -v old_lease="$OLD_DELIVERY_LEASE" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$STALE_COMPLETE_TOKEN'); SELECT stonez_context_private.complete_account_setup_notification('$EVENT_ID', '$OLD_DELIVERY_LEASE', 'stale-provider-id'); COMMIT;" | tail -n 1)"
+stale_result="$(psql "$worker_url" -X -q -A -t -v ON_ERROR_STOP=1 -v token="$STALE_COMPLETE_TOKEN" -v event_id="$EVENT_ID" -v old_lease="$OLD_DELIVERY_LEASE" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$STALE_COMPLETE_TOKEN'); SELECT stonez_context_private.complete_account_setup_notification('$EVENT_ID', '$OLD_DELIVERY_LEASE', 'stale-provider-id'); COMMIT;" | tail -n 1)"
 if [[ "$stale_result" != "f" ]]; then
   echo "Stale delivery lease unexpectedly completed the event: $stale_result" >&2
   exit 1
 fi
 COMPLETE_JTI="39393939-3939-4939-8939-393939393939"
 COMPLETE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-outbox-key","typ":"JWT"}' "$(payload "$COMPLETE_JTI" "$OUTBOX_NOW" "$((OUTBOX_NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$OUTBOX_KEY_HEX")"
-complete_result="$(psql "$worker_url" -X -A -t -v ON_ERROR_STOP=1 -v token="$COMPLETE_TOKEN" -v event_id="$EVENT_ID" -v lease="$NEW_DELIVERY_LEASE" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$COMPLETE_TOKEN'); SELECT stonez_context_private.complete_account_setup_notification('$EVENT_ID', '$NEW_DELIVERY_LEASE', 'provider-test-123'); COMMIT;" | tail -n 1)"
+complete_result="$(psql "$worker_url" -X -q -A -t -v ON_ERROR_STOP=1 -v token="$COMPLETE_TOKEN" -v event_id="$EVENT_ID" -v lease="$NEW_DELIVERY_LEASE" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$COMPLETE_TOKEN'); SELECT stonez_context_private.complete_account_setup_notification('$EVENT_ID', '$NEW_DELIVERY_LEASE', 'provider-test-123'); COMMIT;" | tail -n 1)"
 if [[ "$complete_result" != "t" ]]; then
   echo "Current delivery lease could not complete event: $complete_result" >&2
   exit 1
@@ -443,7 +443,7 @@ fi
 # create duplicate notifications on a retried account row.
 DUPLICATE_JTI="40404040-4040-4040-8040-404040404040"
 DUPLICATE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-outbox-key","typ":"JWT"}' "$(payload "$DUPLICATE_JTI" "$OUTBOX_NOW" "$((OUTBOX_NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$OUTBOX_KEY_HEX")"
-duplicate_id="$(psql "$worker_url" -X -A -t -v ON_ERROR_STOP=1 -v token="$DUPLICATE_TOKEN" -v user_id="$OUTBOX_USER_ID" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$DUPLICATE_TOKEN'); SELECT stonez_context_private.enqueue_account_setup_notification('$OUTBOX_USER_ID','outbox-student@example.test','Outbox Student','student'); COMMIT;" | tail -n 1)"
+duplicate_id="$(psql "$worker_url" -X -q -A -t -v ON_ERROR_STOP=1 -v token="$DUPLICATE_TOKEN" -v user_id="$OUTBOX_USER_ID" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$DUPLICATE_TOKEN'); SELECT stonez_context_private.enqueue_account_setup_notification('$OUTBOX_USER_ID','outbox-student@example.test','Outbox Student','student'); COMMIT;" | tail -n 1)"
 if [[ "$duplicate_id" != "$EVENT_ID" ]]; then
   echo "Idempotent enqueue returned a different event ID: $duplicate_id" >&2
   exit 1

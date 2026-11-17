@@ -464,5 +464,38 @@ if [[ "$duplicate_id" != "$EVENT_ID" ]]; then
   echo "Idempotent enqueue returned a different event ID: $duplicate_id" >&2
   exit 1
 fi
+CONCURRENT_USER_ID="42424242-4242-4242-8242-424242424242"
+CONCURRENT_ENQUEUE_JTI="43434343-4343-4343-8343-434343434343"
+CONCURRENT_ENQUEUE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-outbox-key","typ":"JWT"}' "$(payload "$CONCURRENT_ENQUEUE_JTI" "$OUTBOX_NOW" "$((OUTBOX_NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$OUTBOX_KEY_HEX")"
+psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$CONCURRENT_ENQUEUE_TOKEN" -v user_id="$CONCURRENT_USER_ID" <<'SQL'
+BEGIN;
+SELECT stonez_context_private.verify_bulk_import_context(:'token');
+INSERT INTO public.users(id,school_id,name,email,password_hash,role,active)
+VALUES (:'user_id','22222222-2222-4222-8222-222222222222','Concurrent Student',
+        'concurrent-outbox@example.test','non-secret-test-hash','student',true);
+SELECT stonez_context_private.enqueue_account_setup_notification(
+    :'user_id','concurrent-outbox@example.test','Concurrent Student','student'
+);
+COMMIT;
+SQL
+CONCURRENT_FIRST_JTI="44444444-4444-4444-8444-444444444444"
+CONCURRENT_SECOND_JTI="45454545-4545-4545-8454-454545454545"
+CONCURRENT_FIRST_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-outbox-key","typ":"JWT"}' "$(payload "$CONCURRENT_FIRST_JTI" "$OUTBOX_NOW" "$((OUTBOX_NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$OUTBOX_KEY_HEX")"
+CONCURRENT_SECOND_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-outbox-key","typ":"JWT"}' "$(payload "$CONCURRENT_SECOND_JTI" "$OUTBOX_NOW" "$((OUTBOX_NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$OUTBOX_KEY_HEX")"
+concurrent_output="$(mktemp)"
+psql "$worker_url" -X -q -A -t -v ON_ERROR_STOP=1 -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$CONCURRENT_FIRST_TOKEN'); SELECT event_id FROM stonez_context_private.claim_account_setup_notification(); SELECT pg_sleep(3); COMMIT;" >"$concurrent_output" &
+concurrent_pid=$!
+sleep 1
+second_claim="$(psql "$worker_url" -X -q -A -t -v ON_ERROR_STOP=1 -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$CONCURRENT_SECOND_TOKEN'); SELECT event_id FROM stonez_context_private.claim_account_setup_notification(); COMMIT;")"
+wait "$concurrent_pid"
+first_claim="$(grep -E '^[0-9a-f-]{36}
+echo "Private signed-context credential outbox permission, atomicity, restart, lease-fencing, completion, and idempotency tests passed."
+ "$concurrent_output" | head -n 1)"
+rm -f "$concurrent_output"
+if [[ -z "$first_claim" || -n "$second_claim" ]]; then
+  echo "Concurrent outbox claims were not mutually exclusive: first=$first_claim second=$second_claim" >&2
+  exit 1
+fi
+
 
 echo "Private signed-context credential outbox permission, atomicity, restart, lease-fencing, completion, and idempotency tests passed."

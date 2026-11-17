@@ -203,3 +203,15 @@ func TestBulkWorkerClaimsThroughSeparateClaimDatabase(t *testing.T) {
 		t.Fatalf("claim was not persisted through claim database: %+v", claimRow)
 	}
 }
+
+
+func TestBulkWorkerIdleTimeoutCoversQueueLeaseForOutboxRetry(t *testing.T) {
+	if bulkImportIdleTimeout <= bulkImportClaimLease {
+		t.Fatalf("worker idle timeout %s must exceed queue claim lease %s so durable notification retries can be reclaimed",
+			bulkImportIdleTimeout, bulkImportClaimLease)
+	}
+	if bulkImportIdleTimeout < bulkImportClaimLease+bulkImportPollInterval {
+		t.Fatalf("worker idle timeout %s does not leave a poll interval after queue lease %s",
+			bulkImportIdleTimeout, bulkImportClaimLease)
+	}
+}

@@ -438,7 +438,13 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                 )
             ) AS outbox_functions,
             CASE WHEN to_regclass('stonez_context_private.account_setup_outbox') IS NULL THEN false
-                 ELSE NOT has_table_privilege('stonez_bulk_worker_processing',to_regclass('stonez_context_private.account_setup_outbox'),'SELECT')
+                 ELSE EXISTS (
+                     SELECT 1 FROM pg_class AS relation
+                     JOIN pg_roles AS owner_role ON owner_role.oid=relation.relowner
+                     WHERE relation.oid=to_regclass('stonez_context_private.account_setup_outbox')
+                       AND owner_role.rolname='stonez_bulk_context_owner'
+                 )
+                  AND NOT has_table_privilege('stonez_bulk_worker_processing',to_regclass('stonez_context_private.account_setup_outbox'),'SELECT')
                   AND NOT has_table_privilege('stonez_bulk_worker_processing',to_regclass('stonez_context_private.account_setup_outbox'),'INSERT')
                   AND NOT has_table_privilege('stonez_bulk_worker_processing',to_regclass('stonez_context_private.account_setup_outbox'),'UPDATE')
                   AND NOT has_table_privilege('stonez_bulk_worker_processing',to_regclass('stonez_context_private.account_setup_outbox'),'DELETE')

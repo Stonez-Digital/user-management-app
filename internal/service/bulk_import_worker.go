@@ -21,8 +21,8 @@ const bulkImportPollInterval = 2 * time.Second
 const bulkImportClaimLease = 5 * time.Minute
 const bulkImportIdleTimeout = 30 * time.Second
 
-// withTenantTransaction gives every worker-owned transaction an explicit
-// school and initiating-user context. PostgreSQL settings are transaction-local.
+// withTenantTransaction establishes an authenticated, transaction-bound tenant
+// context. PostgreSQL authorization never trusts caller-controlled tenant GUCs.
 func (s *BulkImportService) withTenantTransaction(job models.BulkImportJob, fn func(*gorm.DB) error) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		if tx.Dialector.Name() == "postgres" {
@@ -139,6 +139,9 @@ func (s *BulkImportService) workerLoop() {
 func (s *BulkImportService) RunWorker(ctx context.Context) error {
 	if s.db == nil || s.claimDB == nil {
 		return errors.New("bulk import worker requires application and claim database connections")
+	}
+	if s.db.Dialector.Name() == "postgres" && s.contextSigner == nil {
+		return errors.New("bulk import PostgreSQL worker requires a Vault-backed signed-context signer")
 	}
 	// Bind both database handles to the worker lifetime so cancellation and
 	// the scheduled-run deadline interrupt in-flight database operations, not

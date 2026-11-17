@@ -19,13 +19,15 @@ func VerifyBulkImportContext(tx *gorm.DB, assertion bulkcontext.Assertion) error
 		return fmt.Errorf("signed bulk import context signature is required")
 	}
 	if err := tx.Exec(
-		"SELECT stonez_internal.verify_bulk_import_context(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		"SELECT stonez_internal.verify_bulk_import_context(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		claims.KeyID,
 		claims.AssertionID,
 		claims.JobID,
 		claims.SchoolID,
 		claims.InitiatedBy,
 		claims.WorkerID,
+		claims.BackendPID,
+		claims.TransactionID,
 		claims.LeaseGeneration,
 		claims.IssuedAt,
 		claims.ExpiresAt,

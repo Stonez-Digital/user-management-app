@@ -49,7 +49,7 @@ type Claims struct {
 	InitiatedBy     uuid.UUID `json:"initiated_by"`
 	WorkerID        uuid.UUID `json:"worker_id"`
 	BackendPID      int32     `json:"backend_pid"`
-	TransactionID   uint64    `json:"transaction_id"`
+	TransactionID   string    `json:"transaction_id"`
 	LeaseGeneration int64    `json:"lease_generation"`
 	IssuedAt        int64     `json:"iat"`
 	ExpiresAt       int64     `json:"exp"`

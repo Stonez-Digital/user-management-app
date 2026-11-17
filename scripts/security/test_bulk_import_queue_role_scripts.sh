@@ -2,12 +2,14 @@
 set -euo pipefail
 
 : "${BULK_QUEUE_SCRIPT_TEST_DATABASE_URL:?must point to the disposable PostgreSQL CI database}"
-: "${BULK_QUEUE_SCRIPT_TEST_RUNTIME_URL:?must point to the disposable restricted runtime login}"
+: "${BULK_QUEUE_SCRIPT_TEST_RUNTIME_URL:?must point to the disposable API runtime login}"
+: "${BULK_QUEUE_SCRIPT_TEST_CLAIM_URL:?must point to the disposable claim-only login}"
 : "${BULK_QUEUE_SCRIPT_TEST_OUTSIDER_URL:?must point to the disposable unrelated login}"
 : "${BULK_QUEUE_SCRIPT_TEST_DATABASE:?must explicitly name the disposable database}"
 
 runner_url="$BULK_QUEUE_SCRIPT_TEST_DATABASE_URL"
 runtime_url="$BULK_QUEUE_SCRIPT_TEST_RUNTIME_URL"
+claim_url="$BULK_QUEUE_SCRIPT_TEST_CLAIM_URL"
 outsider_url="$BULK_QUEUE_SCRIPT_TEST_OUTSIDER_URL"
 
 actual_db="$(psql "$runner_url" -X -A -t -v ON_ERROR_STOP=1 -c 'SELECT current_database()')"
@@ -68,7 +70,14 @@ psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/verify_bulk_import_
 echo "== Install actual restricted claim function =="
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_claim_function.sql
 
-echo "== Provision dedicated worker login using the interactive operator script =="
+echo "== Provision API runtime login for tenant-scoped API checks =="
+printf "%s\n%s\n" "queue_script_worker_ci_password" "queue_script_worker_ci_password" | psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/provision_bulk_import_worker_login.psql
+
+echo "== Provision separate claim-only login =="
+printf "%s\n%s\n" "queue_script_claim_ci_password" "queue_script_claim_ci_password" | psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/provision_bulk_import_claim_login.psql
+
+echo "== Verify final role and function grants =="
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/verify_bulk_import_queue_roles.sql
 printf '%s\n%s\n' 'queue_script_worker_ci_password' 'queue_script_worker_ci_password' | psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/provision_bulk_import_worker_login.psql
 
 echo "== Create unrelated login and seed one job =="
@@ -102,13 +111,31 @@ if [[ "$direct_rows" != "0" ]]; then
   exit 1
 fi
 
-echo "== Assert runtime can execute the installed SECURITY DEFINER claim function =="
-claimed_rows="$(psql "$runtime_url" -X -A -t -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM stonez_internal.claim_next_bulk_import_job('44444444-4444-4444-8444-444444444444')")"
+echo "== Assert API runtime cannot execute the global claim function =="
+if psql "$runtime_url" -X -v ON_ERROR_STOP=1 -c "SELECT * FROM stonez_internal.claim_next_bulk_import_job('44444444-4444-4444-8444-444444444444')" >/dev/null 2>&1; then
+  echo "API runtime unexpectedly executed the global claim function" >&2
+  exit 1
+fi
+
+echo "== Assert claim login inherits only the claim group and cannot assume it =="
+claim_membership="$(psql "$claim_url" -X -A -t -v ON_ERROR_STOP=1 -c "SELECT pg_has_role(session_user, 'stonez_bulk_claim_group', 'USAGE')::text || ':' || pg_has_role(session_user, 'stonez_bulk_claim_group', 'SET')::text || ':' || pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER')::text || ':' || pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')::text")"
+if [[ "$claim_membership" != "true:false:false:false" ]]; then
+  echo "Unexpected claim-only membership state '$claim_membership'" >&2
+  exit 1
+fi
+
+echo "== Assert claim login has no direct queue-table access =="
+if psql "$claim_url" -X -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM public.bulk_import_jobs" >/dev/null 2>&1; then
+  echo "Claim login unexpectedly read the queue table directly" >&2
+  exit 1
+fi
+
+echo "== Assert claim login can execute the installed SECURITY DEFINER function =="
+claimed_rows="$(psql "$claim_url" -X -A -t -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM stonez_internal.claim_next_bulk_import_job('44444444-4444-4444-8444-444444444444')")"
 if [[ "$claimed_rows" != "1" ]]; then
   echo "Expected the actual installed claim function to return one job; got '$claimed_rows'" >&2
   exit 1
 fi
-
 echo "== Assert privileged CREATEROLE installer cannot invoke the function =="
 if psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "SELECT * FROM stonez_internal.claim_next_bulk_import_job('66666666-6666-4666-8666-666666666666')" >/dev/null 2>&1; then
   echo "Privileged CREATEROLE installer unexpectedly executed the claim function" >&2

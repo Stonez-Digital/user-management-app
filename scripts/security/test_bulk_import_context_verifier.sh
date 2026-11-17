@@ -110,7 +110,11 @@ SQL
 
 echo "== Replay, forgery, expiry, and key selection =="
 REPLAY="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '77777777-7777-4777-8777-777777777777' "$NOW" "$((NOW+30))")" "$KEY_HEX")"
-psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$REPLAY" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context(:'token'); COMMIT;" >/dev/null
+psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$REPLAY" <<'SQL' >/dev/null
+BEGIN;
+SELECT stonez_context_private.verify_bulk_import_context(:'token');
+COMMIT;
+SQL
 expect_rejected "$REPLAY" "committed replay"
 FORGED="$(printf '%s' "$TOKEN" | sed 's/.$/A/')"
 expect_rejected "$FORGED" "modified signature"

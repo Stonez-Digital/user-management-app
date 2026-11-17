@@ -24,7 +24,7 @@ CREATE TABLE public.bulk_import_jobs (
     worker_id uuid, lease_id uuid, status text NOT NULL, claimed_at timestamptz,
     kind text NOT NULL DEFAULT 'students', file_name text NOT NULL DEFAULT 'fixture.csv',
     send_credentials boolean NOT NULL DEFAULT false, rows_json text NOT NULL DEFAULT '[]',
-    attempts integer NOT NULL DEFAULT 0, created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    attempts integer NOT NULL DEFAULT 0, processed_rows_json jsonb NOT NULL DEFAULT '[]'::jsonb, created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     total integer NOT NULL DEFAULT 0, valid integer NOT NULL DEFAULT 0,
     created integer NOT NULL DEFAULT 0, updated integer NOT NULL DEFAULT 0,

@@ -121,7 +121,7 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 
 	// An additional permissive policy assigned directly to the login must
 	// also be detected; checking only policies assigned to the group is unsafe.
-	if err := runnerDB.Exec(`CREATE POLICY bulk_worker_login_bypass_test ON public.students FOR SELECT TO stonez_bulk_worker_processing_login USING (true)`).Error; err != nil {
+	if err := runnerDB.Exec(`CREATE POLICY bulk_worker_login_bypass_test ON public.students FOR SELECT TO stonez_bulk_worker_processing_test USING (true)`).Error; err != nil {
 		t.Fatalf("create unexpected login policy: %v", err)
 	}
 	if err := ValidateBulkImportSignedContextReady(workerDB); err == nil {
@@ -141,7 +141,7 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 		{"sensitive SELECT column", `GRANT SELECT (password_hash) ON public.users TO stonez_bulk_worker_processing`, `REVOKE SELECT (password_hash) ON public.users FROM stonez_bulk_worker_processing`},
 		{"unexpected INSERT table", `GRANT INSERT ON public.academic_sessions TO stonez_bulk_worker_processing`, `REVOKE INSERT ON public.academic_sessions FROM stonez_bulk_worker_processing`},
 		{"lease generation UPDATE", `GRANT UPDATE (lease_id) ON public.bulk_import_jobs TO stonez_bulk_worker_processing`, `REVOKE UPDATE (lease_id) ON public.bulk_import_jobs FROM stonez_bulk_worker_processing`},
-		{"direct login UPDATE", `GRANT UPDATE ON public.students TO stonez_bulk_worker_processing_login`, `REVOKE UPDATE ON public.students FROM stonez_bulk_worker_processing_login`},
+		{"direct login UPDATE", `GRANT UPDATE ON public.students TO stonez_bulk_worker_processing_test`, `REVOKE UPDATE ON public.students FROM stonez_bulk_worker_processing_test`},
 	}
 	for _, mutation := range privilegeMutations {
 		t.Run("privilege_"+strings.ReplaceAll(mutation.name," ","_"), func(t *testing.T) {
@@ -163,13 +163,13 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 	// PostgreSQL 16+ membership SET options are distinct from INHERIT.
 	// The processing login must inherit the policy group without being able
 	// to SET ROLE into it.
-	if err := runnerDB.Exec(`GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_login WITH ADMIN FALSE, INHERIT TRUE, SET TRUE`).Error; err != nil {
+	if err := runnerDB.Exec(`GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_test WITH ADMIN FALSE, INHERIT TRUE, SET TRUE`).Error; err != nil {
 		t.Fatalf("enable SET ROLE for negative test: %v", err)
 	}
 	if err := ValidateBulkImportProcessingRole(workerDB); err == nil {
 		t.Fatal("processing login with SET ROLE into worker group was accepted")
 	}
-	if err := runnerDB.Exec(`GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_login WITH ADMIN FALSE, INHERIT TRUE, SET FALSE`).Error; err != nil {
+	if err := runnerDB.Exec(`GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_test WITH ADMIN FALSE, INHERIT TRUE, SET FALSE`).Error; err != nil {
 		t.Fatalf("restore no-SET-ROLE membership: %v", err)
 	}
 	if err := ValidateBulkImportProcessingRole(workerDB); err != nil {

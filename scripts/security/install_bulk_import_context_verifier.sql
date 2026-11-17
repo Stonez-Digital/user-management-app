@@ -5,6 +5,11 @@ BEGIN;
 
 DO $roles$
 BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_api_runtime')
+       OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner')
+       OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_worker' AND rolcanlogin) THEN
+        RAISE EXCEPTION 'the existing API runtime, queue-owner, and queue-claim login roles must be provisioned first';
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_worker_processing') THEN
         CREATE ROLE stonez_bulk_worker_processing NOLOGIN NOSUPERUSER NOBYPASSRLS INHERIT;
     END IF;

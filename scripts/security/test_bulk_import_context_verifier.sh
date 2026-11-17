@@ -138,7 +138,12 @@ BEGIN
      OR NOT has_function_privilege(v_processing,'stonez_context_private.fail_account_setup_notice(uuid,uuid,text)','EXECUTE') THEN
     RAISE EXCEPTION 'processing group is missing a scoped outbox function grant';
   END IF;
-  IF has_function_privilege('public','stonez_context_private.enqueue_account_setup_notice(uuid)','EXECUTE') THEN
+  IF EXISTS (
+      SELECT 1 FROM pg_proc AS procedure
+      CROSS JOIN LATERAL aclexplode(COALESCE(procedure.proacl,acldefault('f',procedure.proowner))) AS privilege
+      WHERE procedure.oid='stonez_context_private.enqueue_account_setup_notice(uuid)'::regprocedure
+        AND privilege.grantee=0 AND privilege.privilege_type='EXECUTE'
+  ) THEN
     RAISE EXCEPTION 'PUBLIC can execute outbox enqueue';
   END IF;
 END

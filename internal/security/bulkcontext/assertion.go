@@ -35,7 +35,7 @@ type Binding struct {
 	InitiatedBy     uuid.UUID
 	WorkerID        uuid.UUID
 	BackendPID      int32
-	TransactionID   uint64
+	TransactionID   string
 	LeaseGeneration int64
 }
 
@@ -105,7 +105,7 @@ func (s *Signer) Sign(ctx context.Context, binding Binding, ttl time.Duration) (
 	}
 	if binding.JobID == uuid.Nil || binding.SchoolID == uuid.Nil ||
 		binding.InitiatedBy == uuid.Nil || binding.WorkerID == uuid.Nil ||
-		binding.BackendPID <= 0 || binding.TransactionID == 0 || binding.LeaseGeneration <= 0 {
+		binding.BackendPID <= 0 || !validTransactionID(binding.TransactionID) || binding.LeaseGeneration <= 0 {
 		return Assertion{}, ErrInvalidClaims
 	}
 
@@ -154,7 +154,7 @@ func CanonicalPayload(c Claims) ([]byte, error) {
 		c.InitiatedBy.String(),
 		c.WorkerID.String(),
 		strconv.FormatInt(int64(c.BackendPID), 10),
-		strconv.FormatUint(c.TransactionID, 10),
+		c.TransactionID,
 		strconv.FormatInt(c.LeaseGeneration, 10),
 		strconv.FormatInt(c.IssuedAt, 10),
 		strconv.FormatInt(c.ExpiresAt, 10),
@@ -216,9 +216,14 @@ func validateClaimsShape(c Claims) error {
 	if !keyIDPattern.MatchString(c.KeyID) ||
 		c.AssertionID == uuid.Nil || c.JobID == uuid.Nil ||
 		c.SchoolID == uuid.Nil || c.InitiatedBy == uuid.Nil ||
-		c.WorkerID == uuid.Nil || c.BackendPID <= 0 || c.TransactionID == 0 || c.LeaseGeneration <= 0 ||
+		c.WorkerID == uuid.Nil || c.BackendPID <= 0 || !validTransactionID(c.TransactionID) || c.LeaseGeneration <= 0 ||
 		c.IssuedAt <= 0 || c.ExpiresAt <= c.IssuedAt {
 		return ErrInvalidClaims
 	}
 	return nil
+}
+
+func validTransactionID(value string) bool {
+	parsed, err := strconv.ParseUint(value, 10, 64)
+	return err == nil && parsed > 0 && strconv.FormatUint(parsed, 10) == value
 }

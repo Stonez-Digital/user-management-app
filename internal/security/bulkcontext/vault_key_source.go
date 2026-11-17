@@ -43,19 +43,18 @@ func NewVaultKVKeySource(address, tokenFile, mount, secretPath string, client *h
 		return nil, errors.New("Vault key cache TTL must be greater than zero and no more than five minutes")
 	}
 	if client == nil {
-		client = &http.Client{
-			Timeout: 5 * time.Second,
-			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		}
+		client = &http.Client{Timeout: 5 * time.Second}
+	}
+	clientCopy := *client
+	clientCopy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
 	}
 	return &VaultKVKeySource{
 		address: strings.TrimRight(parsed.String(), "/"),
 		tokenFile: tokenFile,
 		mount: strings.Trim(mount, "/"),
 		path: strings.Trim(secretPath, "/"),
-		client: client,
+		client: &clientCopy,
 		cacheTTL: cacheTTL,
 		keys: make(map[string][]byte),
 	}, nil

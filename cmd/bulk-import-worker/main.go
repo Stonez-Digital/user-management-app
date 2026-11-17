@@ -64,6 +64,9 @@ func main() {
 		if err := database.ValidateBulkImportProcessingRole(processingDB); err != nil {
 			log.Fatalf("signed bulk import processing role validation failed: %v", err)
 		}
+		if err := database.ValidateBulkImportSignedContextReady(processingDB); err != nil {
+			log.Fatalf("signed bulk import verifier or worker RLS policies are not ready: %v", err)
+		}
 		keyID := strings.TrimSpace(os.Getenv("BULK_IMPORT_CONTEXT_SIGNING_KEY_ID"))
 		encodedKey := strings.TrimSpace(os.Getenv("BULK_IMPORT_CONTEXT_SIGNING_KEY"))
 		signer, err := bulkimportcontext.NewSignerFromBase64URL(keyID, encodedKey, bulkimportcontext.DefaultTTL)

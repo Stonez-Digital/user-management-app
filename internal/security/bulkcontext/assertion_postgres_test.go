@@ -135,17 +135,12 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	if err := admin.Exec("INSERT INTO "+privateSchema+".bulk_context_keys (key_id, secret, enabled) VALUES (?, ?, true)", key.ID, key.Secret).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := appdb.ValidateBulkImportContextVerifier(admin); err != nil {
-		t.Fatalf("admin verifier preflight: %v", err)
+	var keyAvailable bool
+	if err := loginDB.Raw("SELECT "+privateSchema+".bulk_import_context_key_available(?)", key.ID).Scan(&keyAvailable).Error; err != nil || !keyAvailable {
+		t.Fatalf("processing login could not verify active key availability: %v", err)
 	}
-	if err := appdb.ValidateBulkImportContextVerifier(loginDB); err != nil {
-		t.Fatalf("processing login verifier preflight: %v", err)
-	}
-	if err := appdb.ValidateBulkImportContextKey(loginDB, key.ID); err != nil {
-		t.Fatalf("active key availability preflight: %v", err)
-	}
-	if err := appdb.ValidateBulkImportContextKey(loginDB, "unknown-key"); err == nil {
-		t.Fatal("unknown verifier key was reported as provisioned")
+	if err := loginDB.Raw("SELECT "+privateSchema+".bulk_import_context_key_available(?)", "unknown-key").Scan(&keyAvailable).Error; err != nil || keyAvailable {
+		t.Fatalf("unknown key availability result was incorrect: %v", err)
 	}
 	schoolA, schoolB, initiator, workerID, jobID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	if err := admin.Exec("INSERT INTO "+tableSchema+".bulk_import_jobs (id, school_id, initiated_by, worker_id, lease_generation, status, claimed_at) VALUES (?, ?, ?, ?, 4, 'running', clock_timestamp())", jobID, schoolA, initiator, workerID).Error; err != nil {

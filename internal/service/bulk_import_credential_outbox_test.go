@@ -110,8 +110,20 @@ func TestBulkImportCredentialOutboxWorkerCrashRetry(t *testing.T) {
 	if accountID == uuid.Nil { t.Fatal("account transaction did not persist the imported user") }
 	var eventID string
 	if err := admin.Raw("SELECT event_id::text FROM stonez_context_private.account_setup_outbox WHERE job_id=? AND user_id=?", jobID, accountID).Scan(&eventID).Error; err != nil { t.Fatal(err) }
+	var createdProgress int
+	if err := admin.Raw("SELECT created FROM public.bulk_import_jobs WHERE id=?", jobID).Scan(&createdProgress).Error; err != nil { t.Fatal(err) }
+	if createdProgress != 1 { t.Fatalf("created-row progress was not committed atomically with the account and outbox: %d", createdProgress) }
 
-	worker.processClaimed(job, workerID)
+	// The original worker exits after the account transaction. A new worker
+	// receives a fresh job lease before attempting delivery.
+	firstRecoveryWorkerID, firstRecoveryLeaseID := uuid.New(), uuid.New()
+	if err := admin.Exec(
+		"UPDATE public.bulk_import_jobs SET worker_id=?,lease_id=?,claimed_at=clock_timestamp(),attempts=attempts+1 WHERE id=? AND status='running'",
+		firstRecoveryWorkerID, firstRecoveryLeaseID, jobID,
+	).Error; err != nil { t.Fatal(err) }
+	job.WorkerID, job.LeaseID, job.ClaimedAt = &firstRecoveryWorkerID, &firstRecoveryLeaseID, timePtr(time.Now().UTC())
+	job.Attempts = 2
+	worker.processClaimed(job, firstRecoveryWorkerID)
 	if mailerCalls.Load() != 1 { t.Fatalf("expected first delivery attempt, got %d", mailerCalls.Load()) }
 
 	var outboxState struct { Status string; AttemptCount int }
@@ -136,7 +148,7 @@ func TestBulkImportCredentialOutboxWorkerCrashRetry(t *testing.T) {
 		newWorkerID, newLeaseID, jobID,
 	).Error; err != nil { t.Fatal(err) }
 	job.WorkerID, job.LeaseID, job.ClaimedAt = &newWorkerID, &newLeaseID, timePtr(time.Now().UTC())
-	job.Attempts = 2
+	job.Attempts = 3
 
 	restartedWorker := NewBulkImportService(workerDB, mailer)
 	if err := restartedWorker.RequireSignedContext(signer); err != nil { t.Fatal(err) }

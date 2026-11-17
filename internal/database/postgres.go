@@ -100,7 +100,7 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
     }
     if role.SessionRole == "" || role.CurrentRole != role.SessionRole ||
        !role.CanLogin || role.IsSuperuser || role.CanCreateDB || role.CanCreateRole ||
-       role.CanReplicate || role.BypassRLS || !role.Inherits || !role.WorkerGroup || role.CanSetWorkerGroup ||
+       role.CanReplicate || role.BypassRLS || !role.Inherits || !role.WorkerGroup || role.CanSetWorkerGroup || role.CanAdminWorkerGroup ||
        role.APIRuntime || role.ClaimLogin || role.QueueOwner || role.ContextOwner || role.KeyAdmin ||
        role.UnexpectedMembership || role.OwnsWorkerTables {
         return fmt.Errorf("bulk import processing login is not a dedicated restricted signed-worker role")

@@ -428,6 +428,18 @@ if [[ "$RECLAIMED_EVENT" != "$EVENT_ID" || "$NEW_DELIVERY_LEASE" == "$OLD_DELIVE
   echo "Expired lease was not safely reclaimed: $RECLAIM_ROW" >&2
   exit 1
 fi
+UNSAFE_RETRY_JTI="41414141-4141-4141-8141-414141414141"
+UNSAFE_RETRY_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-outbox-key","typ":"JWT"}' "$(payload "$UNSAFE_RETRY_JTI" "$OUTBOX_NOW" "$((OUTBOX_NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$OUTBOX_KEY_HEX")"
+if psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$UNSAFE_RETRY_TOKEN" -v event_id="$EVENT_ID" -v lease="$NEW_DELIVERY_LEASE" <<'SQL' >/dev/null 2>&1
+BEGIN;
+SELECT stonez_context_private.verify_bulk_import_context(:'token');
+SELECT stonez_context_private.retry_account_setup_notification(:'event_id', :'lease', 'Bearer secret-value', 30);
+COMMIT;
+SQL
+then
+  echo "Outbox retry accepted arbitrary error text that could contain secrets" >&2
+  exit 1
+fi
 STALE_COMPLETE_JTI="38383838-3838-4838-8838-383838383838"
 STALE_COMPLETE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-outbox-key","typ":"JWT"}' "$(payload "$STALE_COMPLETE_JTI" "$OUTBOX_NOW" "$((OUTBOX_NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$OUTBOX_KEY_HEX")"
 stale_result="$(psql "$worker_url" -X -q -A -t -v ON_ERROR_STOP=1 -v token="$STALE_COMPLETE_TOKEN" -v event_id="$EVENT_ID" -v old_lease="$OLD_DELIVERY_LEASE" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$STALE_COMPLETE_TOKEN'); SELECT stonez_context_private.complete_account_setup_notification('$EVENT_ID', '$OLD_DELIVERY_LEASE', 'stale-provider-id'); COMMIT;" | tail -n 1)"

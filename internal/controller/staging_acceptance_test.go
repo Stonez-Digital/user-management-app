@@ -136,6 +136,9 @@ func stagingAcceptanceDB(t *testing.T) *gorm.DB {
 		if err := bootstrap.Exec("GRANT " + apiRole + " TO CURRENT_USER WITH INHERIT TRUE, SET FALSE").Error; err != nil {
 			t.Fatalf("grant isolated API runtime membership to test session: %v", err)
 		}
+		if err := bootstrap.Exec("DROP SCHEMA IF EXISTS stonez_internal CASCADE").Error; err != nil {
+			t.Fatalf("clear stale isolated auth function schema: %v", err)
+		}
 		if err := bootstrap.Exec("CREATE SCHEMA stonez_internal").Error; err != nil {
 			t.Fatalf("create isolated auth function schema: %v", err)
 		}

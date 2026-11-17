@@ -59,6 +59,14 @@ BEGIN
                AND pg_has_role('stonez_bulk_queue_owner', privileged.oid, 'MEMBER')
        )
        OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'REFERENCES')
+       OR has_table_privilege('stonez_bulk_claim_group', 'public.bulk_import_jobs', 'SELECT')
+       OR has_table_privilege('stonez_bulk_claim_group', 'public.bulk_import_jobs', 'INSERT')
+       OR has_table_privilege('stonez_bulk_claim_group', 'public.bulk_import_jobs', 'UPDATE')
+       OR has_table_privilege('stonez_bulk_claim_group', 'public.bulk_import_jobs', 'DELETE')
+       OR has_any_column_privilege('stonez_bulk_claim_group', 'public.bulk_import_jobs', 'SELECT')
+       OR has_any_column_privilege('stonez_bulk_claim_group', 'public.bulk_import_jobs', 'INSERT')
+       OR has_any_column_privilege('stonez_bulk_claim_group', 'public.bulk_import_jobs', 'UPDATE')
+       OR has_schema_privilege('stonez_bulk_claim_group', 'public', 'CREATE')
        OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'DELETE')
        OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'TRUNCATE')
        OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'TRIGGER')
@@ -152,7 +160,7 @@ GRANT SELECT, INSERT, UPDATE ON TABLE public.bulk_import_jobs TO stonez_api_runt
 
 -- Create/replace the function while SET ROLE is the dedicated owner. This
 -- avoids leaving the migration/operator role as function owner.
-GRANT USAGE ON SCHEMA public TO stonez_api_runtime;
+GRANT USAGE ON SCHEMA public TO stonez_api_runtime, stonez_bulk_claim_group;
 GRANT USAGE, CREATE ON SCHEMA stonez_internal TO stonez_bulk_queue_owner;
 -- Preserve PostgreSQL's bootstrap-granted ADMIN OPTION by omitting ADMIN;
 -- CREATEROLE members cannot re-grant ADMIN to themselves.

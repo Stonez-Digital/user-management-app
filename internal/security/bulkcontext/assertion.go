@@ -46,7 +46,7 @@ type Claims struct {
 	SchoolID        uuid.UUID `json:"school_id"`
 	InitiatedBy     uuid.UUID `json:"initiated_by"`
 	WorkerID        uuid.UUID `json:"worker_id"`
-	LeaseGeneration uint64    `json:"lease_generation"`
+	LeaseGeneration int64    `json:"lease_generation"`
 	IssuedAt        int64     `json:"iat"`
 	ExpiresAt       int64     `json:"exp"`
 }
@@ -80,7 +80,7 @@ type Signer struct {
 }
 
 func NewSigner(keys KeySource, maxTTL time.Duration) (*Signer, error) {
-	if keys == nil || maxTTL <= 0 {
+	if keys == nil || maxTTL < time.Second || maxTTL%time.Second != 0 {
 		return nil, ErrInvalidTTL
 	}
 	return &Signer{keys: keys, now: time.Now, maxTTL: maxTTL}, nil

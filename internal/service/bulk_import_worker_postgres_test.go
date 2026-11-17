@@ -18,7 +18,7 @@ import (
 
 // openBulkWorkerPostgres creates a private schema per test so migration and
 // queue state cannot collide with other packages running against TEST_DATABASE_URL.
-func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, string) {
+func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, *gorm.DB, string, string, string, string, string) {
 	t.Helper()
 	dsn := strings.TrimSpace(os.Getenv("TEST_DATABASE_URL"))
 	if dsn == "" {
@@ -36,30 +36,22 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, str
 	if err != nil {
 		t.Fatal(err)
 	}
-	schema := "bulk_worker_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	ownerRole := "biq_owner_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	apiRole := "biq_api_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	otherRole := "biq_other_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
+	schema := "bulk_worker_" + suffix
+	ownerRole := "biq_owner_" + suffix
+	apiRole := "biq_api_" + suffix
+	claimGroupRole := "biq_claim_group_" + suffix
+	claimLoginRole := "biq_claim_login_" + suffix
+	claimPassword := uuid.NewString()
+	otherRole := "biq_other_" + suffix
 	if err := admin.Exec("CREATE SCHEMA " + schema).Error; err != nil {
 		_ = adminSQL.Close()
 		t.Fatalf("create isolated test schema: %v", err)
-	}
-	var existingClaimFunction bool
-	if err := admin.Raw("SELECT to_regprocedure('stonez_internal.claim_next_bulk_import_job(uuid)') IS NOT NULL").Scan(&existingClaimFunction).Error; err != nil || existingClaimFunction {
-		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
-		_ = adminSQL.Close()
-		t.Skip("TEST_DATABASE_URL already contains stonez_internal schema/claim function; use a clean isolated test database")
 	}
 	if err := admin.Exec("CREATE SCHEMA stonez_internal").Error; err != nil {
 		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
 		_ = adminSQL.Close()
 		t.Skipf("cannot create isolated private test schema: %v", err)
-	}
-	if err := admin.Exec("REVOKE ALL PRIVILEGES ON SCHEMA stonez_internal FROM PUBLIC").Error; err != nil {
-		_ = admin.Exec("DROP SCHEMA stonez_internal CASCADE").Error
-		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
-		_ = adminSQL.Close()
-		t.Fatalf("revoke public access to private test schema: %v", err)
 	}
 	var canCreateRoles bool
 	if err := admin.Raw("SELECT rolsuper OR rolcreaterole FROM pg_roles WHERE rolname = current_user").Scan(&canCreateRoles).Error; err != nil || !canCreateRoles {
@@ -68,37 +60,24 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, str
 		_ = adminSQL.Close()
 		t.Skip("TEST_DATABASE_URL role cannot create isolated PostgreSQL roles; restricted queue tests require CREATEROLE")
 	}
-	if err := admin.Exec("CREATE ROLE " + ownerRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS").Error; err != nil {
-		_ = admin.Exec("DROP SCHEMA stonez_internal CASCADE").Error
-		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
-		_ = adminSQL.Close()
-		t.Skipf("cannot create isolated queue-owner test role: %v", err)
-	}
-	if err := admin.Exec("CREATE ROLE " + apiRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS").Error; err != nil {
-		_ = admin.Exec("DROP ROLE " + ownerRole).Error
-		_ = admin.Exec("DROP SCHEMA stonez_internal CASCADE").Error
-		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
-		_ = adminSQL.Close()
-		t.Skipf("cannot create isolated API test role: %v", err)
-	}
-	if err := admin.Exec("CREATE ROLE " + otherRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS").Error; err != nil {
-		_ = admin.Exec("DROP ROLE " + apiRole).Error
-		_ = admin.Exec("DROP ROLE " + ownerRole).Error
-		_ = admin.Exec("DROP SCHEMA stonez_internal CASCADE").Error
-		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
-		_ = adminSQL.Close()
-		t.Skipf("cannot create isolated unrelated test role: %v", err)
-	}
-	// CREATEROLE test users are not necessarily superusers. Temporary
-	// memberships allow SET LOCAL ROLE and are removed during cleanup.
-	if err := admin.Exec("GRANT " + apiRole + ", " + ownerRole + ", " + otherRole + " TO CURRENT_USER").Error; err != nil {
-		_ = admin.Exec("DROP ROLE " + otherRole).Error
-		_ = admin.Exec("DROP ROLE " + apiRole).Error
-		_ = admin.Exec("DROP ROLE " + ownerRole).Error
-		_ = admin.Exec("DROP SCHEMA stonez_internal CASCADE").Error
-		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
-		_ = adminSQL.Close()
-		t.Skipf("cannot grant isolated test roles to test session: %v", err)
+	for _, statement := range []string{
+		"CREATE ROLE " + ownerRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS",
+		"CREATE ROLE " + apiRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS",
+		"CREATE ROLE " + claimGroupRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS",
+		"CREATE ROLE " + otherRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS",
+		"CREATE ROLE " + claimLoginRole + " LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD '" + claimPassword + "'",
+		"GRANT " + claimGroupRole + " TO " + claimLoginRole + " WITH ADMIN FALSE, INHERIT TRUE, SET FALSE",
+		"GRANT " + apiRole + ", " + ownerRole + ", " + otherRole + " TO CURRENT_USER",
+	} {
+		if err := admin.Exec(statement).Error; err != nil {
+			_ = admin.Exec("DROP SCHEMA stonez_internal CASCADE").Error
+			_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
+			for _, role := range []string{claimLoginRole, claimGroupRole, otherRole, apiRole, ownerRole} {
+				_ = admin.Exec("DROP ROLE IF EXISTS " + role).Error
+			}
+			_ = adminSQL.Close()
+			t.Skipf("cannot provision isolated queue test identity: %v", err)
+		}
 	}
 	t.Cleanup(func() {
 		_ = admin.Transaction(func(tx *gorm.DB) error {
@@ -107,13 +86,17 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, str
 		})
 		_ = admin.Exec("DROP SCHEMA stonez_internal CASCADE").Error
 		_ = admin.Exec("DROP SCHEMA " + schema + " CASCADE").Error
+		_ = admin.Exec("DROP OWNED BY " + claimLoginRole).Error
+		_ = admin.Exec("REVOKE " + claimGroupRole + " FROM " + claimLoginRole).Error
+		_ = admin.Exec("DROP ROLE " + claimLoginRole).Error
 		_ = admin.Exec("DROP OWNED BY " + otherRole).Error
 		_ = admin.Exec("DROP OWNED BY " + apiRole).Error
+		_ = admin.Exec("DROP OWNED BY " + claimGroupRole).Error
 		_ = admin.Exec("DROP OWNED BY " + ownerRole).Error
 		_ = admin.Exec("REVOKE " + apiRole + ", " + ownerRole + ", " + otherRole + " FROM CURRENT_USER").Error
-		_ = admin.Exec("DROP ROLE " + otherRole).Error
-		_ = admin.Exec("DROP ROLE " + apiRole).Error
-		_ = admin.Exec("DROP ROLE " + ownerRole).Error
+		for _, role := range []string{otherRole, apiRole, claimGroupRole, ownerRole} {
+			_ = admin.Exec("DROP ROLE " + role).Error
+		}
 		_ = adminSQL.Close()
 	})
 
@@ -125,26 +108,35 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, str
 		t.Fatalf("connect isolated PostgreSQL schema: %v", err)
 	}
 	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatal(err)
-	}
+	if err != nil { t.Fatal(err) }
 	sqlDB.SetMaxOpenConns(4)
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	if err := database.Migrate(db); err != nil {
 		t.Fatalf("migrate isolated PostgreSQL schema: %v", err)
 	}
-	if err := installBulkClaimFunctionForTest(t, admin, schema, ownerRole, apiRole, otherRole); err != nil {
+	if err := installBulkClaimFunctionForTest(t, admin, schema, ownerRole, apiRole, claimGroupRole, otherRole); err != nil {
 		t.Fatalf("install isolated restricted claim function: %v", err)
 	}
 	if err := admin.Exec("GRANT USAGE ON SCHEMA " + schema + " TO " + otherRole).Error; err != nil {
 		t.Fatalf("grant schema usage to unrelated test role: %v", err)
 	}
-	return db, schema, ownerRole, apiRole, otherRole
+	claimURL := *parsed
+	claimURL.User = url.UserPassword(claimLoginRole, claimPassword)
+	claimDB, err := gorm.Open(postgres.Open(claimURL.String()), &gorm.Config{})
+	if err != nil { t.Fatalf("connect dedicated claim login: %v", err) }
+	claimSQL, err := claimDB.DB()
+	if err != nil { t.Fatal(err) }
+	claimSQL.SetMaxOpenConns(4)
+	t.Cleanup(func() { _ = claimSQL.Close() })
+	if err := database.ValidateBulkImportClaimRoleFor(claimDB, claimGroupRole, apiRole, ownerRole, "stonez_internal.claim_next_bulk_import_job(uuid)"); err != nil {
+		t.Fatalf("dedicated claim login failed startup validation: %v", err)
+	}
+	return db, claimDB, schema, ownerRole, apiRole, claimGroupRole, otherRole
 }
 
-func installBulkClaimFunctionForTest(t *testing.T, admin *gorm.DB, schema, ownerRole, apiRole, otherRole string) error {
+func installBulkClaimFunctionForTest(t *testing.T, admin *gorm.DB, schema, ownerRole, apiRole, claimGroupRole, otherRole string) error {
 	t.Helper()
-	if err := admin.Exec("GRANT USAGE ON SCHEMA " + schema + " TO " + ownerRole + ", " + apiRole).Error; err != nil { return err }
+	if err := admin.Exec("GRANT USAGE ON SCHEMA " + schema + " TO " + ownerRole + ", " + apiRole + ", " + claimGroupRole).Error; err != nil { return err }
 	if err := admin.Exec("GRANT SELECT ON TABLE " + schema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil { return err }
 	if err := admin.Exec("GRANT UPDATE (status, worker_id, claimed_at, attempts, lease_generation, last_error) ON TABLE " + schema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil { return err }
 	if err := admin.Exec("GRANT SELECT, INSERT, UPDATE ON TABLE " + schema + ".bulk_import_jobs TO " + apiRole).Error; err != nil { return err }
@@ -159,8 +151,8 @@ func installBulkClaimFunctionForTest(t *testing.T, admin *gorm.DB, schema, owner
 		if err := admin.Exec(policy).Error; err != nil { return err }
 	}
 	if err := admin.Exec("GRANT USAGE, CREATE ON SCHEMA stonez_internal TO " + ownerRole).Error; err != nil { return err }
-	if err := admin.Exec("GRANT USAGE ON SCHEMA stonez_internal TO " + apiRole + ", " + otherRole).Error; err != nil { return err }
-	functionSQL := fmt.Sprintf(`
+	if err := admin.Exec("GRANT USAGE ON SCHEMA stonez_internal TO " + apiRole + ", " + claimGroupRole + ", " + otherRole).Error; err != nil { return err }
+	functionSQL := fmt.Sprintf(\`
 CREATE OR REPLACE FUNCTION stonez_internal.claim_next_bulk_import_job(p_worker_id uuid)
 RETURNS SETOF %s.bulk_import_jobs
 LANGUAGE plpgsql
@@ -169,7 +161,17 @@ SET search_path = pg_catalog
 AS $function$
 DECLARE v_job %s.bulk_import_jobs%%ROWTYPE;
 BEGIN
-    IF NOT pg_has_role(session_user, '%s', 'MEMBER') THEN RAISE EXCEPTION 'caller is not an authorized API runtime login'; END IF;
+    IF NOT pg_has_role(session_user, '%s', 'USAGE')
+       OR pg_has_role(session_user, '%s', 'SET')
+       OR pg_has_role(session_user, '%s', 'MEMBER')
+       OR pg_has_role(session_user, '%s', 'MEMBER')
+       OR EXISTS (
+           SELECT 1 FROM pg_roles AS privileged
+            WHERE (privileged.rolsuper OR privileged.rolbypassrls)
+              AND privileged.rolname <> session_user
+              AND pg_has_role(session_user, privileged.oid, 'MEMBER')
+       )
+    THEN RAISE EXCEPTION 'caller is not an authorized claim-only login'; END IF;
     IF p_worker_id IS NULL THEN RAISE EXCEPTION 'worker ID is required'; END IF;
     SELECT * INTO v_job FROM %s.bulk_import_jobs
      WHERE status = 'queued'
@@ -182,17 +184,16 @@ BEGIN
      WHERE id = v_job.id RETURNING * INTO v_job;
     RETURN NEXT v_job;
 END
-$function$`, schema, schema, apiRole, schema, schema)
+$function$\`, schema, schema, claimGroupRole, claimGroupRole, apiRole, ownerRole, schema, schema)
 	if err := admin.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("SET LOCAL ROLE " + ownerRole).Error; err != nil { return err }
 		if err := tx.Exec(functionSQL).Error; err != nil { return err }
 		if err := tx.Exec("REVOKE ALL ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) FROM PUBLIC").Error; err != nil { return err }
-		return tx.Exec("GRANT EXECUTE ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) TO " + apiRole).Error
+		return tx.Exec("GRANT EXECUTE ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) TO " + claimGroupRole).Error
 	}); err != nil { return err }
 	if err := admin.Exec("REVOKE CREATE ON SCHEMA stonez_internal FROM " + ownerRole).Error; err != nil { return err }
 	return nil
 }
-
 
 func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T) {
 	db, schema, ownerRole, apiRole, otherRole := openBulkWorkerPostgres(t)

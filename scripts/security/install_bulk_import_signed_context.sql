@@ -88,6 +88,22 @@ BEGIN
     END IF;
 END
 $$;
+DO $
+DECLARE
+    v_role text;
+BEGIN
+    FOREACH v_role IN ARRAY ARRAY[
+        'anon', 'authenticated', 'service_role', 'stonez_api_runtime',
+        'stonez_bulk_worker', 'stonez_bulk_process_login', 'stonez_bulk_process_group'
+    ] LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = v_role) THEN
+            EXECUTE format('REVOKE ALL PRIVILEGES ON TABLE stonez_internal.bulk_context_keys FROM %I', v_role);
+            EXECUTE format('REVOKE ALL PRIVILEGES ON TABLE stonez_internal.bulk_context_sessions FROM %I', v_role);
+        END IF;
+    END LOOP;
+END
+$;
+
 GRANT SELECT ON TABLE stonez_internal.bulk_context_keys TO stonez_bulk_context_owner;
 GRANT SELECT, INSERT ON TABLE stonez_internal.bulk_context_sessions TO stonez_bulk_context_owner;
 

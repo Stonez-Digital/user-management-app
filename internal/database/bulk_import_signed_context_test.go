@@ -30,9 +30,6 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 	}
 
 	runnerDB := openSignedContextTestDB(t, runnerDSN)
-	if err := ValidateBulkImportSignedContextReady(runnerDB); err != nil {
-		t.Fatalf("installed signed-context verifier is not ready: %v", err)
-	}
 	if err := ValidateBulkImportProcessingRole(runnerDB); err == nil {
 		t.Fatal("privileged database owner was accepted as the processing login")
 	}

@@ -63,9 +63,18 @@ BEGIN
        OR NOT has_function_privilege('stonez_bulk_process_group', 'stonez_internal.bulk_import_context_key_available(text)', 'EXECUTE') THEN
         RAISE EXCEPTION 'processing group is missing required signed-context function access';
     END IF;
-    IF has_function_privilege('PUBLIC', 'stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text)', 'EXECUTE')
-       OR has_function_privilege('PUBLIC', 'stonez_internal.current_bulk_import_context()', 'EXECUTE')
-       OR has_function_privilege('PUBLIC', 'stonez_internal.bulk_import_context_key_available(text)', 'EXECUTE') THEN
+    IF EXISTS (
+        SELECT 1
+          FROM pg_proc procedure
+          CROSS JOIN LATERAL aclexplode(COALESCE(procedure.proacl, acldefault('f', procedure.proowner))) AS privilege
+         WHERE procedure.oid IN (
+             'stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text)'::regprocedure,
+             'stonez_internal.current_bulk_import_context()'::regprocedure,
+             'stonez_internal.bulk_import_context_key_available(text)'::regprocedure
+         )
+           AND privilege.grantee = 0
+           AND privilege.privilege_type = 'EXECUTE'
+    ) THEN
         RAISE EXCEPTION 'PUBLIC has signed-context function access';
     END IF;
 

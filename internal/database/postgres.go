@@ -49,6 +49,7 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
         Inherits bool
         WorkerGroup bool
         CanSetWorkerGroup bool
+        CanAdminWorkerGroup bool
         APIRuntime bool
         ClaimLogin bool
         QueueOwner bool
@@ -69,6 +70,7 @@ func ValidateBulkImportProcessingRole(db *gorm.DB) error {
                r.rolinherit AS inherits,
                pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE') AS worker_group,
                pg_has_role(session_user, 'stonez_bulk_worker_processing', 'SET') AS can_set_worker_group,
+               EXISTS (SELECT 1 FROM pg_auth_members AS membership WHERE membership.member = r.oid AND membership.roleid = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_worker_processing') AND membership.admin_option) AS can_admin_worker_group,
                pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER') AS api_runtime,
                pg_has_role(session_user, 'stonez_bulk_worker', 'MEMBER') AS claim_login,
                pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER') AS queue_owner,

@@ -88,6 +88,7 @@ CREATE POLICY bulk_import_jobs_signed_worker_update ON public.bulk_import_jobs
 DO $policies$
 DECLARE
     v_table text;
+    v_columns text;
     v_insert_tables text[] := ARRAY[
         'users','students','teacher_profiles','parent_profiles',
         'student_enrollments','guardian_relationships'
@@ -100,7 +101,19 @@ DECLARE
 BEGIN
     FOREACH v_table IN ARRAY v_select_tables LOOP
         EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', v_table);
-        EXECUTE format('GRANT SELECT ON public.%I TO stonez_bulk_worker_processing', v_table);
+        CASE v_table
+            WHEN 'users' THEN v_columns := 'id, school_id, email, role';
+            WHEN 'students' THEN v_columns := 'id, school_id, admission_number';
+            WHEN 'teacher_profiles' THEN v_columns := 'id, school_id, staff_id';
+            WHEN 'parent_profiles' THEN v_columns := 'id, school_id, parent_identifier, user_id';
+            WHEN 'academic_sessions' THEN v_columns := 'id, school_id, name, status';
+            WHEN 'school_classes' THEN v_columns := 'id, school_id, name';
+            WHEN 'sections' THEN v_columns := 'id, school_id, class_id, name';
+            WHEN 'student_enrollments' THEN v_columns := 'id, school_id, student_id, academic_session_id, status';
+            WHEN 'guardian_relationships' THEN v_columns := 'id, school_id, guardian_user_id, student_id';
+            ELSE RAISE EXCEPTION 'no approved worker SELECT column inventory for %', v_table;
+        END CASE;
+        EXECUTE format('GRANT SELECT (%s) ON public.%I TO stonez_bulk_worker_processing', v_columns, v_table);
         EXECUTE format('DROP POLICY IF EXISTS bulk_worker_signed_select ON public.%I', v_table);
         EXECUTE format(
             'CREATE POLICY bulk_worker_signed_select ON public.%I FOR SELECT TO stonez_bulk_worker_processing USING (school_id = stonez_context_private.current_worker_school_id())',

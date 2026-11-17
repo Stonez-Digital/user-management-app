@@ -228,9 +228,16 @@ BEGIN
     END IF;
     IF json_typeof(v_payload->'iss') IS DISTINCT FROM 'string'
        OR json_typeof(v_payload->'sub') IS DISTINCT FROM 'string'
-       OR json_typeof(v_payload->'aud') IS DISTINCT FROM 'string'
        OR v_payload->>'iss' <> 'stonez-bulk-import-worker'
-       OR v_payload->>'aud' <> 'stonez-postgres-bulk-import-context' THEN
+       OR NOT (
+            (json_typeof(v_payload->'aud') = 'string'
+             AND v_payload->>'aud' = 'stonez-postgres-bulk-import-context')
+            OR
+            (json_typeof(v_payload->'aud') = 'array'
+             AND json_array_length(v_payload->'aud') = 1
+             AND json_typeof(v_payload->'aud'->0) = 'string'
+             AND v_payload->'aud'->>0 = 'stonez-postgres-bulk-import-context')
+       ) THEN
         RAISE EXCEPTION 'invalid assertion issuer or audience' USING ERRCODE = '22023';
     END IF;
     IF json_typeof(v_payload->'iat') IS DISTINCT FROM 'number'

@@ -292,7 +292,7 @@ func (s *BulkImportService) processClaimed(job models.BulkImportJob, workerID uu
 		validRows[item.Row] = true
 	}
 
-	createdCount, skippedCount := job.Created, job.Skipped
+	skippedCount := job.Skipped
 	failedCount := 0
 	credentialsSent, credentialFailures := job.CredentialsSent, 0
 	for index, row := range rows {
@@ -300,19 +300,17 @@ func (s *BulkImportService) processClaimed(job models.BulkImportJob, workerID uu
 		if validRows[rowNumber] {
 			continue
 		}
-		created, skipped, _, _, _, rowErr := s.processRow(job, row)
+		_, skipped, _, _, _, rowErr := s.processRow(job, row)
 		if skipped && job.Attempts <= 1 {
 			skippedCount++
 		}
 		if rowErr != nil {
 			failedCount++
 			errs = append(errs, BulkError{Row: rowNumber, Message: rowErr.Error()})
-		} else if created {
-			createdCount++
 		}
 
 		values := map[string]any{
-			"created": createdCount, "skipped": skippedCount, "failed": failedCount,
+			"skipped": skippedCount, "failed": failedCount,
 			"credentials_sent": credentialsSent, "credential_emails_failed": credentialFailures,
 			"errors_json": mustJSON(errs), "claimed_at": time.Now().UTC(),
 		}
@@ -342,7 +340,7 @@ func (s *BulkImportService) processClaimed(job models.BulkImportJob, workerID uu
 		credentialFailures = counts.FailedCount
 		if counts.PendingCount > 0 {
 			_ = s.updateClaimedJob(job, workerID, map[string]any{
-				"created": createdCount, "skipped": skippedCount, "failed": failedCount,
+				"skipped": skippedCount, "failed": failedCount,
 				"credentials_sent": credentialsSent, "credential_emails_failed": credentialFailures,
 				"errors_json": mustJSON(errs),
 				"last_error": "account-setup notifications pending retry",
@@ -358,7 +356,7 @@ func (s *BulkImportService) processClaimed(job models.BulkImportJob, workerID uu
 	}
 	_ = s.updateClaimedJob(job, workerID, map[string]any{
 		"status": status, "errors_json": mustJSON(errs),
-		"created": createdCount, "skipped": skippedCount, "failed": failedCount,
+		"skipped": skippedCount, "failed": failedCount,
 		"credentials_sent": credentialsSent, "credential_emails_failed": credentialFailures,
 		"worker_id": nil, "claimed_at": nil, "last_error": "",
 	})

@@ -51,7 +51,15 @@ psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_context_worker_policies.sql
 psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE ROLE stonez_bulk_worker_processing_test LOGIN PASSWORD 'bulk_context_worker_ci_password' NOSUPERUSER NOBYPASSRLS INHERIT;
-GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_test;
+GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_test WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
+DO $role_check$
+BEGIN
+  IF NOT pg_has_role('stonez_bulk_worker_processing_test','stonez_bulk_worker_processing','USAGE')
+     OR pg_has_role('stonez_bulk_worker_processing_test','stonez_bulk_worker_processing','SET') THEN
+    RAISE EXCEPTION 'processing login must inherit but must not SET ROLE into its policy group';
+  END IF;
+END
+$role_check$;
 SELECT stonez_context_private.register_verification_key(
   'ci-key-1', decode(repeat('ab',32),'hex'), clock_timestamp() - interval '5 minutes', NULL
 );

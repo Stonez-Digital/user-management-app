@@ -113,6 +113,7 @@ func (s *Signer) Sign(ctx context.Context, binding Binding, ttl time.Duration) (
 	if err != nil {
 		return Assertion{}, fmt.Errorf("load active bulk import signing key: %w", err)
 	}
+	key.Secret = append([]byte(nil), key.Secret...)
 	if err := validateKey(key); err != nil {
 		zeroSecret(key.Secret)
 		return Assertion{}, err
@@ -188,6 +189,7 @@ func VerifySignature(ctx context.Context, keys VerificationKeySource, assertion 
 	if err != nil {
 		return fmt.Errorf("load bulk import verification key: %w", err)
 	}
+	key.Secret = append([]byte(nil), key.Secret...)
 	if err := validateKey(key); err != nil || key.ID != assertion.Claims.KeyID {
 		zeroSecret(key.Secret)
 		return ErrInvalidKey

@@ -193,7 +193,7 @@ BEGIN
 
     IF NOT pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE')
        OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = session_user AND rolcanlogin AND rolinherit
-                      AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcreaterole AND NOT rolcreatedb)
+                      AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication)
        OR pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER')
        OR pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')
        OR pg_has_role(session_user, 'stonez_bulk_worker', 'MEMBER')

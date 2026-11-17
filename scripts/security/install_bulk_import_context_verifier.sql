@@ -320,16 +320,6 @@ EXCEPTION
 END
 $fn$;
 REVOKE ALL ON FUNCTION stonez_context_private.verify_bulk_import_context(text) FROM PUBLIC;
-GRANT SELECT ON public.bulk_import_jobs TO stonez_bulk_context_owner;
-GRANT UPDATE (lease_id) ON public.bulk_import_jobs TO stonez_bulk_context_owner;
-DROP POLICY IF EXISTS bulk_import_jobs_context_verifier_read ON public.bulk_import_jobs;
-CREATE POLICY bulk_import_jobs_context_verifier_read ON public.bulk_import_jobs
-    FOR SELECT TO stonez_bulk_context_owner USING (true);
-DROP POLICY IF EXISTS bulk_import_jobs_context_verifier_lock ON public.bulk_import_jobs;
-CREATE POLICY bulk_import_jobs_context_verifier_lock ON public.bulk_import_jobs
-    FOR UPDATE TO stonez_bulk_context_owner USING (true) WITH CHECK (true);
-
-
 CREATE OR REPLACE FUNCTION stonez_context_private.current_worker_school_id()
 RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog
 AS $fn$

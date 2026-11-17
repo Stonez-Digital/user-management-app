@@ -339,7 +339,8 @@ func TestBulkWorkerPostgresClaimFunctionReclaimsOnlyExpiredLeases(t *testing.T) 
 	for i := range jobs {
 		if err := db.Create(&jobs[i]).Error; err != nil { t.Fatalf("create lease fixture %d: %v", i, err) }
 	}
-	worker := NewBulkImportServiceWithClaimDB(db, claimDB, nil)
+	worker, err := NewBulkImportServiceWithClaimDB(db, claimDB, nil)
+	if err != nil { t.Fatalf("create worker with dedicated claim login: %v", err) }
 	first, err := worker.claimNextJob()
 	if err != nil { t.Fatalf("claim expired lease: %v", err) }
 	if first == nil || first.ID != jobs[0].ID || first.Attempts != 2 || first.LeaseGeneration != 5 {
@@ -536,8 +537,10 @@ func TestBulkWorkerPostgresConcurrentClaimsSkipLockedJobs(t *testing.T) {
 		t.Fatalf("lock oldest queued job: %v", err)
 	}
 
-	workerA := NewBulkImportServiceWithClaimDB(db, claimDB, nil)
-	workerB := NewBulkImportServiceWithClaimDB(db, claimDB, nil)
+	workerA, err := NewBulkImportServiceWithClaimDB(db, claimDB, nil)
+	if err != nil { t.Fatalf("create worker A with claim login: %v", err) }
+	workerB, err := NewBulkImportServiceWithClaimDB(db, claimDB, nil)
+	if err != nil { t.Fatalf("create worker B with claim login: %v", err) }
 	type claimResult struct {
 		job *models.BulkImportJob
 		err error

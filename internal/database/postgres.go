@@ -123,6 +123,10 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
         PublicPermissivePolicyCount int
         UserRequiredSelect bool
         PasswordHashSelectDenied bool
+        UserInsertTablePrivilegeDenied bool
+        UserInsertColumns bool
+        UserRoleGuardFunction bool
+        UserRoleGuardPolicy int
         StudentInsert bool
         StudentUpdateDenied bool
         JobSelect bool
@@ -194,6 +198,42 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                 AND has_column_privilege('stonez_bulk_worker_processing','public.users','role','SELECT')
             ) AS user_required_select,
             NOT has_column_privilege('stonez_bulk_worker_processing','public.users','password_hash','SELECT') AS password_hash_select_denied,
+            NOT has_table_privilege('stonez_bulk_worker_processing','public.users','INSERT') AS user_insert_table_privilege_denied,
+            (
+                has_column_privilege('stonez_bulk_worker_processing','public.users','id','INSERT')
+                AND has_column_privilege('stonez_bulk_worker_processing','public.users','school_id','INSERT')
+                AND has_column_privilege('stonez_bulk_worker_processing','public.users','name','INSERT')
+                AND has_column_privilege('stonez_bulk_worker_processing','public.users','email','INSERT')
+                AND has_column_privilege('stonez_bulk_worker_processing','public.users','password_hash','INSERT')
+                AND has_column_privilege('stonez_bulk_worker_processing','public.users','role','INSERT')
+                AND has_column_privilege('stonez_bulk_worker_processing','public.users','active','INSERT')
+            ) AS user_insert_columns,
+            EXISTS (
+                SELECT 1 FROM pg_proc AS p
+                JOIN pg_namespace AS n ON n.oid = p.pronamespace
+                JOIN pg_language AS l ON l.oid = p.prolang
+                WHERE n.nspname = 'stonez_context_private'
+                  AND p.proname = 'bulk_worker_user_role_allowed'
+                  AND pg_get_function_identity_arguments(p.oid) = 'p_role text'
+                  AND l.lanname = 'sql'
+                  AND p.provolatile = 'i'
+                  AND p.proparallel = 's'
+                  AND NOT p.prosecdef
+                  AND regexp_replace(p.prosrc, '[[:space:]]+', '', 'g') =
+                      'SELECTp_roleIN(''student'',''teacher'',''parent'')'
+            ) AS user_role_guard_function,
+            (
+                SELECT count(*) FROM pg_policy AS policy
+                WHERE policy.polname = 'bulk_worker_user_role_guard'
+                  AND policy.polrelid = 'public.users'::regclass
+                  AND policy.polcmd = 'a'
+                  AND NOT policy.polpermissive
+                  AND (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing') = ANY(policy.polroles)
+                  AND regexp_replace(
+                        regexp_replace(pg_get_expr(policy.polwithcheck, policy.polrelid), '::[a-zA-Z0-9_.]+', '', 'g'),
+                        '[()[:space:]]', '', 'g'
+                      ) = 'stonez_context_private.bulk_worker_user_role_allowedrole'
+            ) AS user_role_guard_policy,
             has_table_privilege('stonez_bulk_worker_processing','public.students','INSERT') AS student_insert,
             NOT has_table_privilege('stonez_bulk_worker_processing','public.students','UPDATE')
                 AND NOT has_table_privilege('stonez_bulk_worker_processing','public.students','DELETE') AS student_update_denied,
@@ -241,6 +281,8 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
        !ready.QueueRLS || ready.WorkerTableRLSCount != 9 ||
        ready.PublicPermissivePolicyCount != 0 ||
        !ready.UserRequiredSelect || !ready.PasswordHashSelectDenied ||
+       !ready.UserInsertTablePrivilegeDenied || !ready.UserInsertColumns ||
+       !ready.UserRoleGuardFunction || ready.UserRoleGuardPolicy != 1 ||
        !ready.StudentInsert || !ready.StudentUpdateDenied ||
        !ready.JobSelect || !ready.JobStatusUpdate || !ready.JobLeaseUpdateDenied ||
        !ready.JobInsertDeleteDenied ||

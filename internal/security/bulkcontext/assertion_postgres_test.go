@@ -24,7 +24,6 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	if err != nil { t.Fatalf("connect disposable PostgreSQL database: %v", err) }
 	adminSQL, err := admin.DB()
 	if err != nil { t.Fatal(err) }
-	defer adminSQL.Close()
 
 	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
 	tableSchema, privateSchema := "bulk_ctx_"+suffix, "bulk_ctx_private_"+suffix
@@ -44,6 +43,7 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 		_ = admin.Exec("DROP ROLE IF EXISTS "+ownerRole).Error
 		_ = admin.Exec("DROP ROLE IF EXISTS "+processRole).Error
 	}
+	t.Cleanup(func() { cleanup(); _ = adminSQL.Close() })
 	if err := admin.Exec("CREATE SCHEMA "+tableSchema).Error; err != nil { t.Fatal(err) }
 	if err := admin.Exec("CREATE SCHEMA "+privateSchema).Error; err != nil { cleanup(); t.Fatal(err) }
 	if err := admin.Exec("CREATE SCHEMA IF NOT EXISTS extensions").Error; err != nil { cleanup(); t.Fatal(err) }
@@ -83,7 +83,6 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	parsedDSN.User = url.UserPassword(loginRole, loginPassword)
 	loginDB, err = gorm.Open(postgres.Open(parsedDSN.String()), &gorm.Config{})
 	if err != nil { cleanup(); t.Fatalf("connect with restricted processing login: %v", err) }
-	t.Cleanup(cleanup)
 
 	var sessionUser, currentUser string
 	if err := loginDB.Raw("SELECT session_user, current_user").Row().Scan(&sessionUser, &currentUser); err != nil { t.Fatal(err) }

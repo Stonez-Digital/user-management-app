@@ -35,7 +35,7 @@ VALUES ('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-22222222
 ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','22222222-2222-4222-8222-222222222222',
 '33333333-3333-4333-8333-333333333333','dddddddd-dddd-4ddd-8ddd-dddddddddddd',
 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee','running',clock_timestamp());
-CREATE TABLE public.users(id uuid PRIMARY KEY, school_id uuid, email text, role text, password_hash text);
+CREATE TABLE public.users(id uuid PRIMARY KEY, school_id uuid, name text, email text, role text, password_hash text, active boolean NOT NULL DEFAULT true);
 CREATE TABLE public.students(id uuid PRIMARY KEY, school_id uuid NOT NULL, admission_number text);
 INSERT INTO public.students(id,school_id) VALUES
 ('21212121-2121-4212-8212-212121212121','22222222-2222-4222-8222-222222222222'),
@@ -230,6 +230,37 @@ if [[ "$no_context_rows" != "0" ]]; then
   echo "A raw tenant GUC unexpectedly granted worker row access: $no_context_rows" >&2
   exit 1
 fi
+
+echo "== Verify least-privilege user insertion and role guard =="
+USER_INSERT_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '27272727-2727-4727-8727-272727272727' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$USER_INSERT_TOKEN" <<'SQL'
+BEGIN;
+SELECT stonez_context_private.verify_bulk_import_context(:'token');
+INSERT INTO public.users(id,school_id,name,email,password_hash,role,active)
+VALUES ('28282828-2828-4828-8828-282828282828',
+        '22222222-2222-4222-8222-222222222222','Imported Student',
+        'imported-student@example.test','not-a-real-hash','student',true);
+COMMIT;
+SQL
+PRIVILEGED_USER_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '29292929-2929-4929-8929-292929292929' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+if psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$PRIVILEGED_USER_TOKEN" <<'SQL' >/dev/null 2>&1
+BEGIN;
+SELECT stonez_context_private.verify_bulk_import_context(:'token');
+INSERT INTO public.users(id,school_id,name,email,password_hash,role,active)
+VALUES ('30303030-3030-4030-8030-303030303030',
+        '22222222-2222-4222-8222-222222222222','Injected Administrator',
+        'injected-admin@example.test','not-a-real-hash','super_admin',true);
+COMMIT;
+SQL
+then
+  echo "Bulk worker unexpectedly inserted a super_admin account" >&2
+  exit 1
+fi
+if psql "$worker_url" -X -v ON_ERROR_STOP=1 -c "INSERT INTO public.users(id,school_id,name,email,password_hash,role,active) VALUES ('31313131-3131-4131-8131-313131313131','$SCHOOL_ID','No context','no-context@example.test','x','student',true)" >/dev/null 2>&1; then
+  echo "Bulk worker unexpectedly inserted a user without verified context" >&2
+  exit 1
+fi
+echo "Accepted student import; rejected super_admin and context-free inserts"
 
 echo "== Verify key overlap, retirement, emergency revocation, and audit trail =="
 KEY2_HEX="$(printf 'cd%.0s' {1..32})"

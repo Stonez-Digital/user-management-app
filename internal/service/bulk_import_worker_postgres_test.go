@@ -454,6 +454,9 @@ func TestBulkImportQueueRoleScriptsInstallInIsolatedPostgres(t *testing.T) {
 	} {
 		if err := admin.Exec(statement).Error; err != nil { t.Fatalf("create restricted queue test login: %v", err) }
 	}
+	if err := runScript("verify_bulk_import_queue_roles.sql"); err != nil {
+		t.Fatalf("post-login queue role verification failed: %v", err)
+	}
 
 	connectAs := func(role, password string) *gorm.DB {
 		t.Helper()

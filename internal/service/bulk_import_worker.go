@@ -282,57 +282,74 @@ func (s *BulkImportService) processClaimed(job models.BulkImportJob, workerID uu
 		fail(fmt.Errorf("invalid stored import payload: %w", err))
 		return
 	}
-	var errs []BulkError
-	if strings.TrimSpace(job.ErrorsJSON) != "" {
-		if err := json.Unmarshal([]byte(job.ErrorsJSON), &errs); err != nil {
-			fail(fmt.Errorf("invalid stored import errors: %w", err))
-			return
-		}
-	}
+	// Recompute immutable upload validation errors on every attempt. Runtime
+	// row failures from an earlier worker attempt must remain retryable.
+	errs, _ := s.Validate(job.SchoolID, job.InitiatedBy, job.Kind, rows)
 	validRows := map[int]bool{}
 	for _, item := range errs {
 		validRows[item.Row] = true
 	}
 
-	createdCount, skippedCount, failedCount := 0, 0, 0
-	credentialsSent, credentialFailures := 0, 0
+	createdCount, skippedCount := job.Created, job.Skipped
+	failedCount := 0
+	credentialsSent, credentialFailures := job.CredentialsSent, 0
 	for index, row := range rows {
 		rowNumber := index + 2
 		if validRows[rowNumber] {
 			continue
 		}
-		created, skipped, email, password, role, rowErr := s.processRow(job, row)
-		if skipped {
+		created, skipped, _, _, _, rowErr := s.processRow(job, row)
+		if skipped && job.Attempts <= 1 {
 			skippedCount++
 		}
 		if rowErr != nil {
 			failedCount++
 			errs = append(errs, BulkError{Row: rowNumber, Message: rowErr.Error()})
-		} else {
-			if created {
-				createdCount++
-			}
-			if job.SendCredentials && created {
-				if s.mailer == nil {
-					credentialFailures++
-					errs = append(errs, BulkError{Row: rowNumber, Field: "email", Message: "credential mailer is unavailable"})
-				} else if sendErr := s.mailer.SendCredentials(strings.TrimSpace(row["name"]), email, role, password); sendErr != nil {
-					credentialFailures++
-					errs = append(errs, BulkError{Row: rowNumber, Field: "email", Message: "account created but credential email failed: " + sendErr.Error()})
-				} else {
-					credentialsSent++
-				}
-			}
+		} else if created {
+			createdCount++
 		}
+
 		values := map[string]any{
 			"created": createdCount, "skipped": skippedCount, "failed": failedCount,
 			"credentials_sent": credentialsSent, "credential_emails_failed": credentialFailures,
 			"errors_json": mustJSON(errs), "claimed_at": time.Now().UTC(),
 		}
 		if err := s.updateClaimedJob(job, workerID, values); err != nil {
+			// The row transaction has committed. A later queue reclaim will
+			// observe the durable outbox event and resume delivery.
 			return
 		}
 	}
+
+	if job.SendCredentials {
+		if s.db.Dialector.Name() != "postgres" {
+			fail(errors.New("durable account-setup delivery requires PostgreSQL"))
+			return
+		}
+		counts, deliveryErr := s.deliverAccountSetupNotifications(job)
+		if deliveryErr != nil {
+			// Fail closed but preserve the running lease. The queue can reclaim
+			// the job after lease expiry and retry the durable notification.
+			_ = s.updateClaimedJob(job, workerID, map[string]any{
+				"last_error": "account-setup notification processing will be retried",
+				"claimed_at": time.Now().UTC(),
+			})
+			return
+		}
+		credentialsSent = counts.DeliveredCount
+		credentialFailures = counts.FailedCount
+		if counts.PendingCount > 0 {
+			_ = s.updateClaimedJob(job, workerID, map[string]any{
+				"created": createdCount, "skipped": skippedCount, "failed": failedCount,
+				"credentials_sent": credentialsSent, "credential_emails_failed": credentialFailures,
+				"errors_json": mustJSON(errs),
+				"last_error": "account-setup notifications pending retry",
+				"claimed_at": time.Now().UTC(),
+			})
+			return
+		}
+	}
+
 	status := models.BulkImportCompleted
 	if failedCount > 0 || len(errs) > 0 || credentialFailures > 0 {
 		status = models.BulkImportCompletedWithErrors

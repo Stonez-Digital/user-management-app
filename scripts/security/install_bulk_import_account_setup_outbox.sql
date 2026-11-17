@@ -35,7 +35,8 @@ GRANT USAGE ON SCHEMA public TO stonez_bulk_context_owner;
 GRANT SELECT (id,school_id,email,name,role) ON public.users TO stonez_bulk_context_owner;
 DROP POLICY IF EXISTS bulk_worker_outbox_owner_user_read ON public.users;
 CREATE POLICY bulk_worker_outbox_owner_user_read ON public.users
-    FOR SELECT TO stonez_bulk_context_owner USING (true);
+    FOR SELECT TO stonez_bulk_context_owner
+    USING (school_id = stonez_context_private.current_worker_school_id());
 
 SET LOCAL ROLE stonez_bulk_context_owner;
 
@@ -122,7 +123,7 @@ BEGIN
 
     INSERT INTO stonez_context_private.account_setup_outbox
         (school_id,job_id,user_id,recipient_email,display_name,account_role)
-    VALUES (v_school,v_job,p_user_id,v_email,COALESCE(NULLIF(btrim(p_name),''),v_name,''),v_role)
+    VALUES (v_school,v_job,p_user_id,v_email,COALESCE(NULLIF(btrim(v_name),''),''),v_role)
     ON CONFLICT(job_id,user_id) DO NOTHING
     RETURNING event_id INTO v_event;
     IF v_event IS NULL THEN
@@ -292,6 +293,45 @@ GRANT EXECUTE ON FUNCTION stonez_context_private.claim_account_setup_notificatio
 GRANT EXECUTE ON FUNCTION stonez_context_private.complete_account_setup_notification(uuid,uuid,text) TO stonez_bulk_worker_processing;
 GRANT EXECUTE ON FUNCTION stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer) TO stonez_bulk_worker_processing;
 GRANT EXECUTE ON FUNCTION stonez_context_private.account_setup_notification_counts() TO stonez_bulk_worker_processing;
+
+-- Fail closed if a pre-existing private table or function has an unexpected
+-- owner or if any direct table privilege has leaked to the processing login.
+DO $outbox_boundary_check$
+DECLARE
+    v_owner oid := (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_context_owner');
+    v_table oid := to_regclass('stonez_context_private.account_setup_outbox');
+    v_function regprocedure;
+BEGIN
+    IF v_table IS NULL OR (SELECT relowner FROM pg_class WHERE oid=v_table) <> v_owner THEN
+        RAISE EXCEPTION 'account-setup outbox must be owned by stonez_bulk_context_owner';
+    END IF;
+    IF has_table_privilege('stonez_bulk_worker_processing',v_table,'SELECT')
+       OR has_table_privilege('stonez_bulk_worker_processing',v_table,'INSERT')
+       OR has_table_privilege('stonez_bulk_worker_processing',v_table,'UPDATE')
+       OR has_table_privilege('stonez_bulk_worker_processing',v_table,'DELETE')
+       OR has_table_privilege('stonez_bulk_context_key_admin',v_table,'SELECT')
+       OR has_table_privilege('stonez_bulk_context_key_admin',v_table,'INSERT')
+       OR has_table_privilege('stonez_bulk_context_key_admin',v_table,'UPDATE')
+       OR has_table_privilege('stonez_bulk_context_key_admin',v_table,'DELETE') THEN
+        RAISE EXCEPTION 'outbox table privileges leaked to processing or key-admin role';
+    END IF;
+    FOREACH v_function IN ARRAY ARRAY[
+        'stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)'::regprocedure,
+        'stonez_context_private.claim_account_setup_notification()'::regprocedure,
+        'stonez_context_private.complete_account_setup_notification(uuid,uuid,text)'::regprocedure,
+        'stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)'::regprocedure,
+        'stonez_context_private.account_setup_notification_counts()'::regprocedure
+    ] LOOP
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_proc
+             WHERE oid=v_function AND prosecdef AND proowner=v_owner
+               AND 'search_path=pg_catalog' = ANY(COALESCE(proconfig, ARRAY[]::text[]))
+        ) THEN
+            RAISE EXCEPTION 'outbox function % must be SECURITY DEFINER, context-owner-owned, and use fixed search_path',v_function;
+        END IF;
+    END LOOP;
+END
+$outbox_boundary_check$;
 
 RESET ROLE;
 COMMIT;

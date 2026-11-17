@@ -197,7 +197,13 @@ BEGIN
        OR pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER')
        OR pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')
        OR pg_has_role(session_user, 'stonez_bulk_worker', 'MEMBER')
-       OR pg_has_role(session_user, 'stonez_bulk_worker_processing', 'SET') THEN
+       OR pg_has_role(session_user, 'stonez_bulk_worker_processing', 'SET')
+       OR EXISTS (
+            SELECT 1 FROM pg_auth_members AS membership
+             WHERE membership.member = (SELECT oid FROM pg_roles WHERE rolname = session_user)
+               AND membership.roleid = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_worker_processing')
+               AND membership.admin_option
+       ) THEN
         RAISE EXCEPTION 'login is not an eligible restricted bulk worker' USING ERRCODE = '42501';
     END IF;
     IF p_token IS NULL OR length(p_token) > 4096 THEN

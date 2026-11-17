@@ -5,8 +5,8 @@ BEGIN;
 
 DO $roles$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_worker') THEN
-        CREATE ROLE stonez_bulk_worker NOLOGIN NOSUPERUSER NOBYPASSRLS INHERIT;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_worker_processing') THEN
+        CREATE ROLE stonez_bulk_worker_processing NOLOGIN NOSUPERUSER NOBYPASSRLS INHERIT;
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_context_owner') THEN
         CREATE ROLE stonez_bulk_context_owner NOLOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT;
@@ -16,7 +16,7 @@ BEGIN
     END IF;
     IF EXISTS (
         SELECT 1 FROM pg_roles
-        WHERE rolname IN ('stonez_bulk_worker','stonez_bulk_context_owner','stonez_bulk_context_key_admin')
+        WHERE rolname IN ('stonez_bulk_worker_processing','stonez_bulk_context_owner','stonez_bulk_context_key_admin')
           AND (rolcanlogin OR rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole)
     ) THEN
         RAISE EXCEPTION 'bulk context roles have unsafe role attributes';
@@ -58,7 +58,7 @@ SET LOCAL ROLE stonez_bulk_context_owner;
 CREATE SCHEMA IF NOT EXISTS stonez_context_private AUTHORIZATION CURRENT_USER;
 ALTER SCHEMA stonez_context_private OWNER TO CURRENT_USER;
 REVOKE ALL ON SCHEMA stonez_context_private FROM PUBLIC;
-GRANT USAGE ON SCHEMA stonez_context_private TO stonez_bulk_worker, stonez_bulk_context_key_admin;
+GRANT USAGE ON SCHEMA stonez_context_private TO stonez_bulk_worker_processing, stonez_bulk_context_key_admin;
 
 CREATE TABLE IF NOT EXISTS stonez_context_private.verification_keys (
     key_id text PRIMARY KEY CHECK (key_id <> '' AND length(key_id) <= 64),
@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS stonez_context_private.verified_contexts (
     CONSTRAINT verified_contexts_assertion_id_unique UNIQUE (assertion_id)
 );
 
-REVOKE ALL ON ALL TABLES IN SCHEMA stonez_context_private FROM PUBLIC, stonez_bulk_worker, stonez_bulk_context_key_admin;
+REVOKE ALL ON ALL TABLES IN SCHEMA stonez_context_private FROM PUBLIC, stonez_bulk_worker_processing, stonez_bulk_context_key_admin;
 GRANT SELECT ON stonez_context_private.verification_keys TO stonez_bulk_context_owner;
 GRANT SELECT, INSERT ON stonez_context_private.verified_contexts TO stonez_bulk_context_owner;
 
@@ -172,7 +172,7 @@ DECLARE
     v_jti uuid;
     v_queue public.bulk_import_jobs%ROWTYPE;
 BEGIN
-    IF NOT pg_has_role(session_user, 'stonez_bulk_worker', 'USAGE')
+    IF NOT pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE')
        OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = session_user AND rolcanlogin AND rolinherit
                       AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcreaterole AND NOT rolcreatedb)
        OR pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER')
@@ -334,7 +334,7 @@ AS $fn$
 SELECT context.school_id FROM stonez_context_private.verified_contexts AS context
  WHERE context.backend_pid = pg_backend_pid()
    AND context.transaction_id = pg_current_xact_id()
-   AND pg_has_role(session_user, 'stonez_bulk_worker', 'USAGE')
+   AND pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE')
 $fn$;
 
 CREATE OR REPLACE FUNCTION stonez_context_private.current_worker_initiator_id()
@@ -343,7 +343,7 @@ AS $fn$
 SELECT context.initiated_by FROM stonez_context_private.verified_contexts AS context
  WHERE context.backend_pid = pg_backend_pid()
    AND context.transaction_id = pg_current_xact_id()
-   AND pg_has_role(session_user, 'stonez_bulk_worker', 'USAGE')
+   AND pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE')
 $fn$;
 
 CREATE OR REPLACE FUNCTION stonez_context_private.current_worker_job_id()
@@ -352,7 +352,7 @@ AS $fn$
 SELECT context.job_id FROM stonez_context_private.verified_contexts AS context
  WHERE context.backend_pid = pg_backend_pid()
    AND context.transaction_id = pg_current_xact_id()
-   AND pg_has_role(session_user, 'stonez_bulk_worker', 'USAGE')
+   AND pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE')
 $fn$;
 
 CREATE OR REPLACE FUNCTION stonez_context_private.register_verification_key(
@@ -402,30 +402,30 @@ END
 $fn$;
 
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA stonez_context_private FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION stonez_context_private.verify_bulk_import_context(text) TO stonez_bulk_worker;
-GRANT EXECUTE ON FUNCTION stonez_context_private.current_worker_school_id() TO stonez_bulk_worker;
-GRANT EXECUTE ON FUNCTION stonez_context_private.current_worker_initiator_id() TO stonez_bulk_worker;
-GRANT EXECUTE ON FUNCTION stonez_context_private.current_worker_job_id() TO stonez_bulk_worker;
+GRANT EXECUTE ON FUNCTION stonez_context_private.verify_bulk_import_context(text) TO stonez_bulk_worker_processing;
+GRANT EXECUTE ON FUNCTION stonez_context_private.current_worker_school_id() TO stonez_bulk_worker_processing;
+GRANT EXECUTE ON FUNCTION stonez_context_private.current_worker_initiator_id() TO stonez_bulk_worker_processing;
+GRANT EXECUTE ON FUNCTION stonez_context_private.current_worker_job_id() TO stonez_bulk_worker_processing;
 GRANT EXECUTE ON FUNCTION stonez_context_private.register_verification_key(text,bytea,timestamptz,timestamptz) TO stonez_bulk_context_key_admin;
 GRANT EXECUTE ON FUNCTION stonez_context_private.retire_verification_key(text,timestamptz) TO stonez_bulk_context_key_admin;
 GRANT EXECUTE ON FUNCTION stonez_context_private.revoke_verification_key(text) TO stonez_bulk_context_key_admin;
 
 RESET ROLE;
 ALTER TABLE public.bulk_import_jobs ENABLE ROW LEVEL SECURITY;
-GRANT SELECT ON public.bulk_import_jobs TO stonez_bulk_worker;
+GRANT SELECT ON public.bulk_import_jobs TO stonez_bulk_worker_processing;
 GRANT UPDATE (status,total,valid,created,updated,skipped,failed,credentials_sent,credential_emails_failed,errors_json,claimed_at,worker_id,last_error)
-    ON public.bulk_import_jobs TO stonez_bulk_worker;
+    ON public.bulk_import_jobs TO stonez_bulk_worker_processing;
 DROP POLICY IF EXISTS bulk_import_jobs_context_verifier_read ON public.bulk_import_jobs;
 CREATE POLICY bulk_import_jobs_context_verifier_read ON public.bulk_import_jobs
     FOR SELECT TO stonez_bulk_context_owner USING (true);
 DROP POLICY IF EXISTS bulk_import_jobs_signed_worker_select ON public.bulk_import_jobs;
 CREATE POLICY bulk_import_jobs_signed_worker_select ON public.bulk_import_jobs
-    FOR SELECT TO stonez_bulk_worker
+    FOR SELECT TO stonez_bulk_worker_processing
     USING (school_id=stonez_context_private.current_worker_school_id()
        AND initiated_by=stonez_context_private.current_worker_initiator_id());
 DROP POLICY IF EXISTS bulk_import_jobs_signed_worker_update ON public.bulk_import_jobs;
 CREATE POLICY bulk_import_jobs_signed_worker_update ON public.bulk_import_jobs
-    FOR UPDATE TO stonez_bulk_worker
+    FOR UPDATE TO stonez_bulk_worker_processing
     USING (school_id=stonez_context_private.current_worker_school_id()
        AND initiated_by=stonez_context_private.current_worker_initiator_id()
        AND id=stonez_context_private.current_worker_job_id())

@@ -32,7 +32,7 @@ Delivery is at-least-once. A worker can crash after the provider accepts an emai
 
 The worker performs network delivery outside the database transaction. It claims an event in a short transaction, sends the notice, then records delivered or schedules a bounded retry in a separate signed-context transaction. A lease expiry makes abandoned claims eligible for retry after worker restart. Retry delay must be bounded and use backoff; permanent recipient/configuration failures must be visible for operator action rather than silently discarded.
 
-The account/profile/outbox insert is atomic. If any outbox insert fails, the account/profile transaction rolls back. A retry after a crash sees the durable pending event and can deliver it even though account creation is now a no-op.
+The account/profile/outbox insert is atomic. If any outbox insert fails, the account/profile transaction rolls back. A retry after a crash sees the durable pending event and can deliver it even though account creation is now a no-op. The same transaction records the row number in the import job's private `processed_rows_json` checkpoint and increments the created/skipped counters. A reclaimed worker skips committed rows and retries only rows whose transaction did not commit, preventing duplicate account creation and counter drift.
 
 ## Required tests before enabling the feature
 

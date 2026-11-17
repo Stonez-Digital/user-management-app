@@ -190,4 +190,19 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 	if err := ValidateBulkImportProcessingRole(workerDB); err != nil {
 		t.Fatalf("processing login rejected after restoring no-SET-ROLE membership: %v", err)
 	}
+
+	// ADMIN OPTION would let the processing login delegate its worker-group
+	// membership to another role, so startup and the verifier must reject it.
+	if err := runnerDB.Exec(`GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_test WITH ADMIN TRUE, INHERIT TRUE, SET FALSE`).Error; err != nil {
+		t.Fatalf("enable worker-group ADMIN OPTION for negative test: %v", err)
+	}
+	if err := ValidateBulkImportProcessingRole(workerDB); err == nil {
+		t.Fatal("processing login with worker-group ADMIN OPTION was accepted")
+	}
+	if err := runnerDB.Exec(`GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_test WITH ADMIN FALSE, INHERIT TRUE, SET FALSE`).Error; err != nil {
+		t.Fatalf("restore worker-group membership without ADMIN OPTION: %v", err)
+	}
+	if err := ValidateBulkImportProcessingRole(workerDB); err != nil {
+		t.Fatalf("processing login rejected after removing ADMIN OPTION: %v", err)
+	}
 }

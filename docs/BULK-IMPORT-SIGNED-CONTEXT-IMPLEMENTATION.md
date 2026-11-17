@@ -51,7 +51,18 @@ The verifier locks the job row for the duration of the processing transaction. A
 
 ## 4. Key custody and rotation
 
-Vault is the source of truth for versioned HMAC keys. The worker's Vault identity may read the active signing key and the limited set of retiring keys required by the deployment policy. It must not have permission to write or rotate keys.
+Vault is the source of truth for versioned HMAC keys. The worker's Vault identity may read **only the active signing key** and must not have permission to write or rotate keys. Retiring verifier keys are not returned to the worker.
+
+The worker reads a Vault KV v2 secret with this data shape:
+
+```json
+{
+  "active_key_id": "bulkctx-2026-11",
+  "active_key": "<base64-encoded-random-key-of-at-least-32-bytes>"
+}
+```
+
+The worker uses a Vault Agent token file and these non-secret configuration values: `BULK_IMPORT_CONTEXT_VAULT_ADDR`, `BULK_IMPORT_CONTEXT_VAULT_TOKEN_FILE`, `BULK_IMPORT_CONTEXT_VAULT_KV_MOUNT`, and `BULK_IMPORT_CONTEXT_VAULT_KV_PATH`. The active key is cached in memory for 30 seconds by the worker. The token is never logged, and the HTTP client refuses redirects.
 
 PostgreSQL needs the same HMAC key to verify signatures. Provision a copy into a private, non-exposed `stonez_internal` key table through a separately reviewed operator procedure. The table is owned by a NOLOGIN verifier-owner role. Only the SECURITY DEFINER verifier owner can read it; the processing login, claim login, API runtime, PUBLIC, `anon`, and `authenticated` cannot read it. Do not put key bytes in source control, migrations, SQL literals, command-line arguments, CI logs, application logs, or ordinary environment variables.
 
@@ -60,7 +71,7 @@ The database key table is a verifier-only replica of Vault key material, not a s
 2. Provision the matching key ID and bytes into the private database table using the approved secret-delivery procedure.
 3. Verify the database can verify a test signature without returning key material.
 4. Switch the worker's active signing key ID.
-5. Retain the prior database key for at least maximum assertion TTL plus allowed clock skew and deployment overlap.
+5. Retain the prior database key for at least maximum assertion TTL plus allowed clock skew, the 30-second worker key cache, and deployment overlap.
 6. Remove the old key only after no valid assertion can reference it.
 
 The database key-provisioning procedure must not run automatically at application startup. Key rotation and production provisioning require separate approval.
@@ -86,7 +97,7 @@ Use a fixed-work byte comparison in the verifier rather than an early-exit compa
 
 ## 6. Go integration contract
 
-The Go signer accepts only a `Binding` built from the trusted row returned by the claim function. It must not accept tenant IDs from imported spreadsheet values. The Vault adapter implements the key-source interface and returns only the active key to the signer.
+The Go signer accepts only a `Binding` built from the trusted row returned by the claim function. The worker Vault policy returns only the active signing key; the worker never retrieves retiring verification keys. It must not accept tenant IDs from imported spreadsheet values. The Vault adapter implements the key-source interface and returns only the active key to the signer.
 
 The worker opens a PostgreSQL transaction, signs the trusted claim binding, calls the verifier as the first database operation, and then performs tenant reads/writes using that same transaction handle. It must not set `app.current_school_id` or `app.current_user_id` as an authorization mechanism. SQLite-only unit tests may retain their local test behavior but are not evidence for PostgreSQL security.
 

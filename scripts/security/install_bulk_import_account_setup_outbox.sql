@@ -235,7 +235,8 @@ BEGIN
     IF v_school IS NULL OR v_job IS NULL OR p_event_id IS NULL OR p_delivery_lease IS NULL THEN
         RAISE EXCEPTION 'verified worker context, event ID, and delivery lease are required' USING ERRCODE='42501';
     END IF;
-    IF p_failure_code NOT IN ('mailer_unconfigured','provider_rejected','provider_unavailable','provider_timeout')
+    IF p_failure_code IS NULL
+       OR p_failure_code NOT IN ('mailer_unconfigured','provider_rejected','provider_unavailable','provider_timeout')
        OR p_delay_seconds IS NULL OR p_delay_seconds<1 OR p_delay_seconds>3600 THEN
         RAISE EXCEPTION 'invalid retry classification or delay' USING ERRCODE='22023';
     END IF;

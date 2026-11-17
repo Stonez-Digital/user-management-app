@@ -172,9 +172,9 @@ DECLARE
     v_jti uuid;
     v_queue public.bulk_import_jobs%ROWTYPE;
 BEGIN
-    IF NOT pg_has_role(session_user, 'stonez_bulk_worker', 'MEMBER')
-       OR EXISTS (SELECT 1 FROM pg_roles WHERE rolname = session_user
-                  AND (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb))
+    IF NOT pg_has_role(session_user, 'stonez_bulk_worker', 'USAGE')
+       OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = session_user AND rolcanlogin AND rolinherit
+                      AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcreaterole AND NOT rolcreatedb)
        OR pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER')
        OR pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER') THEN
         RAISE EXCEPTION 'login is not an eligible restricted bulk worker' USING ERRCODE = '42501';
@@ -200,6 +200,9 @@ BEGIN
        OR v_header->>'alg' <> 'HS256' OR v_header->>'typ' <> 'JWT' THEN
         RAISE EXCEPTION 'unsupported, duplicate, or unexpected JWS header members' USING ERRCODE = '22023';
     END IF;
+    IF json_typeof(v_header->'kid') IS DISTINCT FROM 'string' THEN
+        RAISE EXCEPTION 'invalid JWS key ID type' USING ERRCODE = '22023';
+    END IF;
     v_kid := v_header->>'kid';
     IF v_kid IS NULL OR v_kid = '' OR length(v_kid) > 64 THEN
         RAISE EXCEPTION 'invalid JWS key ID' USING ERRCODE = '22023';
@@ -211,7 +214,10 @@ BEGIN
            (ARRAY['iss','sub','aud','jti','iat','nbf','exp','job_id','school_id','initiated_by','worker_id','lease_id'])) <> 12 THEN
         RAISE EXCEPTION 'missing, duplicate, or unexpected assertion claims' USING ERRCODE = '22023';
     END IF;
-    IF v_payload->>'iss' <> 'stonez-bulk-import-worker'
+    IF json_typeof(v_payload->'iss') IS DISTINCT FROM 'string'
+       OR json_typeof(v_payload->'sub') IS DISTINCT FROM 'string'
+       OR json_typeof(v_payload->'aud') IS DISTINCT FROM 'string'
+       OR v_payload->>'iss' <> 'stonez-bulk-import-worker'
        OR v_payload->>'aud' <> 'stonez-postgres-bulk-import-context' THEN
         RAISE EXCEPTION 'invalid assertion issuer or audience' USING ERRCODE = '22023';
     END IF;
@@ -284,7 +290,8 @@ BEGIN
     IF v_iat > extract(epoch FROM v_now) + 5
        OR v_nbf > extract(epoch FROM v_now) + 5
        OR v_exp <= extract(epoch FROM v_now) - 5
-       OR v_exp <= v_iat OR v_exp - v_iat > 60 THEN
+       OR v_exp <= v_iat OR v_exp - v_iat > 60
+       OR v_nbf > v_exp OR v_nbf < v_iat - 5 THEN
         RAISE EXCEPTION 'bulk worker assertion is outside its permitted time window' USING ERRCODE = '28000';
     END IF;
 

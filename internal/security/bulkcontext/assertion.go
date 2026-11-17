@@ -34,7 +34,7 @@ type Binding struct {
 	SchoolID        uuid.UUID
 	InitiatedBy     uuid.UUID
 	WorkerID        uuid.UUID
-	LeaseGeneration uint64
+	LeaseGeneration int64
 }
 
 // Claims are the signed, short-lived identity and lease claims. Timestamps are
@@ -93,7 +93,7 @@ func (s *Signer) Sign(ctx context.Context, binding Binding, ttl time.Duration) (
 	}
 	if binding.JobID == uuid.Nil || binding.SchoolID == uuid.Nil ||
 		binding.InitiatedBy == uuid.Nil || binding.WorkerID == uuid.Nil ||
-		binding.LeaseGeneration == 0 {
+		binding.LeaseGeneration <= 0 {
 		return Assertion{}, ErrInvalidClaims
 	}
 
@@ -139,7 +139,7 @@ func CanonicalPayload(c Claims) ([]byte, error) {
 		c.SchoolID.String(),
 		c.InitiatedBy.String(),
 		c.WorkerID.String(),
-		strconv.FormatUint(c.LeaseGeneration, 10),
+		strconv.FormatInt(c.LeaseGeneration, 10),
 		strconv.FormatInt(c.IssuedAt, 10),
 		strconv.FormatInt(c.ExpiresAt, 10),
 	}
@@ -198,7 +198,7 @@ func validateClaimsShape(c Claims) error {
 	if !keyIDPattern.MatchString(c.KeyID) ||
 		c.AssertionID == uuid.Nil || c.JobID == uuid.Nil ||
 		c.SchoolID == uuid.Nil || c.InitiatedBy == uuid.Nil ||
-		c.WorkerID == uuid.Nil || c.LeaseGeneration == 0 ||
+		c.WorkerID == uuid.Nil || c.LeaseGeneration <= 0 ||
 		c.IssuedAt <= 0 || c.ExpiresAt <= c.IssuedAt {
 		return ErrInvalidClaims
 	}

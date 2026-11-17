@@ -18,7 +18,10 @@ import (
 
 const bulkImportPollInterval = 2 * time.Second
 const bulkImportClaimLease = 5 * time.Minute
-const bulkImportIdleTimeout = 30 * time.Second
+// Keep the worker alive long enough for a running job's queue lease to expire.
+// A durable outbox retry may be due before the five-minute lease is reclaimable;
+// exiting after 30 seconds would strand it because ResumePending is one-shot.
+const bulkImportIdleTimeout = bulkImportClaimLease + time.Minute
 
 // withTenantTransaction gives every worker-owned transaction an explicit
 // school and initiating-user context. PostgreSQL settings are transaction-local.

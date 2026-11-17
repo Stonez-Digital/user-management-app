@@ -45,8 +45,8 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 		Roles string
 		Command string
 		Permissive bool
-		Using string
-		Check string
+		UsingExpr string
+		CheckExpr string
 	}
 	if err := workerDB.Raw(`SELECT relation.relname AS table_name, policy.polname AS name,
 		policy.polroles::text AS roles, policy.polcmd::text AS command,

@@ -4,11 +4,15 @@ DO $$
 DECLARE
     owner_role pg_roles%ROWTYPE;
     api_role pg_roles%ROWTYPE;
+    claim_role pg_roles%ROWTYPE;
+    claim_login pg_roles%ROWTYPE;
 BEGIN
     SELECT * INTO owner_role FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner';
     IF NOT FOUND THEN RAISE EXCEPTION 'missing stonez_bulk_queue_owner'; END IF;
     SELECT * INTO api_role FROM pg_roles WHERE rolname = 'stonez_api_runtime';
     IF NOT FOUND THEN RAISE EXCEPTION 'missing stonez_api_runtime'; END IF;
+    SELECT * INTO claim_role FROM pg_roles WHERE rolname = 'stonez_bulk_claim_group';
+    IF NOT FOUND THEN RAISE EXCEPTION 'missing stonez_bulk_claim_group'; END IF;
     IF owner_role.rolcanlogin OR owner_role.rolsuper OR owner_role.rolbypassrls
        OR owner_role.rolcreatedb OR owner_role.rolcreaterole OR owner_role.rolinherit THEN
         RAISE EXCEPTION 'queue owner role attributes are unsafe';
@@ -16,6 +20,22 @@ BEGIN
     IF api_role.rolcanlogin OR api_role.rolsuper OR api_role.rolbypassrls
        OR api_role.rolcreatedb OR api_role.rolcreaterole OR NOT api_role.rolinherit THEN
         RAISE EXCEPTION 'API runtime role attributes are unsafe';
+    END IF;
+    IF claim_role.rolcanlogin OR claim_role.rolsuper OR claim_role.rolbypassrls
+       OR claim_role.rolcreatedb OR claim_role.rolcreaterole OR NOT claim_role.rolinherit THEN
+        RAISE EXCEPTION 'bulk claim group role attributes are unsafe';
+    END IF;
+    IF pg_has_role('stonez_bulk_claim_group', 'stonez_api_runtime', 'MEMBER')
+       OR pg_has_role('stonez_bulk_claim_group', 'stonez_bulk_queue_owner', 'MEMBER') THEN
+        RAISE EXCEPTION 'claim group must not belong to API runtime or queue owner';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM pg_roles AS privileged
+         WHERE (privileged.rolsuper OR privileged.rolbypassrls)
+           AND privileged.rolname <> 'stonez_bulk_claim_group'
+           AND pg_has_role('stonez_bulk_claim_group', privileged.oid, 'MEMBER')
+    ) THEN
+        RAISE EXCEPTION 'claim group is a member of another privileged role';
     END IF;
     IF EXISTS (
         SELECT 1 FROM pg_class
@@ -59,6 +79,15 @@ BEGIN
     IF has_any_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'INSERT')
        OR has_any_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'REFERENCES') THEN
         RAISE EXCEPTION 'queue owner retains forbidden column-level INSERT or REFERENCES privileges';
+    END IF;
+    IF has_table_privilege('stonez_bulk_claim_group', 'public.bulk_import_jobs', 'SELECT')
+       OR has_table_privilege('stonez_bulk_claim_group', 'public.bulk_import_jobs', 'INSERT')
+       OR has_table_privilege('stonez_bulk_claim_group', 'public.bulk_import_jobs', 'UPDATE')
+       OR has_table_privilege('stonez_bulk_claim_group', 'public.bulk_import_jobs', 'DELETE')
+       OR has_any_column_privilege('stonez_bulk_claim_group', 'public.bulk_import_jobs', 'SELECT')
+       OR has_any_column_privilege('stonez_bulk_claim_group', 'public.bulk_import_jobs', 'INSERT')
+       OR has_any_column_privilege('stonez_bulk_claim_group', 'public.bulk_import_jobs', 'UPDATE') THEN
+        RAISE EXCEPTION 'claim group must not have direct queue table privileges';
     END IF;
     IF has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'UPDATE')
        OR has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'INSERT')
@@ -151,6 +180,28 @@ BEGIN
           AND grantee.rolname = 'stonez_bulk_queue_owner'
     ) THEN
         RAISE EXCEPTION 'queue owner has unexpected column privileges on another public relation';
+    END IF;
+    IF to_regprocedure('stonez_internal.claim_next_bulk_import_job(uuid)') IS NOT NULL THEN
+        IF NOT has_function_privilege('stonez_bulk_claim_group', 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE')
+           OR has_function_privilege('stonez_api_runtime', 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE') THEN
+            RAISE EXCEPTION 'claim function EXECUTE must be granted only to the dedicated claim group';
+        END IF;
+        IF NOT has_schema_privilege('stonez_bulk_claim_group', 'stonez_internal', 'USAGE')
+           OR NOT has_schema_privilege('stonez_bulk_claim_group', 'public', 'USAGE')
+           OR has_schema_privilege('stonez_bulk_claim_group', 'public', 'CREATE') THEN
+            RAISE EXCEPTION 'claim group schema privileges are missing or too broad';
+        END IF;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_claim_login') THEN
+        SELECT * INTO claim_login FROM pg_roles WHERE rolname = 'stonez_bulk_claim_login';
+        IF NOT claim_login.rolcanlogin OR claim_login.rolsuper OR claim_login.rolbypassrls
+           OR claim_login.rolcreatedb OR claim_login.rolcreaterole OR NOT claim_login.rolinherit
+           OR NOT pg_has_role('stonez_bulk_claim_login', 'stonez_bulk_claim_group', 'USAGE')
+           OR pg_has_role('stonez_bulk_claim_login', 'stonez_bulk_claim_group', 'SET')
+           OR pg_has_role('stonez_bulk_claim_login', 'stonez_api_runtime', 'MEMBER')
+           OR pg_has_role('stonez_bulk_claim_login', 'stonez_bulk_queue_owner', 'MEMBER') THEN
+            RAISE EXCEPTION 'claim login role boundary is unsafe';
+        END IF;
     END IF;
 END
 $$;

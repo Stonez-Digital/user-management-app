@@ -67,13 +67,23 @@ The verifier is a narrowly scoped `SECURITY DEFINER` function with a fixed `pg_c
 4. Validate issuer, audience, required claims, UUID formats, issued-at, not-before, expiry and maximum token lifetime using database time.
 5. Lock and inspect the current queue row; compare job, school, initiator, worker and current lease generation. A replaced or expired lease must fail.
 6. Insert the assertion ID into a private table with a unique constraint, together with the current backend PID and transaction ID. The insert and all application writes occur in the same transaction.
-7. Expose validated tenant/user claims only through narrow `SECURITY DEFINER` accessors that match both `pg_backend_pid()` and `pg_current_xact_id()`. RLS policies must consume these accessors, never raw GUC values.
+7. Expose validated tenant/user claims only through narrow `SECURITY DEFINER` accessors that match both `pg_backend_pid()` and `pg_current_xact_id()`. RLS policies used by the bulk-worker processing role must consume these accessors, never raw GUC values.
 
 The context row and assertion-ID reservation are transactional. A committed transaction permanently consumes the assertion ID. If the transaction rolls back, its context and reservation roll back too, allowing a safe retry because no protected writes committed. A token must not authorize a second committed transaction.
 
 A transaction must establish context before touching tenant tables. Missing, invalid, expired, replayed, or lease-mismatched context fails closed. Context rows from completed transactions are inert because their transaction ID cannot match a later transaction; a separately reviewed cleanup mechanism may remove old inert rows.
 
 The verifier must use a row lock that prevents lease replacement until the protected transaction ends. The implementation must explicitly test lock ordering and avoid deadlocks with worker progress updates and claim/reclaim operations.
+
+## Processing-role separation
+
+The worker's processing connection must use a dedicated non-privileged login/group role, distinct from the normal API runtime login and from the queue-claim login. The existing worker entrypoint already accepts separate processing and claim database URLs; the processing URL must be provisioned for this worker-only role before verifier-backed RLS is enabled.
+
+- The worker processing login must not be a member of the API runtime group, queue-owner role, verifier-owner role, or any SUPERUSER/BYPASSRLS role.
+- Worker-only RLS policies must derive school and initiator identity from the transaction-bound verified-context accessors.
+- The worker must stop setting or relying on `app.current_school_id` and `app.current_user_id` when the signed verifier is integrated.
+- Existing request-scoped API tenant context is a separate trust path. Do not remove or rewrite normal API GUC policies as part of this worker-only change unless an independently designed API context boundary is ready. Keep the worker login out of those GUC-authorized API roles so it cannot use the weaker path as a fallback.
+- Until verifier-backed worker policies and the restricted processing role are installed and tested, the signed verifier must not be treated as a replacement for the current worker GUC path.
 
 ## Key custody and rotation
 

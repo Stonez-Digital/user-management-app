@@ -64,22 +64,30 @@ type Key struct {
 	Secret []byte
 }
 
-// KeySource keeps key retrieval separate from assertion construction. A
-// production implementation should read the active key from Vault and support
-// lookup of retiring keys until all assertions signed with them have expired.
-type KeySource interface {
+// SigningKeySource exposes only the active signing key to the worker.
+// VerificationKeySource is reserved for local verification tests/tools; the
+// production worker must not receive retiring verifier keys.
+type SigningKeySource interface {
 	ActiveSigningKey(context.Context) (Key, error)
+}
+
+type VerificationKeySource interface {
 	VerificationKey(context.Context, string) (Key, error)
+}
+
+type KeySource interface {
+	SigningKeySource
+	VerificationKeySource
 }
 
 // Signer creates assertions from trusted claim results.
 type Signer struct {
-	keys   KeySource
+	keys   SigningKeySource
 	now    func() time.Time
 	maxTTL time.Duration
 }
 
-func NewSigner(keys KeySource, maxTTL time.Duration) (*Signer, error) {
+func NewSigner(keys SigningKeySource, maxTTL time.Duration) (*Signer, error) {
 	if keys == nil || maxTTL < time.Second || maxTTL%time.Second != 0 {
 		return nil, ErrInvalidTTL
 	}
@@ -149,7 +157,7 @@ func CanonicalPayload(c Claims) ([]byte, error) {
 // VerifySignature is intended for unit tests and diagnostics. Runtime
 // authorization must be performed by the PostgreSQL verifier in the same
 // transaction as the tenant operation.
-func VerifySignature(ctx context.Context, keys KeySource, assertion Assertion, now time.Time, maxTTL time.Duration) error {
+func VerifySignature(ctx context.Context, keys VerificationKeySource, assertion Assertion, now time.Time, maxTTL time.Duration) error {
 	if keys == nil {
 		return ErrInvalidKey
 	}

@@ -412,26 +412,4 @@ GRANT EXECUTE ON FUNCTION stonez_context_private.retire_verification_key(text,ti
 GRANT EXECUTE ON FUNCTION stonez_context_private.revoke_verification_key(text) TO stonez_bulk_context_key_admin;
 
 RESET ROLE;
-ALTER TABLE public.bulk_import_jobs ENABLE ROW LEVEL SECURITY;
-GRANT SELECT ON public.bulk_import_jobs TO stonez_bulk_worker_processing;
-GRANT UPDATE (status,total,valid,created,updated,skipped,failed,credentials_sent,credential_emails_failed,errors_json,claimed_at,worker_id,last_error)
-    ON public.bulk_import_jobs TO stonez_bulk_worker_processing;
-DROP POLICY IF EXISTS bulk_import_jobs_context_verifier_read ON public.bulk_import_jobs;
-CREATE POLICY bulk_import_jobs_context_verifier_read ON public.bulk_import_jobs
-    FOR SELECT TO stonez_bulk_context_owner USING (true);
-DROP POLICY IF EXISTS bulk_import_jobs_signed_worker_select ON public.bulk_import_jobs;
-CREATE POLICY bulk_import_jobs_signed_worker_select ON public.bulk_import_jobs
-    FOR SELECT TO stonez_bulk_worker_processing
-    USING (school_id=stonez_context_private.current_worker_school_id()
-       AND initiated_by=stonez_context_private.current_worker_initiator_id());
-DROP POLICY IF EXISTS bulk_import_jobs_signed_worker_update ON public.bulk_import_jobs;
-CREATE POLICY bulk_import_jobs_signed_worker_update ON public.bulk_import_jobs
-    FOR UPDATE TO stonez_bulk_worker_processing
-    USING (school_id=stonez_context_private.current_worker_school_id()
-       AND initiated_by=stonez_context_private.current_worker_initiator_id()
-       AND id=stonez_context_private.current_worker_job_id())
-    WITH CHECK (school_id=stonez_context_private.current_worker_school_id()
-       AND initiated_by=stonez_context_private.current_worker_initiator_id()
-       AND id=stonez_context_private.current_worker_job_id());
-
 COMMIT;

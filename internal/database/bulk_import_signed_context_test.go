@@ -2,6 +2,7 @@ package database
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"gorm.io/driver/postgres"
@@ -42,18 +43,92 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 		t.Fatalf("processing login cannot inspect verifier readiness: %v", err)
 	}
 
-	// The readiness gate must inspect the actual restrictive policy expression,
-	// not merely accept a policy with the expected name and command.
-	if err := runnerDB.Exec(`ALTER POLICY bulk_worker_user_role_guard ON public.users WITH CHECK (true)`).Error; err != nil {
-		t.Fatalf("weaken role guard for readiness regression test: %v", err)
+	// Every worker policy must retain its exact role, command, permissiveness,
+	// USING expression, and WITH CHECK expression. Exercise each policy by
+	// changing one predicate, then restore it before the next case.
+	type policyMutation struct {
+		name string
+		weaken string
+		restore string
 	}
-	if err := ValidateBulkImportSignedContextReady(workerDB); err == nil {
-		t.Fatal("readiness accepted a weakened user-role policy expression")
+	tenant := "school_id = stonez_context_private.current_worker_school_id()"
+	queue := "school_id = stonez_context_private.current_worker_school_id() AND initiated_by = stonez_context_private.current_worker_initiator_id() AND id = stonez_context_private.current_worker_job_id()"
+	policies := []policyMutation{
+		{"queue SELECT", `ALTER POLICY bulk_import_jobs_signed_worker_select ON public.bulk_import_jobs USING (true)`, `ALTER POLICY bulk_import_jobs_signed_worker_select ON public.bulk_import_jobs USING (`+queue+`)`},
+		{"queue UPDATE", `ALTER POLICY bulk_import_jobs_signed_worker_update ON public.bulk_import_jobs USING (true) WITH CHECK (true)`, `ALTER POLICY bulk_import_jobs_signed_worker_update ON public.bulk_import_jobs USING (`+queue+`) WITH CHECK (`+queue+`)`},
+		{"verifier SELECT", `ALTER POLICY bulk_import_jobs_context_verifier_read ON public.bulk_import_jobs USING (false)`, `ALTER POLICY bulk_import_jobs_context_verifier_read ON public.bulk_import_jobs USING (true)`},
+		{"verifier UPDATE", `ALTER POLICY bulk_import_jobs_context_verifier_lock ON public.bulk_import_jobs USING (false) WITH CHECK (false)`, `ALTER POLICY bulk_import_jobs_context_verifier_lock ON public.bulk_import_jobs USING (true) WITH CHECK (true)`},
+		{"user role guard", `ALTER POLICY bulk_worker_user_role_guard ON public.users WITH CHECK (true)`, `ALTER POLICY bulk_worker_user_role_guard ON public.users WITH CHECK (stonez_context_private.bulk_worker_user_role_allowed(role))`},
 	}
-	if err := runnerDB.Exec(`ALTER POLICY bulk_worker_user_role_guard ON public.users WITH CHECK (stonez_context_private.bulk_worker_user_role_allowed(role))`).Error; err != nil {
-		t.Fatalf("restore user-role guard after readiness regression test: %v", err)
+	for _, table := range []string{"users","students","teacher_profiles","parent_profiles","academic_sessions","school_classes","sections","student_enrollments","guardian_relationships"} {
+		policies = append(policies, policyMutation{
+			name: "SELECT "+table,
+			weaken: "ALTER POLICY bulk_worker_signed_select ON public."+table+" USING (true)",
+			restore: "ALTER POLICY bulk_worker_signed_select ON public."+table+" USING ("+tenant+")",
+		})
 	}
-	if err := ValidateBulkImportSignedContextReady(workerDB); err != nil {
-		t.Fatalf("readiness rejected restored user-role guard: %v", err)
+	for _, table := range []string{"users","students","teacher_profiles","parent_profiles","student_enrollments","guardian_relationships"} {
+		policies = append(policies, policyMutation{
+			name: "INSERT "+table,
+			weaken: "ALTER POLICY bulk_worker_signed_insert ON public."+table+" WITH CHECK (true)",
+			restore: "ALTER POLICY bulk_worker_signed_insert ON public."+table+" WITH CHECK ("+tenant+")",
+		})
+	}
+	for _, policy := range policies {
+		t.Run("policy_"+strings.ReplaceAll(policy.name," ","_"), func(t *testing.T) {
+			if err := runnerDB.Exec(policy.weaken).Error; err != nil {
+				t.Fatalf("weaken %s policy: %v", policy.name, err)
+			}
+			if err := ValidateBulkImportSignedContextReady(workerDB); err == nil {
+				t.Fatalf("readiness accepted altered %s policy expression", policy.name)
+			}
+			if err := runnerDB.Exec(policy.restore).Error; err != nil {
+				t.Fatalf("restore %s policy: %v", policy.name, err)
+			}
+			if err := ValidateBulkImportSignedContextReady(workerDB); err != nil {
+				t.Fatalf("readiness rejected restored %s policy: %v", policy.name, err)
+			}
+		})
+	}
+
+	// Effective privilege checks must catch excess inherited grants, not just
+	// confirm that the installer granted the intended minimum.
+	privilegeMutations := []struct{name, grant, revoke string}{
+		{"table UPDATE", `GRANT UPDATE ON public.students TO stonez_bulk_worker_processing`, `REVOKE UPDATE ON public.students FROM stonez_bulk_worker_processing`},
+		{"sensitive SELECT column", `GRANT SELECT (password_hash) ON public.users TO stonez_bulk_worker_processing`, `REVOKE SELECT (password_hash) ON public.users FROM stonez_bulk_worker_processing`},
+		{"unexpected INSERT table", `GRANT INSERT ON public.academic_sessions TO stonez_bulk_worker_processing`, `REVOKE INSERT ON public.academic_sessions FROM stonez_bulk_worker_processing`},
+		{"lease generation UPDATE", `GRANT UPDATE (lease_id) ON public.bulk_import_jobs TO stonez_bulk_worker_processing`, `REVOKE UPDATE (lease_id) ON public.bulk_import_jobs FROM stonez_bulk_worker_processing`},
+	}
+	for _, mutation := range privilegeMutations {
+		t.Run("privilege_"+strings.ReplaceAll(mutation.name," ","_"), func(t *testing.T) {
+			if err := runnerDB.Exec(mutation.grant).Error; err != nil {
+				t.Fatalf("grant excess %s privilege: %v", mutation.name, err)
+			}
+			if err := ValidateBulkImportSignedContextReady(workerDB); err == nil {
+				t.Fatalf("readiness accepted excess %s privilege", mutation.name)
+			}
+			if err := runnerDB.Exec(mutation.revoke).Error; err != nil {
+				t.Fatalf("revoke excess %s privilege: %v", mutation.name, err)
+			}
+			if err := ValidateBulkImportSignedContextReady(workerDB); err != nil {
+				t.Fatalf("readiness rejected restored privileges after %s: %v", mutation.name, err)
+			}
+		})
+	}
+
+	// PostgreSQL 16+ membership SET options are distinct from INHERIT.
+	// The processing login must inherit the policy group without being able
+	// to SET ROLE into it.
+	if err := runnerDB.Exec(`GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_login WITH ADMIN FALSE, INHERIT TRUE, SET TRUE`).Error; err != nil {
+		t.Fatalf("enable SET ROLE for negative test: %v", err)
+	}
+	if err := ValidateBulkImportProcessingRole(workerDB); err == nil {
+		t.Fatal("processing login with SET ROLE into worker group was accepted")
+	}
+	if err := runnerDB.Exec(`GRANT stonez_bulk_worker_processing TO stonez_bulk_worker_processing_login WITH ADMIN FALSE, INHERIT TRUE, SET FALSE`).Error; err != nil {
+		t.Fatalf("restore no-SET-ROLE membership: %v", err)
+	}
+	if err := ValidateBulkImportProcessingRole(workerDB); err != nil {
+		t.Fatalf("processing login rejected after restoring no-SET-ROLE membership: %v", err)
 	}
 }

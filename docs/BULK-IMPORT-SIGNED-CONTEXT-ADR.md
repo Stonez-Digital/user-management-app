@@ -26,7 +26,7 @@ Do not substitute an ad-hoc JSON signature, plain SHA-256, an unsigned GUC, or a
 
 ## Claim-generation implementation status
 
-The queue model now includes a nullable `lease_id` UUID field for migration compatibility. The PostgreSQL claim function assigns a fresh value with `gen_random_uuid()` in the same row update that changes the worker owner and claim timestamp. The claim-owner role receives UPDATE on this one additional column and no broader table-level UPDATE privilege.
+The queue model now includes a nullable `lease_id` UUID field for migration compatibility. Additive application migration 48 adds the PostgreSQL column and index; it is separate from migration 47 because deployed databases may already have recorded version 47 and will not rerun it. The PostgreSQL claim function assigns a fresh value with `gen_random_uuid()` in the same row update that changes the worker owner and claim timestamp. The claim-owner role receives UPDATE on this one additional column and no broader table-level UPDATE privilege.
 
 The Go SQLite test path mirrors this by assigning a fresh UUID on every claim. A worker transaction must present the lease generation returned with its claimed job; the generation is included in the locked queue-row predicate. A missing generation or replaced generation is rejected before the transaction callback can touch tenant data.
 

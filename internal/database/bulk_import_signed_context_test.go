@@ -40,7 +40,7 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 		t.Fatalf("dedicated processing login rejected: %v", err)
 	}
 	var catalogPolicies []struct {
-		Table string
+		TableName string
 		Name string
 		Roles string
 		Command string
@@ -48,11 +48,11 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 		Using string
 		Check string
 	}
-	if err := workerDB.Raw(`SELECT relation.relname AS table, policy.polname AS name,
+	if err := workerDB.Raw(`SELECT relation.relname AS table_name, policy.polname AS name,
 		policy.polroles::text AS roles, policy.polcmd::text AS command,
 		policy.polpermissive AS permissive,
-		COALESCE(pg_get_expr(policy.polqual,policy.polrelid),'') AS using,
-		COALESCE(pg_get_expr(policy.polwithcheck,policy.polrelid),'') AS check
+		COALESCE(pg_get_expr(policy.polqual,policy.polrelid),'') AS using_expr,
+		COALESCE(pg_get_expr(policy.polwithcheck,policy.polrelid),'') AS check_expr
 		FROM pg_policy AS policy JOIN pg_class AS relation ON relation.oid=policy.polrelid
 		WHERE relation.oid IN ('public.bulk_import_jobs'::regclass,'public.users'::regclass,
 			'public.students'::regclass,'public.teacher_profiles'::regclass,

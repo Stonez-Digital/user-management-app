@@ -129,6 +129,13 @@ BEGIN
         RAISE EXCEPTION 'verified worker transaction context is required' USING ERRCODE='28000';
     END IF;
 
+    UPDATE stonez_context_private.account_setup_outbox AS outbox
+       SET status='failed',lease_id=NULL,lease_expires_at=NULL,
+           last_error='delivery lease expired after maximum attempts',updated_at=clock_timestamp()
+     WHERE outbox.school_id=v_school_id AND outbox.job_id=v_job_id
+       AND outbox.status='claimed' AND outbox.lease_expires_at <= clock_timestamp()
+       AND outbox.attempt_count >= 12;
+
     SELECT outbox.* INTO v_event
       FROM stonez_context_private.account_setup_outbox AS outbox
      WHERE outbox.school_id=v_school_id AND outbox.job_id=v_job_id

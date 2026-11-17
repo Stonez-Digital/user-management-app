@@ -138,3 +138,8 @@ Required cases:
 ## 8. Explicit exclusions
 
 This implementation does not install pgcrypto in a live database, provision Vault or database keys, create production roles, change production secrets, change Render/Supabase configuration, deploy a worker, enable restricted-role environment flags, merge PRs, or modify production data. Those actions require separate reviewed and explicit approval.
+
+
+## CI isolation
+
+The signed-context PostgreSQL integration test creates unique schemas and restricted roles in the disposable `TEST_DATABASE_URL` database. The separate queue-role SQL-script fixture runs in its own `bulk_queue_scripts_test` database so its global `stonez_internal` schema and role setup cannot collide with authentication bootstrap or application integration tests.

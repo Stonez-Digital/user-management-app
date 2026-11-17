@@ -114,6 +114,7 @@ func TestBulkImportCredentialOutboxWorkerCrashRetry(t *testing.T) {
 	var createdProgress int
 	if err := admin.Raw("SELECT created FROM public.bulk_import_jobs WHERE id=?", jobID).Scan(&createdProgress).Error; err != nil { t.Fatal(err) }
 	if createdProgress != 1 { t.Fatalf("created-row progress was not committed atomically with the account and outbox: %d", createdProgress) }
+	if err := admin.First(&job, "id = ?", jobID).Error; err != nil { t.Fatalf("reload atomic row checkpoint: %v", err) }
 
 	// The original worker exits after the account transaction. A new worker
 	// receives a fresh job lease before attempting delivery.

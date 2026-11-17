@@ -24,15 +24,20 @@ BEGIN
 END
 $$;
 
+-- The operator/table owner grants the verifier owner access to the queue
+-- relation before switching to the dedicated NOLOGIN owner.
+GRANT USAGE ON SCHEMA public TO stonez_bulk_context_owner;
+GRANT SELECT ON public.bulk_import_jobs TO stonez_bulk_context_owner;
+GRANT UPDATE (lease_id) ON public.bulk_import_jobs TO stonez_bulk_context_owner;
+
 -- The role creator receives a non-inheriting membership. Switch into the
--- dedicated owner before creating any private object or SECURITY DEFINER code.
+-- dedicated owner before creating private objects and SECURITY DEFINER code.
 GRANT stonez_bulk_context_owner TO CURRENT_USER WITH INHERIT FALSE, SET TRUE;
 SET LOCAL ROLE stonez_bulk_context_owner;
 
 CREATE SCHEMA IF NOT EXISTS stonez_context_private AUTHORIZATION CURRENT_USER;
 ALTER SCHEMA stonez_context_private OWNER TO CURRENT_USER;
 REVOKE ALL ON SCHEMA stonez_context_private FROM PUBLIC;
-GRANT USAGE ON SCHEMA public TO stonez_bulk_context_owner;
 GRANT USAGE ON SCHEMA stonez_context_private TO stonez_bulk_worker, stonez_bulk_context_key_admin;
 
 CREATE TABLE IF NOT EXISTS stonez_context_private.verification_keys (
@@ -624,7 +629,8 @@ GRANT EXECUTE ON FUNCTION stonez_context_private.revoke_verification_key(text) T
 -- or queue-owner groups, so raw tenant GUC policies cannot act as fallback.
 RESET ROLE;
 ALTER TABLE public.bulk_import_jobs ENABLE ROW LEVEL SECURITY;
-GRANT SELECT, UPDATE ON public.bulk_import_jobs TO stonez_bulk_worker;
+GRANT SELECT ON public.bulk_import_jobs TO stonez_bulk_worker;
+GRANT UPDATE (status,total,valid,created,updated,skipped,failed,credentials_sent,credential_emails_failed,errors_json,claimed_at,worker_id,last_error) ON public.bulk_import_jobs TO stonez_bulk_worker;
 DROP POLICY IF EXISTS bulk_import_jobs_context_verifier_read ON public.bulk_import_jobs;
 CREATE POLICY bulk_import_jobs_context_verifier_read ON public.bulk_import_jobs
     FOR SELECT TO stonez_bulk_context_owner USING (true);
@@ -648,7 +654,4 @@ CREATE POLICY bulk_import_jobs_signed_worker_update ON public.bulk_import_jobs
         AND initiated_by = stonez_context_private.current_worker_initiator_id()
         AND id = stonez_context_private.current_worker_job_id()
     );
-GRANT SELECT ON public.bulk_import_jobs TO stonez_bulk_context_owner;
-GRANT UPDATE (lease_id) ON public.bulk_import_jobs TO stonez_bulk_context_owner;
-
 COMMIT;

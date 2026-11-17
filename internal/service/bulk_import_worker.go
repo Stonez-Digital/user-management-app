@@ -38,6 +38,9 @@ func (s *BulkImportService) withTenantTransaction(job models.BulkImportJob, fn f
 		// than the lease interval. The next transaction must still present the
 		// current worker ID and a non-expired lease.
 		if job.WorkerID != nil {
+			if job.LeaseID == nil || *job.LeaseID == uuid.Nil {
+				return errors.New("bulk import worker lease generation is missing")
+			}
 			var lease models.BulkImportJob
 			leaseClock := time.Now().UTC()
 			if tx.Dialector.Name() == "postgres" {
@@ -49,11 +52,9 @@ func (s *BulkImportService) withTenantTransaction(job models.BulkImportJob, fn f
 			leaseQuery := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 				Where("id = ? AND school_id = ? AND initiated_by = ? AND worker_id = ? AND status = ? AND claimed_at >= ?",
 					job.ID, job.SchoolID, job.InitiatedBy, *job.WorkerID, models.BulkImportRunning, cutoff)
-			if job.LeaseID != nil {
-				// The lease generation changes on every claim/reclaim. Include it
-				// in the locked predicate so replacement cannot race verification.
-				leaseQuery = leaseQuery.Where("lease_id = ?", *job.LeaseID)
-			}
+			// The lease generation changes on every claim/reclaim. Include it
+			// in the locked predicate so replacement cannot race verification.
+			leaseQuery = leaseQuery.Where("lease_id = ?", *job.LeaseID)
 			err := leaseQuery.First(&lease).Error
 			if err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {

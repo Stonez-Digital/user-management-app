@@ -316,6 +316,11 @@ BEGIN
 
     SELECT * INTO v_queue FROM public.bulk_import_jobs WHERE id = v_job FOR UPDATE;
     v_now := clock_timestamp();
+    -- The row lock can block long enough for a short-lived assertion to expire.
+    -- Recheck expiry using the post-lock database clock before binding context.
+    IF v_exp <= extract(epoch FROM v_now) - 5 THEN
+        RAISE EXCEPTION 'bulk worker assertion expired while waiting for the queue lease lock' USING ERRCODE = '28000';
+    END IF;
     IF NOT FOUND OR v_queue.school_id <> v_school
        OR v_queue.initiated_by <> v_initiator OR v_queue.worker_id <> v_worker
        OR v_queue.lease_id <> v_lease OR v_queue.status <> 'running'

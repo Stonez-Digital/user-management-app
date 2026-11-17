@@ -86,6 +86,14 @@ CREATE TABLE IF NOT EXISTS stonez_context_private.verified_contexts (
     CONSTRAINT verified_contexts_assertion_id_unique UNIQUE (assertion_id)
 );
 
+CREATE TABLE IF NOT EXISTS stonez_context_private.key_management_events (
+    event_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    key_id text NOT NULL,
+    action text NOT NULL CHECK (action IN ('register','retire','revoke')),
+    actor name NOT NULL,
+    occurred_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+
 REVOKE ALL ON ALL TABLES IN SCHEMA stonez_context_private FROM PUBLIC, stonez_bulk_worker_processing, stonez_bulk_context_key_admin;
 GRANT SELECT ON stonez_context_private.verification_keys TO stonez_bulk_context_owner;
 GRANT SELECT, INSERT ON stonez_context_private.verified_contexts TO stonez_bulk_context_owner;
@@ -364,6 +372,8 @@ BEGIN
     END IF;
     INSERT INTO stonez_context_private.verification_keys(key_id,key_bytes,not_before,not_after)
     VALUES (p_key_id,p_key_bytes,p_not_before,p_not_after);
+    INSERT INTO stonez_context_private.key_management_events(key_id,action,actor)
+    VALUES (p_key_id,'register',session_user);
 END
 $fn$;
 
@@ -377,6 +387,8 @@ BEGIN
     UPDATE stonez_context_private.verification_keys SET not_after=p_not_after
      WHERE key_id=p_key_id AND revoked_at IS NULL AND p_not_after>not_before;
     IF NOT FOUND THEN RAISE EXCEPTION 'verifier key not found or retirement time invalid' USING ERRCODE = '22023'; END IF;
+    INSERT INTO stonez_context_private.key_management_events(key_id,action,actor)
+    VALUES (p_key_id,'retire',session_user);
 END
 $fn$;
 
@@ -390,6 +402,8 @@ BEGIN
     UPDATE stonez_context_private.verification_keys SET revoked_at=clock_timestamp()
      WHERE key_id=p_key_id AND revoked_at IS NULL;
     IF NOT FOUND THEN RAISE EXCEPTION 'active verifier key not found' USING ERRCODE = '22023'; END IF;
+    INSERT INTO stonez_context_private.key_management_events(key_id,action,actor)
+    VALUES (p_key_id,'revoke',session_user);
 END
 $fn$;
 

@@ -631,7 +631,9 @@ psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "INSERT INTO stonez_context_private.
 SCOPE_JTI="49494949-4949-4949-8949-494949494949"
 SCOPE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-outbox-key","typ":"JWT"}' "$(payload "$SCOPE_JTI" "$OUTBOX_NOW" "$((OUTBOX_NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$OUTBOX_KEY_HEX")"
 scoped_counts="$(psql "$worker_url" -X -q -A -t -v ON_ERROR_STOP=1 -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$SCOPE_TOKEN'); SELECT delivered_count||'|'||failed_count||'|'||pending_count FROM stonez_context_private.account_setup_notification_counts(); COMMIT;" | awk -F'|' 'NF==3 {value=$0} END {print value}')"
-if [[ "$scoped_counts" != "1|0|0" ]]; then
+# One same-job event is intentionally still delivering from the preceding
+# concurrent-claim test. The foreign school's pending event must not add to it.
+if [[ "$scoped_counts" != "1|0|1" ]]; then
   echo "Outbox counters leaked another job or school's events: $scoped_counts" >&2
   exit 1
 fi

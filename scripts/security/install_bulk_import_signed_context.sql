@@ -165,7 +165,7 @@ BEGIN
        OR p_assertion_id IS NULL OR p_job_id IS NULL OR p_school_id IS NULL
        OR p_initiated_by IS NULL OR p_worker_id IS NULL
        OR p_backend_pid IS NULL OR p_backend_pid <= 0
-       OR p_transaction_id IS NULL OR p_transaction_id !~ '^[1-9][0-9]{0,19}' OR p_lease_generation IS NULL OR p_lease_generation <= 0
+       OR p_transaction_id IS NULL OR p_transaction_id !~ '^[1-9][0-9]{0,19}$'
        OR p_issued_at IS NULL OR p_issued_at <= 0
        OR p_expires_at IS NULL OR p_expires_at <= p_issued_at
        OR p_expires_at - p_issued_at > 120

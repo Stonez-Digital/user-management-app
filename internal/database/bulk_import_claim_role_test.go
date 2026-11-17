@@ -34,6 +34,7 @@ func TestValidateBulkImportClaimRoleStatus(t *testing.T) {
 		{name: "API runtime membership rejected", mutate: func(s *BulkImportClaimRoleStatus) { s.IsAPIRuntimeMember = true }, wantErr: true},
 		{name: "queue owner membership rejected", mutate: func(s *BulkImportClaimRoleStatus) { s.IsQueueOwnerMember = true }, wantErr: true},
 		{name: "service role membership rejected", mutate: func(s *BulkImportClaimRoleStatus) { s.IsServiceRoleMember = true }, wantErr: true},
+		{name: "unexpected role membership rejected", mutate: func(s *BulkImportClaimRoleStatus) { s.HasUnexpectedRoleMembership = true }, wantErr: true},
 		{name: "privileged role membership rejected", mutate: func(s *BulkImportClaimRoleStatus) { s.SessionCanAssumePrivilegedRole = true }, wantErr: true},
 		{name: "claim function execute required", mutate: func(s *BulkImportClaimRoleStatus) { s.CanExecuteClaim = false }, wantErr: true},
 		{name: "role switch rejected", mutate: func(s *BulkImportClaimRoleStatus) { s.CurrentRoleMatchesSession = false }, wantErr: true},

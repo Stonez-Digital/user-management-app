@@ -22,10 +22,10 @@ func ValidateBulkImportContextVerifier(db *gorm.DB) error {
 	}
 	err := db.Raw(`
 		SELECT
-			to_regprocedure('stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text)') IS NOT NULL AS verifier_exists,
+			to_regprocedure('stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,integer,text,bigint,bigint,bigint,text)') IS NOT NULL AS verifier_exists,
 			to_regprocedure('stonez_internal.current_bulk_import_context()') IS NOT NULL AS context_exists,
 			to_regprocedure('extensions.hmac(bytea,bytea,text)') IS NOT NULL AS hmac_exists,
-			has_function_privilege(current_user, 'stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text)', 'EXECUTE') AS can_verify,
+			has_function_privilege(current_user, 'stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,integer,text,bigint,bigint,bigint,text)', 'EXECUTE') AS can_verify,
 			to_regprocedure('stonez_internal.bulk_import_context_key_available(text)') IS NOT NULL AS key_check_exists,
 			has_function_privilege(current_user, 'stonez_internal.bulk_import_context_key_available(text)', 'EXECUTE') AS can_check_key
 	`).Scan(&status).Error

@@ -255,6 +255,17 @@ AS $function$
        AND session_row.backend_pid = pg_backend_pid()
        AND session_row.transaction_id = pg_current_xact_id()
        AND session_row.expires_at > clock_timestamp()
+       AND EXISTS (
+            SELECT 1
+              FROM public.bulk_import_jobs AS job
+             WHERE job.id = session_row.job_id
+               AND job.school_id = session_row.school_id
+               AND job.initiated_by = session_row.initiated_by
+               AND job.worker_id = session_row.worker_id
+               AND job.lease_generation = session_row.lease_generation
+               AND job.status = 'running'
+               AND job.claimed_at >= clock_timestamp() - interval '5 minutes'
+       )
 $function$;
 
 REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,bigint,bigint,bigint,text) FROM PUBLIC;

@@ -130,3 +130,17 @@ The test job must fail, not silently pass, if PostgreSQL role creation or requir
 This work may add Go code, SQL source files, and disposable PostgreSQL integration tests on an isolated branch. It must not execute SQL against Supabase, provision live roles, install extensions, modify Render secrets, alter production credentials, deploy the worker, or enable a production guard.
 
 Before staging installation, separately verify extension availability, key provisioning, table/column privileges, all RLS policies, worker SQL side effects, and the restricted role membership graph. Production cutover requires a separate explicit approval after staging evidence is reviewed.
+
+
+## Implementation status — draft branch only
+
+The first PostgreSQL verifier slice is implemented as operator-run SQL, with no automatic application migration:
+
+- `scripts/security/install_bulk_import_context_verifier.sql` creates the private key store, transaction-context/replay table, strict HS256 verifier, transaction accessors, and key register/retire/revoke functions. Key-management actions are recorded without recording key bytes.
+- `scripts/security/install_bulk_import_context_worker_policies.sql` installs worker-only queue and bulk-import data policies. It is run separately as the owner of the application tables; the ordinary API tenant policies are not rewritten.
+- `scripts/security/provision_bulk_import_processing_login.psql` provisions a dedicated processing login. The `stonez_bulk_worker_processing` NOLOGIN group is separate from the existing `stonez_bulk_worker` claim login, which retains its distinct API-runtime/queue-claim responsibilities.
+- The Go worker has an opt-in signed-context path. It is enabled only when `BULK_IMPORT_SIGNED_CONTEXT_REQUIRED=true`, with `BULK_IMPORT_CONTEXT_SIGNING_KEY_ID` and `BULK_IMPORT_CONTEXT_SIGNING_KEY` supplied by the worker secret manager. Startup validates that the processing login is not privileged and is not a member of API, queue-owner, verifier-owner, or key-admin roles.
+- The default remains the existing worker path. Do not enable the flag until the separate processing login, verifier key, and every required worker RLS policy have been installed and verified in staging.
+
+A dedicated PostgreSQL 17 workflow runs the verifier against a disposable database with pgcrypto installed in a non-default schema. Its test harness covers signature validation, transaction binding, rollback retry, replay, expiry, key selection, row-lock fencing, cross-tenant RLS, and role separation. A green workflow is evidence for this verifier slice only; it is not approval to install it in Supabase or change Render credentials.
+

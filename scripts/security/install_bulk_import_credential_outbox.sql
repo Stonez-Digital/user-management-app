@@ -188,7 +188,7 @@ END
 $fn$;
 
 CREATE OR REPLACE FUNCTION stonez_context_private.retry_account_setup_notification(
-    p_event_id uuid, p_delivery_lease uuid, p_error text, p_delay_seconds integer
+    p_event_id uuid, p_delivery_lease uuid, p_error_code text, p_delay_seconds integer
 )
 RETURNS text
 LANGUAGE plpgsql
@@ -197,10 +197,19 @@ SET search_path = pg_catalog
 AS $fn$
 DECLARE
     v_status text;
+    v_safe_error text;
 BEGIN
     IF NOT stonez_context_private.is_eligible_processing_login() THEN
         RAISE EXCEPTION 'caller is not an eligible signed bulk worker' USING ERRCODE='42501';
     END IF;
+    IF p_error_code NOT IN ('provider_rejected','mailer_unconfigured','provider_timeout') THEN
+        RAISE EXCEPTION 'unsupported notification failure code' USING ERRCODE='22023';
+    END IF;
+    v_safe_error := CASE p_error_code
+        WHEN 'mailer_unconfigured' THEN 'account-setup mailer is unavailable'
+        WHEN 'provider_timeout' THEN 'account-setup provider timed out'
+        ELSE 'account-setup provider rejected delivery'
+    END;
     IF p_delay_seconds IS NULL OR p_delay_seconds NOT BETWEEN 1 AND 3600 THEN
         RAISE EXCEPTION 'retry delay must be between 1 and 3600 seconds' USING ERRCODE='22023';
     END IF;
@@ -208,7 +217,7 @@ BEGIN
        SET status=CASE WHEN outbox.attempt_count >= 12 THEN 'failed' ELSE 'pending' END,
            next_attempt_at=clock_timestamp()+make_interval(secs=>p_delay_seconds),
            lease_id=NULL,lease_expires_at=NULL,
-           last_error=left(coalesce(p_error,'delivery failed'),500),
+           last_error=v_safe_error,
            updated_at=clock_timestamp()
      WHERE outbox.event_id=p_event_id
        AND outbox.school_id=stonez_context_private.current_worker_school_id()

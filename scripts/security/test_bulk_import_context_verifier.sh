@@ -635,8 +635,9 @@ if [[ "$scoped_counts" != "1|0|0" ]]; then
   echo "Outbox counters leaked another job or school's events: $scoped_counts" >&2
   exit 1
 fi
-scope_claim="$(psql "$worker_url" -X -q -A -t -v ON_ERROR_STOP=1 -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$SCOPE_TOKEN'); SELECT event_id FROM stonez_context_private.claim_account_setup_notification(); COMMIT;" | grep -E '^[0-9a-f-]{36}
- || true)"
+SCOPE_CLAIM_JTI="49494949-4949-4949-8949-494949494950"
+SCOPE_CLAIM_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-outbox-key","typ":"JWT"}' "$(payload "$SCOPE_CLAIM_JTI" "$OUTBOX_NOW" "$((OUTBOX_NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$OUTBOX_KEY_HEX")"
+scope_claim="$(psql "$worker_url" -X -q -A -t -v ON_ERROR_STOP=1 -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$SCOPE_CLAIM_TOKEN'); SELECT event_id FROM stonez_context_private.claim_account_setup_notification(); COMMIT;" | grep -E '^[0-9a-f-]{36}$' || true)"
 if [[ -n "$scope_claim" ]]; then
   echo "Current job claimed an event belonging to another school/job: $scope_claim" >&2
   exit 1

@@ -152,7 +152,7 @@ func installBulkClaimFunctionForTest(t *testing.T, admin *gorm.DB, schema, owner
 	}
 	if err := admin.Exec("GRANT USAGE, CREATE ON SCHEMA stonez_internal TO " + ownerRole).Error; err != nil { return err }
 	if err := admin.Exec("GRANT USAGE ON SCHEMA stonez_internal TO " + apiRole + ", " + claimGroupRole + ", " + otherRole).Error; err != nil { return err }
-	functionSQL := fmt.Sprintf(\`
+	functionSQL := fmt.Sprintf(`
 CREATE OR REPLACE FUNCTION stonez_internal.claim_next_bulk_import_job(p_worker_id uuid)
 RETURNS SETOF %s.bulk_import_jobs
 LANGUAGE plpgsql
@@ -184,7 +184,7 @@ BEGIN
      WHERE id = v_job.id RETURNING * INTO v_job;
     RETURN NEXT v_job;
 END
-$function$\`, schema, schema, claimGroupRole, claimGroupRole, apiRole, ownerRole, schema, schema)
+$function$`, schema, schema, claimGroupRole, claimGroupRole, apiRole, ownerRole, schema, schema)
 	if err := admin.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("SET LOCAL ROLE " + ownerRole).Error; err != nil { return err }
 		if err := tx.Exec(functionSQL).Error; err != nil { return err }

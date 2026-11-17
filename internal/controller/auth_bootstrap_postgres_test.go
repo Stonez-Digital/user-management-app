@@ -105,6 +105,7 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 		script = strings.ReplaceAll(script, "stonez_auth_bootstrap_owner", ownerRole)
 		script = strings.ReplaceAll(script, "stonez_auth_session_owner", sessionOwnerRole)
 		script = strings.ReplaceAll(script, "stonez_api_runtime", apiRole)
+		script = strings.ReplaceAll(script, "stonez_internal", privateSchema)
 		return strings.ReplaceAll(script, "public", tableSchema)
 	}
 	for _, name := range []string{"provision_auth_bootstrap_roles.sql", "install_auth_bootstrap_functions.sql", "verify_auth_bootstrap_boundary.sql"} {

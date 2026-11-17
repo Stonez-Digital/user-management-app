@@ -146,7 +146,7 @@ func installBulkClaimFunctionForTest(t *testing.T, admin *gorm.DB, schema, owner
 	t.Helper()
 	if err := admin.Exec("GRANT USAGE ON SCHEMA " + schema + " TO " + ownerRole + ", " + apiRole).Error; err != nil { return err }
 	if err := admin.Exec("GRANT SELECT ON TABLE " + schema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil { return err }
-	if err := admin.Exec("GRANT UPDATE (status, worker_id, claimed_at, attempts, last_error) ON TABLE " + schema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil { return err }
+	if err := admin.Exec("GRANT UPDATE (status, worker_id, lease_id, claimed_at, attempts, last_error) ON TABLE " + schema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil { return err }
 	if err := admin.Exec("GRANT SELECT, INSERT, UPDATE ON TABLE " + schema + ".bulk_import_jobs TO " + apiRole).Error; err != nil { return err }
 	if err := admin.Exec("ALTER TABLE " + schema + ".bulk_import_jobs ENABLE ROW LEVEL SECURITY").Error; err != nil { return err }
 	policies := []string{
@@ -177,7 +177,7 @@ BEGIN
      ORDER BY created_at ASC, id ASC LIMIT 1 FOR UPDATE SKIP LOCKED;
     IF NOT FOUND THEN RETURN; END IF;
     UPDATE %s.bulk_import_jobs
-       SET status = 'running', worker_id = p_worker_id, claimed_at = clock_timestamp(),
+       SET status = 'running', worker_id = p_worker_id, lease_id = gen_random_uuid(), claimed_at = clock_timestamp(),
            attempts = attempts + 1, last_error = ''
      WHERE id = v_job.id RETURNING * INTO v_job;
     RETURN NEXT v_job;

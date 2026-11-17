@@ -190,7 +190,7 @@ if psql "$worker_url" -X -v ON_ERROR_STOP=1 -c "SELECT * FROM stonez_context_pri
   echo "Worker unexpectedly read verified context rows" >&2
   exit 1
 fi
-no_context_rows="$(psql "$worker_url" -X -A -t -v ON_ERROR_STOP=1 -c "BEGIN; SELECT set_config('app.current_school_id','$SCHOOL_ID',true); SELECT count(*) FROM public.students; COMMIT;" | tail -n 1)"
+no_context_rows="$(psql "$worker_url" -X -qAt -v ON_ERROR_STOP=1 -c "BEGIN; SELECT set_config('app.current_school_id','$SCHOOL_ID',true); SELECT count(*) FROM public.students; COMMIT;" | tail -n 1)"
 if [[ "$no_context_rows" != "0" ]]; then
   echo "A raw tenant GUC unexpectedly granted worker row access: $no_context_rows" >&2
   exit 1

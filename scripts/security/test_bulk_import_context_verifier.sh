@@ -348,3 +348,98 @@ if [[ "$pruned_contexts" != "0" ]]; then
 fi
 
 echo "PostgreSQL signed-context verifier adversarial tests passed."
+
+
+echo "== Private durable account-setup notification outbox =="
+# The installer is intentionally exercised only against this disposable PG17 fixture.
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_credential_outbox.sql
+if psql "$worker_url" -X -v ON_ERROR_STOP=1 -c "SELECT * FROM stonez_context_private.account_setup_outbox" >/dev/null 2>&1; then
+  echo "Processing login unexpectedly read private outbox rows directly" >&2
+  exit 1
+fi
+if psql "$worker_url" -X -v ON_ERROR_STOP=1 -c "INSERT INTO stonez_context_private.account_setup_outbox(school_id,job_id,user_id,recipient_email,account_role) VALUES ('$SCHOOL_ID','$JOB_ID','34343434-3434-4434-8434-343434343434','direct@example.test','student')" >/dev/null 2>&1; then
+  echo "Processing login unexpectedly inserted directly into private outbox" >&2
+  exit 1
+fi
+
+OUTBOX_USER_ID="34343434-3434-4434-8434-343434343434"
+OUTBOX_JTI="35353535-3535-4535-8535-353535353535"
+OUTBOX_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload "$OUTBOX_JTI" "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+# Account creation and enqueue are one transaction: rollback removes both.
+psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$OUTBOX_TOKEN" -v user_id="$OUTBOX_USER_ID" <<'SQL'
+BEGIN;
+SELECT stonez_context_private.verify_bulk_import_context(:'token');
+INSERT INTO public.users(id,school_id,name,email,password_hash,role,active)
+VALUES (:'user_id','22222222-2222-4222-8222-222222222222','Outbox Student',
+        'outbox-student@example.test','non-secret-test-hash','student',true);
+SELECT stonez_context_private.enqueue_account_setup_notification(
+    :'user_id','outbox-student@example.test','Outbox Student','student'
+);
+ROLLBACK;
+SQL
+if psql "$worker_url" -X -v ON_ERROR_STOP=1 -c "SELECT 1 FROM public.users WHERE id='$OUTBOX_USER_ID'" | grep -q 1; then
+  echo "Account row survived transaction rollback" >&2
+  exit 1
+fi
+
+# Reuse the rolled-back assertion: both the user and outbox event now commit.
+psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$OUTBOX_TOKEN" -v user_id="$OUTBOX_USER_ID" <<'SQL'
+BEGIN;
+SELECT stonez_context_private.verify_bulk_import_context(:'token');
+INSERT INTO public.users(id,school_id,name,email,password_hash,role,active)
+VALUES (:'user_id','22222222-2222-4222-8222-222222222222','Outbox Student',
+        'outbox-student@example.test','non-secret-test-hash','student',true);
+SELECT stonez_context_private.enqueue_account_setup_notification(
+    :'user_id','outbox-student@example.test','Outbox Student','student'
+);
+COMMIT;
+SQL
+
+# A restarted worker (fresh assertion ID, same active queue lease) can claim
+# the durable event after the account-creation transaction has committed.
+CLAIM_JTI="36363636-3636-4636-8636-363636363636"
+CLAIM_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload "$CLAIM_JTI" "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+CLAIM_ROW="$(psql "$worker_url" -X -A -t -F '|' -v ON_ERROR_STOP=1 -v token="$CLAIM_TOKEN" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context(:'token'); SELECT event_id,user_id,recipient_email,delivery_lease,attempt_count FROM stonez_context_private.claim_account_setup_notification(); COMMIT;" | awk -F'|' 'NF==5 {row=$0} END {print row}')"
+IFS='|' read -r EVENT_ID CLAIMED_USER CLAIMED_EMAIL OLD_DELIVERY_LEASE ATTEMPT_COUNT <<< "$CLAIM_ROW"
+if [[ -z "$EVENT_ID" || "$CLAIMED_USER" != "$OUTBOX_USER_ID" || "$CLAIMED_EMAIL" != "outbox-student@example.test" || "$ATTEMPT_COUNT" != "1" ]]; then
+  echo "Durable outbox event was not claimable after worker restart: $CLAIM_ROW" >&2
+  exit 1
+fi
+
+# Expire the first lease using the fixture owner, reclaim, and prove the old
+# lease generation cannot complete the newly claimed event.
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "UPDATE stonez_context_private.account_setup_outbox SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE event_id='$EVENT_ID'"
+RECLAIM_JTI="37373737-3737-4737-8737-373737373737"
+RECLAIM_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload "$RECLAIM_JTI" "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+RECLAIM_ROW="$(psql "$worker_url" -X -A -t -F '|' -v ON_ERROR_STOP=1 -v token="$RECLAIM_TOKEN" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context(:'token'); SELECT event_id,delivery_lease,attempt_count FROM stonez_context_private.claim_account_setup_notification(); COMMIT;" | awk -F'|' 'NF==3 {row=$0} END {print row}')"
+IFS='|' read -r RECLAIMED_EVENT NEW_DELIVERY_LEASE NEW_ATTEMPTS <<< "$RECLAIM_ROW"
+if [[ "$RECLAIMED_EVENT" != "$EVENT_ID" || "$NEW_DELIVERY_LEASE" == "$OLD_DELIVERY_LEASE" || "$NEW_ATTEMPTS" != "2" ]]; then
+  echo "Expired lease was not safely reclaimed: $RECLAIM_ROW" >&2
+  exit 1
+fi
+STALE_COMPLETE_JTI="38383838-3838-4838-8838-383838383838"
+STALE_COMPLETE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload "$STALE_COMPLETE_JTI" "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+stale_result="$(psql "$worker_url" -X -A -t -v ON_ERROR_STOP=1 -v token="$STALE_COMPLETE_TOKEN" -v event_id="$EVENT_ID" -v old_lease="$OLD_DELIVERY_LEASE" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context(:'token'); SELECT stonez_context_private.complete_account_setup_notification(:'event_id', :'old_lease', 'stale-provider-id'); COMMIT;" | tail -n 1)"
+if [[ "$stale_result" != "f" ]]; then
+  echo "Stale delivery lease unexpectedly completed the event: $stale_result" >&2
+  exit 1
+fi
+COMPLETE_JTI="39393939-3939-4939-8939-393939393939"
+COMPLETE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload "$COMPLETE_JTI" "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+complete_result="$(psql "$worker_url" -X -A -t -v ON_ERROR_STOP=1 -v token="$COMPLETE_TOKEN" -v event_id="$EVENT_ID" -v lease="$NEW_DELIVERY_LEASE" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context(:'token'); SELECT stonez_context_private.complete_account_setup_notification(:'event_id', :'lease', 'provider-test-123'); COMMIT;" | tail -n 1)"
+if [[ "$complete_result" != "t" ]]; then
+  echo "Current delivery lease could not complete event: $complete_result" >&2
+  exit 1
+fi
+
+# Idempotent enqueue returns the same event for the same job/user and does not
+# create duplicate notifications on a retried account row.
+DUPLICATE_JTI="40404040-4040-4040-8040-404040404040"
+DUPLICATE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload "$DUPLICATE_JTI" "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+duplicate_id="$(psql "$worker_url" -X -A -t -v ON_ERROR_STOP=1 -v token="$DUPLICATE_TOKEN" -v user_id="$OUTBOX_USER_ID" -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context(:'token'); SELECT stonez_context_private.enqueue_account_setup_notification(:'user_id','outbox-student@example.test','Outbox Student','student'); COMMIT;" | tail -n 1)"
+if [[ "$duplicate_id" != "$EVENT_ID" ]]; then
+  echo "Idempotent enqueue returned a different event ID: $duplicate_id" >&2
+  exit 1
+fi
+
+echo "Private signed-context credential outbox permission, atomicity, restart, lease-fencing, completion, and idempotency tests passed."

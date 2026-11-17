@@ -356,6 +356,8 @@ $$;
 -- The processing group can inspect and update only the job's operational
 -- progress fields. It cannot read the stored import payload or change lease
 -- ownership/generation.
+RESET ROLE;
+
 GRANT SELECT ON TABLE public.bulk_import_jobs TO stonez_bulk_process_group;
 GRANT UPDATE (
     status, created, skipped, failed, credentials_sent,

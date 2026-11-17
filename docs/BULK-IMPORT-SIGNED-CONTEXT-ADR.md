@@ -24,6 +24,14 @@ The raw token is passed as a function argument to the verifier. It is never plac
 
 Do not substitute an ad-hoc JSON signature, plain SHA-256, an unsigned GUC, or a key embedded in a SQL function definition.
 
+## Claim-generation implementation status
+
+The queue model now includes a nullable `lease_id` UUID field for migration compatibility. The PostgreSQL claim function assigns a fresh value with `gen_random_uuid()` in the same row update that changes the worker owner and claim timestamp. The claim-owner role receives UPDATE on this one additional column and no broader table-level UPDATE privilege.
+
+The Go SQLite test path mirrors this by assigning a fresh UUID on every claim. A worker transaction must present the lease generation returned with its claimed job; the generation is included in the locked queue-row predicate. A missing generation or replaced generation is rejected before the transaction callback can touch tenant data.
+
+Existing rows may have a NULL lease generation until they are claimed again. The signed-context verifier must reject NULL generations and must never mint or infer a generation from worker input.
+
 ## Signed assertion contract
 
 The token must use a fixed algorithm allowlist (`HS256`) and a fixed issuer and audience. The verifier must reject algorithm substitution, unknown `kid`, unexpected issuer/audience, malformed UUIDs, missing claims, duplicate JSON keys where detectable, and tokens outside the permitted time window.

@@ -59,7 +59,7 @@ func NewCredentialMailerFromEnv() *CredentialMailer {
 }
 
 func (m *CredentialMailer) Enabled() bool {
-	return m != nil && m.host != "" && m.from != "" && m.loginURL != ""
+	return m != nil && m.from != "" && m.loginURL != "" && (m.host != "" || m.resendAPIKey != "")
 }
 
 // SendAccountSetupNotice never includes a password or reset token. The

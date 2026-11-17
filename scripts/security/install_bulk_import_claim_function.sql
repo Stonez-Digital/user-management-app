@@ -68,6 +68,7 @@ BEGIN
     IF NOT has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'SELECT')
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'status', 'UPDATE')
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'worker_id', 'UPDATE')
+       OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'lease_id', 'UPDATE')
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'claimed_at', 'UPDATE')
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'attempts', 'UPDATE')
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'last_error', 'UPDATE')
@@ -199,6 +200,7 @@ BEGIN
     UPDATE public.bulk_import_jobs
        SET status = 'running',
            worker_id = p_worker_id,
+           lease_id = gen_random_uuid(),
            claimed_at = clock_timestamp(),
            attempts = attempts + 1,
            last_error = ''
@@ -254,7 +256,8 @@ BEGIN
     IF function_owner IS DISTINCT FROM 'stonez_bulk_queue_owner'
        OR function_is_definer IS DISTINCT FROM true
        OR NOT ('search_path=pg_catalog' = ANY(COALESCE(function_config, ARRAY[]::text[])))
-       OR position('pg_has_role(session_user' IN function_definition) = 0 THEN
+       OR position('pg_has_role(session_user' IN function_definition) = 0
+       OR position('lease_id = gen_random_uuid()' IN function_definition) = 0 THEN
         RAISE EXCEPTION 'claim function owner, SECURITY DEFINER mode, or fixed search_path is unsafe';
     END IF;
 

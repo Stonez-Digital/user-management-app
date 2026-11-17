@@ -51,8 +51,7 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 	}
 	cleanup := func() {
 		_ = admin.Exec("REVOKE " + apiRole + " FROM " + loginRole).Error
-		_ = admin.Exec("DROP SCHEMA IF EXISTS " + privateSchema + " CASCADE").Error
-		_ = admin.Exec("DROP SCHEMA IF EXISTS " + tableSchema + " CASCADE").Error
+				_ = admin.Exec("DROP SCHEMA IF EXISTS " + tableSchema + " CASCADE").Error
 		for _, role := range []string{loginRole, apiRole, ownerRole, sessionOwnerRole} {
 			_ = admin.Exec("DROP OWNED BY " + role).Error
 			_ = admin.Exec("REVOKE " + role + " FROM CURRENT_USER").Error
@@ -67,7 +66,7 @@ func TestPostgresAuthBootstrapLoginAndRefreshHandlers(t *testing.T) {
 		"CREATE ROLE " + loginRole + " LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS PASSWORD '" + loginPassword + "'",
 		"GRANT " + ownerRole + ", " + apiRole + " TO CURRENT_USER",
 		"GRANT " + apiRole + " TO " + loginRole,
-		"CREATE SCHEMA " + privateSchema,
+		"CREATE SCHEMA IF NOT EXISTS " + privateSchema,
 	} {
 		if err := admin.Exec(statement).Error; err != nil {
 			t.Fatalf("provision isolated handler roles: %v", err)

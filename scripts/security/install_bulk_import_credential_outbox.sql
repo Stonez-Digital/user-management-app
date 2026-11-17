@@ -188,7 +188,7 @@ END
 $fn$;
 
 CREATE OR REPLACE FUNCTION stonez_context_private.retry_account_setup_notification(
-    p_event_id uuid, p_delivery_lease uuid, p_error_code text, p_delay_seconds integer
+    p_event_id uuid, p_delivery_lease uuid, p_error text, p_delay_seconds integer
 )
 RETURNS text
 LANGUAGE plpgsql
@@ -202,10 +202,10 @@ BEGIN
     IF NOT stonez_context_private.is_eligible_processing_login() THEN
         RAISE EXCEPTION 'caller is not an eligible signed bulk worker' USING ERRCODE='42501';
     END IF;
-    IF p_error_code NOT IN ('provider_rejected','mailer_unconfigured','provider_timeout') THEN
+    IF p_error NOT IN ('provider_rejected','mailer_unconfigured','provider_timeout') THEN
         RAISE EXCEPTION 'unsupported notification failure code' USING ERRCODE='22023';
     END IF;
-    v_safe_error := CASE p_error_code
+    v_safe_error := CASE p_error
         WHEN 'mailer_unconfigured' THEN 'account-setup mailer is unavailable'
         WHEN 'provider_timeout' THEN 'account-setup provider timed out'
         ELSE 'account-setup provider rejected delivery'

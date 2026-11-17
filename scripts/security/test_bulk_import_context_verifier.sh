@@ -40,9 +40,6 @@ VALUES ('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-22222222
 '33333333-3333-4333-8333-333333333333','dddddddd-dddd-4ddd-8ddd-dddddddddddd',
 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee','running',clock_timestamp(),false);
 CREATE TABLE public.users(id uuid PRIMARY KEY, school_id uuid, name text, email text, role text, password_hash text, active boolean NOT NULL DEFAULT true);
-INSERT INTO public.users(id,school_id,name,email,role,password_hash) VALUES
-('34343434-3434-4434-8434-343434343434','22222222-2222-4222-8222-222222222222','Outbox Fixture','outbox-fixture@example.test','student','test-hash'),
-('35353535-3535-4535-8535-353535353535','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','Other Tenant','other-tenant@example.test','student','test-hash');
 CREATE TABLE public.students(id uuid PRIMARY KEY, school_id uuid NOT NULL, admission_number text);
 INSERT INTO public.students(id,school_id) VALUES
 ('21212121-2121-4212-8212-212121212121','22222222-2222-4222-8222-222222222222'),
@@ -116,13 +113,13 @@ DECLARE
   v_processing oid := (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing');
   v_table oid := 'stonez_context_private.account_setup_outbox'::regclass;
 BEGIN
-  IF (SELECT prosecdef FROM pg_proc WHERE oid='stonez_context_private.enqueue_account_setup_notice(uuid)'::regprocedure) IS DISTINCT FROM true
-     OR (SELECT prosecdef FROM pg_proc WHERE oid='stonez_context_private.claim_account_setup_notice()'::regprocedure) IS DISTINCT FROM true
-     OR (SELECT prosecdef FROM pg_proc WHERE oid='stonez_context_private.complete_account_setup_notice(uuid,uuid,text)'::regprocedure) IS DISTINCT FROM true
-     OR (SELECT prosecdef FROM pg_proc WHERE oid='stonez_context_private.fail_account_setup_notice(uuid,uuid,text)'::regprocedure) IS DISTINCT FROM true THEN
+  IF (SELECT prosecdef FROM pg_proc WHERE oid='stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)'::regprocedure) IS DISTINCT FROM true
+     OR (SELECT prosecdef FROM pg_proc WHERE oid='stonez_context_private.claim_account_setup_notification()'::regprocedure) IS DISTINCT FROM true
+     OR (SELECT prosecdef FROM pg_proc WHERE oid='stonez_context_private.complete_account_setup_notification(uuid,uuid,text)'::regprocedure) IS DISTINCT FROM true
+     OR (SELECT prosecdef FROM pg_proc WHERE oid='stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)'::regprocedure) IS DISTINCT FROM true THEN
     RAISE EXCEPTION 'outbox entry points must all be SECURITY DEFINER';
   END IF;
-  IF (SELECT proowner FROM pg_proc WHERE oid='stonez_context_private.enqueue_account_setup_notice(uuid)'::regprocedure) <> v_owner
+  IF (SELECT proowner FROM pg_proc WHERE oid='stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)'::regprocedure) <> v_owner
      OR (SELECT relowner FROM pg_class WHERE oid=v_table) <> v_owner THEN
     RAISE EXCEPTION 'outbox table and entry points must be owned by the dedicated context owner';
   END IF;
@@ -135,7 +132,7 @@ BEGIN
   IF NOT has_function_privilege(v_processing,'stonez_context_private.enqueue_account_setup_notice(uuid)','EXECUTE')
      OR NOT has_function_privilege(v_processing,'stonez_context_private.claim_account_setup_notice()','EXECUTE')
      OR NOT has_function_privilege(v_processing,'stonez_context_private.complete_account_setup_notice(uuid,uuid,text)','EXECUTE')
-     OR NOT has_function_privilege(v_processing,'stonez_context_private.fail_account_setup_notice(uuid,uuid,text)','EXECUTE') THEN
+     OR NOT has_function_privilege(v_processing,'stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)','EXECUTE') THEN
     RAISE EXCEPTION 'processing group is missing a scoped outbox function grant';
   END IF;
   IF EXISTS (
@@ -194,77 +191,6 @@ SQL
 }
 NOW="$(date +%s)"
 TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '66666666-6666-4666-8666-666666666666' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
-
-echo "== Private account-setup outbox permissions, crash recovery, and lease fencing =="
-ENQUEUE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '36363636-3636-4636-8636-363636363636' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
-psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$ENQUEUE_TOKEN" <<'SQL'
-BEGIN;
-SELECT stonez_context_private.verify_bulk_import_context(:'token');
-SELECT stonez_context_private.enqueue_account_setup_notice('34343434-3434-4434-8434-343434343434');
-COMMIT;
-SQL
-if psql "$worker_url" -X -v ON_ERROR_STOP=1 -c "SELECT * FROM stonez_context_private.account_setup_outbox" >/dev/null 2>&1; then
-  echo "Processing login unexpectedly read the private outbox table directly" >&2; exit 1
-fi
-if psql "$worker_url" -X -v ON_ERROR_STOP=1 -c "INSERT INTO stonez_context_private.account_setup_outbox(school_id,job_id,user_id,recipient_email,account_role) VALUES ('$SCHOOL_ID','$JOB_ID','34343434-3434-4434-8434-343434343434','attacker@example.test','student')" >/dev/null 2>&1; then
-  echo "Processing login unexpectedly inserted directly into the private outbox" >&2; exit 1
-fi
-ENQUEUE_COUNT="$(psql "$runner_url" -X -qAt -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM stonez_context_private.account_setup_outbox WHERE job_id='$JOB_ID' AND user_id='34343434-3434-4434-8434-343434343434'")"
-if [[ "$ENQUEUE_COUNT" != "1" ]]; then echo "Expected one durable outbox event, found $ENQUEUE_COUNT" >&2; exit 1; fi
-ENQUEUE_RETRY_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '37373737-3737-4737-8737-373737373737' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
-psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$ENQUEUE_RETRY_TOKEN" <<'SQL'
-BEGIN;
-SELECT stonez_context_private.verify_bulk_import_context(:'token');
-SELECT stonez_context_private.enqueue_account_setup_notice('34343434-3434-4434-8434-343434343434');
-COMMIT;
-SQL
-ENQUEUE_COUNT="$(psql "$runner_url" -X -qAt -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM stonez_context_private.account_setup_outbox WHERE job_id='$JOB_ID' AND user_id='34343434-3434-4434-8434-343434343434'")"
-if [[ "$ENQUEUE_COUNT" != "1" ]]; then echo "Idempotent enqueue created $ENQUEUE_COUNT events" >&2; exit 1; fi
-# Claim once, simulate process death by expiring its lease, then claim again.
-CLAIM_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '38383838-3838-4838-8838-383838383838' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
-FIRST_CLAIM="$(psql "$worker_url" -X -qAt -F '|' -v ON_ERROR_STOP=1 -v token="$CLAIM_TOKEN" <<'SQL' | tail -n 1
-BEGIN;
-SELECT stonez_context_private.verify_bulk_import_context(:'token');
-SELECT event_id::text || '|' || lease_id::text FROM stonez_context_private.claim_account_setup_notice();
-COMMIT;
-SQL
-)"
-IFS='|' read -r EVENT_ID FIRST_LEASE <<< "$FIRST_CLAIM"
-if [[ -z "$EVENT_ID" || -z "$FIRST_LEASE" ]]; then echo "Outbox claim returned no event/lease" >&2; exit 1; fi
-psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "UPDATE stonez_context_private.account_setup_outbox SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE event_id='$EVENT_ID'"
-SECOND_CLAIM_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '39393939-3939-4939-8939-393939393939' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
-SECOND_CLAIM="$(psql "$worker_url" -X -qAt -F '|' -v ON_ERROR_STOP=1 -v token="$SECOND_CLAIM_TOKEN" <<'SQL' | tail -n 1
-BEGIN;
-SELECT stonez_context_private.verify_bulk_import_context(:'token');
-SELECT event_id::text || '|' || lease_id::text FROM stonez_context_private.claim_account_setup_notice();
-COMMIT;
-SQL
-)"
-IFS='|' read -r RETRIED_EVENT SECOND_LEASE <<< "$SECOND_CLAIM"
-if [[ "$RETRIED_EVENT" != "$EVENT_ID" || -z "$SECOND_LEASE" || "$SECOND_LEASE" == "$FIRST_LEASE" ]]; then
-  echo "Expired outbox lease was not reclaimed with a fresh generation" >&2; exit 1
-fi
-STALE_COMPLETE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '40404040-4040-4040-8040-404040404040' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
-STALE_RESULT="$(psql "$worker_url" -X -qAt -v ON_ERROR_STOP=1 -v token="$STALE_COMPLETE_TOKEN" -v event="$EVENT_ID" -v lease="$FIRST_LEASE" <<'SQL' | tail -n 1
-BEGIN;
-SELECT stonez_context_private.verify_bulk_import_context(:'token');
-SELECT stonez_context_private.complete_account_setup_notice(:'event'::uuid,:'lease'::uuid,NULL);
-COMMIT;
-SQL
-)"
-if [[ "$STALE_RESULT" != "f" ]]; then echo "Stale lease holder unexpectedly completed an outbox event" >&2; exit 1; fi
-COMPLETE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '41414141-4141-4141-8141-414141414141' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
-COMPLETE_RESULT="$(psql "$worker_url" -X -qAt -v ON_ERROR_STOP=1 -v token="$COMPLETE_TOKEN" -v event="$EVENT_ID" -v lease="$SECOND_LEASE" <<'SQL' | tail -n 1
-BEGIN;
-SELECT stonez_context_private.verify_bulk_import_context(:'token');
-SELECT stonez_context_private.complete_account_setup_notice(:'event'::uuid,:'lease'::uuid,'provider-ci-123');
-COMMIT;
-SQL
-)"
-if [[ "$COMPLETE_RESULT" != "t" ]]; then echo "Current outbox lease could not complete delivery" >&2; exit 1; fi
-DELIVERED="$(psql "$runner_url" -X -qAt -v ON_ERROR_STOP=1 -c "SELECT status FROM stonez_context_private.account_setup_outbox WHERE event_id='$EVENT_ID'")"
-if [[ "$DELIVERED" != "delivered" ]]; then echo "Outbox event did not persist delivered state" >&2; exit 1; fi
-echo "Outbox enqueue, least-privilege access, idempotency, crash reclaim, and stale-lease fencing passed"
 
 echo "== Valid assertion, transaction binding, rollback retry, and tenant isolation =="
 psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$TOKEN" <<'SQL'

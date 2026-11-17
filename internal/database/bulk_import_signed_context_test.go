@@ -228,9 +228,17 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 		t.Fatalf("processing login rejected after removing ADMIN OPTION: %v", err)
 	}
 
+	// The shell verifier workflow retires ci-key-1 during its rotation
+	// checks before this Go integration test runs. Register an independent
+	// live key so membership regressions reach the intended role boundary.
+	if err := runnerDB.Exec("SELECT stonez_context_private.register_verification_key(?, decode(repeat('ab',32),'hex'), clock_timestamp() - interval '5 minutes', NULL)", "ci-membership-key").Error; err != nil {
+		t.Fatalf("register membership regression key: %v", err)
+	}
+	membershipSigner, err := bulkimportcontext.NewSigner("ci-membership-key", bytes.Repeat([]byte{0xab}, 32), 30*time.Second)
+	if err != nil { t.Fatalf("create membership regression signer: %v", err) }
 	newAssertion := func() string {
 		t.Helper()
-		token, signErr := signer.Sign(bulkimportcontext.Context{
+		token, signErr := membershipSigner.Sign(bulkimportcontext.Context{
 			JobID: uuid.MustParse("11111111-1111-4111-8111-111111111111"),
 			SchoolID: uuid.MustParse("22222222-2222-4222-8222-222222222222"),
 			InitiatedBy: uuid.MustParse("33333333-3333-4333-8333-333333333333"),

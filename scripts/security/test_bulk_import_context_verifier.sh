@@ -553,4 +553,83 @@ if [[ -z "$first_claim" || -n "$second_claim" ]]; then
   exit 1
 fi
 
+
+# Direct mutation is denied as well as direct reads/inserts.
+for operation in \
+  "UPDATE stonez_context_private.account_setup_outbox SET status='delivered'" \
+  "DELETE FROM stonez_context_private.account_setup_outbox"
+do
+  if psql "$worker_url" -X -v ON_ERROR_STOP=1 -c "$operation" >/dev/null 2>&1; then
+    echo "Processing login unexpectedly performed direct outbox mutation: $operation" >&2
+    exit 1
+  fi
+done
+if psql "$worker_url" -X -v ON_ERROR_STOP=1 -c "SELECT * FROM stonez_context_private.claim_account_setup_notification()" >/dev/null 2>&1; then
+  echo "Outbox claim unexpectedly succeeded without verified context" >&2
+  exit 1
+fi
+
+# An unrelated role has schema visibility but receives no EXECUTE privilege.
+UNRELATED_ROLE="stonez_outbox_unrelated_test"
+psql "$runner_url" -X -v ON_ERROR_STOP=1 <<SQL
+CREATE ROLE $UNRELATED_ROLE NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+GRANT USAGE ON SCHEMA stonez_context_private TO $UNRELATED_ROLE;
+SQL
+if psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "SET ROLE $UNRELATED_ROLE; SELECT stonez_context_private.claim_account_setup_notification()" >/dev/null 2>&1; then
+  echo "Unrelated role unexpectedly executed a private outbox function" >&2
+  exit 1
+fi
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "DROP OWNED BY $UNRELATED_ROLE; DROP ROLE $UNRELATED_ROLE"
+
+# A failed enqueue must abort the account transaction, not leave an account
+# without its durable setup notification.
+FAILED_ENQUEUE_USER_ID="46464646-4646-4646-8464-464646464646"
+FAILED_ENQUEUE_JTI="47474747-4747-4747-8474-474747474747"
+FAILED_ENQUEUE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-outbox-key","typ":"JWT"}' "$(payload "$FAILED_ENQUEUE_JTI" "$OUTBOX_NOW" "$((OUTBOX_NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$OUTBOX_KEY_HEX")"
+if psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$FAILED_ENQUEUE_TOKEN" -v user_id="$FAILED_ENQUEUE_USER_ID" <<'SQL' >/dev/null 2>&1
+BEGIN;
+SELECT stonez_context_private.verify_bulk_import_context(:'token');
+INSERT INTO public.users(id,school_id,name,email,password_hash,role,active)
+VALUES (:'user_id','22222222-2222-4222-8222-222222222222','Failed Enqueue',
+        'failed-enqueue@example.test','non-secret-test-hash','student',true);
+SELECT stonez_context_private.enqueue_account_setup_notification(
+    :'user_id','different-address@example.test','Failed Enqueue','student'
+);
+COMMIT;
+SQL
+then
+  echo "Mismatched outbox enqueue unexpectedly committed" >&2
+  exit 1
+fi
+failed_enqueue_user_count="$(psql "$runner_url" -X -qAt -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM public.users WHERE id='$FAILED_ENQUEUE_USER_ID'")"
+if [[ "$failed_enqueue_user_count" != "0" ]]; then
+  echo "Account survived a failed atomic outbox enqueue" >&2
+  exit 1
+fi
+
+# Claims and counts are bound to both the verified school and exact job.
+FOREIGN_EVENT_ID="48484848-4848-4848-8484-484848484848"
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "INSERT INTO stonez_context_private.account_setup_outbox(event_id,school_id,job_id,user_id,recipient_email,account_role) VALUES ('$FOREIGN_EVENT_ID','99999999-9999-4999-8999-999999999999','98989898-9898-4989-8989-989898989898','97979797-9797-4979-8979-979797979797','foreign@example.test','student')"
+SCOPE_JTI="49494949-4949-4949-8949-494949494949"
+SCOPE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-outbox-key","typ":"JWT"}' "$(payload "$SCOPE_JTI" "$OUTBOX_NOW" "$((OUTBOX_NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$OUTBOX_KEY_HEX")"
+scoped_counts="$(psql "$worker_url" -X -q -A -t -v ON_ERROR_STOP=1 -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$SCOPE_TOKEN'); SELECT delivered_count||'|'||failed_count||'|'||pending_count FROM stonez_context_private.account_setup_notification_counts(); COMMIT;" | awk -F'|' 'NF==3 {value=$0} END {print value}')"
+if [[ "$scoped_counts" != "1|0|0" ]]; then
+  echo "Outbox counters leaked another job or school's events: $scoped_counts" >&2
+  exit 1
+fi
+scope_claim="$(psql "$worker_url" -X -q -A -t -v ON_ERROR_STOP=1 -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$SCOPE_TOKEN'); SELECT event_id FROM stonez_context_private.claim_account_setup_notification(); COMMIT;" | grep -E '^[0-9a-f-]{36}
+ || true)"
+if [[ -n "$scope_claim" ]]; then
+  echo "Current job claimed an event belonging to another school/job: $scope_claim" >&2
+  exit 1
+fi
+FOREIGN_COMPLETE_JTI="50505050-5050-4050-8050-505050505050"
+FOREIGN_COMPLETE_TOKEN="$(make_token '{"alg":"HS256","kid":"ci-outbox-key","typ":"JWT"}' "$(payload "$FOREIGN_COMPLETE_JTI" "$OUTBOX_NOW" "$((OUTBOX_NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$OUTBOX_KEY_HEX")"
+foreign_complete="$(psql "$worker_url" -X -q -A -t -v ON_ERROR_STOP=1 -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$FOREIGN_COMPLETE_TOKEN'); SELECT stonez_context_private.complete_account_setup_notification('$FOREIGN_EVENT_ID','51515151-5151-4151-8151-515151515151',NULL); COMMIT;" | tail -n 1)"
+if [[ "$foreign_complete" != "f" ]]; then
+  echo "Current job completed an event belonging to another school/job: $foreign_complete" >&2
+  exit 1
+fi
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "DELETE FROM stonez_context_private.account_setup_outbox WHERE event_id='$FOREIGN_EVENT_ID'"
+
 echo "Private signed-context credential outbox permission, atomicity, restart, lease-fencing, completion, concurrency, and idempotency tests passed."

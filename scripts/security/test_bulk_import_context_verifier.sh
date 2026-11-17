@@ -152,6 +152,8 @@ DUP_CLAIM="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$DUP_PAY
 expect_rejected "$DUP_CLAIM" "duplicate JSON claim member"
 ALG_NONE="$(make_token '{"alg":"none","kid":"ci-key-1","typ":"JWT"}' "$(payload '10101010-1010-4010-8010-101010101010' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
 expect_rejected "$ALG_NONE" "algorithm substitution"
+OVERLONG_TOKEN="$(printf 'A%.0s' {1..4097})"
+expect_rejected "$OVERLONG_TOKEN" "oversized compact JWS input"
 ALT_KEY_HEX="$(printf 'cd%.0s' {1..32})"
 WRONG_KEY="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '11111111-1111-4111-8111-111111111112' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$ALT_KEY_HEX")"
 expect_rejected "$WRONG_KEY" "untrusted signing key"

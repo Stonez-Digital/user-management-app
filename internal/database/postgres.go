@@ -359,6 +359,7 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
             )
             AND has_table_privilege(session_user,'public.bulk_import_jobs','SELECT')
             AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','INSERT')
+            AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','UPDATE')
             AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','DELETE')
             AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','TRUNCATE')
             AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','REFERENCES')

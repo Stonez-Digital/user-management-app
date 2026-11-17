@@ -88,7 +88,7 @@ func NewSigner(keys KeySource, maxTTL time.Duration) (*Signer, error) {
 
 // Sign creates a unique assertion with a bounded lifetime.
 func (s *Signer) Sign(ctx context.Context, binding Binding, ttl time.Duration) (Assertion, error) {
-	if s == nil || s.keys == nil || ttl <= 0 || ttl > s.maxTTL {
+	if s == nil || s.keys == nil || ttl < time.Second || ttl%time.Second != 0 || ttl > s.maxTTL {
 		return Assertion{}, ErrInvalidTTL
 	}
 	if binding.JobID == uuid.Nil || binding.SchoolID == uuid.Nil ||
@@ -157,10 +157,11 @@ func VerifySignature(ctx context.Context, keys KeySource, assertion Assertion, n
 		return err
 	}
 	current := now.UTC().Unix()
-	if assertion.Claims.IssuedAt > current+30 ||
+	maxTTLSeconds := int64(maxTTL / time.Second)
+	if maxTTLSeconds < 1 || assertion.Claims.IssuedAt > current+30 ||
 		assertion.Claims.ExpiresAt <= current ||
 		assertion.Claims.ExpiresAt <= assertion.Claims.IssuedAt ||
-		time.Duration(assertion.Claims.ExpiresAt-assertion.Claims.IssuedAt)*time.Second > maxTTL {
+		assertion.Claims.ExpiresAt-assertion.Claims.IssuedAt > maxTTLSeconds {
 		return ErrInvalidTTL
 	}
 	provided, err := base64.RawURLEncoding.DecodeString(assertion.Signature)

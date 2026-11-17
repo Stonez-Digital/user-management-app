@@ -321,10 +321,10 @@ func TestBulkWorkerPostgresClaimFunctionReclaimsOnlyExpiredLeases(t *testing.T) 
 	jobs := []models.BulkImportJob{
 		{SchoolID: schoolID, InitiatedBy: actor, Kind: "students", FileName: "expired.csv",
 			Status: models.BulkImportRunning, WorkerID: &oldWorker, ClaimedAt: ptrTime(now.Add(-6 * time.Minute)),
-			Attempts: 1, CreatedAt: now.Add(-3 * time.Minute)},
+			Attempts: 1, LeaseGeneration: 4, CreatedAt: now.Add(-3 * time.Minute)},
 		{SchoolID: schoolID, InitiatedBy: actor, Kind: "students", FileName: "legacy.csv",
 			Status: models.BulkImportRunning, WorkerID: &legacyWorker, ClaimedAt: nil,
-			Attempts: 2, CreatedAt: now.Add(-2 * time.Minute)},
+			Attempts: 2, LeaseGeneration: 8, CreatedAt: now.Add(-2 * time.Minute)},
 		{SchoolID: schoolID, InitiatedBy: actor, Kind: "students", FileName: "active.csv",
 			Status: models.BulkImportRunning, WorkerID: &activeWorker, ClaimedAt: ptrTime(now),
 			Attempts: 3, CreatedAt: now.Add(-time.Minute)},
@@ -335,12 +335,12 @@ func TestBulkWorkerPostgresClaimFunctionReclaimsOnlyExpiredLeases(t *testing.T) 
 	worker := NewBulkImportService(db, nil)
 	first, err := worker.claimNextJob()
 	if err != nil { t.Fatalf("claim expired lease: %v", err) }
-	if first == nil || first.ID != jobs[0].ID || first.Attempts != 2 || first.LeaseGeneration != 1 {
+	if first == nil || first.ID != jobs[0].ID || first.Attempts != 2 || first.LeaseGeneration != 5 {
 		t.Fatalf("expected expired lease to be reclaimed and attempts incremented: %+v", first)
 	}
 	second, err := worker.claimNextJob()
 	if err != nil { t.Fatalf("claim legacy lease: %v", err) }
-	if second == nil || second.ID != jobs[1].ID || second.Attempts != 3 || second.LeaseGeneration != 1 {
+	if second == nil || second.ID != jobs[1].ID || second.Attempts != 3 || second.LeaseGeneration != 9 {
 		t.Fatalf("expected legacy unleased job to be reclaimed: %+v", second)
 	}
 	third, err := worker.claimNextJob()

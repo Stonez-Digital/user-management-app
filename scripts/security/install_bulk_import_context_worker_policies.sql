@@ -46,6 +46,7 @@ CREATE POLICY bulk_import_jobs_signed_worker_select ON public.bulk_import_jobs
     USING (
         school_id = stonez_context_private.current_worker_school_id()
         AND initiated_by = stonez_context_private.current_worker_initiator_id()
+        AND id = stonez_context_private.current_worker_job_id()
     );
 DROP POLICY IF EXISTS bulk_import_jobs_signed_worker_update ON public.bulk_import_jobs;
 CREATE POLICY bulk_import_jobs_signed_worker_update ON public.bulk_import_jobs

@@ -82,7 +82,7 @@ make_token() {
   printf '%s.%s.%s' "$h" "$p" "$sig"
 }
 payload() {
-  printf '{"iss":"stonez-bulk-import-worker","sub":"%s","aud":"stonez-postgres-bulk-import-context","jti":"%s","iat":%s,"nbf":%s,"exp":%s,"job_id":"%s","school_id":"%s","initiated_by":"%s","worker_id":"%s","lease_id":"%s"}' \
+  printf '{"iss":"stonez-bulk-import-worker","sub":"%s","aud":["stonez-postgres-bulk-import-context"],"jti":"%s","iat":%s,"nbf":%s,"exp":%s,"job_id":"%s","school_id":"%s","initiated_by":"%s","worker_id":"%s","lease_id":"%s"}' \
     "$WORKER_ID" "$1" "$2" "$2" "$3" "$JOB_ID" "$4" "$INITIATOR_ID" "$WORKER_ID" "$5"
 }
 expect_rejected() {
@@ -147,7 +147,7 @@ UNKNOWN="$(make_token '{"alg":"HS256","kid":"unknown-key","typ":"JWT"}' "$(paylo
 expect_rejected "$UNKNOWN" "unknown key ID"
 DUP_HEADER="$(make_token '{"alg":"HS256","kid":"ci-key-1","kid":"ci-key-1","typ":"JWT"}' "$(payload '22222222-2222-4222-8222-222222222222' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
 expect_rejected "$DUP_HEADER" "duplicate JWS header member"
-DUP_PAYLOAD="$(printf '{"iss":"stonez-bulk-import-worker","sub":"%s","aud":"stonez-postgres-bulk-import-context","jti":"23232323-2323-4323-8323-232323232323","iat":%s,"nbf":%s,"exp":%s,"job_id":"%s","school_id":"%s","school_id":"%s","initiated_by":"%s","worker_id":"%s","lease_id":"%s"}' "$WORKER_ID" "$NOW" "$NOW" "$((NOW+60))" "$JOB_ID" "$SCHOOL_ID" "$SCHOOL_ID" "$INITIATOR_ID" "$WORKER_ID" "$LEASE_ID")"
+DUP_PAYLOAD="$(printf '{"iss":"stonez-bulk-import-worker","sub":"%s","aud":["stonez-postgres-bulk-import-context"],"jti":"23232323-2323-4323-8323-232323232323","iat":%s,"nbf":%s,"exp":%s,"job_id":"%s","school_id":"%s","school_id":"%s","initiated_by":"%s","worker_id":"%s","lease_id":"%s"}' "$WORKER_ID" "$NOW" "$NOW" "$((NOW+60))" "$JOB_ID" "$SCHOOL_ID" "$SCHOOL_ID" "$INITIATOR_ID" "$WORKER_ID" "$LEASE_ID")"
 DUP_CLAIM="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$DUP_PAYLOAD" "$KEY_HEX")"
 expect_rejected "$DUP_CLAIM" "duplicate JSON claim member"
 ALG_NONE="$(make_token '{"alg":"none","kid":"ci-key-1","typ":"JWT"}' "$(payload '10101010-1010-4010-8010-101010101010' "$NOW" "$((NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"

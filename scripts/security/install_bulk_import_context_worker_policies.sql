@@ -27,6 +27,27 @@ BEGIN
 END
 $owner_check$;
 
+DO $public_policy_check$
+DECLARE
+    v_table text;
+BEGIN
+    FOREACH v_table IN ARRAY ARRAY[
+        'bulk_import_jobs','users','students','teacher_profiles','parent_profiles',
+        'academic_sessions','school_classes','sections','student_enrollments',
+        'guardian_relationships'
+    ] LOOP
+        IF EXISTS (
+            SELECT 1 FROM pg_policy
+             WHERE polrelid = format('public.%I', v_table)::regclass
+               AND polpermissive
+               AND 0::oid = ANY(polroles)
+        ) THEN
+            RAISE EXCEPTION 'public permissive RLS policy on public.% would bypass signed worker tenant scope', v_table;
+        END IF;
+    END LOOP;
+END
+$public_policy_check$;
+
 ALTER TABLE public.bulk_import_jobs ENABLE ROW LEVEL SECURITY;
 GRANT SELECT ON public.bulk_import_jobs TO stonez_bulk_context_owner;
 GRANT UPDATE (lease_id) ON public.bulk_import_jobs TO stonez_bulk_context_owner;

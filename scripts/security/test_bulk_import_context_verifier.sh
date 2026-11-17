@@ -152,7 +152,21 @@ echo "Rejected cross-tenant INSERT by worker RLS"
 STALE_LEASE="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '13131313-1313-4313-8313-131313131313' "$NOW" "$((NOW+30))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "UPDATE public.bulk_import_jobs SET lease_id='25252525-2525-4525-8525-252525252525' WHERE id='$JOB_ID'"
 expect_rejected "$STALE_LEASE" "replaced lease generation"
-psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "UPDATE public.bulk_import_jobs SET lease_id='$LEASE_ID' WHERE id='$JOB_ID'"
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "UPDATE public.bulk_import_jobs SET lease_id='$LEASE_ID', claimed_at=clock_timestamp() - interval '4 minutes 59 seconds' WHERE id='$JOB_ID'"
+
+EXPIRING="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '24242424-2424-4424-8424-242424242424' "$NOW" "$((NOW+30))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
+(psql "$runner_url" -X -v ON_ERROR_STOP=1 <<SQL
+BEGIN;
+SELECT id FROM public.bulk_import_jobs WHERE id='$JOB_ID' FOR UPDATE;
+SELECT pg_sleep(2);
+COMMIT;
+SQL
+) &
+lock_pid=$!
+sleep 0.3
+expect_rejected "$EXPIRING" "lease expiry during row-lock wait"
+wait "$lock_pid"
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "UPDATE public.bulk_import_jobs SET claimed_at=clock_timestamp() WHERE id='$JOB_ID'"
 
 CONCURRENT="$(make_token '{"alg":"HS256","kid":"ci-key-1","typ":"JWT"}' "$(payload '14141414-1414-4414-8414-141414141414' "$NOW" "$((NOW+30))" "$SCHOOL_ID" "$LEASE_ID")" "$KEY_HEX")"
 (psql "$worker_url" -X -v ON_ERROR_STOP=1 -v token="$CONCURRENT" <<'SQL'

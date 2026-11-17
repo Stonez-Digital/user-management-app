@@ -76,6 +76,223 @@ DECLARE
     v_canonical text;
 BEGIN
     IF p_value = '' OR p_value !~ '^[A-Za-z0-9_-]+
+        RAISE EXCEPTION 'invalid compact JWS base64url segment' USING ERRCODE = '22023';
+    END IF;
+    v_decoded := decode(
+        translate(p_value, '-_', '+/') || repeat('=', (4 - length(p_value) % 4) % 4),
+        'base64'
+    );
+    v_canonical := rtrim(
+        translate(replace(encode(v_decoded, 'base64'), E'\n', ''), '+/', '-_'),
+        '='
+    );
+    IF v_canonical <> p_value THEN
+        RAISE EXCEPTION 'non-canonical compact JWS base64url segment' USING ERRCODE = '22023';
+    END IF;
+    RETURN v_decoded;
+END
+$fn$;
+REVOKE ALL ON FUNCTION stonez_context_private.decode_base64url(text) FROM PUBLIC;
+
+
+CREATE OR REPLACE FUNCTION stonez_context_private.constant_time_equal(p_left bytea, p_right bytea)
+RETURNS boolean
+LANGUAGE plpgsql
+IMMUTABLE
+STRICT
+SET search_path = pg_catalog
+AS $fn$
+DECLARE
+    v_diff integer := 0;
+    v_i integer;
+BEGIN
+    IF length(p_left) <> 32 OR length(p_right) <> 32 THEN
+        RETURN false;
+    END IF;
+    FOR v_i IN 0..31 LOOP
+        v_diff := v_diff | (get_byte(p_left, v_i) # get_byte(p_right, v_i));
+    END LOOP;
+    RETURN v_diff = 0;
+END
+$fn$;
+REVOKE ALL ON FUNCTION stonez_context_private.constant_time_equal(bytea,bytea) FROM PUBLIC;
+
+
+CREATE OR REPLACE FUNCTION stonez_context_private.verify_bulk_import_context(p_token text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $fn$
+DECLARE
+    v_parts text[];
+    v_header json;
+    v_payload json;
+    v_count integer;
+    v_distinct integer;
+    v_kid text;
+    v_key bytea;
+    v_ext_schema text;
+    v_signature bytea;
+    v_expected bytea;
+    v_now timestamptz;
+    v_iat numeric;
+    v_nbf numeric;
+    v_exp numeric;
+    v_job uuid;
+    v_school uuid;
+    v_initiator uuid;
+    v_worker uuid;
+    v_lease uuid;
+    v_jti uuid;
+    v_queue public.bulk_import_jobs%ROWTYPE;
+BEGIN
+    IF NOT pg_has_role(session_user, 'stonez_bulk_worker', 'MEMBER')
+       OR EXISTS (SELECT 1 FROM pg_roles WHERE rolname = session_user
+                  AND (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb))
+       OR pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER')
+       OR pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER') THEN
+        RAISE EXCEPTION 'login is not an eligible restricted bulk worker' USING ERRCODE = '42501';
+    END IF;
+    IF p_token IS NULL OR length(p_token) > 4096 THEN
+        RAISE EXCEPTION 'missing or oversized bulk worker assertion' USING ERRCODE = '22023';
+    END IF;
+
+    v_parts := string_to_array(p_token, '.');
+    IF cardinality(v_parts) <> 3 OR v_parts[1] = '' OR v_parts[2] = '' OR v_parts[3] = '' THEN
+        RAISE EXCEPTION 'malformed compact JWS' USING ERRCODE = '22023';
+    END IF;
+    v_header := convert_from(stonez_context_private.decode_base64url(v_parts[1]), 'UTF8')::json;
+    v_payload := convert_from(stonez_context_private.decode_base64url(v_parts[2]), 'UTF8')::json;
+    v_signature := stonez_context_private.decode_base64url(v_parts[3]);
+    IF json_typeof(v_header) <> 'object' OR json_typeof(v_payload) <> 'object' THEN
+        RAISE EXCEPTION 'JWS header and claims must be JSON objects' USING ERRCODE = '22023';
+    END IF;
+
+    SELECT count(*), count(DISTINCT key) INTO v_count, v_distinct FROM json_each(v_header);
+    IF v_count <> 3 OR v_distinct <> 3
+       OR (SELECT count(*) FROM json_each(v_header) WHERE key IN ('alg','kid','typ')) <> 3
+       OR v_header->>'alg' <> 'HS256' OR v_header->>'typ' <> 'JWT' THEN
+        RAISE EXCEPTION 'unsupported, duplicate, or unexpected JWS header members' USING ERRCODE = '22023';
+    END IF;
+    v_kid := v_header->>'kid';
+    IF v_kid IS NULL OR v_kid = '' OR length(v_kid) > 64 THEN
+        RAISE EXCEPTION 'invalid JWS key ID' USING ERRCODE = '22023';
+    END IF;
+
+    SELECT count(*), count(DISTINCT key) INTO v_count, v_distinct FROM json_each(v_payload);
+    IF v_count <> 12 OR v_distinct <> 12
+       OR (SELECT count(*) FROM json_each(v_payload) WHERE key = ANY
+           (ARRAY['iss','sub','aud','jti','iat','nbf','exp','job_id','school_id','initiated_by','worker_id','lease_id'])) <> 12 THEN
+        RAISE EXCEPTION 'missing, duplicate, or unexpected assertion claims' USING ERRCODE = '22023';
+    END IF;
+    IF v_payload->>'iss' <> 'stonez-bulk-import-worker'
+       OR v_payload->>'aud' <> 'stonez-postgres-bulk-import-context' THEN
+        RAISE EXCEPTION 'invalid assertion issuer or audience' USING ERRCODE = '22023';
+    END IF;
+    IF json_typeof(v_payload->'iat') <> 'number'
+       OR json_typeof(v_payload->'nbf') <> 'number'
+       OR json_typeof(v_payload->'exp') <> 'number'
+       OR (v_payload->>'iat') !~ '^[0-9]+([.][0-9]+)?
+
+       OR (v_payload->>'nbf') !~ '^[0-9]+([.][0-9]+)?
+
+       OR (v_payload->>'exp') !~ '^[0-9]+([.][0-9]+)?
+ THEN
+        RAISE EXCEPTION 'invalid assertion time claims' USING ERRCODE = '22023';
+    END IF;
+    v_iat := (v_payload->>'iat')::numeric;
+    v_nbf := (v_payload->>'nbf')::numeric;
+    v_exp := (v_payload->>'exp')::numeric;
+
+    IF (v_payload->>'job_id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
+
+       OR (v_payload->>'school_id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
+
+       OR (v_payload->>'initiated_by') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
+
+       OR (v_payload->>'worker_id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
+
+       OR (v_payload->>'lease_id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
+
+       OR (v_payload->>'jti') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
+ THEN
+        RAISE EXCEPTION 'invalid canonical UUID assertion claim' USING ERRCODE = '22023';
+    END IF;
+    v_job := (v_payload->>'job_id')::uuid;
+    v_school := (v_payload->>'school_id')::uuid;
+    v_initiator := (v_payload->>'initiated_by')::uuid;
+    v_worker := (v_payload->>'worker_id')::uuid;
+    v_lease := (v_payload->>'lease_id')::uuid;
+    v_jti := (v_payload->>'jti')::uuid;
+    IF v_payload->>'sub' <> v_worker::text OR length(v_signature) <> 32 THEN
+        RAISE EXCEPTION 'invalid assertion subject or HS256 signature length' USING ERRCODE = '22023';
+    END IF;
+
+    SELECT key_bytes INTO v_key
+      FROM stonez_context_private.verification_keys
+     WHERE key_id = v_kid AND not_before <= clock_timestamp()
+       AND (not_after IS NULL OR not_after > clock_timestamp()) AND revoked_at IS NULL
+     FOR SHARE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'unknown, inactive, or revoked assertion key' USING ERRCODE = '28000';
+    END IF;
+
+    SELECT namespace.nspname INTO v_ext_schema
+      FROM pg_extension AS extension
+      JOIN pg_namespace AS namespace ON namespace.oid = extension.extnamespace
+      JOIN pg_proc AS procedure ON procedure.pronamespace = namespace.oid
+     WHERE extension.extname = 'pgcrypto' AND procedure.proname = 'hmac'
+       AND pg_get_function_identity_arguments(procedure.oid) = 'bytea, bytea, text'
+     LIMIT 1;
+    IF v_ext_schema IS NULL THEN
+        RAISE EXCEPTION 'pgcrypto.hmac(bytea, bytea, text) is unavailable' USING ERRCODE = '55000';
+    END IF;
+    EXECUTE format('SELECT %I.hmac($1, $2, $3)', v_ext_schema)
+       INTO v_expected
+       USING convert_to(v_parts[1] || '.' || v_parts[2], 'UTF8'), v_key, 'sha256';
+    IF NOT stonez_context_private.constant_time_equal(v_signature, v_expected) THEN
+        RAISE EXCEPTION 'invalid bulk worker assertion signature' USING ERRCODE = '28000';
+    END IF;
+
+    v_now := clock_timestamp();
+    IF v_iat > extract(epoch FROM v_now) + 5
+       OR v_nbf > extract(epoch FROM v_now) + 5
+       OR v_exp <= extract(epoch FROM v_now) - 5
+       OR v_exp <= v_iat OR v_exp - v_iat > 60 THEN
+        RAISE EXCEPTION 'bulk worker assertion is outside its permitted time window' USING ERRCODE = '28000';
+    END IF;
+
+    SELECT * INTO v_queue FROM public.bulk_import_jobs WHERE id = v_job FOR UPDATE;
+    v_now := clock_timestamp();
+    IF NOT FOUND OR v_queue.school_id <> v_school
+       OR v_queue.initiated_by <> v_initiator OR v_queue.worker_id <> v_worker
+       OR v_queue.lease_id <> v_lease OR v_queue.status <> 'running'
+       OR v_queue.claimed_at IS NULL
+       OR v_queue.claimed_at < v_now - interval '5 minutes' THEN
+        RAISE EXCEPTION 'assertion does not match a current, unexpired queue lease' USING ERRCODE = '28000';
+    END IF;
+
+    INSERT INTO stonez_context_private.verified_contexts (
+        backend_pid, transaction_id, assertion_id, job_id, school_id,
+        initiated_by, worker_id, lease_id, verified_at
+    ) VALUES (
+        pg_backend_pid(), pg_current_xact_id(), v_jti, v_job, v_school,
+        v_initiator, v_worker, v_lease, v_now
+    );
+EXCEPTION
+    WHEN unique_violation THEN
+        RAISE EXCEPTION 'bulk worker assertion replay or duplicate transaction context' USING ERRCODE = '28000';
+END
+$fn$;
+REVOKE ALL ON FUNCTION stonez_context_private.verify_bulk_import_context(text) FROM PUBLIC;
+GRANT SELECT ON public.bulk_import_jobs TO stonez_bulk_context_owner;
+GRANT UPDATE (lease_id) ON public.bulk_import_jobs TO stonez_bulk_context_owner;
+DROP POLICY IF EXISTS bulk_import_jobs_context_verifier_read ON public.bulk_import_jobs;
+CREATE POLICY bulk_import_jobs_context_verifier_read ON public.bulk_import_jobs
+    FOR SELECT TO stonez_bulk_context_owner USING (true);
+
+COMMIT;
  OR length(p_value) % 4 = 1 THEN
         RAISE EXCEPTION 'invalid compact JWS base64url segment' USING ERRCODE = '22023';
     END IF;

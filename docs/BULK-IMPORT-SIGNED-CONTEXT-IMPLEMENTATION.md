@@ -47,7 +47,7 @@ Add a monotonically increasing `lease_generation BIGINT NOT NULL DEFAULT 0` to `
 
 The generation must never be reset when a job completes or fails. A new claim always gets a larger generation. The verifier compares the assertion's generation, job, school, initiator, worker ID, running status and lease timestamp against the locked current queue row.
 
-The verifier locks the job row for the duration of the processing transaction. A concurrent reclaimer therefore cannot replace the lease while that transaction is using the context.
+The signer first reads `pg_backend_pid()` and `pg_current_xact_id()` from the active transaction and includes both values in the HMAC. The verifier requires them to match the current backend and transaction before checking the job. This prevents transferring an intercepted assertion to another session or transaction. The verifier then locks the job row for the duration of the processing transaction. A concurrent reclaimer therefore cannot replace the lease while that transaction is using the context.
 
 ## 4. Key custody and rotation
 
@@ -99,7 +99,7 @@ Use a fixed-work byte comparison in the verifier rather than an early-exit compa
 
 The Go signer accepts only a `Binding` built from the trusted row returned by the claim function. The worker Vault policy returns only the active signing key; the worker never retrieves retiring verification keys. It must not accept tenant IDs from imported spreadsheet values. The Vault adapter implements the key-source interface and returns only the active key to the signer.
 
-The worker opens a PostgreSQL transaction, signs the trusted claim binding, calls the verifier as the first database operation, and then performs tenant reads/writes using that same transaction handle. It must not set `app.current_school_id` or `app.current_user_id` as an authorization mechanism. SQLite-only unit tests may retain their local test behavior but are not evidence for PostgreSQL security.
+The worker opens a PostgreSQL transaction, reads the backend PID and transaction ID, signs the trusted claim binding including those values, calls the verifier, and then performs tenant reads/writes using that same transaction handle. It must not set `app.current_school_id` or `app.current_user_id` as an authorization mechanism. SQLite-only unit tests may retain their local test behavior but are not evidence for PostgreSQL security.
 
 ## 7. Required PostgreSQL tests
 

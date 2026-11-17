@@ -870,6 +870,20 @@ func Migrate(db *gorm.DB) error {
             }
             return tx.AutoMigrate(&models.BulkImportJob{})
         }},
+        // Version 47 may already be recorded in deployed databases. Keep this
+        // additive follow-up migration so existing installations receive the
+        // lease-generation column before the claim function references it.
+        {Version:48,Name:"bulk_import_lease_generation",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()=="postgres" {
+                statements:=[]string{
+                    "ALTER TABLE bulk_import_jobs ADD COLUMN IF NOT EXISTS lease_id uuid",
+                    "CREATE INDEX IF NOT EXISTS idx_bulk_import_jobs_lease_id ON bulk_import_jobs(lease_id)",
+                }
+                for _,statement:=range statements { if err:=tx.Exec(statement).Error;err!=nil{return err} }
+                return nil
+            }
+            return tx.AutoMigrate(&models.BulkImportJob{})
+        }},
     }
     for _,migration:=range migrations{
         var applied Migration

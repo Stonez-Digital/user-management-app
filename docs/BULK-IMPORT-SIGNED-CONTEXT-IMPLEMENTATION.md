@@ -52,7 +52,7 @@ The signer first reads `pg_backend_pid()` and `pg_current_xact_id()` from the ac
 
 ## 4. Key custody and rotation
 
-Vault is the source of truth for versioned HMAC keys. The worker's Vault identity may read **only the active signing key** and must not have permission to write or rotate keys. Retiring verifier keys are not returned to the worker.
+Vault is the source of truth for versioned HMAC keys. The worker's Vault identity may read **only the active signing key** and must not have permission to write or rotate keys. A separate operator identity runs the key-provisioning command. Retiring verifier keys are not returned to the worker.
 
 The worker reads a Vault KV v2 secret with this data shape:
 
@@ -67,7 +67,9 @@ The worker uses a Vault Agent token file and these non-secret configuration valu
 
 PostgreSQL needs the same HMAC key to verify signatures. Provision a copy into a private, non-exposed `stonez_internal` key table through a separately reviewed operator procedure. The table is owned by a NOLOGIN verifier-owner role. Only the SECURITY DEFINER verifier owner can read it; the processing login, claim login, API runtime, PUBLIC, `anon`, and `authenticated` cannot read it. Do not put key bytes in source control, migrations, SQL literals, command-line arguments, CI logs, application logs, or ordinary environment variables.
 
-The database key table is a verifier-only replica of Vault key material, not a second source of truth. Key IDs are immutable and unique. Rotation order:
+The database key table is a verifier-only replica of Vault key material, not a second source of truth. Key IDs are immutable and unique. The operator-only `cmd/bulk-context-key-provisioner` reads the active key from Vault and inserts it into PostgreSQL using a parameterized statement. It requires `BULK_IMPORT_CONTEXT_PROVISIONER_DATABASE_URL` with TLS enabled and the same four Vault configuration variables used by the worker. It refuses to overwrite an existing key ID if the bytes differ and never prints key material. It is not part of worker startup and must not be run automatically during deployment.
+
+Rotation order:
 1. Create a new random key and key ID in Vault.
 2. Provision the matching key ID and bytes into the private database table using the approved secret-delivery procedure.
 3. Verify the database can verify a test signature without returning key material.
@@ -95,6 +97,16 @@ RLS must not trust the pointer by itself. A SECURITY DEFINER context helper vali
 Assertion consumption and the verified-context row are written in the same transaction as application data. Commit persists consumption and prevents replay. Rollback removes both the context and consumption record, so retrying an assertion after a fully rolled-back transaction cannot authorize any committed work. The verifier must reject a second, different context in the same transaction.
 
 Use a fixed-work byte comparison in the verifier rather than an early-exit comparison of signature bytes. Do not return the key or expected MAC from any function.
+
+### Operator key provisioning
+
+After the role preparation and verifier installation scripts have been reviewed and run in an isolated staging database, provision the Vault active key with:
+
+```bash
+go run ./cmd/bulk-context-key-provisioner
+```
+
+Required non-secret configuration: `BULK_IMPORT_CONTEXT_VAULT_ADDR`, `BULK_IMPORT_CONTEXT_VAULT_TOKEN_FILE`, `BULK_IMPORT_CONTEXT_VAULT_KV_MOUNT`, and `BULK_IMPORT_CONTEXT_VAULT_KV_PATH`. The operator-only database URL is `BULK_IMPORT_CONTEXT_PROVISIONER_DATABASE_URL` and must use PostgreSQL TLS. This command has not been run against any live database.
 
 ## 6. Go integration contract
 

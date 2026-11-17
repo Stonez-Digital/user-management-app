@@ -15,6 +15,8 @@ fi
 psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'
 CREATE ROLE stonez_api_runtime NOLOGIN NOSUPERUSER NOBYPASSRLS;
 CREATE ROLE stonez_bulk_queue_owner NOLOGIN NOSUPERUSER NOBYPASSRLS;
+CREATE ROLE stonez_bulk_worker LOGIN PASSWORD 'bulk_context_claim_ci_password' NOSUPERUSER NOBYPASSRLS INHERIT;
+GRANT stonez_api_runtime TO stonez_bulk_worker;
 CREATE SCHEMA pgcrypto_probe;
 CREATE EXTENSION pgcrypto WITH SCHEMA pgcrypto_probe;
 CREATE TABLE public.bulk_import_jobs (

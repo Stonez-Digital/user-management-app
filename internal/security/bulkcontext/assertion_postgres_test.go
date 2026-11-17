@@ -200,4 +200,34 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	if err := admin.Transaction(func(tx *gorm.DB) error { return verify(tx, staleAssertion) }); err == nil {
 		t.Fatal("assertion for replaced lease generation was accepted")
 	}
+
+	// The processing group cannot change the monotonic lease generation.
+	if err := admin.Exec("UPDATE "+tableSchema+".bulk_import_jobs SET lease_generation = 4, status = 'running', worker_id = ?, claimed_at = clock_timestamp() WHERE id = ?", workerID, jobID).Error; err != nil {
+		t.Fatalf("restore lease fixture for privilege check: %v", err)
+	}
+	if err := admin.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SET LOCAL ROLE "+processRole).Error; err != nil { return err }
+		return tx.Exec("UPDATE "+tableSchema+".bulk_import_jobs SET lease_generation = 9 WHERE id = ?", jobID).Error
+	}); err == nil {
+		t.Fatal("processing group unexpectedly changed lease_generation")
+	}
+
+	// A verified processing transaction may update only progress fields and
+	// finish its own job without gaining authority over another tenant.
+	finalAssertion, err := signer.Sign(context.Background(), binding, time.Minute)
+	if err != nil { t.Fatal(err) }
+	if err := admin.Transaction(func(tx *gorm.DB) error {
+		if err := verify(tx, finalAssertion); err != nil { return err }
+		result := tx.Table(tableSchema+".bulk_import_jobs").
+			Where("id = ? AND school_id = ? AND initiated_by = ? AND worker_id = ?", jobID, schoolA, initiator, workerID).
+			Updates(map[string]any{"status": "completed", "worker_id": nil, "claimed_at": nil})
+		if result.Error != nil { return result.Error }
+		if result.RowsAffected != 1 { return errors.New("verified worker could not finalize its own job") }
+		var visible int64
+		if err := tx.Table(tableSchema+".tenant_fixture").Count(&visible).Error; err != nil { return err }
+		if visible != 1 { return fmt.Errorf("terminal transaction context should remain tenant-bound, got %d rows", visible) }
+		return nil
+	}); err != nil {
+		t.Fatalf("verified worker progress/finalization failed: %v", err)
+	}
 }

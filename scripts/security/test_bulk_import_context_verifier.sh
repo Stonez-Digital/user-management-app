@@ -260,5 +260,10 @@ if [[ "$audit_events" != "4" ]]; then
   echo "Expected four key-management audit events, got '$audit_events'" >&2
   exit 1
 fi
+pruned_contexts="$(psql "$runner_url" -X -qAt -v ON_ERROR_STOP=1 -c "BEGIN; SET LOCAL ROLE stonez_bulk_context_key_admin; SELECT stonez_context_private.prune_expired_contexts(); COMMIT;")"
+if [[ "$pruned_contexts" != "0" ]]; then
+  echo "Expected no fresh verifier contexts to be pruned, got '$pruned_contexts'" >&2
+  exit 1
+fi
 
 echo "PostgreSQL signed-context verifier adversarial tests passed."

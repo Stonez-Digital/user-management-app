@@ -146,7 +146,7 @@ func installBulkClaimFunctionForTest(t *testing.T, admin *gorm.DB, schema, owner
 	t.Helper()
 	if err := admin.Exec("GRANT USAGE ON SCHEMA " + schema + " TO " + ownerRole + ", " + apiRole).Error; err != nil { return err }
 	if err := admin.Exec("GRANT SELECT ON TABLE " + schema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil { return err }
-	if err := admin.Exec("GRANT UPDATE (status, worker_id, claimed_at, attempts, last_error) ON TABLE " + schema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil { return err }
+	if err := admin.Exec("GRANT UPDATE (status, worker_id, claimed_at, attempts, lease_generation, last_error) ON TABLE " + schema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil { return err }
 	if err := admin.Exec("GRANT SELECT, INSERT, UPDATE ON TABLE " + schema + ".bulk_import_jobs TO " + apiRole).Error; err != nil { return err }
 	if err := admin.Exec("ALTER TABLE " + schema + ".bulk_import_jobs ENABLE ROW LEVEL SECURITY").Error; err != nil { return err }
 	policies := []string{
@@ -178,7 +178,7 @@ BEGIN
     IF NOT FOUND THEN RETURN; END IF;
     UPDATE %s.bulk_import_jobs
        SET status = 'running', worker_id = p_worker_id, claimed_at = clock_timestamp(),
-           attempts = attempts + 1, last_error = ''
+           attempts = attempts + 1, lease_generation = lease_generation + 1, last_error = ''
      WHERE id = v_job.id RETURNING * INTO v_job;
     RETURN NEXT v_job;
 END
@@ -275,7 +275,7 @@ func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T)
 		return nil
 	})
 	if err != nil { t.Fatalf("restricted role could not execute queue claim function: %v", err) }
-	if claimed.ID != jobA.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID {
+	if claimed.ID != jobA.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID || claimed.LeaseGeneration != 1 {
 		t.Fatalf("claim function returned unexpected job/worker: %+v", claimed)
 	}
 
@@ -321,10 +321,10 @@ func TestBulkWorkerPostgresClaimFunctionReclaimsOnlyExpiredLeases(t *testing.T) 
 	jobs := []models.BulkImportJob{
 		{SchoolID: schoolID, InitiatedBy: actor, Kind: "students", FileName: "expired.csv",
 			Status: models.BulkImportRunning, WorkerID: &oldWorker, ClaimedAt: ptrTime(now.Add(-6 * time.Minute)),
-			Attempts: 1, CreatedAt: now.Add(-3 * time.Minute)},
+			Attempts: 1, LeaseGeneration: 4, CreatedAt: now.Add(-3 * time.Minute)},
 		{SchoolID: schoolID, InitiatedBy: actor, Kind: "students", FileName: "legacy.csv",
 			Status: models.BulkImportRunning, WorkerID: &legacyWorker, ClaimedAt: nil,
-			Attempts: 2, CreatedAt: now.Add(-2 * time.Minute)},
+			Attempts: 2, LeaseGeneration: 8, CreatedAt: now.Add(-2 * time.Minute)},
 		{SchoolID: schoolID, InitiatedBy: actor, Kind: "students", FileName: "active.csv",
 			Status: models.BulkImportRunning, WorkerID: &activeWorker, ClaimedAt: ptrTime(now),
 			Attempts: 3, CreatedAt: now.Add(-time.Minute)},
@@ -335,12 +335,12 @@ func TestBulkWorkerPostgresClaimFunctionReclaimsOnlyExpiredLeases(t *testing.T) 
 	worker := NewBulkImportService(db, nil)
 	first, err := worker.claimNextJob()
 	if err != nil { t.Fatalf("claim expired lease: %v", err) }
-	if first == nil || first.ID != jobs[0].ID || first.Attempts != 2 {
+	if first == nil || first.ID != jobs[0].ID || first.Attempts != 2 || first.LeaseGeneration != 5 {
 		t.Fatalf("expected expired lease to be reclaimed and attempts incremented: %+v", first)
 	}
 	second, err := worker.claimNextJob()
 	if err != nil { t.Fatalf("claim legacy lease: %v", err) }
-	if second == nil || second.ID != jobs[1].ID || second.Attempts != 3 {
+	if second == nil || second.ID != jobs[1].ID || second.Attempts != 3 || second.LeaseGeneration != 9 {
 		t.Fatalf("expected legacy unleased job to be reclaimed: %+v", second)
 	}
 	third, err := worker.claimNextJob()
@@ -416,6 +416,7 @@ CREATE TABLE %s.bulk_import_jobs (
     worker_id uuid,
     claimed_at timestamptz,
     attempts integer NOT NULL DEFAULT 0,
+    lease_generation bigint NOT NULL DEFAULT 0,
     last_error text NOT NULL DEFAULT '',
     rows_json text NOT NULL DEFAULT '[]',
     errors_json text NOT NULL DEFAULT '[]',
@@ -513,7 +514,7 @@ CREATE TABLE %s.bulk_import_jobs (
 	result := loginDB.Raw("SELECT * FROM " + privateSchema + ".claim_next_bulk_import_job(?)", workerID).Scan(&claimed)
 	if result.Error != nil { t.Fatalf("execute installed claim function as restricted login: %v", result.Error) }
 	if result.RowsAffected != 1 { t.Fatalf("expected one row from installed claim function, got %d", result.RowsAffected) }
-	if claimed.ID != job.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID {
+	if claimed.ID != job.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID || claimed.LeaseGeneration != 1 {
 		t.Fatalf("installed claim function returned unexpected job: %+v", claimed)
 	}
 

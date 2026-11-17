@@ -32,6 +32,7 @@ BEGIN
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'worker_id', 'UPDATE')
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'claimed_at', 'UPDATE')
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'attempts', 'UPDATE')
+       OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'lease_generation', 'UPDATE')
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'last_error', 'UPDATE') THEN
         RAISE EXCEPTION 'queue owner is missing claim-column UPDATE privileges';
     END IF;

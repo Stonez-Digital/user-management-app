@@ -50,6 +50,7 @@ CREATE TABLE public.bulk_import_jobs (
     worker_id uuid,
     claimed_at timestamptz,
     attempts integer NOT NULL DEFAULT 0,
+    lease_generation bigint NOT NULL DEFAULT 0,
     last_error text NOT NULL DEFAULT '',
     rows_json jsonb NOT NULL DEFAULT '[]'::jsonb,
     errors_json jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -114,8 +115,8 @@ if psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "SELECT * FROM stonez_internal.cl
   exit 1
 fi
 
-claim_state="$(psql "$runner_url" -X -A -t -v ON_ERROR_STOP=1 -c "SELECT status || ':' || attempts::text FROM public.bulk_import_jobs WHERE id = '11111111-1111-4111-8111-111111111111'")"
-if [[ "$claim_state" != "running:1" ]]; then
+claim_state="$(psql "$runner_url" -X -A -t -v ON_ERROR_STOP=1 -c "SELECT status || ':' || attempts::text || ':' || lease_generation::text FROM public.bulk_import_jobs WHERE id = '11111111-1111-4111-8111-111111111111'")"
+if [[ "$claim_state" != "running:1:1" ]]; then
   echo "Unexpected persisted claim state '$claim_state'" >&2
   exit 1
 fi

@@ -13,6 +13,7 @@ import (
 
 	"github.com/onoja217/users-management-app/internal/database"
 	"github.com/onoja217/users-management-app/internal/service"
+	"github.com/onoja217/users-management-app/internal/security/bulkcontext"
 )
 
 func main() {
@@ -42,18 +43,48 @@ func main() {
 		log.Fatalf("restricted bulk import claim role validation failed: %v", err)
 	}
 
-	role, err := database.InspectPostgresRole(processingDB)
+	processingRole, err := database.InspectBulkImportProcessingRole(processingDB)
 	if err != nil {
 		log.Fatalf("inspect bulk import processing database role: %v", err)
 	}
-	if role != nil && (role.SessionSuperuser || role.SessionBypassRLS || role.SessionCanAssumePrivilegedRole) {
-		log.Printf("SECURITY WARNING: bulk import processing database session %q is privileged; tenant GUCs are not a substitute for a restricted processing role", role.SessionRole)
+	if err := database.ValidateBulkImportProcessingRole(processingRole); err != nil {
+		log.Fatal(err)
+	}
+	if err := database.ValidateBulkImportContextVerifier(processingDB); err != nil {
+		log.Fatal(err)
+	}
+
+	vaultAddress := strings.TrimSpace(os.Getenv("BULK_IMPORT_CONTEXT_VAULT_ADDR"))
+	vaultTokenFile := strings.TrimSpace(os.Getenv("BULK_IMPORT_CONTEXT_VAULT_TOKEN_FILE"))
+	vaultMount := strings.TrimSpace(os.Getenv("BULK_IMPORT_CONTEXT_VAULT_KV_MOUNT"))
+	vaultPath := strings.TrimSpace(os.Getenv("BULK_IMPORT_CONTEXT_VAULT_KV_PATH"))
+	if vaultAddress == "" || vaultTokenFile == "" || vaultMount == "" || vaultPath == "" {
+		log.Fatal("bulk import worker requires BULK_IMPORT_CONTEXT_VAULT_ADDR, BULK_IMPORT_CONTEXT_VAULT_TOKEN_FILE, BULK_IMPORT_CONTEXT_VAULT_KV_MOUNT, and BULK_IMPORT_CONTEXT_VAULT_KV_PATH")
+	}
+	keySource, err := bulkcontext.NewVaultKVKeySource(vaultAddress, vaultTokenFile, vaultMount, vaultPath, nil, 30*time.Second)
+	if err != nil {
+		log.Fatalf("configure Vault bulk import key source: %v", err)
+	}
+	activeContextKey, err := keySource.ActiveSigningKey(context.Background())
+	if err != nil {
+		log.Fatalf("load active bulk import context key from Vault: %v", err)
+	}
+	if err := database.ValidateBulkImportContextKey(processingDB, activeContextKey.ID); err != nil {
+		log.Fatal(err)
+	}
+	for i := range activeContextKey.Secret {
+		activeContextKey.Secret[i] = 0
+	}
+	contextSigner, err := bulkcontext.NewSigner(keySource, 2*time.Minute)
+	if err != nil {
+		log.Fatalf("configure bulk import context signer: %v", err)
 	}
 
 	worker, err := service.NewBulkImportServiceWithClaimDB(processingDB, claimDB, service.NewCredentialMailerFromEnv())
 	if err != nil {
 		log.Fatalf("configure bulk import worker: %v", err)
 	}
+	worker = worker.WithBulkContextSigner(contextSigner)
 
 	maxRuntime := 4 * time.Minute
 	if configured := strings.TrimSpace(os.Getenv("BULK_IMPORT_WORKER_MAX_RUNTIME")); configured != "" {

@@ -53,6 +53,7 @@ GRANT UPDATE (lease_id) ON public.bulk_import_jobs TO stonez_bulk_context_owner;
 -- The role creator receives a non-inheriting membership. Switch into the
 -- dedicated owner before creating private objects and SECURITY DEFINER code.
 GRANT stonez_bulk_context_owner TO CURRENT_USER WITH INHERIT FALSE, SET TRUE;
+GRANT stonez_bulk_context_key_admin TO CURRENT_USER WITH INHERIT FALSE, SET TRUE;
 -- The database/table owner creates the private schema for the NOLOGIN owner;
 -- the owner role itself must not receive CREATE privilege on the database.
 CREATE SCHEMA IF NOT EXISTS stonez_context_private AUTHORIZATION stonez_bulk_context_owner;

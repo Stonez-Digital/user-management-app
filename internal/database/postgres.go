@@ -247,7 +247,7 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
        ready.QueueSelectPolicy != 1 || ready.QueueUpdatePolicy != 1 ||
        ready.VerifierReadPolicy != 1 || ready.VerifierLockPolicy != 1 ||
        ready.WorkerSelectPolicies != 9 || ready.WorkerInsertPolicies != 6 {
-        return fmt.Errorf("signed bulk import verifier or required worker RLS policies are incomplete")
+        return fmt.Errorf("signed bulk import verifier or required worker RLS policies are incomplete: %+v", ready)
     }
     return nil
 }

@@ -31,6 +31,7 @@ type BulkImportJob struct {
  WorkerID *uuid.UUID `gorm:"type:uuid;index" json:"-"`
  ClaimedAt *time.Time `gorm:"index" json:"-"`
  Attempts int `gorm:"not null;default:0" json:"attempts"`
+	LeaseGeneration int64 `gorm:"not null;default:0" json:"-"`
  LastError string `gorm:"type:text" json:"-"`
  RowsJSON string `gorm:"type:text" json:"-"`
  ErrorsJSON string `gorm:"type:text" json:"-"`

@@ -34,6 +34,7 @@ type BulkImportJob struct {
  Attempts int `gorm:"not null;default:0" json:"attempts"`
  LastError string `gorm:"type:text" json:"-"`
  RowsJSON string `gorm:"type:text" json:"-"`
+ ProcessedRowsJSON string `gorm:"type:jsonb;not null;default:'[]'" json:"-"`
  ErrorsJSON string `gorm:"type:text" json:"-"`
  CreatedAt time.Time `json:"created_at"`
  UpdatedAt time.Time `json:"updated_at"`

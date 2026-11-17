@@ -91,13 +91,29 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 		})
 	}
 
-	// Effective privilege checks must catch excess inherited grants, not just
-	// confirm that the installer granted the intended minimum.
+	// An additional permissive policy assigned directly to the login must
+	// also be detected; checking only policies assigned to the group is unsafe.
+	if err := runnerDB.Exec(`CREATE POLICY bulk_worker_login_bypass_test ON public.students FOR SELECT TO stonez_bulk_worker_processing_login USING (true)`).Error; err != nil {
+		t.Fatalf("create unexpected login policy: %v", err)
+	}
+	if err := ValidateBulkImportSignedContextReady(workerDB); err == nil {
+		t.Fatal("readiness accepted an unexpected permissive policy assigned to the processing login")
+	}
+	if err := runnerDB.Exec(`DROP POLICY bulk_worker_login_bypass_test ON public.students`).Error; err != nil {
+		t.Fatalf("drop unexpected login policy: %v", err)
+	}
+	if err := ValidateBulkImportSignedContextReady(workerDB); err != nil {
+		t.Fatalf("readiness rejected after removing unexpected login policy: %v", err)
+	}
+
+	// Effective privilege checks must catch excess inherited and direct grants,
+	// not just confirm that the installer granted the intended minimum.
 	privilegeMutations := []struct{name, grant, revoke string}{
 		{"table UPDATE", `GRANT UPDATE ON public.students TO stonez_bulk_worker_processing`, `REVOKE UPDATE ON public.students FROM stonez_bulk_worker_processing`},
 		{"sensitive SELECT column", `GRANT SELECT (password_hash) ON public.users TO stonez_bulk_worker_processing`, `REVOKE SELECT (password_hash) ON public.users FROM stonez_bulk_worker_processing`},
 		{"unexpected INSERT table", `GRANT INSERT ON public.academic_sessions TO stonez_bulk_worker_processing`, `REVOKE INSERT ON public.academic_sessions FROM stonez_bulk_worker_processing`},
 		{"lease generation UPDATE", `GRANT UPDATE (lease_id) ON public.bulk_import_jobs TO stonez_bulk_worker_processing`, `REVOKE UPDATE (lease_id) ON public.bulk_import_jobs FROM stonez_bulk_worker_processing`},
+		{"direct login UPDATE", `GRANT UPDATE ON public.students TO stonez_bulk_worker_processing_login`, `REVOKE UPDATE ON public.students FROM stonez_bulk_worker_processing_login`},
 	}
 	for _, mutation := range privilegeMutations {
 		t.Run("privilege_"+strings.ReplaceAll(mutation.name," ","_"), func(t *testing.T) {

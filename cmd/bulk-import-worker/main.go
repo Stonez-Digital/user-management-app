@@ -13,6 +13,7 @@ import (
 
 	"github.com/onoja217/users-management-app/internal/database"
 	"github.com/onoja217/users-management-app/internal/service"
+ "github.com/onoja217/users-management-app/internal/security/bulkimportcontext"
 )
 
 func main() {
@@ -53,6 +54,26 @@ func main() {
 	worker, err := service.NewBulkImportServiceWithClaimDB(processingDB, claimDB, service.NewCredentialMailerFromEnv())
 	if err != nil {
 		log.Fatalf("configure bulk import worker: %v", err)
+	}
+
+	signedContextSetting := strings.ToLower(strings.TrimSpace(os.Getenv("BULK_IMPORT_SIGNED_CONTEXT_REQUIRED")))
+	if signedContextSetting != "" && signedContextSetting != "true" && signedContextSetting != "false" {
+		log.Fatal("BULK_IMPORT_SIGNED_CONTEXT_REQUIRED must be true or false")
+	}
+	if signedContextSetting == "true" {
+		if err := database.ValidateBulkImportProcessingRole(processingDB); err != nil {
+			log.Fatalf("signed bulk import processing role validation failed: %v", err)
+		}
+		keyID := strings.TrimSpace(os.Getenv("BULK_IMPORT_CONTEXT_SIGNING_KEY_ID"))
+		encodedKey := strings.TrimSpace(os.Getenv("BULK_IMPORT_CONTEXT_SIGNING_KEY"))
+		signer, err := bulkimportcontext.NewSignerFromBase64URL(keyID, encodedKey, bulkimportcontext.DefaultTTL)
+		if err != nil {
+			log.Fatalf("configure signed bulk import context signer: %v", err)
+		}
+		if err := worker.RequireSignedContext(signer); err != nil {
+			log.Fatalf("enable signed bulk import context: %v", err)
+		}
+		log.Printf("bulk import worker enabled PostgreSQL signed-context verification")
 	}
 
 	maxRuntime := 4 * time.Minute

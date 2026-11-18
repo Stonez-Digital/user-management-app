@@ -4,11 +4,14 @@ DO $$
 DECLARE
     owner_role pg_roles%ROWTYPE;
     api_role pg_roles%ROWTYPE;
+    claim_role pg_roles%ROWTYPE;
 BEGIN
     SELECT * INTO owner_role FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner';
     IF NOT FOUND THEN RAISE EXCEPTION 'missing stonez_bulk_queue_owner'; END IF;
     SELECT * INTO api_role FROM pg_roles WHERE rolname = 'stonez_api_runtime';
     IF NOT FOUND THEN RAISE EXCEPTION 'missing stonez_api_runtime'; END IF;
+    SELECT * INTO claim_role FROM pg_roles WHERE rolname = 'stonez_bulk_queue_claim';
+    IF NOT FOUND THEN RAISE EXCEPTION 'missing stonez_bulk_queue_claim'; END IF;
     IF owner_role.rolcanlogin OR owner_role.rolsuper OR owner_role.rolbypassrls
        OR owner_role.rolcreatedb OR owner_role.rolcreaterole OR owner_role.rolinherit THEN
         RAISE EXCEPTION 'queue owner role attributes are unsafe';
@@ -16,6 +19,11 @@ BEGIN
     IF api_role.rolcanlogin OR api_role.rolsuper OR api_role.rolbypassrls
        OR api_role.rolcreatedb OR api_role.rolcreaterole OR NOT api_role.rolinherit THEN
         RAISE EXCEPTION 'API runtime role attributes are unsafe';
+    END IF;
+    IF claim_role.rolcanlogin OR claim_role.rolsuper OR claim_role.rolbypassrls
+       OR claim_role.rolcreatedb OR claim_role.rolcreaterole OR claim_role.rolreplication
+       OR claim_role.rolinherit THEN
+        RAISE EXCEPTION 'queue-claim group role attributes are unsafe';
     END IF;
     IF EXISTS (
         SELECT 1 FROM pg_class
@@ -81,6 +89,17 @@ BEGIN
     -- on roles it creates, with INHERIT FALSE and SET FALSE. Permit only that
     -- inert creator membership; reject every other membership in either role.
     IF pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_owner', 'MEMBER')
+       OR pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_claim', 'MEMBER')
+       OR pg_has_role('stonez_bulk_queue_claim', 'stonez_api_runtime', 'MEMBER')
+       OR pg_has_role('stonez_bulk_queue_claim', 'stonez_bulk_queue_owner', 'MEMBER')
+       OR EXISTS (
+            SELECT 1 FROM pg_auth_members
+            WHERE member = claim_role.oid
+               OR (roleid = claim_role.oid AND NOT (
+                    member = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+                    AND admin_option AND NOT inherit_option AND NOT set_option
+               ))
+       )
        OR EXISTS (
             SELECT 1 FROM pg_auth_members
             WHERE member = api_role.oid
@@ -151,6 +170,26 @@ BEGIN
           AND grantee.rolname = 'stonez_bulk_queue_owner'
     ) THEN
         RAISE EXCEPTION 'queue owner has unexpected column privileges on another public relation';
+    END IF;
+    -- The claim group is an EXECUTE-only capability; it never inherits the
+    -- tenant-facing API group's table privileges.
+    IF EXISTS (
+        SELECT 1
+          FROM pg_class AS relation
+          JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+         WHERE namespace.nspname = 'public'
+           AND relation.relkind IN ('r','p','v','m')
+           AND (
+               has_table_privilege('stonez_bulk_queue_claim', relation.oid, 'SELECT')
+               OR has_table_privilege('stonez_bulk_queue_claim', relation.oid, 'INSERT')
+               OR has_table_privilege('stonez_bulk_queue_claim', relation.oid, 'UPDATE')
+               OR has_table_privilege('stonez_bulk_queue_claim', relation.oid, 'DELETE')
+               OR has_table_privilege('stonez_bulk_queue_claim', relation.oid, 'TRUNCATE')
+               OR has_table_privilege('stonez_bulk_queue_claim', relation.oid, 'REFERENCES')
+               OR has_table_privilege('stonez_bulk_queue_claim', relation.oid, 'TRIGGER')
+           )
+    ) THEN
+        RAISE EXCEPTION 'queue-claim group must not hold or inherit public-table privileges';
     END IF;
 END
 $$;

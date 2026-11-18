@@ -48,7 +48,6 @@ CREATE TABLE public.bulk_import_jobs (
     credentials_sent integer NOT NULL DEFAULT 0,
     credential_emails_failed integer NOT NULL DEFAULT 0,
     worker_id uuid,
-    lease_id uuid,
     claimed_at timestamptz,
     attempts integer NOT NULL DEFAULT 0,
     last_error text NOT NULL DEFAULT '',
@@ -59,7 +58,26 @@ CREATE TABLE public.bulk_import_jobs (
 );
 SQL
 
-echo "== Provision roles =="
+# The operator script must fail before creating roles or grants when the
+# application lease-generation migration has not added bulk_import_jobs.lease_id.
+preflight_output="$(mktemp)"
+if psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/provision_bulk_import_queue_roles.sql >"$preflight_output" 2>&1; then
+  echo "Queue-role provisioning unexpectedly accepted a schema without lease_id" >&2
+  rm -f "$preflight_output"
+  exit 1
+fi
+if ! grep -q "bulk_import_jobs.lease_id is missing; apply application migration 48 before queue-role provisioning" "$preflight_output"; then
+  cat "$preflight_output" >&2
+  echo "Queue-role provisioning failed for an unexpected reason" >&2
+  rm -f "$preflight_output"
+  exit 1
+fi
+rm -f "$preflight_output"
+
+# Simulate application migration 48 before running the operator role scripts.
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "ALTER TABLE public.bulk_import_jobs ADD COLUMN lease_id uuid"
+
+echo "== Provision roles after lease-generation migration =="
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/provision_bulk_import_queue_roles.sql
 
 echo "== Verify provisioned roles and grants =="

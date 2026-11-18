@@ -169,12 +169,12 @@ func TestBulkImportCredentialOutboxWorkerCrashRetry(t *testing.T) {
 		t.Fatal("notice does not direct the recipient to the password-reset flow")
 	}
 
-	var final struct { Status string; AttemptCount int }
+	var final struct { Status string; AttemptCount int; ProviderMessageID string }
 	if err := admin.Raw(
-		"SELECT status,attempt_count FROM stonez_context_private.account_setup_outbox WHERE job_id=? AND user_id=?",
+		"SELECT status,attempt_count,provider_message_id FROM stonez_context_private.account_setup_outbox WHERE job_id=? AND user_id=?",
 		jobID, accountID,
 	).Scan(&final).Error; err != nil { t.Fatal(err) }
-	if final.Status != "delivered" || final.AttemptCount != 2 {
+	if final.Status != "delivered" || final.AttemptCount != 2 || final.ProviderMessageID != "test-delivery-accepted" {
 		t.Fatalf("restarted worker did not complete the durable event: %+v", final)
 	}
 	var userCount, studentCount, eventCount int

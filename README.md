@@ -302,7 +302,7 @@ Role access is enforced by the backend. School-scoped roles are isolated from ot
        |
        v
     Cloudflare Workers
-    Next.js / vinext frontend
+    Next.js frontend (OpenNext adapter)
        |
        | HTTPS
        v
@@ -365,7 +365,7 @@ Role access is enforced by the backend. School-scoped roles are isolated from ot
 ### Infrastructure
 
 - Cloudflare Workers
-- vinext
+- OpenNext for Cloudflare Workers
 - Render
 - PostgreSQL / Supabase PostgreSQL
 - GitHub

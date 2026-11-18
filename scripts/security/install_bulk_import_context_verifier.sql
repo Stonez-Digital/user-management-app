@@ -99,10 +99,10 @@ CREATE SCHEMA IF NOT EXISTS stonez_context_private AUTHORIZATION stonez_bulk_con
 SET LOCAL ROLE stonez_bulk_context_owner;
 ALTER SCHEMA stonez_context_private OWNER TO CURRENT_USER;
 
--- Functions created by this owner in the private schema must not become
--- executable by PUBLIC on future installs or later operator-created helpers.
+-- PostgreSQL grants PUBLIC EXECUTE on new functions by default. A per-schema
+-- REVOKE cannot cancel that global default grant, so revoke it globally for
+-- this dedicated owner. Explicit grants below remain the only entry points.
 ALTER DEFAULT PRIVILEGES FOR ROLE stonez_bulk_context_owner
-    IN SCHEMA stonez_context_private
     REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 REVOKE ALL ON SCHEMA stonez_context_private FROM PUBLIC;
 GRANT USAGE ON SCHEMA stonez_context_private TO stonez_bulk_worker_processing, stonez_bulk_context_key_admin;

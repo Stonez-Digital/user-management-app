@@ -23,6 +23,10 @@ const resendEmailsEndpoint = "https://api.resend.com/emails"
 
 const smtpOperationTimeout = 35 * time.Second
 
+type providerHTTPError struct { statusCode int }
+
+func (e *providerHTTPError) Error() string { return fmt.Sprintf("email provider returned HTTP %d", e.statusCode) }
+
 type CredentialMailer struct {
 	host string
 	port int
@@ -150,8 +154,8 @@ func (m *CredentialMailer) sendViaResendWithIdempotency(email, subject, body, id
 	if err != nil { return fmt.Errorf("Resend API request failed: %w", err) }
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("Resend API returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(detail)))
+		_ = resp.Body.Close()
+		return &providerHTTPError{statusCode: resp.StatusCode}
 	}
 	return nil
 }

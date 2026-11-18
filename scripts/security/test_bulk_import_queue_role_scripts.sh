@@ -128,8 +128,8 @@ if [[ "$claim_membership" != "true:false:false:false" ]]; then
 fi
 
 echo "== Assert claim login has no direct access to queue or billing tables =="
-claim_table_access="$(psql "$claim_url" -X -A -t -v ON_ERROR_STOP=1 -c "SELECT has_table_privilege(session_user, 'public.bulk_import_jobs', 'SELECT')::text || ':' || has_table_privilege(session_user, 'public.billing_plans', 'SELECT')::text")"
-if [[ "$claim_table_access" != "false:false" ]]; then
+claim_table_access="$(psql "$claim_url" -X -A -t -v ON_ERROR_STOP=1 -c "SELECT has_table_privilege(session_user, 'public.bulk_import_jobs', 'SELECT')::text || ':' || has_table_privilege(session_user, 'public.billing_plans', 'SELECT')::text || ':' || has_any_column_privilege(session_user, 'public.bulk_import_jobs', 'SELECT')::text || ':' || has_any_column_privilege(session_user, 'public.billing_plans', 'SELECT')::text")"
+if [[ "$claim_table_access" != "false:false:false:false" ]]; then
   echo "Queue-claim login unexpectedly has direct table access: $claim_table_access" >&2
   exit 1
 fi

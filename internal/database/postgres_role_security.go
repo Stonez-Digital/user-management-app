@@ -81,20 +81,25 @@ type BulkImportClaimRoleStatus struct {
     BypassRLS bool `gorm:"column:bypass_rls"`
     CanCreateDB bool `gorm:"column:can_create_db"`
     CanCreateRole bool `gorm:"column:can_create_role"`
-    IsRuntimeMember bool `gorm:"column:is_runtime_member"`
-    IsRuntimeEffective bool `gorm:"column:is_runtime_effective"`
-	CanSetRuntimeRole bool `gorm:"column:can_set_runtime_role"`
+    IsClaimMember bool `gorm:"column:is_claim_member"`
+    IsClaimEffective bool `gorm:"column:is_claim_effective"`
+    CanSetClaimRole bool `gorm:"column:can_set_claim_role"`
+    IsAPIRuntimeMember bool `gorm:"column:is_api_runtime_member"`
     IsQueueOwnerMember bool `gorm:"column:is_queue_owner_member"`
     CanExecuteClaim bool `gorm:"column:can_execute_claim"`
+    HasPublicTablePrivileges bool `gorm:"column:has_public_table_privileges"`
+    HasPublicSequencePrivileges bool `gorm:"column:has_public_sequence_privileges"`
+    HasUnexpectedMembership bool `gorm:"column:has_unexpected_membership"`
     CurrentRoleMatchesSession bool `gorm:"column:current_role_matches_session"`
 }
 
-// ValidateBulkImportClaimRole checks that the worker's claim-only connection
-// authenticates directly as a non-privileged login with effective membership
-// in stonez_api_runtime and no queue-owner membership.
+// ValidateBulkImportClaimRole checks that the claim-only connection uses a
+// dedicated login that inherits only the queue-claim group. It must not inherit
+// the broad API runtime, owner roles, or direct public-table privileges.
 func ValidateBulkImportClaimRole(db *gorm.DB) error {
     return ValidateBulkImportClaimRoleFor(
         db,
+        "stonez_bulk_queue_claim",
         "stonez_api_runtime",
         "stonez_bulk_queue_owner",
         "stonez_internal.claim_next_bulk_import_job(uuid)",
@@ -103,11 +108,12 @@ func ValidateBulkImportClaimRole(db *gorm.DB) error {
 
 // ValidateBulkImportClaimRoleFor is also used by isolated PostgreSQL fixtures,
 // which substitute unique schema and role names to avoid collisions.
-func ValidateBulkImportClaimRoleFor(db *gorm.DB, runtimeRole, queueOwnerRole, claimFunction string) error {
+func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimRole, apiRuntimeRole, queueOwnerRole, claimFunction string) error {
     if db == nil || db.Dialector.Name() != "postgres" {
         return fmt.Errorf("bulk import claim connection must be PostgreSQL")
     }
-    if strings.TrimSpace(runtimeRole) == "" || strings.TrimSpace(queueOwnerRole) == "" || strings.TrimSpace(claimFunction) == "" {
+    if strings.TrimSpace(claimRole) == "" || strings.TrimSpace(apiRuntimeRole) == "" ||
+        strings.TrimSpace(queueOwnerRole) == "" || strings.TrimSpace(claimFunction) == "" {
         return fmt.Errorf("bulk import claim role names and function signature are required")
     }
     var status BulkImportClaimRoleStatus
@@ -119,23 +125,55 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, runtimeRole, queueOwnerRole, cl
             role.rolbypassrls AS bypass_rls,
             role.rolcreatedb AS can_create_db,
             role.rolcreaterole AS can_create_role,
-            pg_has_role(session_user, ?::name, 'MEMBER') AS is_runtime_member,
-            pg_has_role(session_user, ?::name, 'USAGE') AS is_runtime_effective,
-            pg_has_role(session_user, ?::name, 'SET') AS can_set_runtime_role,
+            role.rolreplication AS can_replicate,
+            role.rolinherit AS inherits,
+            pg_has_role(session_user, ?::name, 'MEMBER') AS is_claim_member,
+            pg_has_role(session_user, ?::name, 'USAGE') AS is_claim_effective,
+            pg_has_role(session_user, ?::name, 'SET') AS can_set_claim_role,
+            pg_has_role(session_user, ?::name, 'MEMBER') AS is_api_runtime_member,
             pg_has_role(session_user, ?::name, 'MEMBER') AS is_queue_owner_member,
             has_function_privilege(session_user, ?::regprocedure, 'EXECUTE') AS can_execute_claim,
+            EXISTS (
+                SELECT 1 FROM pg_class AS relation
+                JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+                WHERE namespace.nspname = 'public'
+                  AND relation.relkind IN ('r','p','v','m')
+                  AND (has_table_privilege(session_user, relation.oid, 'SELECT')
+                    OR has_table_privilege(session_user, relation.oid, 'INSERT')
+                    OR has_table_privilege(session_user, relation.oid, 'UPDATE')
+                    OR has_table_privilege(session_user, relation.oid, 'DELETE')
+                    OR has_table_privilege(session_user, relation.oid, 'TRUNCATE')
+                    OR has_table_privilege(session_user, relation.oid, 'REFERENCES')
+                    OR has_table_privilege(session_user, relation.oid, 'TRIGGER'))
+            ) AS has_public_table_privileges,
+            EXISTS (
+                SELECT 1 FROM pg_class AS relation
+                JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+                WHERE namespace.nspname = 'public'
+                  AND relation.relkind = 'S'
+                  AND (has_sequence_privilege(session_user, relation.oid, 'USAGE')
+                    OR has_sequence_privilege(session_user, relation.oid, 'SELECT')
+                    OR has_sequence_privilege(session_user, relation.oid, 'UPDATE'))
+            ) AS has_public_sequence_privileges,
+            EXISTS (
+                SELECT 1 FROM pg_auth_members AS membership
+                 WHERE membership.member = role.oid
+                   AND membership.roleid <> (SELECT oid FROM pg_roles WHERE rolname = ?::name)
+            ) AS has_unexpected_membership,
             current_user = session_user AS current_role_matches_session
         FROM pg_roles AS role
         WHERE role.rolname = session_user
-    `, runtimeRole, runtimeRole, runtimeRole, queueOwnerRole, claimFunction).Scan(&status).Error
+    `, claimRole, claimRole, claimRole, apiRuntimeRole, queueOwnerRole, claimFunction, claimRole).Scan(&status).Error
     if err != nil {
         return fmt.Errorf("inspect bulk import claim role: %w", err)
     }
     if status.SessionRole == "" || !status.IsLogin || status.IsSuperuser || status.BypassRLS ||
-        status.CanCreateDB || status.CanCreateRole || !status.IsRuntimeMember ||
-        !status.IsRuntimeEffective || status.CanSetRuntimeRole || status.IsQueueOwnerMember || !status.CanExecuteClaim ||
+        status.CanCreateDB || status.CanCreateRole || !status.IsClaimMember ||
+        !status.IsClaimEffective || status.CanSetClaimRole || status.IsAPIRuntimeMember ||
+        status.IsQueueOwnerMember || !status.CanExecuteClaim || status.HasPublicTablePrivileges ||
+        status.HasPublicSequencePrivileges || status.HasUnexpectedMembership ||
         !status.CurrentRoleMatchesSession {
-        return fmt.Errorf("bulk import claim connection role %q does not satisfy the restricted worker role boundary", status.SessionRole)
+        return fmt.Errorf("bulk import claim connection role %q does not satisfy the dedicated queue-claim boundary", status.SessionRole)
     }
     return nil
 }

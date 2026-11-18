@@ -46,8 +46,11 @@ func loadMigrationConfig() (migrationConfig, error) {
 	if parsed.Hostname() == "" || !strings.EqualFold(parsed.Hostname(), cfg.expectedHost) {
 		return migrationConfig{}, fmt.Errorf("migration database host does not match MIGRATION_EXPECTED_HOST")
 	}
-	if parsed.Query().Get("sslmode") == "disable" {
-		return migrationConfig{}, fmt.Errorf("TLS must not be disabled for staging migrations")
+	switch parsed.Query().Get("sslmode") {
+	case "require", "verify-ca", "verify-full":
+		// Accepted TLS modes for the isolated staging connection.
+	default:
+		return migrationConfig{}, fmt.Errorf("MIGRATION_DATABASE_URL must set sslmode=require, verify-ca, or verify-full")
 	}
 
 	return cfg, nil
@@ -80,10 +83,9 @@ func run() error {
 
 	var target struct {
 		Database string
-		Host     string
 		Role     string
 	}
-	if err := db.Raw("SELECT current_database() AS database, inet_server_addr()::text AS host, current_user AS role").Scan(&target).Error; err != nil {
+	if err := db.Raw("SELECT current_database() AS database, current_user AS role").Scan(&target).Error; err != nil {
 		return fmt.Errorf("verify migration database identity: %w", err)
 	}
 	if target.Database != cfg.expectedDatabase {

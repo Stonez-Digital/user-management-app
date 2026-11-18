@@ -91,6 +91,78 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 			WHERE n.nspname='stonez_context_private'
 			ORDER BY p.proname`).Scan(&aclDiagnostics).Error
 		t.Errorf("function ACL diagnostics: %+v", aclDiagnostics)
+		var aclSummary struct {
+			PublicExecuteCount int
+			WorkerAllowlistCount int
+			KeyAdminAllowlistCount int
+			WorkerMismatchCount int
+			KeyAdminMismatchCount int
+			MissingWorkerSignatures int
+			MissingKeyAdminSignatures int
+		}
+		_ = workerDB.Raw(`SELECT
+			(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+			 WHERE n.nspname='stonez_context_private' AND EXISTS (
+			   SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a
+			   WHERE a.grantee=0 AND a.privilege_type='EXECUTE')) AS public_execute_count,
+			(SELECT count(*) FROM pg_proc p WHERE p.oid=ANY(ARRAY[
+			 to_regprocedure('stonez_context_private.is_eligible_processing_login()'),
+			 to_regprocedure('stonez_context_private.bulk_worker_user_role_allowed(text)'),
+			 to_regprocedure('stonez_context_private.verify_bulk_import_context(text)'),
+			 to_regprocedure('stonez_context_private.current_worker_school_id()'),
+			 to_regprocedure('stonez_context_private.current_worker_initiator_id()'),
+			 to_regprocedure('stonez_context_private.current_worker_job_id()'),
+			 to_regprocedure('stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)'),
+			 to_regprocedure('stonez_context_private.claim_account_setup_notification()'),
+			 to_regprocedure('stonez_context_private.complete_account_setup_notification(uuid,uuid,text)'),
+			 to_regprocedure('stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)'),
+			 to_regprocedure('stonez_context_private.account_setup_notification_counts()')]::oid[])) AS worker_allowlist_count,
+			(SELECT count(*) FROM pg_proc p WHERE p.oid=ANY(ARRAY[
+			 to_regprocedure('stonez_context_private.register_verification_key(text,bytea,timestamptz,timestamptz)'),
+			 to_regprocedure('stonez_context_private.retire_verification_key(text,timestamptz)'),
+			 to_regprocedure('stonez_context_private.revoke_verification_key(text)'),
+			 to_regprocedure('stonez_context_private.prune_expired_contexts()')]::oid[])) AS key_admin_allowlist_count,
+			(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+			 WHERE n.nspname='stonez_context_private' AND
+			 has_function_privilege('stonez_bulk_worker_processing',p.oid,'EXECUTE')
+			 IS DISTINCT FROM COALESCE(p.oid=ANY(ARRAY[
+			 to_regprocedure('stonez_context_private.is_eligible_processing_login()'),
+			 to_regprocedure('stonez_context_private.bulk_worker_user_role_allowed(text)'),
+			 to_regprocedure('stonez_context_private.verify_bulk_import_context(text)'),
+			 to_regprocedure('stonez_context_private.current_worker_school_id()'),
+			 to_regprocedure('stonez_context_private.current_worker_initiator_id()'),
+			 to_regprocedure('stonez_context_private.current_worker_job_id()'),
+			 to_regprocedure('stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)'),
+			 to_regprocedure('stonez_context_private.claim_account_setup_notification()'),
+			 to_regprocedure('stonez_context_private.complete_account_setup_notification(uuid,uuid,text)'),
+			 to_regprocedure('stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)'),
+			 to_regprocedure('stonez_context_private.account_setup_notification_counts()')]::oid[]),false)) AS worker_mismatch_count,
+			(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+			 WHERE n.nspname='stonez_context_private' AND
+			 has_function_privilege('stonez_bulk_context_key_admin',p.oid,'EXECUTE')
+			 IS DISTINCT FROM COALESCE(p.oid=ANY(ARRAY[
+			 to_regprocedure('stonez_context_private.register_verification_key(text,bytea,timestamptz,timestamptz)'),
+			 to_regprocedure('stonez_context_private.retire_verification_key(text,timestamptz)'),
+			 to_regprocedure('stonez_context_private.revoke_verification_key(text)'),
+			 to_regprocedure('stonez_context_private.prune_expired_contexts()')]::oid[]),false)) AS key_admin_mismatch_count,
+			(SELECT 11-count(*) FROM pg_proc p WHERE p.oid=ANY(ARRAY[
+			 to_regprocedure('stonez_context_private.is_eligible_processing_login()'),
+			 to_regprocedure('stonez_context_private.bulk_worker_user_role_allowed(text)'),
+			 to_regprocedure('stonez_context_private.verify_bulk_import_context(text)'),
+			 to_regprocedure('stonez_context_private.current_worker_school_id()'),
+			 to_regprocedure('stonez_context_private.current_worker_initiator_id()'),
+			 to_regprocedure('stonez_context_private.current_worker_job_id()'),
+			 to_regprocedure('stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)'),
+			 to_regprocedure('stonez_context_private.claim_account_setup_notification()'),
+			 to_regprocedure('stonez_context_private.complete_account_setup_notification(uuid,uuid,text)'),
+			 to_regprocedure('stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)'),
+			 to_regprocedure('stonez_context_private.account_setup_notification_counts()')]::oid[])) AS missing_worker_signatures,
+			(SELECT 4-count(*) FROM pg_proc p WHERE p.oid=ANY(ARRAY[
+			 to_regprocedure('stonez_context_private.register_verification_key(text,bytea,timestamptz,timestamptz)'),
+			 to_regprocedure('stonez_context_private.retire_verification_key(text,timestamptz)'),
+			 to_regprocedure('stonez_context_private.revoke_verification_key(text)'),
+			 to_regprocedure('stonez_context_private.prune_expired_contexts()')]::oid[])) AS missing_key_admin_signatures`).Scan(&aclSummary).Error
+		t.Errorf("function ACL exactness subchecks: %+v", aclSummary)
 		t.Fatalf("processing login cannot inspect verifier readiness: %v", err)
 	}
 

@@ -248,7 +248,7 @@ BEGIN
        AND lease_expires_at>clock_timestamp()
      FOR UPDATE;
     IF NOT FOUND THEN RETURN 'stale_lease'; END IF;
-    IF v_attempt>=8 THEN
+    IF v_attempt>=8 OR p_failure_code IN ('mailer_unconfigured','provider_rejected') THEN
         v_status := 'failed';
         UPDATE stonez_context_private.account_setup_outbox
            SET status=v_status,delivery_lease=NULL,lease_expires_at=NULL,

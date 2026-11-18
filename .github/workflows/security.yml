@@ -52,63 +52,11 @@ jobs:
         with:
           node-version: 22
 
-      - name: Generate dependency lock for audit
-        run: npm install --package-lock-only --ignore-scripts
+      - name: Install dependencies
+        run: npm install --ignore-scripts
 
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
 
-      - name: Audit development dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm audit --json > audit.json || true
-          node - <<'NODE'
-          const fs = require('fs');
-
-          const report = JSON.parse(fs.readFileSync('audit.json', 'utf8'));
-          const vulnerabilities = report.vulnerabilities || {};
-          const allowedAdvisory = 'GHSA-vfj7-8cjw-p6xm';
-
-          // Allow only the explicitly reviewed, currently unpatched braces advisory
-          // and packages whose complete vulnerability chain leads to that advisory.
-          const reachesAllowedAdvisory = (packageName, visiting = new Set()) => {
-            if (visiting.has(packageName)) return false;
-
-            const vulnerability = vulnerabilities[packageName];
-            if (!vulnerability) return false;
-
-            const nextVisiting = new Set(visiting);
-            nextVisiting.add(packageName);
-
-            return (vulnerability.via || []).some(issue => {
-              if (typeof issue === 'string') {
-                return reachesAllowedAdvisory(issue, nextVisiting);
-              }
-              return issue && typeof issue === 'object' &&
-                issue.url?.endsWith('/' + allowedAdvisory);
-            });
-          };
-
-          const blocking = Object.values(vulnerabilities).filter(v =>
-            (v.severity === 'high' || v.severity === 'critical') &&
-            !reachesAllowedAdvisory(v.name)
-          );
-
-          if (blocking.length) {
-            console.error('Blocking high/critical frontend vulnerabilities remain:');
-            for (const v of blocking) {
-              console.error(JSON.stringify({
-                name: v.name,
-                severity: v.severity,
-                range: v.range,
-                direct: v.isDirect,
-                via: v.via,
-                fixAvailable: v.fixAvailable
-              }));
-            }
-            process.exit(1);
-          }
-
-          console.log('No blocking high/critical development dependency vulnerabilities found.');
-          NODE
+      - name: Audit all dependencies
+        run: npm audit --audit-level=high

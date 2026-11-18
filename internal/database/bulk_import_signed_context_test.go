@@ -72,6 +72,25 @@ func TestBulkImportSignedContextReadinessAndProcessingRole(t *testing.T) {
 	}
 	t.Logf("installed worker policy catalog: %+v", catalogPolicies)
 	if err := ValidateBulkImportSignedContextReady(workerDB); err != nil {
+		var aclDiagnostics []struct {
+			FunctionName string
+			OwnerName string
+			ACL string
+			WorkerCanExecute bool
+			KeyAdminCanExecute bool
+			PublicCanExecute bool
+		}
+		_ = workerDB.Raw(`SELECT p.oid::regprocedure::text AS function_name,
+			owner_role.rolname AS owner_name,
+			COALESCE(p.proacl::text, '<default>') AS acl,
+			has_function_privilege('stonez_bulk_worker_processing', p.oid, 'EXECUTE') AS worker_can_execute,
+			has_function_privilege('stonez_bulk_context_key_admin', p.oid, 'EXECUTE') AS key_admin_can_execute,
+			has_function_privilege('public', p.oid, 'EXECUTE') AS public_can_execute
+			FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+			JOIN pg_roles owner_role ON owner_role.oid=p.proowner
+			WHERE n.nspname='stonez_context_private'
+			ORDER BY p.proname`).Scan(&aclDiagnostics).Error
+		t.Errorf("function ACL diagnostics: %+v", aclDiagnostics)
 		t.Fatalf("processing login cannot inspect verifier readiness: %v", err)
 	}
 

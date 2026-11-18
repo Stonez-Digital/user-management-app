@@ -106,18 +106,21 @@ func ValidateBulkImportClaimRole(db *gorm.DB) error {
         "stonez_bulk_queue_claim",
         "stonez_api_runtime",
         "stonez_bulk_queue_owner",
+        "public",
+        "stonez_internal",
         "stonez_internal.claim_next_bulk_import_job(uuid)",
     )
 }
 
 // ValidateBulkImportClaimRoleFor is also used by isolated PostgreSQL fixtures,
 // which substitute unique schema and role names to avoid collisions.
-func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimRole, apiRuntimeRole, queueOwnerRole, claimFunction string) error {
+func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimRole, apiRuntimeRole, queueOwnerRole, publicSchema, internalSchema, claimFunction string) error {
     if db == nil || db.Dialector.Name() != "postgres" {
         return fmt.Errorf("bulk import claim connection must be PostgreSQL")
     }
     if strings.TrimSpace(claimRole) == "" || strings.TrimSpace(apiRuntimeRole) == "" ||
-        strings.TrimSpace(queueOwnerRole) == "" || strings.TrimSpace(claimFunction) == "" {
+        strings.TrimSpace(queueOwnerRole) == "" || strings.TrimSpace(publicSchema) == "" ||
+        strings.TrimSpace(internalSchema) == "" || strings.TrimSpace(claimFunction) == "" {
         return fmt.Errorf("bulk import claim role names and function signature are required")
     }
     var status BulkImportClaimRoleStatus
@@ -137,12 +140,12 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimRole, apiRuntimeRole, queu
             pg_has_role(session_user, ?::name, 'MEMBER') AS is_api_runtime_member,
             pg_has_role(session_user, ?::name, 'MEMBER') AS is_queue_owner_member,
             has_function_privilege(session_user, ?::regprocedure, 'EXECUTE') AS can_execute_claim,
-            has_schema_privilege(session_user, 'stonez_internal', 'USAGE') AS has_internal_schema_usage,
-            has_schema_privilege(session_user, 'stonez_internal', 'CREATE') AS can_create_internal_schema,
+            has_schema_privilege(session_user, ?::name, 'USAGE') AS has_internal_schema_usage,
+            has_schema_privilege(session_user, ?::name, 'CREATE') AS can_create_internal_schema,
             EXISTS (
                 SELECT 1 FROM pg_class AS relation
                 JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
-                WHERE namespace.nspname = 'public'
+                WHERE namespace.nspname = ?::name
                   AND relation.relkind IN ('r','p','v','m')
                   AND (has_table_privilege(session_user, relation.oid, 'SELECT')
                     OR has_table_privilege(session_user, relation.oid, 'INSERT')
@@ -155,7 +158,7 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimRole, apiRuntimeRole, queu
             EXISTS (
                 SELECT 1 FROM pg_class AS relation
                 JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
-                WHERE namespace.nspname = 'public'
+                WHERE namespace.nspname = ?::name
                   AND relation.relkind = 'S'
                   AND (has_sequence_privilege(session_user, relation.oid, 'USAGE')
                     OR has_sequence_privilege(session_user, relation.oid, 'SELECT')
@@ -169,7 +172,8 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimRole, apiRuntimeRole, queu
             current_user = session_user AS current_role_matches_session
         FROM pg_roles AS role
         WHERE role.rolname = session_user
-    `, claimRole, claimRole, claimRole, apiRuntimeRole, queueOwnerRole, claimFunction, claimRole).Scan(&status).Error
+    `, claimRole, claimRole, claimRole, apiRuntimeRole, queueOwnerRole, claimFunction,
+        internalSchema, internalSchema, publicSchema, publicSchema, claimRole).Scan(&status).Error
     if err != nil {
         return fmt.Errorf("inspect bulk import claim role: %w", err)
     }

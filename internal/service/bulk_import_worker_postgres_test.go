@@ -18,7 +18,7 @@ import (
 
 // openBulkWorkerPostgres creates a private schema per test so migration and
 // queue state cannot collide with other packages running against TEST_DATABASE_URL.
-func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, string) {
+func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, string, string) {
 	t.Helper()
 	dsn := strings.TrimSpace(os.Getenv("TEST_DATABASE_URL"))
 	if dsn == "" {

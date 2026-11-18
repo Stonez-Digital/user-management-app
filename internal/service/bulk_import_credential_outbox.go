@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/textproto"
 	"time"
 
 	"github.com/google/uuid"
@@ -101,9 +102,28 @@ func (s *BulkImportService) accountSetupNotificationCounts(job models.BulkImport
 }
 
 func accountSetupFailureCode(err error) string {
+	var httpError *providerHTTPError
+	if errors.As(err, &httpError) {
+		if httpError.statusCode == 408 || httpError.statusCode == 429 || httpError.statusCode >= 500 {
+			return "provider_unavailable"
+		}
+		return "provider_rejected"
+	}
+	var smtpError *textproto.Error
+	if errors.As(err, &smtpError) {
+		if smtpError.Code >= 400 && smtpError.Code < 500 {
+			return "provider_unavailable"
+		}
+		if smtpError.Code >= 500 {
+			return "provider_rejected"
+		}
+	}
 	var networkError net.Error
-	if errors.As(err, &networkError) && networkError.Timeout() {
-		return "provider_timeout"
+	if errors.As(err, &networkError) {
+		if networkError.Timeout() {
+			return "provider_timeout"
+		}
+		return "provider_unavailable"
 	}
 	return "provider_rejected"
 }

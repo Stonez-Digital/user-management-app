@@ -653,4 +653,24 @@ if [[ "$foreign_complete" != "f" ]]; then
 fi
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "DELETE FROM stonez_context_private.account_setup_outbox WHERE event_id='$FOREIGN_EVENT_ID'"
 
-echo "Private signed-context credential outbox permission, atomicity, restart, lease-fencing, completion, concurrency, and idempotency tests passed."
+
+# Permanent provider rejection must be terminal immediately, not retried eight times.
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "UPDATE stonez_context_private.account_setup_outbox SET status='pending',attempt_count=0,next_attempt_at=clock_timestamp(),delivery_lease=NULL,lease_expires_at=NULL,provider_message_id=NULL,failure_code='',delivered_at=NULL WHERE event_id='$EVENT_ID'"
+PERMANENT_CLAIM_JTI="52525252-5252-4252-8252-525252525252"
+PERMANENT_CLAIM_TOKEN="$(make_token '{\"alg\":\"HS256\",\"kid\":\"ci-outbox-key\",\"typ\":\"JWT\"}' "$(payload "$PERMANENT_CLAIM_JTI" "$OUTBOX_NOW" "$((OUTBOX_NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$OUTBOX_KEY_HEX")"
+PERMANENT_CLAIM_ROW="$(psql "$worker_url" -X -A -t -F '|' -v ON_ERROR_STOP=1 -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$PERMANENT_CLAIM_TOKEN'); SELECT event_id,delivery_lease FROM stonez_context_private.claim_account_setup_notification(); COMMIT;" | awk -F'|' 'NF==2 {row=$0} END {print row}')"
+IFS='|' read -r PERMANENT_EVENT_ID PERMANENT_LEASE <<< "$PERMANENT_CLAIM_ROW"
+if [[ "$PERMANENT_EVENT_ID" != "$EVENT_ID" || -z "$PERMANENT_LEASE" ]]; then
+  echo "Could not claim event for permanent-failure classification test: $PERMANENT_CLAIM_ROW" >&2
+  exit 1
+fi
+PERMANENT_RETRY_JTI="53535353-5353-4353-8353-535353535353"
+PERMANENT_RETRY_TOKEN="$(make_token '{\"alg\":\"HS256\",\"kid\":\"ci-outbox-key\",\"typ\":\"JWT\"}' "$(payload "$PERMANENT_RETRY_JTI" "$OUTBOX_NOW" "$((OUTBOX_NOW+60))" "$SCHOOL_ID" "$LEASE_ID")" "$OUTBOX_KEY_HEX")"
+permanent_status="$(psql "$worker_url" -X -q -A -t -v ON_ERROR_STOP=1 -c "BEGIN; SELECT stonez_context_private.verify_bulk_import_context('$PERMANENT_RETRY_TOKEN'); SELECT stonez_context_private.retry_account_setup_notification('$PERMANENT_EVENT_ID','$PERMANENT_LEASE','provider_rejected',30); COMMIT;" | tail -n 1)"
+permanent_row="$(psql "$runner_url" -X -q -A -t -F '|' -v ON_ERROR_STOP=1 -c "SELECT status,failure_code FROM stonez_context_private.account_setup_outbox WHERE event_id='$EVENT_ID'")"
+if [[ "$permanent_status" != "failed" || "$permanent_row" != "failed|provider_rejected" ]]; then
+  echo "Permanent provider rejection was not made terminal: status=$permanent_status row=$permanent_row" >&2
+  exit 1
+fi
+
+echo "Private signed-context credential outbox permission, atomicity, restart, lease-fencing, completion, concurrency, permanent-failure, and idempotency tests passed."

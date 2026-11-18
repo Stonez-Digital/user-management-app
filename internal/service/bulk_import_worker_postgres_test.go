@@ -162,7 +162,7 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, str
 
 func installBulkClaimFunctionForTest(t *testing.T, admin *gorm.DB, schema, ownerRole, apiRole, claimRole, otherRole string) error {
 	t.Helper()
-	if err := admin.Exec("GRANT USAGE ON SCHEMA " + schema + " TO " + ownerRole + ", " + apiRole).Error; err != nil { return err }
+	if err := admin.Exec("GRANT USAGE ON SCHEMA " + schema + " TO " + ownerRole + ", " + apiRole + ", " + claimRole).Error; err != nil { return err }
 	if err := admin.Exec("GRANT SELECT ON TABLE " + schema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil { return err }
 	if err := admin.Exec("GRANT UPDATE (status, worker_id, lease_id, claimed_at, attempts, last_error) ON TABLE " + schema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil { return err }
 	if err := admin.Exec("GRANT SELECT, INSERT, UPDATE ON TABLE " + schema + ".bulk_import_jobs TO " + apiRole).Error; err != nil { return err }
@@ -285,21 +285,70 @@ func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T)
 	})
 	if err == nil { t.Fatal("API role unexpectedly inserted a job without tenant context") }
 
+	// The claim credential is a separate LOGIN role. It inherits only the
+	// queue-claim group and cannot read queue or billing tables directly.
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	parsed, err := url.Parse(dsn)
+	if err != nil { t.Fatalf("parse PostgreSQL test URL: %v", err) }
+	claimLogin := "biq_claim_login_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	claimPassword := strings.ReplaceAll(uuid.NewString(), "-", "")
+	admin, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil { t.Fatalf("open PostgreSQL admin connection for claim login: %v", err) }
+	adminSQL, err := admin.DB()
+	if err != nil { t.Fatalf("get PostgreSQL admin SQL connection: %v", err) }
+	if err := admin.Exec("CREATE ROLE " + claimLogin + " LOGIN INHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '" + claimPassword + "'").Error; err != nil {
+		_ = adminSQL.Close()
+		t.Fatalf("create isolated queue-claim login: %v", err)
+	}
+	if err := admin.Exec("GRANT " + claimRole + " TO " + claimLogin + " WITH ADMIN FALSE, INHERIT TRUE, SET FALSE").Error; err != nil {
+		_ = admin.Exec("DROP ROLE " + claimLogin).Error
+		_ = adminSQL.Close()
+		t.Fatalf("grant queue-claim group to isolated login: %v", err)
+	}
+	parsed.User = url.UserPassword(claimLogin, claimPassword)
+	claimDB, err := gorm.Open(postgres.Open(parsed.String()), &gorm.Config{})
+	if err != nil {
+		_ = admin.Exec("REVOKE " + claimRole + " FROM " + claimLogin).Error
+		_ = admin.Exec("DROP ROLE " + claimLogin).Error
+		_ = adminSQL.Close()
+		t.Fatalf("connect as isolated queue-claim login: %v", err)
+	}
+	claimSQL, err := claimDB.DB()
+	if err != nil { t.Fatalf("get queue-claim SQL connection: %v", err) }
+	t.Cleanup(func() {
+		_ = claimSQL.Close()
+		_ = admin.Exec("REVOKE " + claimRole + " FROM " + claimLogin).Error
+		_ = admin.Exec("DROP OWNED BY " + claimLogin).Error
+		_ = admin.Exec("DROP ROLE IF EXISTS " + claimLogin).Error
+		_ = adminSQL.Close()
+	})
+	if err := database.ValidateBulkImportClaimRoleFor(claimDB, claimRole, apiRole, ownerRole, schema, "stonez_internal", "stonez_internal.claim_next_bulk_import_job(uuid)"); err != nil {
+		t.Fatalf("dedicated queue-claim login failed role validation: %v", err)
+	}
+	var directRows int64
+	if err := claimDB.Raw("SELECT count(*) FROM " + schema + ".bulk_import_jobs").Scan(&directRows).Error; err == nil {
+		t.Fatal("queue-claim login unexpectedly read queue rows directly")
+	}
+	if err := claimDB.Raw("SELECT count(*) FROM " + schema + ".billing_plans").Scan(&directRows).Error; err == nil {
+		t.Fatal("queue-claim login unexpectedly inherited API billing-table access")
+	}
+
 	// Global claim is the only cross-tenant queue operation and is available
 	// through the SECURITY DEFINER function even without tenant GUCs.
 	workerID := uuid.New()
 	var claimed models.BulkImportJob
-	err = db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec("SET LOCAL ROLE " + apiRole).Error; err != nil { return err }
-		result := tx.Raw("SELECT * FROM stonez_internal.claim_next_bulk_import_job(?)", workerID).Scan(&claimed)
-		if result.Error != nil { return result.Error }
-		if result.RowsAffected != 1 { return fmt.Errorf("expected one claimed job, got %d", result.RowsAffected) }
-		return nil
-	})
-	if err != nil { t.Fatalf("restricted role could not execute queue claim function: %v", err) }
+	result := claimDB.Raw("SELECT * FROM stonez_internal.claim_next_bulk_import_job(?)", workerID).Scan(&claimed)
+	if result.Error != nil { t.Fatalf("dedicated queue-claim login could not execute claim function: %v", result.Error) }
+	if result.RowsAffected != 1 { t.Fatalf("expected one claimed job, got %d", result.RowsAffected) }
 	if claimed.ID != jobA.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID {
 		t.Fatalf("claim function returned unexpected job/worker: %+v", claimed)
 	}
+
+	apiClaimErr := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SET LOCAL ROLE " + apiRole).Error; err != nil { return err }
+		return tx.Exec("SELECT * FROM stonez_internal.claim_next_bulk_import_job(?)", uuid.New()).Error
+	})
+	if apiClaimErr == nil { t.Fatal("API runtime role unexpectedly executed the queue-claim function") }
 
 	for _, statement := range []string{
 		"DELETE FROM " + schema + ".bulk_import_jobs",

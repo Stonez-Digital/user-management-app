@@ -55,7 +55,7 @@ async function readBoundedBody(request: Request, maxBytes: number): Promise<Arra
 /**
  * Same-origin API gateway for the Cloudflare Worker.
  *
- * The frontend is built with vinext for Cloudflare Workers. Keeping this
+ * The frontend is built with Next.js and the OpenNext Cloudflare adapter. Keeping this
  * forwarding in an App Router route handler ensures /backend requests are
  * proxied by the deployed Worker rather than depending on Next.js rewrites.
  */

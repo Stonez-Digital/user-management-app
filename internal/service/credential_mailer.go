@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/smtp"
+	"errors"
 	"net/url"
 	"os"
 	"strconv"
@@ -19,6 +20,8 @@ import (
 )
 
 const resendEmailsEndpoint = "https://api.resend.com/emails"
+
+const smtpOperationTimeout = 35 * time.Second
 
 type CredentialMailer struct {
 	host string
@@ -159,26 +162,62 @@ func (m *CredentialMailer) send(email, subject, body string) error {
 	from := m.from
 	if fromName != "" { from = fromName + " <" + m.from + ">" }
 	msg := []byte("From: " + from + "\r\nTo: " + email + "\r\nSubject: " + subject + "\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n" + body + "\r\n")
-	addr := net.JoinHostPort(m.host, strconv.Itoa(m.port))
-	if m.port == 465 {
-		conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: m.host, MinVersion: tls.VersionTLS12})
-		if err != nil { return err }
-		client, err := smtp.NewClient(conn, m.host)
-		if err != nil { return err }
-		defer client.Close()
-		if m.username != "" {
-			if err = client.Auth(smtp.PlainAuth("", m.username, m.password, m.host)); err != nil { return err }
+	return sendSMTPWithTimeout(m.host, m.port, m.username, m.password, m.from, email, msg, smtpOperationTimeout)
+}
+
+// sendSMTPWithTimeout bounds the entire SMTP exchange (including greeting,
+// TLS handshake, authentication, message transfer and final response). The
+// single absolute deadline prevents a peer from extending the lease by
+// periodically sending partial data.
+func sendSMTPWithTimeout(host string, port int, username, password, from, recipient string, message []byte, timeout time.Duration) error {
+	if timeout <= 0 { return fmt.Errorf("SMTP timeout must be positive") }
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	dialer := &net.Dialer{Timeout: timeout}
+	var conn net.Conn
+	var err error
+	if port == 465 {
+		raw, dialErr := dialer.Dial("tcp", addr)
+		if dialErr != nil { return dialErr }
+		_ = raw.SetDeadline(time.Now().Add(timeout))
+		tlsConn := tls.Client(raw, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
+		if handshakeErr := tlsConn.Handshake(); handshakeErr != nil {
+			_ = raw.Close()
+			return handshakeErr
 		}
-		if err = client.Mail(m.from); err != nil { return err }
-		if err = client.Rcpt(email); err != nil { return err }
-		writer, err := client.Data()
+		conn = tlsConn
+	} else {
+		conn, err = dialer.Dial("tcp", addr)
 		if err != nil { return err }
-		if _, err = writer.Write(msg); err != nil { _ = writer.Close(); return err }
-		return writer.Close()
 	}
-	var auth smtp.Auth
-	if m.username != "" { auth = smtp.PlainAuth("", m.username, m.password, m.host) }
-	return smtp.SendMail(addr, auth, m.from, []string{email}, msg)
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil { return err }
+
+	client, err := smtp.NewClient(conn, host)
+	if err != nil { return err }
+	defer client.Close()
+	if err := client.Hello("localhost"); err != nil { return err }
+	if port != 465 {
+		if ok, _ := client.Extension("STARTTLS"); ok {
+			if err := client.StartTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); err != nil { return err }
+		}
+	}
+	if username != "" {
+		if err := client.Auth(smtp.PlainAuth("", username, password, host)); err != nil { return err }
+	}
+	if err := client.Mail(from); err != nil { return err }
+	if err := client.Rcpt(recipient); err != nil { return err }
+	writer, err := client.Data()
+	if err != nil { return err }
+	if _, err := writer.Write(message); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	if err := writer.Close(); err != nil { return err }
+	if err := client.Quit(); err != nil {
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() { return err }
+	}
+	return nil
 }
 
 func GenerateTemporaryPassword() (string, error) {

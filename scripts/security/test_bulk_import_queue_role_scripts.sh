@@ -112,6 +112,14 @@ INSERT INTO public.bulk_import_jobs (
 );
 SQL
 
+echo "== Simulate legacy API membership and transition the existing worker login =="
+psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'
+REVOKE stonez_bulk_queue_claim FROM stonez_bulk_worker;
+GRANT stonez_api_runtime TO stonez_bulk_worker
+    WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
+SQL
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/migrate_bulk_import_worker_to_queue_claim.psql
+
 echo "== Assert claim login inherits only the dedicated queue-claim group =="
 claim_membership="$(psql "$claim_url" -X -A -t -v ON_ERROR_STOP=1 -c "SELECT pg_has_role(session_user, 'stonez_bulk_queue_claim', 'USAGE')::text || ':' || pg_has_role(session_user, 'stonez_bulk_queue_claim', 'SET')::text || ':' || pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER')::text || ':' || pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')::text")"
 if [[ "$claim_membership" != "true:false:false:false" ]]; then

@@ -83,7 +83,14 @@ jobs:
              WHERE p.oid = fn;
             IF owner_name <> 'stonez_bulk_queue_owner'
                OR NOT (SELECT prosecdef FROM pg_proc WHERE oid = fn)
-               OR has_function_privilege('PUBLIC', fn, 'EXECUTE')
+               OR EXISTS (
+                    SELECT 1
+                      FROM pg_proc p
+                      CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a
+                     WHERE p.oid = fn
+                       AND a.grantee = 0
+                       AND a.privilege_type = 'EXECUTE'
+               )
                OR NOT has_function_privilege('stonez_bulk_queue_claim', fn, 'EXECUTE')
                OR has_function_privilege('stonez_api_runtime', fn, 'EXECUTE') THEN
               RAISE EXCEPTION 'queue claim function ownership or EXECUTE boundary is unsafe';

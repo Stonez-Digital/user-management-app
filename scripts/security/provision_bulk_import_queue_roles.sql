@@ -23,7 +23,7 @@ BEGIN
 END
 $preflight$;
 
-DO $
+DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner') THEN
         CREATE ROLE stonez_bulk_queue_owner;

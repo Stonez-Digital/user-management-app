@@ -20,7 +20,7 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'public.bulk_import_jobs.lease_id is missing; apply application migration 48 before queue-role provisioning';
     END IF;
-END
+END;
 $preflight$;
 
 DO $$

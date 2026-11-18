@@ -10,41 +10,42 @@ import (
 	"github.com/onoja217/users-management-app/internal/database"
 )
 
+// These identifiers are pinned to the approved, isolated Neon staging project.
+// Do not make them environment-overridable: that would let a production URL
+// pass by simply changing the expected-host variables.
+const (
+	approvedStagingHost     = "ep-snowy-term-b94cw7vl.c-7.eu-central-1.aws.neon.tech"
+	approvedStagingDatabase = "stonez_staging"
+)
+
 type migrationConfig struct {
-	dsn              string
-	expectedHost     string
-	expectedDatabase string
+	dsn string
 }
 
 func loadMigrationConfig() (migrationConfig, error) {
 	if !strings.EqualFold(strings.TrimSpace(os.Getenv("DB_DRIVER")), "postgres") {
 		return migrationConfig{}, fmt.Errorf("DB_DRIVER must be postgres")
 	}
-
-	cfg := migrationConfig{
-		dsn:              strings.TrimSpace(os.Getenv("MIGRATION_DATABASE_URL")),
-		expectedHost:     strings.TrimSpace(os.Getenv("MIGRATION_EXPECTED_HOST")),
-		expectedDatabase: strings.TrimSpace(os.Getenv("MIGRATION_EXPECTED_DATABASE")),
-	}
-	if cfg.dsn == "" {
-		return migrationConfig{}, fmt.Errorf("MIGRATION_DATABASE_URL is required")
-	}
 	if !strings.EqualFold(strings.TrimSpace(os.Getenv("MIGRATION_TARGET")), "staging") {
 		return migrationConfig{}, fmt.Errorf("MIGRATION_TARGET must explicitly be staging")
 	}
-	if cfg.expectedHost == "" || cfg.expectedDatabase == "" {
-		return migrationConfig{}, fmt.Errorf("MIGRATION_EXPECTED_HOST and MIGRATION_EXPECTED_DATABASE are required")
-	}
 
-	parsed, err := url.Parse(cfg.dsn)
+	dsn := strings.TrimSpace(os.Getenv("MIGRATION_DATABASE_URL"))
+	if dsn == "" {
+		return migrationConfig{}, fmt.Errorf("MIGRATION_DATABASE_URL is required")
+	}
+	parsed, err := url.Parse(dsn)
 	if err != nil {
 		return migrationConfig{}, fmt.Errorf("parse migration database URL: %w", err)
 	}
 	if parsed.Scheme != "postgres" && parsed.Scheme != "postgresql" {
 		return migrationConfig{}, fmt.Errorf("MIGRATION_DATABASE_URL must use the postgres or postgresql URL scheme")
 	}
-	if parsed.Hostname() == "" || !strings.EqualFold(parsed.Hostname(), cfg.expectedHost) {
-		return migrationConfig{}, fmt.Errorf("migration database host does not match MIGRATION_EXPECTED_HOST")
+	if !strings.EqualFold(parsed.Hostname(), approvedStagingHost) {
+		return migrationConfig{}, fmt.Errorf("migration database host is not the approved Neon staging endpoint")
+	}
+	if parsed.Path != "/"+approvedStagingDatabase {
+		return migrationConfig{}, fmt.Errorf("migration database name is not the approved staging database")
 	}
 	switch parsed.Query().Get("sslmode") {
 	case "require", "verify-ca", "verify-full":
@@ -53,12 +54,11 @@ func loadMigrationConfig() (migrationConfig, error) {
 		return migrationConfig{}, fmt.Errorf("MIGRATION_DATABASE_URL must set sslmode=require, verify-ca, or verify-full")
 	}
 
-	return cfg, nil
+	return migrationConfig{dsn: dsn}, nil
 }
 
 func run() error {
-	cfg, err := loadMigrationConfig()
-	if err != nil {
+	if _, err := loadMigrationConfig(); err != nil {
 		return err
 	}
 
@@ -88,8 +88,8 @@ func run() error {
 	if err := db.Raw("SELECT current_database() AS database, current_user AS role").Scan(&target).Error; err != nil {
 		return fmt.Errorf("verify migration database identity: %w", err)
 	}
-	if target.Database != cfg.expectedDatabase {
-		return fmt.Errorf("connected database %q does not match MIGRATION_EXPECTED_DATABASE", target.Database)
+	if target.Database != approvedStagingDatabase {
+		return fmt.Errorf("connected database %q is not the approved staging database", target.Database)
 	}
 	log.Printf("running application migrations against approved staging database %q as role %q", target.Database, target.Role)
 

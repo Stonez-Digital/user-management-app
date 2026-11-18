@@ -187,6 +187,10 @@ BEGIN
                OR has_table_privilege('stonez_bulk_queue_claim', relation.oid, 'TRUNCATE')
                OR has_table_privilege('stonez_bulk_queue_claim', relation.oid, 'REFERENCES')
                OR has_table_privilege('stonez_bulk_queue_claim', relation.oid, 'TRIGGER')
+               OR has_any_column_privilege('stonez_bulk_queue_claim', relation.oid, 'SELECT')
+               OR has_any_column_privilege('stonez_bulk_queue_claim', relation.oid, 'INSERT')
+               OR has_any_column_privilege('stonez_bulk_queue_claim', relation.oid, 'UPDATE')
+               OR has_any_column_privilege('stonez_bulk_queue_claim', relation.oid, 'REFERENCES')
            )
     ) THEN
         RAISE EXCEPTION 'queue-claim group must not hold or inherit public-table privileges';

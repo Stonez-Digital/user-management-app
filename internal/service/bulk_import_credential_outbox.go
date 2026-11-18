@@ -65,12 +65,12 @@ func (s *BulkImportService) claimAccountSetupNotification(job models.BulkImportJ
 	return notification, found, err
 }
 
-func (s *BulkImportService) completeAccountSetupNotification(job models.BulkImportJob, notification accountSetupNotification) (bool, error) {
+func (s *BulkImportService) completeAccountSetupNotification(job models.BulkImportJob, notification accountSetupNotification, providerMessageID string) (bool, error) {
 	var completed bool
 	err := s.withTenantTransaction(job, func(tx *gorm.DB) error {
 		result := tx.Raw(
-			"SELECT stonez_context_private.complete_account_setup_notification(?, ?, NULL)",
-			notification.EventID, notification.DeliveryLease,
+			"SELECT stonez_context_private.complete_account_setup_notification(?, ?, ?)",
+			notification.EventID, notification.DeliveryLease, providerMessageID,
 		).Scan(&completed)
 		return result.Error
 	})
@@ -160,18 +160,19 @@ func (s *BulkImportService) deliverAccountSetupNotifications(job models.BulkImpo
 			}
 			continue
 		}
-		if err := s.mailer.SendAccountSetupNotice(
+		providerMessageID, sendErr := s.mailer.SendAccountSetupNoticeWithResult(
 			notification.DisplayName,
 			notification.RecipientEmail,
 			notification.AccountRole,
 			notification.EventID.String(),
-		); err != nil {
-			if retryErr := s.retryAccountSetupNotification(job, notification, accountSetupFailureCode(err)); retryErr != nil {
+		)
+		if sendErr != nil {
+			if retryErr := s.retryAccountSetupNotification(job, notification, accountSetupFailureCode(sendErr)); retryErr != nil {
 				return accountSetupNotificationCounts{}, retryErr
 			}
 			continue
 		}
-		completed, err := s.completeAccountSetupNotification(job, notification)
+		completed, err := s.completeAccountSetupNotification(job, notification, providerMessageID)
 		if err != nil {
 			return accountSetupNotificationCounts{}, err
 		}

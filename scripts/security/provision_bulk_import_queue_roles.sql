@@ -77,10 +77,6 @@ GRANT SELECT ON TABLE public.bulk_import_jobs TO stonez_bulk_queue_owner;
 GRANT UPDATE (status, worker_id, lease_id, claimed_at, attempts, last_error)
     ON TABLE public.bulk_import_jobs TO stonez_bulk_queue_owner;
 REVOKE ALL PRIVILEGES ON TABLE public.bulk_import_jobs FROM stonez_api_runtime;
-REVOKE ALL PRIVILEGES ON TABLE public.bulk_import_jobs FROM stonez_bulk_queue_claim;
-REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM stonez_bulk_queue_claim;
-REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM stonez_bulk_queue_claim;
-REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM stonez_bulk_queue_claim;
 REVOKE SELECT (
     id, school_id, initiated_by, kind, file_name, status, total, valid, created,
     updated, skipped, failed, send_credentials, credentials_sent,

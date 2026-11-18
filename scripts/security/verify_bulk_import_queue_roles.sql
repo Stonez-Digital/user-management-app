@@ -191,5 +191,20 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'queue-claim group must not hold or inherit public-table privileges';
     END IF;
+    IF EXISTS (
+        SELECT 1
+          FROM pg_class AS relation
+          JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+         WHERE namespace.nspname = 'public'
+           AND relation.relkind = 'S'
+           AND (has_sequence_privilege('stonez_bulk_queue_claim', relation.oid, 'USAGE')
+             OR has_sequence_privilege('stonez_bulk_queue_claim', relation.oid, 'SELECT')
+             OR has_sequence_privilege('stonez_bulk_queue_claim', relation.oid, 'UPDATE'))
+    ) THEN
+        RAISE EXCEPTION 'queue-claim group must not hold or inherit public-sequence privileges';
+    END IF;
+    IF has_schema_privilege('stonez_bulk_queue_claim', 'public', 'CREATE') THEN
+        RAISE EXCEPTION 'queue-claim group must not create public objects';
+    END IF;
 END
 $$;

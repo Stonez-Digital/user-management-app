@@ -43,12 +43,6 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Production build
-        run: npm run build
-
-      - name: Cloudflare compatibility build
-        run: npm run build:vinext
-
       - name: Check Cloudflare deployment configuration
         run: |
           missing=0
@@ -70,7 +64,7 @@ jobs:
           fi
           echo "Cloudflare deployment configuration is present."
 
-      - name: Deploy to Cloudflare Workers
+      - name: Build and deploy with OpenNext
         run: npm run deploy
 
       - name: Verify deployed Worker

@@ -68,12 +68,15 @@ jobs:
 
           const report = JSON.parse(fs.readFileSync('audit.json', 'utf8'));
           const vulnerabilities = report.vulnerabilities || {};
-          const allowedAdvisory = 'GHSA-vfj7-8cjw-p6xm';
+          const allowedAdvisories = new Set([
+            'GHSA-vfj7-8cjw-p6xm', // braces: no patched release published
+            'GHSA-fc5q-39xc-vjpf'  // picomatch: no patched release published
+          ]);
 
-          // Permit only the known unpatched braces advisory and its
-          // transitive dependency chain; all other high/critical findings block.
-          const reachesAllowedAdvisory = (packageName, visiting = new Set()) => {
-            if (packageName === 'braces') return true;
+          // Allow a dependency only when every high/critical path reported by
+          // npm audit terminates in one of the explicitly reviewed, unpatched
+          // advisories above. Unknown or mixed advisory paths remain blocking.
+          const onlyAllowedAdvisories = (packageName, visiting = new Set()) => {
             if (visiting.has(packageName)) return false;
 
             const vulnerability = vulnerabilities[packageName];
@@ -82,12 +85,15 @@ jobs:
             const nextVisiting = new Set(visiting);
             nextVisiting.add(packageName);
 
-            return (vulnerability.via || []).some(issue => {
+            const issues = vulnerability.via || [];
+            return issues.length > 0 && issues.every(issue => {
               if (typeof issue === 'string') {
-                return reachesAllowedAdvisory(issue, nextVisiting);
+                return onlyAllowedAdvisories(issue, nextVisiting);
               }
               if (issue && typeof issue === 'object') {
-                return issue.url?.endsWith('/' + allowedAdvisory);
+                return [...allowedAdvisories].some(id =>
+                  issue.url?.endsWith('/' + id)
+                );
               }
               return false;
             });
@@ -95,17 +101,24 @@ jobs:
 
           const blocking = Object.values(vulnerabilities).filter(v =>
             (v.severity === 'high' || v.severity === 'critical') &&
-            !reachesAllowedAdvisory(v.name)
+            !onlyAllowedAdvisories(v.name)
           );
 
           if (blocking.length) {
             console.error('Blocking high/critical frontend vulnerabilities remain:');
             for (const v of blocking) {
-              console.error('- ' + v.name + ': ' + v.severity);
+              console.error(JSON.stringify({
+                name: v.name,
+                severity: v.severity,
+                direct: v.isDirect,
+                range: v.range,
+                via: v.via,
+                fixAvailable: v.fixAvailable
+              }));
             }
             process.exit(1);
           }
 
           console.log('No blocking high/critical development dependency vulnerabilities found.');
-          console.log('The braces advisory is allowed only for the known unpatched advisory and its dependency chain.');
+          console.log('Only the reviewed, unpatched braces and picomatch advisories and their exclusively affected dependency chains are allowlisted.');
           NODE

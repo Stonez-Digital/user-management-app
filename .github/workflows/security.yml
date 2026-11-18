@@ -101,7 +101,7 @@ jobs:
           if (blocking.length) {
             console.error('Blocking high/critical frontend vulnerabilities remain:');
             for (const v of blocking) {
-              console.error('- ' + v.name + ': ' + v.severity);
+              console.error(JSON.stringify({ name: v.name, severity: v.severity, range: v.range, via: v.via, fixAvailable: v.fixAvailable }, null, 2));
             }
             process.exit(1);
           }

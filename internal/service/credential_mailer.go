@@ -10,8 +10,8 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/smtp"
 	"errors"
+	"net/smtp"
 	"net/url"
 	"os"
 	"strconv"
@@ -171,6 +171,7 @@ func (m *CredentialMailer) send(email, subject, body string) error {
 // periodically sending partial data.
 func sendSMTPWithTimeout(host string, port int, username, password, from, recipient string, message []byte, timeout time.Duration) error {
 	if timeout <= 0 { return fmt.Errorf("SMTP timeout must be positive") }
+	deadline := time.Now().Add(timeout)
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	dialer := &net.Dialer{Timeout: timeout}
 	var conn net.Conn
@@ -178,7 +179,7 @@ func sendSMTPWithTimeout(host string, port int, username, password, from, recipi
 	if port == 465 {
 		raw, dialErr := dialer.Dial("tcp", addr)
 		if dialErr != nil { return dialErr }
-		_ = raw.SetDeadline(time.Now().Add(timeout))
+		_ = raw.SetDeadline(deadline)
 		tlsConn := tls.Client(raw, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
 		if handshakeErr := tlsConn.Handshake(); handshakeErr != nil {
 			_ = raw.Close()
@@ -190,7 +191,7 @@ func sendSMTPWithTimeout(host string, port int, username, password, from, recipi
 		if err != nil { return err }
 	}
 	defer conn.Close()
-	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil { return err }
+	if err := conn.SetDeadline(deadline); err != nil { return err }
 
 	client, err := smtp.NewClient(conn, host)
 	if err != nil { return err }

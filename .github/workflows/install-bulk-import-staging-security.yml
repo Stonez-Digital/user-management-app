@@ -53,7 +53,17 @@ jobs:
           assert u.username == "stonez_staging_owner", "Use the approved staging installation role"
           print("Approved Neon staging endpoint, database, installer role, and TLS mode confirmed.")
           PY
-          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -Atc "DO \\$\\$ BEGIN IF current_database() <> 'stonez_staging' OR current_user <> 'stonez_staging_owner' OR current_setting('server_version_num')::int < 170000 THEN RAISE EXCEPTION 'unexpected staging target or installer role'; END IF; END \\$\\$;"
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 <<'SQL'
+          DO $
+          BEGIN
+            IF current_database() <> 'stonez_staging'
+               OR current_user <> 'stonez_staging_owner'
+               OR current_setting('server_version_num')::int < 170000 THEN
+              RAISE EXCEPTION 'unexpected staging target or installer role';
+            END IF;
+          END
+          $;
+          SQL
 
       - name: Verify the already-provisioned queue roles
         env:

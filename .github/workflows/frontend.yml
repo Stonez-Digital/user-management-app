@@ -11,7 +11,7 @@ on:
       - ".github/workflows/frontend.yml"
       - ".github/workflows/cloudflare-deploy.yml"
   push:
-    branches: [main]
+    branches: [main, security/bulk-worker-signed-context-verifier]
     paths:
       - "frontend/**"
       - "scripts/school-domain-routing.test.mjs"

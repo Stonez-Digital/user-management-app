@@ -133,6 +133,8 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
         HMAC bool
         WorkerGroupSafe bool
         EligibilityFunction bool
+        VerifierFunctionsSafe bool
+        FunctionACLsExact bool
         QueueRLS bool
         WorkerTableRLSCount int
         PublicPermissivePolicyCount int
@@ -174,6 +176,62 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                   AND function_entry.prosecdef
                   AND function_entry.proconfig @> ARRAY['search_path=pg_catalog']
             ) AS eligibility_function,
+            (
+                SELECT count(*) = 5
+                   AND bool_and(p.prosecdef
+                       AND owner_role.rolname = 'stonez_bulk_context_owner'
+                       AND p.proconfig @> ARRAY['search_path=pg_catalog'])
+                  FROM pg_proc AS p
+                  JOIN pg_namespace AS n ON n.oid = p.pronamespace
+                  JOIN pg_roles AS owner_role ON owner_role.oid = p.proowner
+                 WHERE n.nspname = 'stonez_context_private'
+                   AND (p.oid = to_regprocedure('stonez_context_private.verify_bulk_import_context(text)')
+                     OR p.oid = to_regprocedure('stonez_context_private.current_worker_school_id()')
+                     OR p.oid = to_regprocedure('stonez_context_private.current_worker_initiator_id()')
+                     OR p.oid = to_regprocedure('stonez_context_private.current_worker_job_id()')
+                     OR p.oid = to_regprocedure('stonez_context_private.is_eligible_processing_login()'))
+            ) AS verifier_functions_safe,
+            (
+                NOT EXISTS (
+                    SELECT 1
+                      FROM pg_proc AS p
+                      JOIN pg_namespace AS n ON n.oid = p.pronamespace
+                      CROSS JOIN LATERAL aclexplode(
+                          COALESCE(p.proacl, acldefault('f', p.proowner))
+                      ) AS privilege
+                     WHERE n.nspname = 'stonez_context_private'
+                       AND privilege.grantee = 0
+                       AND privilege.privilege_type = 'EXECUTE'
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                      FROM pg_proc AS p
+                      JOIN pg_namespace AS n ON n.oid = p.pronamespace
+                     WHERE n.nspname = 'stonez_context_private'
+                       AND (
+                           has_function_privilege('stonez_bulk_worker_processing', p.oid, 'EXECUTE')
+                               IS DISTINCT FROM (p.oid = ANY(ARRAY[
+                                   to_regprocedure('stonez_context_private.is_eligible_processing_login()'),
+                                   to_regprocedure('stonez_context_private.verify_bulk_import_context(text)'),
+                                   to_regprocedure('stonez_context_private.current_worker_school_id()'),
+                                   to_regprocedure('stonez_context_private.current_worker_initiator_id()'),
+                                   to_regprocedure('stonez_context_private.current_worker_job_id()'),
+                                   to_regprocedure('stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)'),
+                                   to_regprocedure('stonez_context_private.claim_account_setup_notification()'),
+                                   to_regprocedure('stonez_context_private.complete_account_setup_notification(uuid,uuid,text)'),
+                                   to_regprocedure('stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)'),
+                                   to_regprocedure('stonez_context_private.account_setup_notification_counts()')
+                               ]::oid[]))
+                           OR has_function_privilege('stonez_bulk_context_key_admin', p.oid, 'EXECUTE')
+                               IS DISTINCT FROM (p.oid = ANY(ARRAY[
+                                   to_regprocedure('stonez_context_private.register_verification_key(text,bytea,timestamptz,timestamptz)'),
+                                   to_regprocedure('stonez_context_private.retire_verification_key(text,timestamptz)'),
+                                   to_regprocedure('stonez_context_private.revoke_verification_key(text)'),
+                                   to_regprocedure('stonez_context_private.prune_expired_contexts()')
+                               ]::oid[]))
+                       )
+                )
+            ) AS function_acls_exact,
             EXISTS (
                 SELECT 1
                   FROM pg_extension AS extension
@@ -467,7 +525,8 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
        ready.VerifierReadPolicy != 1 || ready.VerifierLockPolicy != 1 ||
        ready.WorkerSelectPolicies != 9 || ready.WorkerInsertPolicies != 6 ||
        !ready.PolicyExpressionsExact || !ready.WorkerPrivilegesExact ||
-       !ready.OutboxFunctions || !ready.OutboxDirectAccessDenied {
+       !ready.OutboxFunctions || !ready.OutboxDirectAccessDenied ||
+       !ready.VerifierFunctionsSafe || !ready.FunctionACLsExact {
         return fmt.Errorf("signed bulk import verifier or required worker RLS policies are incomplete: %+v", ready)
     }
     return nil

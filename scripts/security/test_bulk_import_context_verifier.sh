@@ -104,6 +104,33 @@ SQL
 done
 
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_context_verifier.sql
+
+# Future functions created by the verifier owner must inherit the hardened
+# default ACL, not merely rely on the installer's one-time REVOKE ALL.
+psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'
+SET ROLE stonez_bulk_context_owner;
+CREATE FUNCTION stonez_context_private.default_acl_probe()
+RETURNS integer LANGUAGE sql AS 'SELECT 1';
+RESET ROLE;
+DO $default_acl$
+DECLARE
+    v_function oid := 'stonez_context_private.default_acl_probe()'::regprocedure;
+BEGIN
+    IF EXISTS (
+        SELECT 1
+          FROM pg_proc AS p
+          CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl, acldefault('f',p.proowner))) AS privilege
+         WHERE p.oid=v_function
+           AND privilege.grantee=0
+           AND privilege.privilege_type='EXECUTE'
+    ) THEN
+        RAISE EXCEPTION 'PUBLIC can execute a function created after verifier installation';
+    END IF;
+END
+$default_acl$;
+DROP FUNCTION stonez_context_private.default_acl_probe();
+SQL
+
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_context_worker_policies.sql
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_account_setup_outbox.sql
 psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'

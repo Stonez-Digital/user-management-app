@@ -54,6 +54,8 @@ jobs:
 
       - name: Install dependencies
         run: npm install --ignore-scripts
+      - name: Picomatch ReDoS regression tests
+        run: npm run test:picomatch-security
 
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high

@@ -314,7 +314,13 @@ func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T)
 		t.Fatalf("connect as isolated queue-claim login: %v", err)
 	}
 	claimSQL, err := claimDB.DB()
-	if err != nil { t.Fatalf("get queue-claim SQL connection: %v", err) }
+	if err != nil {
+		_ = admin.Exec("REVOKE " + claimRole + " FROM " + claimLogin).Error
+		_ = admin.Exec("DROP OWNED BY " + claimLogin).Error
+		_ = admin.Exec("DROP ROLE IF EXISTS " + claimLogin).Error
+		_ = adminSQL.Close()
+		t.Fatalf("get queue-claim SQL connection: %v", err)
+	}
 	t.Cleanup(func() {
 		_ = claimSQL.Close()
 		_ = admin.Exec("REVOKE " + claimRole + " FROM " + claimLogin).Error

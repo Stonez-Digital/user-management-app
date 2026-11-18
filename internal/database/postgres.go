@@ -134,7 +134,7 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
         WorkerGroupSafe bool
         EligibilityFunction bool
         VerifierFunctionsSafe bool
-        FunctionACLsExact bool
+        FunctionACLsExact bool `gorm:"column:function_acls_exact"`
         QueueRLS bool
         WorkerTableRLSCount int
         PublicPermissivePolicyCount int

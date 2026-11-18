@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"errors"
 	"net/http"
@@ -71,9 +72,16 @@ func (m *CredentialMailer) Enabled() bool {
 // SendAccountSetupNotice never includes a password or reset token. The
 // recipient starts the existing password-reset flow from the portal login.
 func (m *CredentialMailer) SendAccountSetupNotice(name, email, role, eventID string) error {
-	if !m.Enabled() { return fmt.Errorf("account-setup email is not configured") }
+	_, err := m.SendAccountSetupNoticeWithResult(name, email, role, eventID)
+	return err
+}
+
+// SendAccountSetupNoticeWithResult returns the provider message ID when one
+// is supplied. SMTP transports intentionally return an empty identifier.
+func (m *CredentialMailer) SendAccountSetupNoticeWithResult(name, email, role, eventID string) (string, error) {
+	if !m.Enabled() { return "", fmt.Errorf("account-setup email is not configured") }
 	if strings.TrimSpace(email) == "" || strings.TrimSpace(eventID) == "" {
-		return fmt.Errorf("account-setup recipient and event ID are required")
+		return "", fmt.Errorf("account-setup recipient and event ID are required")
 	}
 	greeting := strings.TrimSpace(name)
 	if greeting == "" { greeting = "there" }
@@ -83,12 +91,12 @@ func (m *CredentialMailer) SendAccountSetupNotice(name, email, role, eventID str
 		greeting, role, email, m.loginURL,
 	)
 	if m.resendAPIKey != "" {
-		return m.sendViaResendWithIdempotency(email, subject, body, "stonez-account-setup-"+eventID)
+		return m.sendViaResendWithIdempotencyResult(email, subject, body, "stonez-account-setup-"+eventID)
 	}
 	if strings.EqualFold(m.host, "smtp.resend.com") {
-		return fmt.Errorf("Resend API key is missing; set RESEND_API_KEY or the existing SMTP_PASSWORD")
+		return "", fmt.Errorf("Resend API key is missing; set RESEND_API_KEY or the existing SMTP_PASSWORD")
 	}
-	return m.send(email, subject, body)
+	return "", m.send(email, subject, body)
 }
 
 // BuildPasswordResetURL adds the one-time token without discarding existing URL parameters.
@@ -129,7 +137,12 @@ func (m *CredentialMailer) sendViaResend(email, subject, body string) error {
 }
 
 func (m *CredentialMailer) sendViaResendWithIdempotency(email, subject, body, idempotencyKey string) error {
-	if strings.ContainsAny(email, "\r\n") { return fmt.Errorf("invalid recipient email") }
+	_, err := m.sendViaResendWithIdempotencyResult(email, subject, body, idempotencyKey)
+	return err
+}
+
+func (m *CredentialMailer) sendViaResendWithIdempotencyResult(email, subject, body, idempotencyKey string) (string, error) {
+	if strings.ContainsAny(email, "\r\n") { return "", fmt.Errorf("invalid recipient email") }
 	payload := struct {
 		From string `json:"from"`
 		To []string `json:"to"`
@@ -137,26 +150,27 @@ func (m *CredentialMailer) sendViaResendWithIdempotency(email, subject, body, id
 		Text string `json:"text"`
 	}{From: m.from, To: []string{email}, Subject: subject, Text: body}
 	encoded, err := json.Marshal(payload)
-	if err != nil { return fmt.Errorf("encode Resend email: %w", err) }
+	if err != nil { return "", fmt.Errorf("encode Resend email: %w", err) }
 	endpoint := m.resendAPIURL
 	if endpoint == "" { endpoint = resendEmailsEndpoint }
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded))
-	if err != nil { return fmt.Errorf("create Resend request: %w", err) }
+	if err != nil { return "", fmt.Errorf("create Resend request: %w", err) }
 	req.Header.Set("Authorization", "Bearer "+m.resendAPIKey)
 	req.Header.Set("Content-Type", "application/json")
 	if idempotencyKey != "" { req.Header.Set("Idempotency-Key", idempotencyKey) }
 	client := m.httpClient
 	if client == nil { client = &http.Client{Timeout: 12*time.Second} }
 	resp, err := client.Do(req)
-	if err != nil { return fmt.Errorf("Resend API request failed: %w", err) }
+	if err != nil { return "", fmt.Errorf("Resend API request failed: %w", err) }
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		_ = resp.Body.Close()
-		return &providerHTTPError{statusCode: resp.StatusCode}
+		return "", &providerHTTPError{statusCode: resp.StatusCode}
 	}
-	return nil
+	var response struct { ID string `json:"id"` }
+	_ = json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&response)
+	return strings.TrimSpace(response.ID), nil
 }
 
 func (m *CredentialMailer) send(email, subject, body string) error {

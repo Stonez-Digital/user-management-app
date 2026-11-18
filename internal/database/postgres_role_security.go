@@ -93,6 +93,7 @@ type BulkImportClaimRoleStatus struct {
     IsQueueOwnerMember bool `gorm:"column:is_queue_owner_member"`
     CanExecuteClaim bool `gorm:"column:can_execute_claim"`
     HasPublicTablePrivileges bool `gorm:"column:has_public_table_privileges"`
+    HasPublicColumnPrivileges bool `gorm:"column:has_public_column_privileges"`
     HasPublicSequencePrivileges bool `gorm:"column:has_public_sequence_privileges"`
     HasUnexpectedMembership bool `gorm:"column:has_unexpected_membership"`
     CurrentRoleMatchesSession bool `gorm:"column:current_role_matches_session"`
@@ -161,6 +162,16 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimRole, apiRuntimeRole, queu
                 SELECT 1 FROM pg_class AS relation
                 JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
                 WHERE namespace.nspname = ?::name
+                  AND relation.relkind IN ('r','p','v','m')
+                  AND (has_any_column_privilege(session_user, relation.oid, 'SELECT')
+                    OR has_any_column_privilege(session_user, relation.oid, 'INSERT')
+                    OR has_any_column_privilege(session_user, relation.oid, 'UPDATE')
+                    OR has_any_column_privilege(session_user, relation.oid, 'REFERENCES'))
+            ) AS has_public_column_privileges,
+            EXISTS (
+                SELECT 1 FROM pg_class AS relation
+                JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+                WHERE namespace.nspname = ?::name
                   AND relation.relkind = 'S'
                   AND (has_sequence_privilege(session_user, relation.oid, 'USAGE')
                     OR has_sequence_privilege(session_user, relation.oid, 'SELECT')
@@ -175,7 +186,7 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimRole, apiRuntimeRole, queu
         FROM pg_roles AS role
         WHERE role.rolname = session_user
     `, claimRole, claimRole, claimRole, apiRuntimeRole, queueOwnerRole, claimFunction,
-        internalSchema, internalSchema, publicSchema, publicSchema, publicSchema, claimRole).Scan(&status).Error
+        internalSchema, internalSchema, publicSchema, publicSchema, publicSchema, publicSchema, claimRole).Scan(&status).Error
     if err != nil {
         return fmt.Errorf("inspect bulk import claim role: %w", err)
     }
@@ -184,7 +195,7 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimRole, apiRuntimeRole, queu
         !status.IsClaimMember || !status.IsClaimEffective || status.CanSetClaimRole ||
         status.IsAPIRuntimeMember || status.IsQueueOwnerMember || !status.CanExecuteClaim ||
         !status.HasInternalSchemaUsage || status.CanCreateInternalSchema || status.CanCreatePublicSchema ||
-        status.HasPublicTablePrivileges ||
+        status.HasPublicTablePrivileges || status.HasPublicColumnPrivileges ||
         status.HasPublicSequencePrivileges || status.HasUnexpectedMembership ||
         !status.CurrentRoleMatchesSession {
         return fmt.Errorf("bulk import claim connection role %q does not satisfy the dedicated queue-claim boundary", status.SessionRole)

@@ -29,7 +29,7 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/usersdb_test?sslmode=disable
       BULK_QUEUE_SCRIPT_TEST_DATABASE_URL: postgres://bq_script_runner:queue_script_runner_ci_password@localhost:5432/usersdb_test?sslmode=disable
-      BULK_QUEUE_SCRIPT_TEST_RUNTIME_URL: postgres://stonez_bulk_worker:queue_script_worker_ci_password@localhost:5432/usersdb_test?sslmode=disable
+      BULK_QUEUE_SCRIPT_TEST_CLAIM_URL: postgres://stonez_bulk_worker:queue_script_worker_ci_password@localhost:5432/usersdb_test?sslmode=disable
       BULK_QUEUE_SCRIPT_TEST_OUTSIDER_URL: postgres://bq_script_outsider:queue_script_outsider_ci_password@localhost:5432/usersdb_test?sslmode=disable
       BULK_QUEUE_SCRIPT_TEST_DATABASE: usersdb_test
     steps:

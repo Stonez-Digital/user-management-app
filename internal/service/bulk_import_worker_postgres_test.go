@@ -151,7 +151,7 @@ func openBulkWorkerPostgres(t *testing.T) (*gorm.DB, string, string, string, str
 	if err := admin.Exec("GRANT USAGE ON SCHEMA " + schema + " TO " + otherRole).Error; err != nil {
 		t.Fatalf("grant schema usage to unrelated test role: %v", err)
 	}
-	if err := admin.Exec("CREATE TABLE " + schema + ".billing_plans (id integer PRIMARY KEY)").Error; err != nil {
+	if err := admin.Exec("CREATE TABLE IF NOT EXISTS " + schema + ".billing_plans (id integer PRIMARY KEY)").Error; err != nil {
 		t.Fatalf("create API-only billing table: %v", err)
 	}
 	if err := admin.Exec("GRANT SELECT ON TABLE " + schema + ".billing_plans TO " + apiRole).Error; err != nil {

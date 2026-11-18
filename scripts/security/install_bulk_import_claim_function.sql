@@ -214,7 +214,7 @@ BEGIN
            AND NOT pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')
            AND NOT pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER')
     ) THEN
-        RAISE EXCEPTION 'caller is not an authorized non-privileged API runtime login';
+        RAISE EXCEPTION 'caller is not an authorized non-privileged queue-claim login';
     END IF;
 
     IF p_worker_id IS NULL THEN

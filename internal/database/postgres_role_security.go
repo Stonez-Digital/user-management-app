@@ -81,9 +81,13 @@ type BulkImportClaimRoleStatus struct {
     BypassRLS bool `gorm:"column:bypass_rls"`
     CanCreateDB bool `gorm:"column:can_create_db"`
     CanCreateRole bool `gorm:"column:can_create_role"`
+    CanReplicate bool `gorm:"column:can_replicate"`
+    Inherits bool `gorm:"column:inherits"`
     IsClaimMember bool `gorm:"column:is_claim_member"`
     IsClaimEffective bool `gorm:"column:is_claim_effective"`
     CanSetClaimRole bool `gorm:"column:can_set_claim_role"`
+    HasInternalSchemaUsage bool `gorm:"column:has_internal_schema_usage"`
+    CanCreateInternalSchema bool `gorm:"column:can_create_internal_schema"`
     IsAPIRuntimeMember bool `gorm:"column:is_api_runtime_member"`
     IsQueueOwnerMember bool `gorm:"column:is_queue_owner_member"`
     CanExecuteClaim bool `gorm:"column:can_execute_claim"`
@@ -133,6 +137,8 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimRole, apiRuntimeRole, queu
             pg_has_role(session_user, ?::name, 'MEMBER') AS is_api_runtime_member,
             pg_has_role(session_user, ?::name, 'MEMBER') AS is_queue_owner_member,
             has_function_privilege(session_user, ?::regprocedure, 'EXECUTE') AS can_execute_claim,
+            has_schema_privilege(session_user, 'stonez_internal', 'USAGE') AS has_internal_schema_usage,
+            has_schema_privilege(session_user, 'stonez_internal', 'CREATE') AS can_create_internal_schema,
             EXISTS (
                 SELECT 1 FROM pg_class AS relation
                 JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
@@ -168,9 +174,10 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimRole, apiRuntimeRole, queu
         return fmt.Errorf("inspect bulk import claim role: %w", err)
     }
     if status.SessionRole == "" || !status.IsLogin || status.IsSuperuser || status.BypassRLS ||
-        status.CanCreateDB || status.CanCreateRole || !status.IsClaimMember ||
-        !status.IsClaimEffective || status.CanSetClaimRole || status.IsAPIRuntimeMember ||
-        status.IsQueueOwnerMember || !status.CanExecuteClaim || status.HasPublicTablePrivileges ||
+        status.CanCreateDB || status.CanCreateRole || status.CanReplicate || !status.Inherits ||
+        !status.IsClaimMember || !status.IsClaimEffective || status.CanSetClaimRole ||
+        status.IsAPIRuntimeMember || status.IsQueueOwnerMember || !status.CanExecuteClaim ||
+        !status.HasInternalSchemaUsage || status.CanCreateInternalSchema || status.HasPublicTablePrivileges ||
         status.HasPublicSequencePrivileges || status.HasUnexpectedMembership ||
         !status.CurrentRoleMatchesSession {
         return fmt.Errorf("bulk import claim connection role %q does not satisfy the dedicated queue-claim boundary", status.SessionRole)

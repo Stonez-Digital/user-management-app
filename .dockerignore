@@ -1,0 +1,11 @@
+.git
+.github
+frontend/node_modules
+frontend/.next
+frontend/dist
+.wrangler
+*.db
+.env
+.env.*
+!.env.example
+README.md

@@ -1,0 +1,43 @@
+{
+  "name": "school-management-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "dev:windows": "powershell -ExecutionPolicy Bypass -File ../scripts/dev.ps1",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
+    "test:dashboard-context": "node ../scripts/dashboard-academic-context-regression.mjs",
+    "test:role-access": "node ../scripts/dashboard-role-access-regression.mjs",
+    "test:careerpath": "node ../scripts/careerpath-v2-regression.mjs",
+    "test:school-domains": "node --test ../scripts/school-domain-routing.test.mjs",
+    "test:auth-refresh": "node ../scripts/auth-fetch-regression.mjs",
+    "test:api-client": "node --test ../scripts/api-client-regression.test.mjs",
+    "test:backend-proxy": "node --test tests/backend-proxy.test.mjs",
+    "test:picomatch-security": "node --test tests/picomatch-redos.test.mjs"
+  },
+  "dependencies": {
+    "next": "16.4.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-server-dom-webpack": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "typescript": "^5.0.0",
+    "wrangler": "^4.132.0",
+    "@opennextjs/cloudflare": "1.20.17",
+    "picomatch": "file:vendor/picomatch"
+  },
+  "overrides": {
+    "fflate": "0.8.3",
+    "undici": "7.30.1",
+    "picomatch": "$picomatch"
+  }
+}

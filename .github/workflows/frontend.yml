@@ -1,0 +1,61 @@
+name: Frontend Checks
+
+on:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - "scripts/school-domain-routing.test.mjs"
+      - "scripts/auth-fetch-regression.mjs"
+      - "scripts/api-client-regression.test.mjs"
+      - "frontend/tests/backend-proxy.test.mjs"
+      - ".github/workflows/frontend.yml"
+      - ".github/workflows/cloudflare-deploy.yml"
+  push:
+    branches: [main, security/bulk-worker-signed-context-verifier]
+    paths:
+      - "frontend/**"
+      - "scripts/school-domain-routing.test.mjs"
+      - "scripts/auth-fetch-regression.mjs"
+      - "scripts/api-client-regression.test.mjs"
+      - ".github/workflows/frontend.yml"
+      - ".github/workflows/cloudflare-deploy.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package.json
+      - name: Install dependencies
+        run: npm install
+      - name: School-domain routing regression checks
+        run: npm run test:school-domains
+      - name: Dashboard academic-context regression checks
+        run: npm run test:dashboard-context
+      - name: Role-aware dashboard access regression checks
+        run: npm run test:role-access
+      - name: Race-safe authentication refresh regression checks
+        run: npm run test:auth-refresh
+      - name: Shared API client regression checks
+        run: npm run test:api-client
+      - name: Multipart backend proxy regression checks
+        run: npm run test:backend-proxy
+      - name: Picomatch repeated-extglob ReDoS regression checks
+        run: npm run test:picomatch-security
+      - name: Production build
+        run: npm run build
+      - name: Cloudflare OpenNext compatibility build
+        run: npx opennextjs-cloudflare build

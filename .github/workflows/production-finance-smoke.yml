@@ -1,0 +1,35 @@
+name: Production Finance Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  finance-smoke:
+    name: Transactional Production Finance Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate production database secret
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          if [ -z "$PRODUCTION_DATABASE_URL" ]; then
+            echo "PRODUCTION_DATABASE_URL is not configured."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+
+      - name: Run transactional finance smoke
+        env:
+          FINANCE_SMOKE_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: go run ./cmd/finance-smoke

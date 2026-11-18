@@ -1,0 +1,217 @@
+package database
+
+import (
+    "os"
+    "strings"
+    "testing"
+
+    "github.com/google/uuid"
+    "github.com/onoja217/users-management-app/internal/models"
+    "gorm.io/driver/postgres"
+    "gorm.io/gorm"
+)
+
+func openTenantIntegrityPostgres(t *testing.T) *gorm.DB {
+    t.Helper()
+    dsn := strings.TrimSpace(os.Getenv("TEST_DATABASE_URL"))
+    if dsn == "" {
+        t.Skip("TEST_DATABASE_URL is not configured")
+    }
+    db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+    if err != nil {
+        t.Fatal(err)
+    }
+    sqlDB, err := db.DB()
+    if err != nil {
+        t.Fatal(err)
+    }
+    t.Cleanup(func() { _ = sqlDB.Close() })
+    return db
+}
+
+func TestPostgresTenantIntegrityMigration(t *testing.T) {
+    db := openTenantIntegrityPostgres(t)
+
+    // Verify the migration path is clean and idempotent on a fresh PostgreSQL database.
+    if err := Migrate(db); err != nil {
+        t.Fatal(err)
+    }
+    if err := Migrate(db); err != nil {
+        t.Fatal(err)
+    }
+
+    var migrationCount int64
+    if err := db.Model(&Migration{}).Count(&migrationCount).Error; err != nil {
+        t.Fatal(err)
+    }
+    if migrationCount != 48 {
+        t.Fatalf("expected 48 migrations, got %d", migrationCount)
+    }
+
+    // Public Data API roles must not retain table privileges. This specifically
+    // catches TRUNCATE, which is not constrained by row-level security.
+    applicationTables := []string{
+        "academic_sessions", "announcements", "assessment_results", "assessments",
+        "attendance_records", "audit_logs", "billing_plans", "blog_categories", "blog_posts",
+        "bulk_import_jobs", "career_path_attempts", "class_subjects", "fee_items",
+        "gallery_albums", "gallery_images", "guardian_relationships", "invoice_lines",
+        "invoices", "migrations", "national_curricula", "national_curriculum_classes",
+        "national_curriculum_levels", "national_curriculum_subjects", "notifications",
+        "parent_profiles", "password_reset_tokens", "payments", "refresh_tokens",
+        "role_change_audits", "school_advertisements", "school_classes", "school_enquiries",
+        "school_subscriptions", "schools", "sections", "sessions", "student_enrollments",
+        "students", "subjects", "subscription_events", "teacher_assignments",
+        "teacher_profiles", "terms", "timetable_entries", "users",
+    }
+    for _, role := range []string{"anon", "authenticated"} {
+        var roleExists bool
+        if err := db.Raw("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)", role).Scan(&roleExists).Error; err != nil {
+            t.Fatal(err)
+        }
+        if !roleExists { continue }
+        for _, table := range applicationTables {
+            for _, privilege := range []string{"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"} {
+                var hasPrivilege bool
+                if err := db.Raw("SELECT has_table_privilege(?, 'public.' || ?, ?)", role, table, privilege).Scan(&hasPrivilege).Error; err != nil {
+                    t.Fatalf("check %s %s privilege on %s: %v", role, privilege, table, err)
+                }
+                if hasPrivilege {
+                    t.Fatalf("expected %s to have no %s privilege on public.%s", role, privilege, table)
+                }
+            }
+        }
+    }
+    var slugIndexDef string
+    if err := db.Raw("SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uq_schools_slug'").Scan(&slugIndexDef).Error; err != nil { t.Fatal(err) }
+    if !strings.Contains(strings.ToLower(slugIndexDef), "lower(") && strings.Contains(strings.ToLower(slugIndexDef), "slug") { t.Fatalf("expected case-insensitive school slug index, got %q", slugIndexDef) }
+
+    var classIndexDef string
+    if err := db.Raw("SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uq_school_class_name'").Scan(&classIndexDef).Error; err != nil { t.Fatal(err) }
+    if !strings.Contains(strings.ToLower(classIndexDef), "lower(") && strings.Contains(strings.ToLower(classIndexDef), "name") || !strings.Contains(strings.ToLower(classIndexDef), "school_id") { t.Fatalf("expected school-scoped case-insensitive class-name index, got %q", classIndexDef) }
+
+    var activeEnrollmentIndex string
+    if err := db.Raw("SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uq_active_student_enrollment'").Scan(&activeEnrollmentIndex).Error; err != nil { t.Fatal(err) }
+    lowerIndex := strings.ToLower(activeEnrollmentIndex)
+    if !strings.Contains(lowerIndex, "where") || !strings.Contains(lowerIndex, "active") || !strings.Contains(lowerIndex, "school_id") || !strings.Contains(lowerIndex, "student_id") { t.Fatalf("expected one-active-enrollment index, got %q", activeEnrollmentIndex) }
+
+    var nullable int64
+    if err := db.Raw(`
+        SELECT COUNT(*)
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND column_name = 'school_id'
+          AND is_nullable = 'YES'
+          AND table_name IN (
+            'students','academic_sessions','terms','school_classes','sections',
+            'subjects','student_enrollments','attendance_records',
+            'teacher_assignments','assessments','assessment_results',
+            'fee_items','invoices','invoice_lines','payments',
+            'timetable_entries','guardian_relationships','announcements',
+            'notifications','class_subjects'
+          )
+    `).Scan(&nullable).Error; err != nil {
+        t.Fatal(err)
+    }
+    if nullable != 0 {
+        t.Fatalf("expected all tenant-owned school_id columns to be NOT NULL, found %d nullable columns", nullable)
+    }
+
+    var fkCount int64
+    if err := db.Raw(`
+        SELECT COUNT(*)
+        FROM information_schema.table_constraints
+        WHERE constraint_schema = current_schema()
+          AND constraint_type = 'FOREIGN KEY'
+          AND constraint_name LIKE '%_school_fk'
+    `).Scan(&fkCount).Error; err != nil {
+        t.Fatal(err)
+    }
+    if fkCount < 37 {
+        t.Fatalf("expected composite tenant foreign keys, found %d", fkCount)
+    }
+
+    var classSubjectRLSEnabled bool
+    if err := db.Raw("SELECT relrowsecurity FROM pg_class WHERE oid = 'class_subjects'::regclass").Scan(&classSubjectRLSEnabled).Error; err != nil { t.Fatal(err) }
+    if !classSubjectRLSEnabled { t.Fatal("expected class_subjects RLS to be enabled") }
+    var curriculumCount int64
+    if err := db.Raw("SELECT COUNT(*) FROM national_curricula WHERE code IN ('NG-NERDC-BEC-2025','NG-NERDC-SSEC-2025')").Scan(&curriculumCount).Error; err != nil { t.Fatal(err) }
+    if curriculumCount != 2 { t.Fatalf("expected two seeded Nigeria curriculum catalogues, got %d", curriculumCount) }
+    var classCount int64
+    if err := db.Raw("SELECT COUNT(*) FROM national_curriculum_classes").Scan(&classCount).Error; err != nil { t.Fatal(err) }
+    if classCount != 12 { t.Fatalf("expected 12 seeded national curriculum classes, got %d", classCount) }
+    var subjectCount int64
+    if err := db.Raw("SELECT COUNT(*) FROM national_curriculum_subjects").Scan(&subjectCount).Error; err != nil { t.Fatal(err) }
+    if subjectCount != 243 { t.Fatalf("expected 243 seeded national curriculum subject rules, got %d", subjectCount) }
+    for _,table := range []string{"national_curricula","national_curriculum_levels","national_curriculum_classes","national_curriculum_subjects"} {
+        var enabled bool
+        if err := db.Raw("SELECT relrowsecurity FROM pg_class WHERE oid = ?::regclass", table).Scan(&enabled).Error; err != nil { t.Fatal(err) }
+        if !enabled { t.Fatalf("expected %s RLS to be enabled", table) }
+    }
+
+    var classSubjectIDDefault string
+    if err := db.Raw("SELECT COALESCE(column_default,'') FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'class_subjects' AND column_name = 'id'").Scan(&classSubjectIDDefault).Error; err != nil { t.Fatal(err) }
+    if !strings.Contains(strings.ToLower(classSubjectIDDefault), "gen_random_uuid") { t.Fatalf("expected class_subjects.id UUID default, got %q", classSubjectIDDefault) }
+    var classSubjectIndexDef string
+    if err := db.Raw("SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uq_school_class_subject'").Scan(&classSubjectIndexDef).Error; err != nil { t.Fatal(err) }
+    classSubjectIndex := strings.ToLower(classSubjectIndexDef)
+    if !strings.Contains(classSubjectIndex, "school_id") || !strings.Contains(classSubjectIndex, "academic_session_id") || !strings.Contains(classSubjectIndex, "class_id") || !strings.Contains(classSubjectIndex, "subject_id") || !strings.Contains(classSubjectIndex, "curriculum_version") {
+        t.Fatalf("expected school/session/class/subject/curriculum unique index, got %q", classSubjectIndexDef)
+    }
+
+    var legacyIndexCount int64
+    if err := db.Raw(`
+        SELECT COUNT(*)
+        FROM pg_indexes
+        WHERE schemaname = current_schema()
+          AND indexname IN ('subjects_code_key','subjects_name_key')
+    `).Scan(&legacyIndexCount).Error; err != nil {
+        t.Fatal(err)
+    }
+    if legacyIndexCount != 0 {
+        t.Fatalf("expected legacy global subject indexes to be removed, found %d", legacyIndexCount)
+    }
+
+    var first, second models.School
+    if err := db.Where("code = ?", "DEFAULT").First(&first).Error; err != nil {
+        t.Fatal(err)
+    }
+    second = models.School{Name: "Integrity Test School", Code: "INTEGRITY-" + strings.ToUpper(uuid.NewString())}
+    if err := db.Create(&second).Error; err != nil {
+        t.Fatal(err)
+    }
+
+    user := models.User{
+        SchoolID: &first.ID,
+        Name: "Tenant Integrity User",
+        Email: "tenant-integrity-" + uuid.NewString() + "@example.com",
+        Role: "student",
+        Active: true,
+    }
+    if err := db.Create(&user).Error; err != nil {
+        t.Fatal(err)
+    }
+
+    // The simple user_id FK is valid, but the composite tenant FK must reject
+    // pairing a School B student with a School A user.
+    crossSchool := models.Student{
+        SchoolID:       second.ID,
+        UserID:          user.ID,
+        AdmissionNumber: "CROSS-" + uuid.NewString(),
+    }
+    if err := db.Create(&crossSchool).Error; err == nil {
+        t.Fatal("expected cross-school student/user relationship to be rejected")
+    }
+
+    valid := models.Student{
+        SchoolID:       first.ID,
+        UserID:          user.ID,
+        AdmissionNumber: "VALID-" + uuid.NewString(),
+    }
+    if err := db.Create(&valid).Error; err != nil {
+        t.Fatalf("expected same-school relationship to succeed: %v", err)
+    }
+
+    if err := db.Delete(&first).Error; err == nil {
+        t.Fatal("expected deleting a school with tenant-owned rows to be restricted")
+    }
+}

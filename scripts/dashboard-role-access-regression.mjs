@@ -1,0 +1,74 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { canRoleAccessPath } from "../frontend/lib/dashboard-access.mjs";
+
+const studentAllowed = [
+  "/dashboard",
+  "/dashboard/student",
+  "/dashboard/student/careerpath",
+  "/dashboard/student/report-card",
+  "/dashboard/notifications",
+];
+const studentDenied = [
+  "/dashboard/students",
+  "/dashboard/enrollments",
+  "/dashboard/teacher-assignments",
+  "/dashboard/users",
+  "/dashboard/onboarding",
+  "/dashboard/operations",
+  "/dashboard/audit",
+  "/dashboard/finance",
+  "/dashboard/attendance",
+  "/dashboard/assessments",
+  "/dashboard/results",
+  "/dashboard/timetable",
+  "/dashboard/curriculum",
+  "/dashboard/content",
+];
+
+for (const path of studentAllowed) assert.equal(canRoleAccessPath("student", path), true, `student should access ${path}`);
+for (const path of studentDenied) assert.equal(canRoleAccessPath("student", path), false, `student must not access ${path}`);
+
+assert.equal(canRoleAccessPath("teacher", "/dashboard/teacher"), true);
+assert.equal(canRoleAccessPath("teacher", "/dashboard/attendance"), true);
+assert.equal(canRoleAccessPath("teacher", "/dashboard/users"), false);
+assert.equal(canRoleAccessPath("teacher", "/dashboard/content"), false);
+assert.equal(canRoleAccessPath("parent", "/dashboard/parent"), true);
+assert.equal(canRoleAccessPath("parent", "/dashboard/enrollments"), false);
+assert.equal(canRoleAccessPath("accountant", "/dashboard/finance"), true);
+assert.equal(canRoleAccessPath("staff", "/dashboard/operations"), true);
+assert.equal(canRoleAccessPath("unknown", "/dashboard"), false);
+assert.equal(canRoleAccessPath("school_admin", "/dashboard/users"), true);
+assert.equal(canRoleAccessPath("school_admin", "/dashboard/content"), true);
+assert.equal(canRoleAccessPath("super_admin", "/dashboard/audit"), true);
+
+const shell = await readFile(new URL("../frontend/components/role-access-shell.tsx", import.meta.url), "utf8");
+const dashboard = await readFile(new URL("../frontend/app/dashboard/page.tsx", import.meta.url), "utf8");
+const onboarding = await readFile(new URL("../frontend/app/dashboard/onboarding/page.tsx", import.meta.url), "utf8");
+const finance = await readFile(new URL("../frontend/app/dashboard/finance/page.tsx", import.meta.url), "utf8");
+
+assert.ok(dashboard.includes('["Add Student", "/dashboard/onboarding?role=student"'));
+assert.ok(dashboard.includes('["Add Teacher", "/dashboard/onboarding?role=teacher"'));
+assert.ok(dashboard.includes('["Add Parent", "/dashboard/onboarding?role=parent"'));
+assert.ok(onboarding.includes('new URLSearchParams(window.location.search).get("role")'));
+assert.ok(onboarding.includes('setPerson((current) => ({ ...current, role: requestedRole }))'));
+assert.ok(finance.includes("x.student?.user?.name"));
+assert.ok(!finance.includes("x.student?.last_name||x.student_id||x.id"));
+assert.ok(shell.includes('fetch("/backend/me"'));
+assert.ok(shell.includes("router.replace(landingPathForRole(role))"));
+assert.ok(shell.includes('label: "Blog & Gallery", href: "/dashboard/content"'));
+assert.ok(shell.includes("type NavGroup = { label: string; items: NavItem[] }"));
+assert.ok(shell.includes('label: "People"'));
+assert.ok(shell.includes('label: "Academics"'));
+assert.ok(shell.includes('label: "Examinations & Results"'));
+assert.ok(shell.includes('label: "Attendance & Operations"'));
+assert.ok(shell.includes('label: "Finance"'));
+assert.ok(shell.includes('label: "Communication"'));
+assert.ok(shell.includes('label: "Administration"'));
+assert.ok(shell.includes('className="dashboard-nav-group"'));
+assert.ok(shell.includes('aria-label="Workspace navigation"'));
+assert.ok(shell.includes('label: "Fees, Invoices & Payments", href: "/dashboard/finance"'));
+assert.ok(!shell.includes('href: "/dashboard/cbt"'));
+assert.ok(!shell.includes('href: "/dashboard/payroll"'));
+assert.ok(shell.includes("if (!ready)"));
+console.log("Role-aware dashboard access regression checks passed.");

@@ -1,0 +1,7 @@
+"use client";
+import {useEffect,useState} from "react";
+import Link from "next/link";
+type Log={id:string;actor_id:string;action:string;resource:string;resource_id:string;ip:string;created_at:string};
+export default function AuditPage(){const[logs,setLogs]=useState<Log[]>([]),[error,setError]=useState("");
+useEffect(()=>{const t=localStorage.getItem("access_token");fetch("/backend/admin/audit-logs",{headers:{Authorization:"Bearer "+t}}).then(async r=>{const d=await r.json();if(!r.ok)throw Error(d?.error?.message||d?.error||"Unable to load audit logs");setLogs(d.data||[])}).catch(e=>setError(e.message))},[]);
+return <div className="content standalone"><header className="topbar"><div><Link className="back" href="/dashboard">← Dashboard</Link><p className="eyebrow">SECURITY & GOVERNANCE</p><h1>Audit Logs</h1><p className="muted">Recent administrative and security activity.</p></div></header>{error&&<div className="error banner">{error}</div>}<div className="panel"><div className="table-wrap"><table><thead><tr><th>Time</th><th>Action</th><th>Resource</th><th>Actor</th><th>IP</th></tr></thead><tbody>{logs.map(l=><tr key={l.id}><td>{new Date(l.created_at).toLocaleString()}</td><td><strong>{l.action}</strong></td><td>{l.resource}{l.resource_id&&<small>{l.resource_id}</small>}</td><td><small>{l.actor_id||"system"}</small></td><td>{l.ip||"—"}</td></tr>)}</tbody></table>{!logs.length&&<div className="empty">No audit activity yet.</div>}</div></div></div>}

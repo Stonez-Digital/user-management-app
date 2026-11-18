@@ -1,0 +1,121 @@
+package service
+
+import(
+ "encoding/json"
+ "strings"
+ "testing"
+ "github.com/google/uuid"
+ "github.com/onoja217/users-management-app/internal/authz"
+ "gorm.io/driver/sqlite"
+ "gorm.io/gorm"
+ "github.com/onoja217/users-management-app/internal/models"
+)
+
+func bulkTestDB(t *testing.T)*gorm.DB{t.Helper();db,e:=gorm.Open(sqlite.Open("file:"+t.Name()+"-"+uuid.NewString()+"?mode=memory&cache=shared"),&gorm.Config{});if e!=nil{t.Fatal(e)};if e=db.AutoMigrate(&models.School{},&models.User{},&models.Student{},&models.StudentEnrollment{},&models.GuardianRelationship{},&models.AcademicSession{},&models.SchoolClass{},&models.Section{},&models.BulkImportJob{},&models.TeacherProfile{},&models.ParentProfile{});e!=nil{t.Fatal(e)};return db}
+
+func TestParseCSVAndValidateBulkStudents(t *testing.T){rows,e:=parseCSV(strings.NewReader("admission_number,first_name,last_name,email\nA-1,Jane,Doe,jane@example.com\nA-1,John,Doe,john@example.com\n"));if e!=nil||len(rows)!=2{t.Fatalf("parse: %v rows=%d",e,len(rows))};svc:=NewBulkImportService(bulkTestDB(t),nil);errs,valid:=svc.Validate(uuid.New(),uuid.New(),"students",rows);if len(errs)!=1||valid!=1{t.Fatalf("expected one duplicate error and one valid row, got errors=%d valid=%d",len(errs),valid)}}
+
+
+func TestRunPersistsSkippedCountForExistingStudent(t *testing.T) {
+ db:=bulkTestDB(t)
+ schoolID:=uuid.New()
+ actor:=uuid.New()
+ admission:="STU-001"
+ user:=models.User{ID:uuid.New(),Name:"Existing Student",Email:"existing@example.com",Role:"student",Active:true,SchoolID:&schoolID}
+ if e:=db.Create(&user).Error;e!=nil{t.Fatal(e)}
+ if e:=db.Create(&models.Student{ID:uuid.New(),SchoolID:schoolID,UserID:user.ID,AdmissionNumber:admission}).Error;e!=nil{t.Fatal(e)}
+ rows:=[]BulkRow{{"name":"Existing Student","email":"existing@example.com","admission_number":admission}}
+ rb,_:=json.Marshal(rows)
+ job:=models.BulkImportJob{ID:uuid.New(),SchoolID:schoolID,InitiatedBy:actor,Kind:"students",Status:models.BulkImportPending,Total:1,RowsJSON:string(rb)}
+ if e:=db.Create(&job).Error;e!=nil{t.Fatal(e)}
+ svc:=NewBulkImportService(db,nil)
+ svc.run(job)
+ var got models.BulkImportJob
+ if e:=db.First(&got,job.ID).Error;e!=nil{t.Fatal(e)}
+ if got.Skipped!=1||got.Created!=0||got.Failed!=0{t.Fatalf("expected skipped=1 created=0 failed=0, got skipped=%d created=%d failed=%d",got.Skipped,got.Created,got.Failed)}
+}
+
+
+func TestRunPersistsSkippedCountForExistingTeacher(t *testing.T) {
+ db:=bulkTestDB(t)
+ schoolID:=uuid.New()
+ actor:=uuid.New()
+ user:=models.User{ID:uuid.New(),Name:"Existing Teacher",Email:"teacher@example.com",Role:"teacher",Active:true,SchoolID:&schoolID}
+ if e:=db.Create(&user).Error;e!=nil{t.Fatal(e)}
+ if e:=db.Create(&models.TeacherProfile{ID:uuid.New(),SchoolID:schoolID,UserID:user.ID,StaffID:"T-001"}).Error;e!=nil{t.Fatal(e)}
+ rb,_:=json.Marshal([]BulkRow{{"name":"Existing Teacher","email":"teacher@example.com","staff_id":"T-001"}})
+ job:=models.BulkImportJob{ID:uuid.New(),SchoolID:schoolID,InitiatedBy:actor,Kind:"teachers",Status:models.BulkImportPending,Total:1,RowsJSON:string(rb)}
+ if e:=db.Create(&job).Error;e!=nil{t.Fatal(e)}
+ NewBulkImportService(db,nil).run(job)
+ var got models.BulkImportJob
+ if e:=db.First(&got,job.ID).Error;e!=nil{t.Fatal(e)}
+ if got.Skipped!=1||got.Created!=0||got.Failed!=0{t.Fatalf("expected skipped=1 created=0 failed=0, got skipped=%d created=%d failed=%d",got.Skipped,got.Created,got.Failed)}
+}
+
+func TestRunPersistsSkippedCountForExistingParent(t *testing.T) {
+ db:=bulkTestDB(t)
+ schoolID:=uuid.New()
+ actor:=uuid.New()
+ user:=models.User{ID:uuid.New(),Name:"Existing Parent",Email:"parent@example.com",Role:"parent",Active:true,SchoolID:&schoolID}
+ if e:=db.Create(&user).Error;e!=nil{t.Fatal(e)}
+ if e:=db.Create(&models.ParentProfile{ID:uuid.New(),SchoolID:schoolID,UserID:user.ID,ParentIdentifier:"P-001"}).Error;e!=nil{t.Fatal(e)}
+ rb,_:=json.Marshal([]BulkRow{{"name":"Existing Parent","email":"parent@example.com","parent_identifier":"P-001"}})
+ job:=models.BulkImportJob{ID:uuid.New(),SchoolID:schoolID,InitiatedBy:actor,Kind:"parents",Status:models.BulkImportPending,Total:1,RowsJSON:string(rb)}
+ if e:=db.Create(&job).Error;e!=nil{t.Fatal(e)}
+ NewBulkImportService(db,nil).run(job)
+ var got models.BulkImportJob
+ if e:=db.First(&got,job.ID).Error;e!=nil{t.Fatal(e)}
+ if got.Skipped!=1||got.Created!=0||got.Failed!=0{t.Fatalf("expected skipped=1 created=0 failed=0, got skipped=%d created=%d failed=%d",got.Skipped,got.Created,got.Failed)}
+}
+
+func TestBulkParentRepairsMissingProfileForExistingUser(t *testing.T) {
+ db:=bulkTestDB(t)
+ schoolID:=uuid.New()
+ actor:=uuid.New()
+ user:=models.User{ID:uuid.New(),Name:"Existing Parent",Email:"repair-parent@example.com",Role:"parent",Active:true,SchoolID:&schoolID}
+ if e:=db.Create(&user).Error;e!=nil{t.Fatal(e)}
+ rb,_:=json.Marshal([]BulkRow{{"name":"Existing Parent","email":"repair-parent@example.com","parent_identifier":"P-REPAIR","phone":"08000000000"}})
+ job:=models.BulkImportJob{ID:uuid.New(),SchoolID:schoolID,InitiatedBy:actor,Kind:"parents",Status:models.BulkImportPending,Total:1,RowsJSON:string(rb)}
+ if e:=db.Create(&job).Error;e!=nil{t.Fatal(e)}
+ NewBulkImportService(db,nil).run(job)
+ var profile models.ParentProfile
+ if e:=db.Where("user_id=? AND school_id=?",user.ID,schoolID).First(&profile).Error;e!=nil{t.Fatalf("expected missing parent profile to be repaired: %v",e)}
+ if profile.ParentIdentifier!="p-repair"||profile.Phone!="08000000000"{t.Fatalf("unexpected repaired profile: %+v",profile)}
+}
+
+func TestBulkCreateUserRejectsExistingUserWithDifferentRole(t *testing.T) {
+ db:=bulkTestDB(t)
+ schoolID:=uuid.New()
+ user:=models.User{ID:uuid.New(),Name:"Existing Student",Email:"role-conflict@example.com",Role:"student",Active:true,SchoolID:&schoolID}
+ if e:=db.Create(&user).Error;e!=nil{t.Fatal(e)}
+ svc:=NewBulkImportService(db,nil)
+ if _,_,_,e:=svc.createUser(db,schoolID,"Teacher","role-conflict@example.com",authz.RoleTeacher);e==nil||!strings.Contains(e.Error(),"role"){t.Fatalf("expected role mismatch rejection, got %v",e)}
+ var profiles int64
+ db.Model(&models.TeacherProfile{}).Where("user_id=?",user.ID).Count(&profiles)
+ if profiles!=0{t.Fatalf("expected no teacher profile, got %d",profiles)}
+}
+
+
+func TestBulkParentValidationAllowsIdentifierOrPhoneWithoutEmail(t *testing.T) {
+ svc:=&BulkImportService{}
+ schoolID:=uuid.New()
+ actor:=uuid.New()
+ cases:=[]BulkRow{
+  {"name":"Identifier Parent","parent_identifier":"P-001"},
+  {"name":"Phone Parent","phone":"08000000000"},
+ }
+ for i,row:=range cases {
+  errs,valid:=svc.Validate(schoolID,actor,"parents",[]BulkRow{row})
+  if len(errs)!=0||valid!=1{t.Fatalf("case %d: expected parent row without email to validate, got errors=%v valid=%d",i+1,errs,valid)}
+ }
+}
+
+func TestBulkParentRejectsDuplicateIdentifier(t *testing.T) {
+ db:=bulkTestDB(t);schoolID:=uuid.New();actor:=uuid.New()
+ existing:=models.User{ID:uuid.New(),Name:"Existing Parent",Email:"existing-parent@example.com",Role:"parent",Active:true,SchoolID:&schoolID};if e:=db.Create(&existing).Error;e!=nil{t.Fatal(e)}
+ if e:=db.Create(&models.ParentProfile{ID:uuid.New(),SchoolID:schoolID,UserID:existing.ID,ParentIdentifier:"p-010"}).Error;e!=nil{t.Fatal(e)}
+ rb,_:=json.Marshal([]BulkRow{{"name":"New Parent","email":"new-parent@example.com","parent_identifier":" P-010 "}})
+ job:=models.BulkImportJob{ID:uuid.New(),SchoolID:schoolID,InitiatedBy:actor,Kind:"parents",Status:models.BulkImportPending,Total:1,RowsJSON:string(rb)};if e:=db.Create(&job).Error;e!=nil{t.Fatal(e)}
+ NewBulkImportService(db,nil).run(job);var got models.BulkImportJob;if e:=db.First(&got,job.ID).Error;e!=nil{t.Fatal(e)}
+ if got.Failed!=1||got.Created!=0{t.Fatalf("expected duplicate identifier to fail, got failed=%d created=%d",got.Failed,got.Created)}
+}

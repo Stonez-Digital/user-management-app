@@ -1,0 +1,556 @@
+-- REVIEW-ONLY foundation for the signed bulk-import context verifier.
+-- This operator-run script is intentionally not called by application startup.
+-- Do not run against staging or production until the verifier and role tests pass.
+BEGIN;
+
+DO $roles$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_api_runtime')
+       OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner')
+       OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_worker' AND rolcanlogin) THEN
+        RAISE EXCEPTION 'the existing API runtime, queue-owner, and queue-claim login roles must be provisioned first';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_worker_processing') THEN
+        CREATE ROLE stonez_bulk_worker_processing NOLOGIN NOSUPERUSER NOBYPASSRLS INHERIT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_context_owner') THEN
+        CREATE ROLE stonez_bulk_context_owner NOLOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_context_key_admin') THEN
+        CREATE ROLE stonez_bulk_context_key_admin NOLOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT;
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM pg_roles
+        WHERE rolname IN ('stonez_bulk_worker_processing','stonez_bulk_context_owner','stonez_bulk_context_key_admin')
+          AND (rolcanlogin OR rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole OR rolreplication)
+    ) OR EXISTS (
+        SELECT 1 FROM pg_roles
+        WHERE rolname = 'stonez_bulk_worker_processing' AND NOT rolinherit
+    ) OR EXISTS (
+        SELECT 1 FROM pg_roles
+        WHERE rolname IN ('stonez_bulk_context_owner','stonez_bulk_context_key_admin')
+          AND rolinherit
+    ) THEN
+        RAISE EXCEPTION 'bulk context roles have unsafe role attributes; processing group must INHERIT and verifier owner/key-admin must be NOINHERIT';
+    END IF;
+
+    -- The verifier owner and key administrator are privilege boundaries,
+    -- not general-purpose groups. Neither may inherit from another role or
+    -- be granted to an arbitrary login/group. On an idempotent reinstall,
+    -- the only permitted incoming membership is the current operator's
+    -- explicit NOINHERIT, SET-capable membership created below.
+    IF EXISTS (
+        SELECT 1
+          FROM pg_auth_members AS membership
+          JOIN pg_roles AS target_role ON target_role.oid = membership.roleid
+         WHERE target_role.rolname IN ('stonez_bulk_context_owner','stonez_bulk_context_key_admin')
+           AND membership.member <> (SELECT oid FROM pg_roles WHERE rolname = current_user)
+    ) OR EXISTS (
+        SELECT 1
+          FROM pg_auth_members AS membership
+          JOIN pg_roles AS member_role ON member_role.oid = membership.member
+         WHERE member_role.rolname IN ('stonez_bulk_context_owner','stonez_bulk_context_key_admin')
+    ) OR EXISTS (
+        SELECT 1
+          FROM pg_auth_members AS membership
+          JOIN pg_roles AS target_role ON target_role.oid = membership.roleid
+         WHERE target_role.rolname IN ('stonez_bulk_context_owner','stonez_bulk_context_key_admin')
+           AND membership.member = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+           AND (membership.admin_option OR membership.inherit_option OR NOT membership.set_option)
+    ) THEN
+        RAISE EXCEPTION 'verifier owner and key-admin roles must have no inherited/delegated memberships; only the current operator may hold a non-inheriting SET membership';
+    END IF;
+END
+$roles$;
+
+-- Resolve pgcrypto through extension catalog metadata, not a guessed schema.
+DO $extension$
+DECLARE
+    v_schema text;
+BEGIN
+    SELECT namespace.nspname INTO v_schema
+      FROM pg_extension AS extension
+      JOIN pg_namespace AS namespace ON namespace.oid = extension.extnamespace
+      JOIN pg_proc AS proc_entry ON proc_entry.pronamespace = namespace.oid
+     WHERE extension.extname = 'pgcrypto'
+       AND proc_entry.proname = 'hmac'
+       AND pg_get_function_identity_arguments(proc_entry.oid) = 'bytea, bytea, text'
+     LIMIT 1;
+    IF v_schema IS NULL THEN
+        RAISE EXCEPTION 'pgcrypto.hmac(bytea, bytea, text) must be installed before verifier setup';
+    END IF;
+    EXECUTE format('GRANT USAGE ON SCHEMA %I TO stonez_bulk_context_owner', v_schema);
+END
+$extension$;
+
+-- The operator/table owner grants the verifier owner access to the queue
+-- relation before switching to the dedicated NOLOGIN owner.
+GRANT USAGE ON SCHEMA public TO stonez_bulk_context_owner;
+GRANT SELECT ON public.bulk_import_jobs TO stonez_bulk_context_owner;
+GRANT UPDATE (lease_id) ON public.bulk_import_jobs TO stonez_bulk_context_owner;
+
+-- The role creator receives a non-inheriting membership. Switch into the
+-- dedicated owner before creating private objects and SECURITY DEFINER code.
+GRANT stonez_bulk_context_owner TO CURRENT_USER WITH INHERIT FALSE, SET TRUE;
+GRANT stonez_bulk_context_key_admin TO CURRENT_USER WITH INHERIT FALSE, SET TRUE;
+-- The database/table owner creates the private schema for the NOLOGIN owner;
+-- the owner role itself must not receive CREATE privilege on the database.
+CREATE SCHEMA IF NOT EXISTS stonez_context_private AUTHORIZATION stonez_bulk_context_owner;
+SET LOCAL ROLE stonez_bulk_context_owner;
+ALTER SCHEMA stonez_context_private OWNER TO CURRENT_USER;
+
+-- PostgreSQL grants PUBLIC EXECUTE on new functions by default. A per-schema
+-- REVOKE cannot cancel that global default grant, so revoke it globally for
+-- this dedicated owner. Explicit grants below remain the only entry points.
+ALTER DEFAULT PRIVILEGES FOR ROLE stonez_bulk_context_owner
+    REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+REVOKE ALL ON SCHEMA stonez_context_private FROM PUBLIC;
+GRANT USAGE ON SCHEMA stonez_context_private TO stonez_bulk_worker_processing, stonez_bulk_context_key_admin;
+
+CREATE TABLE IF NOT EXISTS stonez_context_private.verification_keys (
+    key_id text PRIMARY KEY CHECK (key_id <> '' AND length(key_id) <= 64),
+    key_bytes bytea NOT NULL CHECK (octet_length(key_bytes) >= 32),
+    not_before timestamptz NOT NULL,
+    not_after timestamptz,
+    revoked_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    CHECK (not_after IS NULL OR not_after > not_before)
+);
+
+CREATE TABLE IF NOT EXISTS stonez_context_private.verified_contexts (
+    backend_pid integer NOT NULL,
+    transaction_id xid8 NOT NULL,
+    assertion_id uuid NOT NULL,
+    job_id uuid NOT NULL,
+    school_id uuid NOT NULL,
+    initiated_by uuid NOT NULL,
+    worker_id uuid NOT NULL,
+    lease_id uuid NOT NULL,
+    verified_at timestamptz NOT NULL,
+    PRIMARY KEY (backend_pid, transaction_id),
+    CONSTRAINT verified_contexts_assertion_id_unique UNIQUE (assertion_id)
+);
+
+CREATE TABLE IF NOT EXISTS stonez_context_private.key_management_events (
+    event_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    key_id text NOT NULL,
+    action text NOT NULL CHECK (action IN ('register','retire','revoke')),
+    actor name NOT NULL,
+    occurred_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+
+REVOKE ALL ON ALL TABLES IN SCHEMA stonez_context_private FROM PUBLIC, stonez_bulk_worker_processing, stonez_bulk_context_key_admin;
+GRANT SELECT ON stonez_context_private.verification_keys TO stonez_bulk_context_owner;
+GRANT SELECT, INSERT ON stonez_context_private.verified_contexts TO stonez_bulk_context_owner;
+
+
+CREATE OR REPLACE FUNCTION stonez_context_private.decode_base64url(p_value text)
+RETURNS bytea
+LANGUAGE plpgsql
+IMMUTABLE
+STRICT
+SET search_path = pg_catalog
+AS $fn$
+DECLARE
+    v_decoded bytea;
+    v_canonical text;
+BEGIN
+    IF p_value = '' OR p_value ~ '[^A-Za-z0-9_-]' OR length(p_value) % 4 = 1 THEN
+        RAISE EXCEPTION 'invalid compact JWS base64url segment' USING ERRCODE = '22023';
+    END IF;
+    v_decoded := decode(
+        translate(p_value, '-_', '+/') || repeat('=', (4 - length(p_value) % 4) % 4),
+        'base64'
+    );
+    v_canonical := rtrim(
+        translate(replace(encode(v_decoded, 'base64'), E'\n', ''), '+/', '-_'),
+        '='
+    );
+    IF v_canonical <> p_value THEN
+        RAISE EXCEPTION 'non-canonical compact JWS base64url segment' USING ERRCODE = '22023';
+    END IF;
+    RETURN v_decoded;
+END
+$fn$;
+REVOKE ALL ON FUNCTION stonez_context_private.decode_base64url(text) FROM PUBLIC;
+
+
+CREATE OR REPLACE FUNCTION stonez_context_private.constant_time_equal(p_left bytea, p_right bytea)
+RETURNS boolean
+LANGUAGE plpgsql
+IMMUTABLE
+STRICT
+SET search_path = pg_catalog
+AS $fn$
+DECLARE
+    v_diff integer := 0;
+    v_i integer;
+BEGIN
+    IF length(p_left) <> 32 OR length(p_right) <> 32 THEN
+        RETURN false;
+    END IF;
+    FOR v_i IN 0..31 LOOP
+        v_diff := v_diff | (get_byte(p_left, v_i) # get_byte(p_right, v_i));
+    END LOOP;
+    RETURN v_diff = 0;
+END
+$fn$;
+REVOKE ALL ON FUNCTION stonez_context_private.constant_time_equal(bytea,bytea) FROM PUBLIC;
+
+
+-- This predicate is evaluated on every verifier and accessor call, not only
+-- at worker startup. The processing group must have exactly one direct member
+-- (the current dedicated login), must not itself inherit another role, and
+-- that login may not inherit any additional role or privileged verifier role.
+CREATE OR REPLACE FUNCTION stonez_context_private.is_eligible_processing_login()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $fn$
+SELECT COALESCE((
+    SELECT role_entry.rolcanlogin
+       AND role_entry.rolinherit
+       AND NOT role_entry.rolsuper
+       AND NOT role_entry.rolbypassrls
+       AND NOT role_entry.rolcreatedb
+       AND NOT role_entry.rolcreaterole
+       AND NOT role_entry.rolreplication
+       AND pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE')
+       AND NOT pg_has_role(session_user, 'stonez_bulk_worker_processing', 'SET')
+       AND NOT pg_has_role(session_user, 'stonez_bulk_context_owner', 'MEMBER')
+       AND NOT pg_has_role(session_user, 'stonez_bulk_context_key_admin', 'MEMBER')
+       AND NOT pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER')
+       AND NOT pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')
+       AND NOT pg_has_role(session_user, 'stonez_bulk_worker', 'MEMBER')
+       -- No direct or nested extra memberships for the processing login.
+       AND NOT EXISTS (
+           SELECT 1 FROM pg_auth_members AS membership
+            WHERE membership.member = role_entry.oid
+              AND membership.roleid <> processing_role.oid
+       )
+       -- No second login, nested role, or delegating role may be a member
+       -- of the processing group.
+       AND NOT EXISTS (
+           SELECT 1 FROM pg_auth_members AS membership
+            WHERE membership.roleid = processing_role.oid
+              AND membership.member <> role_entry.oid
+       )
+       -- The processing group itself must not inherit another role.
+       AND NOT EXISTS (
+           SELECT 1 FROM pg_auth_members AS membership
+            WHERE membership.member = processing_role.oid
+       )
+       -- ADMIN OPTION is forbidden even if the membership is otherwise valid.
+       AND NOT EXISTS (
+           SELECT 1 FROM pg_auth_members AS membership
+            WHERE membership.member = role_entry.oid
+              AND membership.roleid = processing_role.oid
+              AND membership.admin_option
+       )
+      FROM pg_roles AS role_entry
+      CROSS JOIN pg_roles AS processing_role
+     WHERE role_entry.rolname = session_user
+       AND processing_role.rolname = 'stonez_bulk_worker_processing'
+), false)
+$fn$;
+REVOKE ALL ON FUNCTION stonez_context_private.is_eligible_processing_login() FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION stonez_context_private.verify_bulk_import_context(p_token text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $fn$
+DECLARE
+    v_parts text[];
+    v_header json;
+    v_payload json;
+    v_count integer;
+    v_distinct integer;
+    v_kid text;
+    v_key bytea;
+    v_ext_schema text;
+    v_signature bytea;
+    v_expected bytea;
+    v_now timestamptz;
+    v_iat numeric;
+    v_nbf numeric;
+    v_exp numeric;
+    v_job uuid;
+    v_school uuid;
+    v_initiator uuid;
+    v_worker uuid;
+    v_lease uuid;
+    v_jti uuid;
+    v_queue public.bulk_import_jobs%ROWTYPE;
+BEGIN
+    IF p_token IS NULL OR length(p_token) > 4096 OR p_token ~ '[[:space:]]' THEN
+        RAISE EXCEPTION 'invalid compact JWS token length or whitespace' USING ERRCODE = '22023';
+    END IF;
+
+    IF NOT stonez_context_private.is_eligible_processing_login() THEN
+        RAISE EXCEPTION 'login is not an eligible restricted bulk worker' USING ERRCODE = '42501';
+    END IF;
+    IF p_token IS NULL OR length(p_token) > 4096 THEN
+        RAISE EXCEPTION 'missing or oversized bulk worker assertion' USING ERRCODE = '22023';
+    END IF;
+
+    v_parts := string_to_array(p_token, '.');
+    IF cardinality(v_parts) <> 3 OR v_parts[1] = '' OR v_parts[2] = '' OR v_parts[3] = '' THEN
+        RAISE EXCEPTION 'malformed compact JWS' USING ERRCODE = '22023';
+    END IF;
+    v_header := convert_from(stonez_context_private.decode_base64url(v_parts[1]), 'UTF8')::json;
+    v_payload := convert_from(stonez_context_private.decode_base64url(v_parts[2]), 'UTF8')::json;
+    v_signature := stonez_context_private.decode_base64url(v_parts[3]);
+    IF json_typeof(v_header) <> 'object' OR json_typeof(v_payload) <> 'object' THEN
+        RAISE EXCEPTION 'JWS header and claims must be JSON objects' USING ERRCODE = '22023';
+    END IF;
+
+    SELECT count(*), count(DISTINCT key) INTO v_count, v_distinct FROM json_each(v_header);
+    IF v_count <> 3 OR v_distinct <> 3
+       OR (SELECT count(*) FROM json_each(v_header) WHERE key IN ('alg','kid','typ')) <> 3
+       OR v_header->>'alg' <> 'HS256' OR v_header->>'typ' <> 'JWT' THEN
+        RAISE EXCEPTION 'unsupported, duplicate, or unexpected JWS header members' USING ERRCODE = '22023';
+    END IF;
+    IF json_typeof(v_header->'kid') IS DISTINCT FROM 'string' THEN
+        RAISE EXCEPTION 'invalid JWS key ID type' USING ERRCODE = '22023';
+    END IF;
+    v_kid := v_header->>'kid';
+    IF v_kid IS NULL OR v_kid = '' OR length(v_kid) > 64 THEN
+        RAISE EXCEPTION 'invalid JWS key ID' USING ERRCODE = '22023';
+    END IF;
+
+    SELECT count(*), count(DISTINCT key) INTO v_count, v_distinct FROM json_each(v_payload);
+    IF v_count <> 12 OR v_distinct <> 12
+       OR (SELECT count(*) FROM json_each(v_payload) WHERE key = ANY
+           (ARRAY['iss','sub','aud','jti','iat','nbf','exp','job_id','school_id','initiated_by','worker_id','lease_id'])) <> 12 THEN
+        RAISE EXCEPTION 'missing, duplicate, or unexpected assertion claims' USING ERRCODE = '22023';
+    END IF;
+    IF json_typeof(v_payload->'iss') IS DISTINCT FROM 'string'
+       OR json_typeof(v_payload->'sub') IS DISTINCT FROM 'string'
+       OR v_payload->>'iss' <> 'stonez-bulk-import-worker'
+       OR NOT (
+            (json_typeof(v_payload->'aud') = 'string'
+             AND v_payload->>'aud' = 'stonez-postgres-bulk-import-context')
+            OR
+            (json_typeof(v_payload->'aud') = 'array'
+             AND json_array_length(v_payload->'aud') = 1
+             AND json_typeof(v_payload->'aud'->0) = 'string'
+             AND v_payload->'aud'->>0 = 'stonez-postgres-bulk-import-context')
+       ) THEN
+        RAISE EXCEPTION 'invalid assertion issuer or audience' USING ERRCODE = '22023';
+    END IF;
+    IF json_typeof(v_payload->'iat') IS DISTINCT FROM 'number'
+       OR json_typeof(v_payload->'nbf') IS DISTINCT FROM 'number'
+       OR json_typeof(v_payload->'exp') IS DISTINCT FROM 'number' THEN
+        RAISE EXCEPTION 'invalid assertion time claims' USING ERRCODE = '22023';
+    END IF;
+    v_iat := (v_payload->>'iat')::numeric;
+    v_nbf := (v_payload->>'nbf')::numeric;
+    v_exp := (v_payload->>'exp')::numeric;
+
+    IF json_typeof(v_payload->'job_id') IS DISTINCT FROM 'string'
+       OR json_typeof(v_payload->'school_id') IS DISTINCT FROM 'string'
+       OR json_typeof(v_payload->'initiated_by') IS DISTINCT FROM 'string'
+       OR json_typeof(v_payload->'worker_id') IS DISTINCT FROM 'string'
+       OR json_typeof(v_payload->'lease_id') IS DISTINCT FROM 'string'
+       OR json_typeof(v_payload->'jti') IS DISTINCT FROM 'string'
+       OR length(v_payload->>'job_id') <> 36
+       OR (v_payload->>'job_id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+       OR length(v_payload->>'school_id') <> 36
+       OR (v_payload->>'school_id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+       OR length(v_payload->>'initiated_by') <> 36
+       OR (v_payload->>'initiated_by') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+       OR length(v_payload->>'worker_id') <> 36
+       OR (v_payload->>'worker_id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+       OR length(v_payload->>'lease_id') <> 36
+       OR (v_payload->>'lease_id') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+       OR length(v_payload->>'jti') <> 36
+       OR (v_payload->>'jti') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' THEN
+        RAISE EXCEPTION 'invalid canonical UUID assertion claim' USING ERRCODE = '22023';
+    END IF;
+    v_job := (v_payload->>'job_id')::uuid;
+    v_school := (v_payload->>'school_id')::uuid;
+    v_initiator := (v_payload->>'initiated_by')::uuid;
+    v_worker := (v_payload->>'worker_id')::uuid;
+    v_lease := (v_payload->>'lease_id')::uuid;
+    v_jti := (v_payload->>'jti')::uuid;
+    IF v_payload->>'sub' <> v_worker::text OR length(v_signature) <> 32 THEN
+        RAISE EXCEPTION 'invalid assertion subject or HS256 signature length' USING ERRCODE = '22023';
+    END IF;
+
+    SELECT key_bytes INTO v_key
+      FROM stonez_context_private.verification_keys
+     WHERE key_id = v_kid AND not_before <= clock_timestamp()
+       AND (not_after IS NULL OR not_after > clock_timestamp()) AND revoked_at IS NULL
+     FOR SHARE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'unknown, inactive, or revoked assertion key' USING ERRCODE = '28000';
+    END IF;
+
+    SELECT namespace.nspname INTO v_ext_schema
+      FROM pg_extension AS extension
+      JOIN pg_namespace AS namespace ON namespace.oid = extension.extnamespace
+      JOIN pg_proc AS proc_entry ON proc_entry.pronamespace = namespace.oid
+     WHERE extension.extname = 'pgcrypto' AND proc_entry.proname = 'hmac'
+       AND pg_get_function_identity_arguments(proc_entry.oid) = 'bytea, bytea, text'
+     LIMIT 1;
+    IF v_ext_schema IS NULL THEN
+        RAISE EXCEPTION 'pgcrypto.hmac(bytea, bytea, text) is unavailable' USING ERRCODE = '55000';
+    END IF;
+    EXECUTE format('SELECT %I.hmac($1, $2, $3)', v_ext_schema)
+       INTO v_expected
+       USING convert_to(v_parts[1] || '.' || v_parts[2], 'UTF8'), v_key, 'sha256';
+    IF NOT stonez_context_private.constant_time_equal(v_signature, v_expected) THEN
+        RAISE EXCEPTION 'invalid bulk worker assertion signature' USING ERRCODE = '28000';
+    END IF;
+
+    v_now := clock_timestamp();
+    IF v_iat > extract(epoch FROM v_now) + 5
+       OR v_nbf > extract(epoch FROM v_now) + 5
+       OR v_exp <= extract(epoch FROM v_now) - 5
+       OR v_exp <= v_iat OR v_exp - v_iat > 60
+       OR v_nbf > v_exp OR v_nbf < v_iat - 5 THEN
+        RAISE EXCEPTION 'bulk worker assertion is outside its permitted time window' USING ERRCODE = '28000';
+    END IF;
+
+    SELECT * INTO v_queue FROM public.bulk_import_jobs WHERE id = v_job FOR UPDATE;
+    v_now := clock_timestamp();
+    -- The row lock can block long enough for a short-lived assertion to expire.
+    -- Recheck expiry using the post-lock database clock before binding context.
+    IF v_exp <= extract(epoch FROM v_now) - 5 THEN
+        RAISE EXCEPTION 'bulk worker assertion expired while waiting for the queue lease lock' USING ERRCODE = '28000';
+    END IF;
+    IF NOT FOUND OR v_queue.school_id <> v_school
+       OR v_queue.initiated_by <> v_initiator OR v_queue.worker_id <> v_worker
+       OR v_queue.lease_id <> v_lease OR v_queue.status <> 'running'
+       OR v_queue.claimed_at IS NULL
+       OR v_queue.claimed_at < v_now - interval '5 minutes' THEN
+        RAISE EXCEPTION 'assertion does not match a current, unexpired queue lease' USING ERRCODE = '28000';
+    END IF;
+
+    INSERT INTO stonez_context_private.verified_contexts (
+        backend_pid, transaction_id, assertion_id, job_id, school_id,
+        initiated_by, worker_id, lease_id, verified_at
+    ) VALUES (
+        pg_backend_pid(), pg_current_xact_id(), v_jti, v_job, v_school,
+        v_initiator, v_worker, v_lease, v_now
+    );
+EXCEPTION
+    WHEN unique_violation THEN
+        RAISE EXCEPTION 'bulk worker assertion replay or duplicate transaction context' USING ERRCODE = '28000';
+END
+$fn$;
+REVOKE ALL ON FUNCTION stonez_context_private.verify_bulk_import_context(text) FROM PUBLIC;
+CREATE OR REPLACE FUNCTION stonez_context_private.current_worker_school_id()
+RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog
+AS $fn$
+SELECT context.school_id FROM stonez_context_private.verified_contexts AS context
+ WHERE context.backend_pid = pg_backend_pid()
+   AND context.transaction_id = pg_current_xact_id()
+   AND stonez_context_private.is_eligible_processing_login()
+$fn$;
+
+CREATE OR REPLACE FUNCTION stonez_context_private.current_worker_initiator_id()
+RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog
+AS $fn$
+SELECT context.initiated_by FROM stonez_context_private.verified_contexts AS context
+ WHERE context.backend_pid = pg_backend_pid()
+   AND context.transaction_id = pg_current_xact_id()
+   AND stonez_context_private.is_eligible_processing_login()
+$fn$;
+
+CREATE OR REPLACE FUNCTION stonez_context_private.current_worker_job_id()
+RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog
+AS $fn$
+SELECT context.job_id FROM stonez_context_private.verified_contexts AS context
+ WHERE context.backend_pid = pg_backend_pid()
+   AND context.transaction_id = pg_current_xact_id()
+   AND stonez_context_private.is_eligible_processing_login()
+$fn$;
+
+CREATE OR REPLACE FUNCTION stonez_context_private.register_verification_key(
+    p_key_id text, p_key_bytes bytea, p_not_before timestamptz, p_not_after timestamptz DEFAULT NULL
+)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+AS $fn$
+BEGIN
+    IF NOT pg_has_role(session_user, 'stonez_bulk_context_key_admin', 'MEMBER') THEN
+        RAISE EXCEPTION 'caller is not authorized to register verifier keys' USING ERRCODE = '42501';
+    END IF;
+    IF p_key_id IS NULL OR p_key_id = '' OR length(p_key_id) > 64 OR p_key_id ~ '[[:space:]]'
+       OR p_key_bytes IS NULL OR octet_length(p_key_bytes) < 32
+       OR p_not_before IS NULL
+       OR (p_not_after IS NOT NULL AND p_not_after <= p_not_before) THEN
+        RAISE EXCEPTION 'invalid verifier key registration parameters' USING ERRCODE = '22023';
+    END IF;
+    INSERT INTO stonez_context_private.verification_keys(key_id,key_bytes,not_before,not_after)
+    VALUES (p_key_id,p_key_bytes,p_not_before,p_not_after);
+    INSERT INTO stonez_context_private.key_management_events(key_id,action,actor)
+    VALUES (p_key_id,'register',session_user);
+END
+$fn$;
+
+CREATE OR REPLACE FUNCTION stonez_context_private.retire_verification_key(p_key_id text,p_not_after timestamptz)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+AS $fn$
+BEGIN
+    IF NOT pg_has_role(session_user, 'stonez_bulk_context_key_admin', 'MEMBER') THEN
+        RAISE EXCEPTION 'caller is not authorized to retire verifier keys' USING ERRCODE = '42501';
+    END IF;
+    UPDATE stonez_context_private.verification_keys SET not_after=p_not_after
+     WHERE key_id=p_key_id AND revoked_at IS NULL AND p_not_after>not_before;
+    IF NOT FOUND THEN RAISE EXCEPTION 'verifier key not found or retirement time invalid' USING ERRCODE = '22023'; END IF;
+    INSERT INTO stonez_context_private.key_management_events(key_id,action,actor)
+    VALUES (p_key_id,'retire',session_user);
+END
+$fn$;
+
+CREATE OR REPLACE FUNCTION stonez_context_private.revoke_verification_key(p_key_id text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+AS $fn$
+BEGIN
+    IF NOT pg_has_role(session_user, 'stonez_bulk_context_key_admin', 'MEMBER') THEN
+        RAISE EXCEPTION 'caller is not authorized to revoke verifier keys' USING ERRCODE = '42501';
+    END IF;
+    UPDATE stonez_context_private.verification_keys SET revoked_at=clock_timestamp()
+     WHERE key_id=p_key_id AND revoked_at IS NULL;
+    IF NOT FOUND THEN RAISE EXCEPTION 'active verifier key not found' USING ERRCODE = '22023'; END IF;
+    INSERT INTO stonez_context_private.key_management_events(key_id,action,actor)
+    VALUES (p_key_id,'revoke',session_user);
+END
+$fn$;
+
+CREATE OR REPLACE FUNCTION stonez_context_private.prune_expired_contexts()
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+AS $fn$
+DECLARE
+    v_deleted bigint;
+BEGIN
+    IF NOT pg_has_role(session_user, 'stonez_bulk_context_key_admin', 'MEMBER') THEN
+        RAISE EXCEPTION 'caller is not authorized to prune verifier contexts' USING ERRCODE = '42501';
+    END IF;
+    -- Assertions expire within 60 seconds (+ five seconds skew). Ten minutes
+    -- preserves a generous replay window while bounding the context ledger.
+    DELETE FROM stonez_context_private.verified_contexts
+     WHERE verified_at < clock_timestamp() - interval '10 minutes';
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    RETURN v_deleted;
+END
+$fn$;
+
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA stonez_context_private FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION stonez_context_private.is_eligible_processing_login() TO stonez_bulk_worker_processing;
+GRANT EXECUTE ON FUNCTION stonez_context_private.verify_bulk_import_context(text) TO stonez_bulk_worker_processing;
+GRANT EXECUTE ON FUNCTION stonez_context_private.current_worker_school_id() TO stonez_bulk_worker_processing;
+GRANT EXECUTE ON FUNCTION stonez_context_private.current_worker_initiator_id() TO stonez_bulk_worker_processing;
+GRANT EXECUTE ON FUNCTION stonez_context_private.current_worker_job_id() TO stonez_bulk_worker_processing;
+GRANT EXECUTE ON FUNCTION stonez_context_private.register_verification_key(text,bytea,timestamptz,timestamptz) TO stonez_bulk_context_key_admin;
+GRANT EXECUTE ON FUNCTION stonez_context_private.retire_verification_key(text,timestamptz) TO stonez_bulk_context_key_admin;
+GRANT EXECUTE ON FUNCTION stonez_context_private.revoke_verification_key(text) TO stonez_bulk_context_key_admin;
+GRANT EXECUTE ON FUNCTION stonez_context_private.prune_expired_contexts() TO stonez_bulk_context_key_admin;
+
+RESET ROLE;
+COMMIT;

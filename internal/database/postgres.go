@@ -1,0 +1,1429 @@
+package database
+
+import (
+    "fmt"
+    "os"
+    "strings"
+
+    "github.com/onoja217/users-management-app/internal/models"
+    "github.com/onoja217/users-management-app/internal/auth"
+    "github.com/google/uuid"
+    "gorm.io/driver/postgres"
+    "gorm.io/driver/sqlite"
+    "gorm.io/gorm"
+)
+
+func Connect() (*gorm.DB, error) {
+    driver := os.Getenv("DB_DRIVER")
+    if driver == "" { driver = "sqlite" }
+    switch driver {
+    case "postgres":
+        dsn := os.Getenv("DATABASE_URL")
+        if dsn == "" {
+            dsn = fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
+                envOrDefault("DB_HOST","localhost"), envOrDefault("DB_USER","postgres"), os.Getenv("DB_PASSWORD"),
+                envOrDefault("DB_NAME","usersdb"), envOrDefault("DB_PORT","5432"), envOrDefault("DB_SSLMODE","require"))
+        }
+        db,err:=gorm.Open(postgres.Open(dsn),&gorm.Config{}); if err!=nil{return nil,fmt.Errorf("connect postgres database: %w",err)}; return db,nil
+    case "sqlite":
+        db,err:=gorm.Open(sqlite.Open(envOrDefault("DB_PATH","users.db")),&gorm.Config{}); if err!=nil{return nil,fmt.Errorf("connect sqlite database: %w",err)}; return db,nil
+    default: return nil,fmt.Errorf("unsupported DB_DRIVER %q",driver)
+    }
+}
+// ValidateBulkImportProcessingRole rejects shared API/claim credentials and any
+// privileged login. The processing connection must inherit only the signed-worker
+// policy group and must not SET ROLE into it or any owner/admin role.
+func ValidateBulkImportProcessingRole(db *gorm.DB) error {
+    if db == nil || db.Dialector.Name() != "postgres" {
+        return fmt.Errorf("bulk import processing role validation requires PostgreSQL")
+    }
+    var role struct {
+        SessionRole string
+        CurrentRole string
+        CanLogin bool
+        IsSuperuser bool
+        CanCreateDB bool
+        CanCreateRole bool
+        CanReplicate bool
+        BypassRLS bool
+        Inherits bool
+        WorkerGroup bool
+        CanSetWorkerGroup bool
+        CanAdminWorkerGroup bool
+        ExclusiveWorkerGroup bool
+        APIRuntime bool
+        ClaimLogin bool
+        QueueOwner bool
+        ContextOwner bool
+        KeyAdmin bool
+        UnexpectedMembership bool
+        OwnsWorkerTables bool
+    }
+    query := `
+        SELECT session_user::text AS session_role,
+               current_user::text AS current_role,
+               r.rolcanlogin AS can_login,
+               r.rolsuper AS is_superuser,
+               r.rolcreatedb AS can_create_db,
+               r.rolcreaterole AS can_create_role,
+               r.rolreplication AS can_replicate,
+               r.rolbypassrls AS bypass_rls,
+               r.rolinherit AS inherits,
+               pg_has_role(session_user, 'stonez_bulk_worker_processing', 'USAGE') AS worker_group,
+               pg_has_role(session_user, 'stonez_bulk_worker_processing', 'SET') AS can_set_worker_group,
+               EXISTS (SELECT 1 FROM pg_auth_members AS membership WHERE membership.member = r.oid AND membership.roleid = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_worker_processing') AND membership.admin_option) AS can_admin_worker_group,
+               NOT EXISTS (
+                   SELECT 1 FROM pg_auth_members AS membership
+                    WHERE membership.roleid = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_worker_processing')
+                      AND membership.member <> r.oid
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM pg_auth_members AS membership
+                    WHERE membership.member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_worker_processing')
+               ) AS exclusive_worker_group,
+               pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER') AS api_runtime,
+               pg_has_role(session_user, 'stonez_bulk_worker', 'MEMBER') AS claim_login,
+               pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER') AS queue_owner,
+               pg_has_role(session_user, 'stonez_bulk_context_owner', 'MEMBER') AS context_owner,
+               pg_has_role(session_user, 'stonez_bulk_context_key_admin', 'MEMBER') AS key_admin,
+               EXISTS (
+                   SELECT 1 FROM pg_auth_members AS membership
+                    WHERE membership.member = r.oid
+                      AND membership.roleid <> (
+                          SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_worker_processing'
+                      )
+               ) AS unexpected_membership,
+               EXISTS (
+                   SELECT 1 FROM pg_class AS relation
+                    JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+                    WHERE namespace.nspname = 'public'
+                      AND relation.relname IN ('bulk_import_jobs','users','students','teacher_profiles',
+                          'parent_profiles','academic_sessions','school_classes','sections',
+                          'student_enrollments','guardian_relationships')
+                      AND relation.relowner = r.oid
+               ) AS owns_worker_tables
+          FROM pg_roles AS r
+         WHERE r.rolname = session_user
+    `
+    if err := db.Raw(query).Scan(&role).Error; err != nil {
+        return fmt.Errorf("inspect bulk import processing login: %w", err)
+    }
+    if role.SessionRole == "" || role.CurrentRole != role.SessionRole ||
+       !role.CanLogin || role.IsSuperuser || role.CanCreateDB || role.CanCreateRole ||
+       role.CanReplicate || role.BypassRLS || !role.Inherits || !role.WorkerGroup || role.CanSetWorkerGroup || role.CanAdminWorkerGroup || !role.ExclusiveWorkerGroup ||
+       role.APIRuntime || role.ClaimLogin || role.QueueOwner || role.ContextOwner || role.KeyAdmin ||
+       role.UnexpectedMembership || role.OwnsWorkerTables {
+        return fmt.Errorf("bulk import processing login is not a dedicated restricted signed-worker role")
+    }
+    return nil
+}
+
+// ValidateBulkImportSignedContextReady confirms the verifier, accessors, pgcrypto
+// primitive, and the complete worker-only policy inventory are installed before
+// the opt-in worker mode is allowed to start.
+func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
+    if db == nil || db.Dialector.Name() != "postgres" {
+        return fmt.Errorf("signed bulk import context readiness requires PostgreSQL")
+    }
+    var ready struct {
+        Verifier bool
+        SchoolAccessor bool
+        InitiatorAccessor bool
+        JobAccessor bool
+        HMAC bool
+        WorkerGroupSafe bool
+        EligibilityFunction bool
+        VerifierFunctionsSafe bool
+        FunctionACLsExact bool
+        QueueRLS bool
+        WorkerTableRLSCount int
+        PublicPermissivePolicyCount int
+        UserRequiredSelect bool
+        PasswordHashSelectDenied bool
+        UserInsertTablePrivilegeDenied bool
+        UserInsertColumns bool
+        UserRoleGuardFunction bool
+        UserRoleGuardPolicy int
+        StudentInsert bool
+        StudentUpdateDenied bool
+        JobSelect bool
+        JobStatusUpdate bool
+        JobLeaseUpdateDenied bool
+        JobInsertDeleteDenied bool
+        QueueSelectPolicy int
+        QueueUpdatePolicy int
+        VerifierReadPolicy int
+        VerifierLockPolicy int
+        WorkerSelectPolicies int
+        WorkerInsertPolicies int
+        PolicyExpressionsExact bool
+        WorkerPrivilegesExact bool
+        OutboxFunctions bool
+        OutboxDirectAccessDenied bool
+    }
+    query := `
+        SELECT
+            to_regprocedure('stonez_context_private.verify_bulk_import_context(text)') IS NOT NULL AS verifier,
+            to_regprocedure('stonez_context_private.current_worker_school_id()') IS NOT NULL AS school_accessor,
+            to_regprocedure('stonez_context_private.current_worker_initiator_id()') IS NOT NULL AS initiator_accessor,
+            to_regprocedure('stonez_context_private.current_worker_job_id()') IS NOT NULL AS job_accessor,
+            EXISTS (
+                SELECT 1 FROM pg_proc AS function_entry
+                JOIN pg_namespace AS namespace ON namespace.oid = function_entry.pronamespace
+                WHERE namespace.nspname = 'stonez_context_private'
+                  AND function_entry.proname = 'is_eligible_processing_login'
+                  AND pg_get_function_identity_arguments(function_entry.oid) = ''
+                  AND function_entry.prosecdef
+                  AND function_entry.proconfig @> ARRAY['search_path=pg_catalog']
+            ) AS eligibility_function,
+            (
+                SELECT count(*) = 5
+                   AND bool_and(p.prosecdef
+                       AND owner_role.rolname = 'stonez_bulk_context_owner'
+                       AND p.proconfig @> ARRAY['search_path=pg_catalog'])
+                  FROM pg_proc AS p
+                  JOIN pg_namespace AS n ON n.oid = p.pronamespace
+                  JOIN pg_roles AS owner_role ON owner_role.oid = p.proowner
+                 WHERE n.nspname = 'stonez_context_private'
+                   AND (p.oid = to_regprocedure('stonez_context_private.verify_bulk_import_context(text)')
+                     OR p.oid = to_regprocedure('stonez_context_private.current_worker_school_id()')
+                     OR p.oid = to_regprocedure('stonez_context_private.current_worker_initiator_id()')
+                     OR p.oid = to_regprocedure('stonez_context_private.current_worker_job_id()')
+                     OR p.oid = to_regprocedure('stonez_context_private.is_eligible_processing_login()'))
+            ) AS verifier_functions_safe,
+            (
+                NOT EXISTS (
+                    SELECT 1
+                      FROM pg_proc AS p
+                      JOIN pg_namespace AS n ON n.oid = p.pronamespace
+                      CROSS JOIN LATERAL aclexplode(
+                          COALESCE(p.proacl, acldefault('f', p.proowner))
+                      ) AS privilege
+                     WHERE n.nspname = 'stonez_context_private'
+                       AND privilege.grantee = 0
+                       AND privilege.privilege_type = 'EXECUTE'
+                )
+                -- Fail closed if any required signature is absent. Keeping
+                -- this separate from the privilege comparison avoids NULL
+                -- propagation from to_regprocedure() inside an OID array.
+                AND (
+                    SELECT count(*) = 10
+                      FROM pg_proc AS p
+                     WHERE p.oid = ANY(ARRAY[
+                         to_regprocedure('stonez_context_private.is_eligible_processing_login()'),
+                         to_regprocedure('stonez_context_private.verify_bulk_import_context(text)'),
+                         to_regprocedure('stonez_context_private.current_worker_school_id()'),
+                         to_regprocedure('stonez_context_private.current_worker_initiator_id()'),
+                         to_regprocedure('stonez_context_private.current_worker_job_id()'),
+                         to_regprocedure('stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)'),
+                         to_regprocedure('stonez_context_private.claim_account_setup_notification()'),
+                         to_regprocedure('stonez_context_private.complete_account_setup_notification(uuid,uuid,text)'),
+                         to_regprocedure('stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)'),
+                         to_regprocedure('stonez_context_private.account_setup_notification_counts()')
+                    ]::oid[])
+                )
+                AND (
+                    SELECT count(*) = 4
+                      FROM pg_proc AS p
+                     WHERE p.oid = ANY(ARRAY[
+                         to_regprocedure('stonez_context_private.register_verification_key(text,bytea,timestamptz,timestamptz)'),
+                         to_regprocedure('stonez_context_private.retire_verification_key(text,timestamptz)'),
+                         to_regprocedure('stonez_context_private.revoke_verification_key(text)'),
+                         to_regprocedure('stonez_context_private.prune_expired_contexts()')
+                    ]::oid[])
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                      FROM pg_proc AS p
+                      JOIN pg_namespace AS n ON n.oid = p.pronamespace
+                     WHERE n.nspname = 'stonez_context_private'
+                       AND (
+                           has_function_privilege('stonez_bulk_worker_processing', p.oid, 'EXECUTE')
+                               IS DISTINCT FROM COALESCE(p.oid = ANY(ARRAY[
+                                   to_regprocedure('stonez_context_private.is_eligible_processing_login()'),
+                                   to_regprocedure('stonez_context_private.verify_bulk_import_context(text)'),
+                                   to_regprocedure('stonez_context_private.current_worker_school_id()'),
+                                   to_regprocedure('stonez_context_private.current_worker_initiator_id()'),
+                                   to_regprocedure('stonez_context_private.current_worker_job_id()'),
+                                   to_regprocedure('stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)'),
+                                   to_regprocedure('stonez_context_private.claim_account_setup_notification()'),
+                                   to_regprocedure('stonez_context_private.complete_account_setup_notification(uuid,uuid,text)'),
+                                   to_regprocedure('stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)'),
+                                   to_regprocedure('stonez_context_private.account_setup_notification_counts()')
+                               ]::oid[]), false)
+                           OR has_function_privilege('stonez_bulk_context_key_admin', p.oid, 'EXECUTE')
+                               IS DISTINCT FROM COALESCE(p.oid = ANY(ARRAY[
+                                   to_regprocedure('stonez_context_private.register_verification_key(text,bytea,timestamptz,timestamptz)'),
+                                   to_regprocedure('stonez_context_private.retire_verification_key(text,timestamptz)'),
+                                   to_regprocedure('stonez_context_private.revoke_verification_key(text)'),
+                                   to_regprocedure('stonez_context_private.prune_expired_contexts()')
+                               ]::oid[]), false)
+                       )
+                )
+            ) AS function_acls_exact,
+            EXISTS (
+                SELECT 1
+                  FROM pg_extension AS extension
+                  JOIN pg_namespace AS namespace ON namespace.oid = extension.extnamespace
+                  JOIN pg_proc AS proc_entry ON proc_entry.pronamespace = namespace.oid
+                 WHERE extension.extname = 'pgcrypto'
+                   AND proc_entry.proname = 'hmac'
+                   AND pg_get_function_identity_arguments(proc_entry.oid) = 'bytea, bytea, text'
+            ) AS hmac,
+            COALESCE((
+                SELECT relation.relrowsecurity
+                  FROM pg_class AS relation
+                 WHERE relation.oid = to_regclass('public.bulk_import_jobs')
+            ), false) AS queue_rls,
+            (
+                SELECT count(*)
+                  FROM pg_class AS relation
+                 WHERE relation.oid IN (
+                    to_regclass('public.users'),
+                    to_regclass('public.students'),
+                    to_regclass('public.teacher_profiles'),
+                    to_regclass('public.parent_profiles'),
+                    to_regclass('public.academic_sessions'),
+                    to_regclass('public.school_classes'),
+                    to_regclass('public.sections'),
+                    to_regclass('public.student_enrollments'),
+                    to_regclass('public.guardian_relationships')
+                 )
+                   AND relation.relrowsecurity
+            ) AS worker_table_rls_count,
+            EXISTS (
+                SELECT 1 FROM pg_roles AS worker_group
+                 WHERE worker_group.rolname='stonez_bulk_worker_processing'
+                   AND NOT worker_group.rolcanlogin AND NOT worker_group.rolsuper
+                   AND NOT worker_group.rolbypassrls AND NOT worker_group.rolcreatedb
+                   AND NOT worker_group.rolcreaterole AND NOT worker_group.rolreplication
+                   AND NOT EXISTS (
+                       SELECT 1 FROM pg_auth_members AS membership
+                        WHERE membership.member = worker_group.oid
+                   )
+                   AND EXISTS (
+                       SELECT 1 FROM pg_auth_members AS membership
+                        WHERE membership.roleid = worker_group.oid
+                          AND membership.member = (SELECT oid FROM pg_roles WHERE rolname=session_user)
+                          AND NOT membership.admin_option
+                   )
+                   AND NOT pg_has_role(session_user, 'stonez_bulk_worker_processing', 'SET')
+                   AND NOT EXISTS (
+                       SELECT 1 FROM pg_auth_members AS membership
+                        WHERE membership.roleid = worker_group.oid
+                          AND membership.member <> (SELECT oid FROM pg_roles WHERE rolname=session_user)
+                   )
+            ) AS worker_group_safe,
+            (SELECT count(*) FROM pg_policy
+              WHERE polrelid IN ('public.bulk_import_jobs'::regclass,'public.users'::regclass,
+                    'public.students'::regclass,'public.teacher_profiles'::regclass,
+                    'public.parent_profiles'::regclass,'public.academic_sessions'::regclass,
+                    'public.school_classes'::regclass,'public.sections'::regclass,
+                    'public.student_enrollments'::regclass,'public.guardian_relationships'::regclass)
+                AND polpermissive AND 0::oid = ANY(polroles)) AS public_permissive_policy_count,
+            (
+                has_column_privilege('stonez_bulk_worker_processing','public.users','id','SELECT')
+                AND has_column_privilege('stonez_bulk_worker_processing','public.users','school_id','SELECT')
+                AND has_column_privilege('stonez_bulk_worker_processing','public.users','email','SELECT')
+                AND has_column_privilege('stonez_bulk_worker_processing','public.users','role','SELECT')
+            ) AS user_required_select,
+            NOT has_column_privilege('stonez_bulk_worker_processing','public.users','password_hash','SELECT') AS password_hash_select_denied,
+            NOT has_table_privilege('stonez_bulk_worker_processing','public.users','INSERT') AS user_insert_table_privilege_denied,
+            (
+                has_column_privilege('stonez_bulk_worker_processing','public.users','id','INSERT')
+                AND has_column_privilege('stonez_bulk_worker_processing','public.users','school_id','INSERT')
+                AND has_column_privilege('stonez_bulk_worker_processing','public.users','name','INSERT')
+                AND has_column_privilege('stonez_bulk_worker_processing','public.users','email','INSERT')
+                AND has_column_privilege('stonez_bulk_worker_processing','public.users','password_hash','INSERT')
+                AND has_column_privilege('stonez_bulk_worker_processing','public.users','role','INSERT')
+                AND has_column_privilege('stonez_bulk_worker_processing','public.users','active','INSERT')
+            ) AS user_insert_columns,
+            EXISTS (
+                SELECT 1 FROM pg_proc AS p
+                JOIN pg_namespace AS n ON n.oid = p.pronamespace
+                JOIN pg_language AS l ON l.oid = p.prolang
+                WHERE n.nspname = 'stonez_context_private'
+                  AND p.proname = 'bulk_worker_user_role_allowed'
+                  AND pg_get_function_identity_arguments(p.oid) = 'p_role text'
+                  AND l.lanname = 'sql'
+                  AND p.provolatile = 'i'
+                  AND p.proparallel = 's'
+                  AND NOT p.prosecdef
+                  AND regexp_replace(p.prosrc, '[[:space:]]+', '', 'g') =
+                      'SELECTp_roleIN(''student'',''teacher'',''parent'')'
+            ) AS user_role_guard_function,
+            (
+                SELECT count(*) FROM pg_policy AS policy
+                WHERE policy.polname = 'bulk_worker_user_role_guard'
+                  AND policy.polrelid = 'public.users'::regclass
+                  AND policy.polcmd = 'a'
+                  AND NOT policy.polpermissive
+                  AND (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing') = ANY(policy.polroles)
+                  AND regexp_replace(
+                        regexp_replace(pg_get_expr(policy.polwithcheck, policy.polrelid), '::[a-zA-Z0-9_.]+', '', 'g'),
+                        '[()[:space:]]', '', 'g'
+                      ) = 'stonez_context_private.bulk_worker_user_role_allowedrole'
+            ) AS user_role_guard_policy,
+            has_table_privilege('stonez_bulk_worker_processing','public.students','INSERT') AS student_insert,
+            NOT has_table_privilege('stonez_bulk_worker_processing','public.students','UPDATE')
+                AND NOT has_table_privilege('stonez_bulk_worker_processing','public.students','DELETE') AS student_update_denied,
+            has_table_privilege('stonez_bulk_worker_processing','public.bulk_import_jobs','SELECT') AS job_select,
+            has_column_privilege('stonez_bulk_worker_processing','public.bulk_import_jobs','status','UPDATE') AS job_status_update,
+            NOT has_column_privilege('stonez_bulk_worker_processing','public.bulk_import_jobs','lease_id','UPDATE') AS job_lease_update_denied,
+            NOT has_table_privilege('stonez_bulk_worker_processing','public.bulk_import_jobs','INSERT')
+                AND NOT has_table_privilege('stonez_bulk_worker_processing','public.bulk_import_jobs','DELETE') AS job_insert_delete_denied,
+            (SELECT count(*) FROM pg_policy
+              WHERE polname = 'bulk_import_jobs_signed_worker_select'
+                AND polrelid = 'public.bulk_import_jobs'::regclass AND polcmd = 'r' AND polpermissive
+                AND (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing') = ANY(polroles)) AS queue_select_policy,
+            (SELECT count(*) FROM pg_policy
+              WHERE polname = 'bulk_import_jobs_signed_worker_update'
+                AND polrelid = 'public.bulk_import_jobs'::regclass AND polcmd = 'w' AND polpermissive
+                AND (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing') = ANY(polroles)) AS queue_update_policy,
+            (SELECT count(*) FROM pg_policy
+              WHERE polname = 'bulk_import_jobs_context_verifier_read'
+                AND polrelid = 'public.bulk_import_jobs'::regclass AND polcmd = 'r' AND polpermissive
+                AND (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_context_owner') = ANY(polroles)) AS verifier_read_policy,
+            (SELECT count(*) FROM pg_policy
+              WHERE polname = 'bulk_import_jobs_context_verifier_lock'
+                AND polrelid = 'public.bulk_import_jobs'::regclass AND polcmd = 'w' AND polpermissive
+                AND (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_context_owner') = ANY(polroles)) AS verifier_lock_policy,
+            (SELECT count(*) FROM pg_policy
+              WHERE polname = 'bulk_worker_signed_select' AND polcmd = 'r' AND polpermissive
+                AND (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing') = ANY(polroles)
+                AND polrelid IN ('public.users'::regclass,'public.students'::regclass,
+                    'public.teacher_profiles'::regclass,'public.parent_profiles'::regclass,
+                    'public.academic_sessions'::regclass,'public.school_classes'::regclass,
+                    'public.sections'::regclass,'public.student_enrollments'::regclass,
+                    'public.guardian_relationships'::regclass)) AS worker_select_policies,
+            (SELECT count(*) FROM pg_policy
+              WHERE polname = 'bulk_worker_signed_insert' AND polcmd = 'a' AND polpermissive
+                AND (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing') = ANY(polroles)
+                AND polrelid IN ('public.users'::regclass,'public.students'::regclass,
+                    'public.teacher_profiles'::regclass,'public.parent_profiles'::regclass,
+                    'public.student_enrollments'::regclass,'public.guardian_relationships'::regclass)) AS worker_insert_policies,
+            NOT EXISTS (
+                WITH expected(table_name, policy_name, role_name, command, permissive, using_expr, check_expr) AS (
+                    VALUES
+                    ('bulk_import_jobs','bulk_import_jobs_signed_worker_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_idANDinitiated_by=stonez_context_private.current_worker_initiator_idANDid=stonez_context_private.current_worker_job_id',''),
+                    ('bulk_import_jobs','bulk_import_jobs_signed_worker_update','stonez_bulk_worker_processing','w',true,'school_id=stonez_context_private.current_worker_school_idANDinitiated_by=stonez_context_private.current_worker_initiator_idANDid=stonez_context_private.current_worker_job_id','school_id=stonez_context_private.current_worker_school_idANDinitiated_by=stonez_context_private.current_worker_initiator_idANDid=stonez_context_private.current_worker_job_id'),
+                    ('bulk_import_jobs','bulk_import_jobs_context_verifier_read','stonez_bulk_context_owner','r',true,'true',''),
+                    ('bulk_import_jobs','bulk_import_jobs_context_verifier_lock','stonez_bulk_context_owner','w',true,'true','true'),
+                    ('users','bulk_worker_signed_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id',''),
+                    ('students','bulk_worker_signed_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id',''),
+                    ('teacher_profiles','bulk_worker_signed_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id',''),
+                    ('parent_profiles','bulk_worker_signed_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id',''),
+                    ('academic_sessions','bulk_worker_signed_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id',''),
+                    ('school_classes','bulk_worker_signed_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id',''),
+                    ('sections','bulk_worker_signed_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id',''),
+                    ('student_enrollments','bulk_worker_signed_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id',''),
+                    ('guardian_relationships','bulk_worker_signed_select','stonez_bulk_worker_processing','r',true,'school_id=stonez_context_private.current_worker_school_id',''),
+                    ('users','bulk_worker_signed_insert','stonez_bulk_worker_processing','a',true,'','school_id=stonez_context_private.current_worker_school_id'),
+                    ('students','bulk_worker_signed_insert','stonez_bulk_worker_processing','a',true,'','school_id=stonez_context_private.current_worker_school_id'),
+                    ('teacher_profiles','bulk_worker_signed_insert','stonez_bulk_worker_processing','a',true,'','school_id=stonez_context_private.current_worker_school_id'),
+                    ('parent_profiles','bulk_worker_signed_insert','stonez_bulk_worker_processing','a',true,'','school_id=stonez_context_private.current_worker_school_id'),
+                    ('student_enrollments','bulk_worker_signed_insert','stonez_bulk_worker_processing','a',true,'','school_id=stonez_context_private.current_worker_school_id'),
+                    ('guardian_relationships','bulk_worker_signed_insert','stonez_bulk_worker_processing','a',true,'','school_id=stonez_context_private.current_worker_school_id'),
+                    ('users','bulk_worker_user_role_guard','stonez_bulk_worker_processing','a',false,'','stonez_context_private.bulk_worker_user_role_allowedrole')
+                )
+                SELECT 1 FROM expected AS e
+                LEFT JOIN pg_policy AS p
+                  ON p.polrelid=to_regclass(format('public.%I',e.table_name))
+                 AND p.polname=e.policy_name
+                 AND p.polroles=ARRAY[(SELECT oid FROM pg_roles WHERE rolname=e.role_name)]::oid[]
+                WHERE p.oid IS NULL OR p.polcmd::text<>e.command OR p.polpermissive<>e.permissive
+                   OR regexp_replace(regexp_replace(COALESCE(pg_get_expr(p.polqual,p.polrelid),''),'::[a-zA-Z0-9_.]+','','g'),'[()[:space:]]','','g')<>e.using_expr
+                   OR regexp_replace(regexp_replace(COALESCE(pg_get_expr(p.polwithcheck,p.polrelid),''),'::[a-zA-Z0-9_.]+','','g'),'[()[:space:]]','','g')<>e.check_expr
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM pg_policy AS p
+                 WHERE p.polrelid IN ('public.bulk_import_jobs'::regclass,'public.users'::regclass,
+                    'public.students'::regclass,'public.teacher_profiles'::regclass,
+                    'public.parent_profiles'::regclass,'public.academic_sessions'::regclass,
+                    'public.school_classes'::regclass,'public.sections'::regclass,
+                    'public.student_enrollments'::regclass,'public.guardian_relationships'::regclass)
+                   AND (0::oid=ANY(p.polroles)
+                        OR (SELECT oid FROM pg_roles WHERE rolname='stonez_bulk_worker_processing')=ANY(p.polroles)
+                        OR (SELECT oid FROM pg_roles WHERE rolname=session_user)=ANY(p.polroles))
+                   AND p.polname NOT IN ('bulk_import_jobs_signed_worker_select','bulk_import_jobs_signed_worker_update',
+                     'bulk_import_jobs_context_verifier_read','bulk_import_jobs_context_verifier_lock',
+                     'bulk_worker_signed_select','bulk_worker_signed_insert','bulk_worker_user_role_guard')
+            ) AS policy_expressions_exact,
+            NOT EXISTS (
+                WITH expected(table_name, select_columns, insert_columns, table_insert) AS (
+                    VALUES
+                    ('users',ARRAY['id','school_id','email','role']::text[],ARRAY['id','school_id','name','email','password_hash','role','active']::text[],false),
+                    ('students',ARRAY['id','school_id','admission_number']::text[],ARRAY[]::text[],true),
+                    ('teacher_profiles',ARRAY['id','school_id','staff_id']::text[],ARRAY[]::text[],true),
+                    ('parent_profiles',ARRAY['id','school_id','parent_identifier','user_id']::text[],ARRAY[]::text[],true),
+                    ('academic_sessions',ARRAY['id','school_id','name','status']::text[],ARRAY[]::text[],false),
+                    ('school_classes',ARRAY['id','school_id','name']::text[],ARRAY[]::text[],false),
+                    ('sections',ARRAY['id','school_id','class_id','name']::text[],ARRAY[]::text[],false),
+                    ('student_enrollments',ARRAY['id','school_id','student_id','academic_session_id','status']::text[],ARRAY[]::text[],true),
+                    ('guardian_relationships',ARRAY['id','school_id','guardian_user_id','student_id']::text[],ARRAY[]::text[],true)
+                )
+                SELECT 1 FROM expected AS e
+                JOIN pg_class AS c ON c.oid=to_regclass(format('public.%I',e.table_name))
+                JOIN pg_attribute AS a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
+                WHERE has_column_privilege(session_user,c.oid,a.attname,'SELECT')
+                          IS DISTINCT FROM (a.attname=ANY(e.select_columns))
+                   OR has_table_privilege(session_user,c.oid,'INSERT') IS DISTINCT FROM e.table_insert
+                   OR has_column_privilege(session_user,c.oid,a.attname,'INSERT')
+                          IS DISTINCT FROM (e.table_insert OR a.attname=ANY(e.insert_columns))
+                   OR has_column_privilege(session_user,c.oid,a.attname,'UPDATE')
+                   OR has_column_privilege(session_user,c.oid,a.attname,'REFERENCES')
+                   OR has_table_privilege(session_user,c.oid,'UPDATE')
+                   OR has_table_privilege(session_user,c.oid,'DELETE')
+                   OR has_table_privilege(session_user,c.oid,'TRUNCATE')
+                   OR has_table_privilege(session_user,c.oid,'REFERENCES')
+                   OR has_table_privilege(session_user,c.oid,'TRIGGER')
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM pg_class AS c
+                JOIN pg_attribute AS a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
+                WHERE c.oid='public.bulk_import_jobs'::regclass
+                  AND has_column_privilege(session_user,c.oid,a.attname,'UPDATE')
+                    IS DISTINCT FROM (a.attname=ANY(ARRAY['status','total','valid','created','updated','skipped','failed','credentials_sent','credential_emails_failed','errors_json','claimed_at','worker_id','last_error','processed_rows_json']::text[]))
+            )
+            AND has_table_privilege(session_user,'public.bulk_import_jobs','SELECT')
+            AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','INSERT')
+            AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','UPDATE')
+            AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','DELETE')
+            AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','TRUNCATE')
+            AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','REFERENCES')
+            AND NOT has_table_privilege(session_user,'public.bulk_import_jobs','TRIGGER')
+            AND NOT EXISTS (
+                SELECT 1 FROM pg_attribute AS a
+                 WHERE a.attrelid='public.bulk_import_jobs'::regclass
+                   AND a.attnum>0 AND NOT a.attisdropped
+                   AND (has_column_privilege(session_user,'public.bulk_import_jobs',a.attname,'INSERT')
+                        OR has_column_privilege(session_user,'public.bulk_import_jobs',a.attname,'REFERENCES'))
+            )
+            AS worker_privileges_exact,
+            (
+                to_regprocedure('stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)') IS NOT NULL
+                AND to_regprocedure('stonez_context_private.claim_account_setup_notification()') IS NOT NULL
+                AND to_regprocedure('stonez_context_private.complete_account_setup_notification(uuid,uuid,text)') IS NOT NULL
+                AND to_regprocedure('stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)') IS NOT NULL
+                AND to_regprocedure('stonez_context_private.account_setup_notification_counts()') IS NOT NULL
+                AND (
+                    SELECT count(*)=5
+                       AND bool_and(p.prosecdef
+                           AND p.proconfig @> ARRAY['search_path=pg_catalog']
+                           AND owner_role.rolname='stonez_bulk_context_owner')
+                      FROM pg_proc AS p
+                      JOIN pg_namespace AS n ON n.oid=p.pronamespace
+                      JOIN pg_roles AS owner_role ON owner_role.oid=p.proowner
+                     WHERE n.nspname='stonez_context_private'
+                       AND p.proname=ANY(ARRAY[
+                           'enqueue_account_setup_notification',
+                           'claim_account_setup_notification',
+                           'complete_account_setup_notification',
+                           'retry_account_setup_notification',
+                           'account_setup_notification_counts'
+                       ]::text[])
+                )
+            ) AS outbox_functions,
+            CASE WHEN to_regclass('stonez_context_private.account_setup_outbox') IS NULL THEN false
+                 ELSE EXISTS (
+                     SELECT 1 FROM pg_class AS relation
+                     JOIN pg_roles AS owner_role ON owner_role.oid=relation.relowner
+                     WHERE relation.oid=to_regclass('stonez_context_private.account_setup_outbox')
+                       AND owner_role.rolname='stonez_bulk_context_owner'
+                 )
+                  AND NOT has_table_privilege('stonez_bulk_worker_processing',to_regclass('stonez_context_private.account_setup_outbox'),'SELECT')
+                  AND NOT has_table_privilege('stonez_bulk_worker_processing',to_regclass('stonez_context_private.account_setup_outbox'),'INSERT')
+                  AND NOT has_table_privilege('stonez_bulk_worker_processing',to_regclass('stonez_context_private.account_setup_outbox'),'UPDATE')
+                  AND NOT has_table_privilege('stonez_bulk_worker_processing',to_regclass('stonez_context_private.account_setup_outbox'),'DELETE')
+            END AS outbox_direct_access_denied
+    `
+    if err := db.Raw(query).Scan(&ready).Error; err != nil {
+        return fmt.Errorf("inspect signed bulk import verifier installation: %w", err)
+    }
+    if !ready.Verifier || !ready.SchoolAccessor || !ready.InitiatorAccessor ||
+       !ready.JobAccessor || !ready.HMAC || !ready.WorkerGroupSafe || !ready.EligibilityFunction ||
+       !ready.QueueRLS || ready.WorkerTableRLSCount != 9 ||
+       ready.PublicPermissivePolicyCount != 0 ||
+       !ready.UserRequiredSelect || !ready.PasswordHashSelectDenied ||
+       !ready.UserInsertTablePrivilegeDenied || !ready.UserInsertColumns ||
+       !ready.UserRoleGuardFunction || ready.UserRoleGuardPolicy != 1 ||
+       !ready.StudentInsert || !ready.StudentUpdateDenied ||
+       !ready.JobSelect || !ready.JobStatusUpdate || !ready.JobLeaseUpdateDenied ||
+       !ready.JobInsertDeleteDenied ||
+       ready.QueueSelectPolicy != 1 || ready.QueueUpdatePolicy != 1 ||
+       ready.VerifierReadPolicy != 1 || ready.VerifierLockPolicy != 1 ||
+       ready.WorkerSelectPolicies != 9 || ready.WorkerInsertPolicies != 6 ||
+       !ready.PolicyExpressionsExact || !ready.WorkerPrivilegesExact ||
+       !ready.OutboxFunctions || !ready.OutboxDirectAccessDenied ||
+       !ready.VerifierFunctionsSafe || !ready.FunctionACLsExact {
+        return fmt.Errorf("signed bulk import verifier or required worker RLS policies are incomplete: %+v", ready)
+    }
+    return nil
+}
+
+// ConnectPostgresURL opens a PostgreSQL connection using an explicit DSN.
+// It does not run migrations or log the supplied connection string.
+func ConnectPostgresURL(dsn string) (*gorm.DB, error) {
+    if strings.TrimSpace(dsn) == "" {
+        return nil, fmt.Errorf("PostgreSQL connection URL is required")
+    }
+    db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+    if err != nil {
+        return nil, fmt.Errorf("connect PostgreSQL database: %w", err)
+    }
+    return db, nil
+}
+
+func envOrDefault(key,fallback string) string { if value:=os.Getenv(key); value!="" { return value }; return fallback }
+
+func Migrate(db *gorm.DB) error {
+    if !db.Migrator().HasTable(&Migration{}) {
+        if err:=db.AutoMigrate(&Migration{});err!=nil{return fmt.Errorf("create migration table: %w",err)}
+    }
+    migrations:=[]MigrationStep{
+        {Version:1,Name:"initial_school_management_schema",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.User{},&models.RefreshToken{},&models.Session{},&models.PasswordResetToken{},&models.RoleChangeAudit{},&models.AuditLog{})}},
+        {Version:2,Name:"student_management",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.Student{})}},
+        {Version:3,Name:"academic_foundation",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.AcademicSession{},&models.Term{})}},
+        {Version:4,Name:"classes_and_sections",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.SchoolClass{},&models.Section{})}},
+        {Version:5,Name:"student_enrollment",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.StudentEnrollment{})}},
+        {Version:6,Name:"attendance_records",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.AttendanceRecord{})}},
+        {Version:7,Name:"assessments",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.Assessment{})}},
+        {Version:8,Name:"assessment_results",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.AssessmentResult{})}},
+        {Version:9,Name:"finance",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.FeeItem{},&models.Invoice{},&models.InvoiceLine{},&models.Payment{})}},
+        {Version:10,Name:"timetable",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.TimetableEntry{})}},
+        {Version:11,Name:"guardian_relationships",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.GuardianRelationship{})}},
+        {Version:12,Name:"notifications",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.Announcement{},&models.Notification{})}},
+        {Version:13,Name:"hash_refresh_tokens",Up:func(tx *gorm.DB) error {
+            if err:=tx.AutoMigrate(&models.RefreshToken{},&models.Session{});err!=nil{return err}
+            var tokens []struct{ID uuid.UUID; Token string}
+            if tx.Migrator().HasColumn(&models.RefreshToken{},"token") {
+                if err:=tx.Raw("SELECT id, token FROM refresh_tokens WHERE token IS NOT NULL AND token <> ''").Scan(&tokens).Error;err!=nil{return err}
+            }
+            for _,token:=range tokens {
+                if err:=tx.Model(&models.RefreshToken{}).Where("id = ?",token.ID).Update("token_hash",auth.HashRefreshToken(token.Token)).Error;err!=nil{return err}
+            }
+            var sessions []struct{ID uuid.UUID; RefreshToken string}
+            if tx.Migrator().HasColumn(&models.Session{},"refresh_token") {
+                if err:=tx.Raw("SELECT id, refresh_token FROM sessions WHERE refresh_token IS NOT NULL AND refresh_token <> ''").Scan(&sessions).Error;err!=nil{return err}
+            }
+            for _,session:=range sessions {
+                if err:=tx.Model(&models.Session{}).Where("id = ?",session.ID).Update("refresh_token_hash",auth.HashRefreshToken(session.RefreshToken)).Error;err!=nil{return err}
+            }
+            if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_refresh_tokens_token_hash ON refresh_tokens(token_hash)").Error;err!=nil{return err}
+            if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_refresh_token_hash ON sessions(refresh_token_hash)").Error;err!=nil{return err}
+            if tx.Migrator().HasColumn(&models.RefreshToken{},"token") { if err:=tx.Migrator().DropColumn(&models.RefreshToken{},"token");err!=nil{return err} }
+            if tx.Migrator().HasColumn(&models.Session{},"refresh_token") { if err:=tx.Migrator().DropColumn(&models.Session{},"refresh_token");err!=nil{return err} }
+            return nil
+        }},
+        {Version:14,Name:"refresh_token_families",Up:func(tx *gorm.DB) error {
+            if err:=tx.AutoMigrate(&models.RefreshToken{},&models.Session{});err!=nil{return err}
+            var sessions []models.Session
+            if err:=tx.Find(&sessions).Error;err!=nil{return err}
+            for _,session:=range sessions {
+                if session.FamilyID != uuid.Nil {continue}
+                familyID:=uuid.New()
+                if session.RefreshTokenHash!="" {
+                    var token models.RefreshToken
+                    if err:=tx.Where("token_hash = ?",session.RefreshTokenHash).First(&token).Error;err==nil {
+                        familyID=token.FamilyID
+                        if familyID==uuid.Nil {
+                            familyID=uuid.New()
+                            if err:=tx.Model(&token).Update("family_id",familyID).Error;err!=nil{return err}
+                        }
+                    }
+                }
+                if err:=tx.Model(&session).Update("family_id",familyID).Error;err!=nil{return err}
+            }
+            var tokens []models.RefreshToken
+            if err:=tx.Where("family_id = ?",uuid.Nil).Find(&tokens).Error;err!=nil{return err}
+            for _,token:=range tokens {
+                if err:=tx.Model(&token).Update("family_id",uuid.New()).Error;err!=nil{return err}
+            }
+            return nil
+        }},
+        {Version:15,Name:"hash_password_reset_tokens",Up:func(tx *gorm.DB) error {
+            if err:=tx.AutoMigrate(&models.PasswordResetToken{});err!=nil{return err}
+            var tokens []struct{ID uuid.UUID; Token string}
+            if tx.Migrator().HasColumn(&models.PasswordResetToken{},"token") {
+                if err:=tx.Raw("SELECT id, token FROM password_reset_tokens WHERE token IS NOT NULL AND token <> ''").Scan(&tokens).Error;err!=nil{return err}
+                for _,token:=range tokens {
+                    if err:=tx.Model(&models.PasswordResetToken{}).Where("id = ?",token.ID).Update("token_hash",auth.HashResetToken(token.Token)).Error;err!=nil{return err}
+                }
+                if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_password_reset_tokens_token_hash ON password_reset_tokens(token_hash)").Error;err!=nil{return err}
+                if err:=tx.Migrator().DropColumn(&models.PasswordResetToken{},"token");err!=nil{return err}
+            }
+            return nil
+        }},
+        {Version:16,Name:"multi_school_tenant_foundation",Up:func(tx *gorm.DB) error {
+            // Avoid GORM AutoMigrate on the existing PostgreSQL users table here.
+            // Older production databases can have a legacy email constraint/index
+            // name that GORM attempts to drop during AutoMigrate. The tenant
+            // foundation only needs the additive school column and its FK/index.
+            if tx.Dialector.Name()=="postgres" {
+                if err:=tx.AutoMigrate(&models.School{});err!=nil{return err}
+                if err:=tx.Exec("ALTER TABLE users ADD COLUMN IF NOT EXISTS school_id uuid").Error;err!=nil{return err}
+            } else {
+                if err:=tx.AutoMigrate(&models.School{},&models.User{});err!=nil{return err}
+            }
+            var school models.School
+            result:=tx.Where("code = ?", "DEFAULT").First(&school)
+            if result.Error==gorm.ErrRecordNotFound {
+                school=models.School{Name:"Default School",Code:"DEFAULT",Status:models.SchoolStatusActive}
+                if err:=tx.Create(&school).Error;err!=nil{return err}
+            } else if result.Error!=nil {return result.Error}
+            if err:=tx.Model(&models.User{}).Where("school_id IS NULL").Update("school_id",school.ID).Error;err!=nil{return err}
+            if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_users_school_id ON users(school_id)").Error;err!=nil{return err}
+            if tx.Dialector.Name()=="postgres" {
+                if err:=tx.Exec(`DO $$ BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname='user_school_fk'
+                          AND conrelid='users'::regclass
+                    ) THEN
+                        ALTER TABLE users
+                        ADD CONSTRAINT user_school_fk
+                        FOREIGN KEY (school_id) REFERENCES schools(id)
+                        ON UPDATE CASCADE ON DELETE RESTRICT;
+                    END IF;
+                END $$`).Error;err!=nil{return err}
+            }
+            return nil
+        }},
+        {Version:17,Name:"school_scope_academic_finance_data",Up:func(tx *gorm.DB) error {
+            schoolScopedModels:=[]interface{}{
+                &models.Student{}, &models.AcademicSession{}, &models.Term{},
+                &models.SchoolClass{}, &models.Section{}, &models.Subject{},
+                &models.StudentEnrollment{}, &models.AttendanceRecord{},
+                &models.TeacherAssignment{}, &models.Assessment{}, &models.AssessmentResult{},
+                &models.FeeItem{}, &models.Invoice{}, &models.InvoiceLine{}, &models.Payment{},
+                &models.TimetableEntry{}, &models.GuardianRelationship{},
+                &models.Announcement{}, &models.Notification{},
+            }
+            if tx.Dialector.Name()=="postgres" {
+                tables:=[]string{"students","academic_sessions","terms","school_classes","sections","subjects","student_enrollments","attendance_records","teacher_assignments","assessments","assessment_results","fee_items","invoices","invoice_lines","payments","timetable_entries","guardian_relationships","announcements","notifications"}
+                for _,table:=range tables {
+                    if err:=tx.Exec("ALTER TABLE "+table+" ADD COLUMN IF NOT EXISTS school_id uuid").Error;err!=nil{return err}
+                }
+            } else {
+                if err:=tx.AutoMigrate(schoolScopedModels...);err!=nil{return err}
+            }
+
+            var school models.School
+            if err:=tx.Where("code = ?", "DEFAULT").First(&school).Error;err!=nil{return err}
+
+            backfills:=[]string{
+                "UPDATE students SET school_id = (SELECT school_id FROM users WHERE users.id = students.user_id) WHERE school_id IS NULL",
+                "UPDATE academic_sessions SET school_id = ? WHERE school_id IS NULL",
+                "UPDATE terms SET school_id = (SELECT school_id FROM academic_sessions WHERE academic_sessions.id = terms.academic_session_id) WHERE school_id IS NULL",
+                "UPDATE school_classes SET school_id = ? WHERE school_id IS NULL",
+                "UPDATE sections SET school_id = (SELECT school_id FROM school_classes WHERE school_classes.id = sections.class_id) WHERE school_id IS NULL",
+                "UPDATE subjects SET school_id = ? WHERE school_id IS NULL",
+                "UPDATE student_enrollments SET school_id = (SELECT school_id FROM students WHERE students.id = student_enrollments.student_id) WHERE school_id IS NULL",
+                "UPDATE attendance_records SET school_id = (SELECT school_id FROM student_enrollments WHERE student_enrollments.id = attendance_records.enrollment_id) WHERE school_id IS NULL",
+                "UPDATE teacher_assignments SET school_id = (SELECT school_id FROM users WHERE users.id = teacher_assignments.teacher_id) WHERE school_id IS NULL",
+                "UPDATE assessments SET school_id = (SELECT school_id FROM teacher_assignments WHERE teacher_assignments.id = assessments.teacher_assignment_id) WHERE school_id IS NULL",
+                "UPDATE assessment_results SET school_id = (SELECT school_id FROM student_enrollments WHERE student_enrollments.id = assessment_results.student_enrollment_id) WHERE school_id IS NULL",
+                "UPDATE fee_items SET school_id = (SELECT school_id FROM terms WHERE terms.id = fee_items.term_id) WHERE school_id IS NULL",
+                "UPDATE invoices SET school_id = (SELECT school_id FROM student_enrollments WHERE student_enrollments.id = invoices.student_enrollment_id) WHERE school_id IS NULL",
+                "UPDATE invoice_lines SET school_id = (SELECT school_id FROM invoices WHERE invoices.id = invoice_lines.invoice_id) WHERE school_id IS NULL",
+                "UPDATE payments SET school_id = (SELECT school_id FROM invoices WHERE invoices.id = payments.invoice_id) WHERE school_id IS NULL",
+                "UPDATE timetable_entries SET school_id = (SELECT school_id FROM academic_sessions WHERE academic_sessions.id = timetable_entries.academic_session_id) WHERE school_id IS NULL",
+                "UPDATE guardian_relationships SET school_id = (SELECT school_id FROM students WHERE students.id = guardian_relationships.student_id) WHERE school_id IS NULL",
+                "UPDATE announcements SET school_id = (SELECT school_id FROM users WHERE users.id = announcements.created_by) WHERE school_id IS NULL",
+                "UPDATE notifications SET school_id = (SELECT school_id FROM users WHERE users.id = notifications.user_id) WHERE school_id IS NULL",
+            }
+            for i,query:=range backfills {
+                var err error
+                if i==1 || i==3 || i==5 { err=tx.Exec(query,school.ID).Error } else { err=tx.Exec(query).Error }
+                if err!=nil{return err}
+            }
+
+            required:=[]struct{table,column string}{
+                {"students","school_id"},{"academic_sessions","school_id"},{"terms","school_id"},
+                {"school_classes","school_id"},{"sections","school_id"},{"subjects","school_id"},
+                {"student_enrollments","school_id"},{"attendance_records","school_id"},
+                {"teacher_assignments","school_id"},{"assessments","school_id"},{"assessment_results","school_id"},
+                {"fee_items","school_id"},{"invoices","school_id"},{"invoice_lines","school_id"},
+                {"payments","school_id"},{"timetable_entries","school_id"},{"guardian_relationships","school_id"},
+                {"announcements","school_id"},{"notifications","school_id"},
+            }
+            for _,item:=range required {
+                var count int64
+                if err:=tx.Table(item.table).Where(item.column+" IS NULL").Count(&count).Error;err!=nil{return err}
+                if count!=0{return fmt.Errorf("%s.%s has %d unassigned rows after school backfill",item.table,item.column,count)}
+            }
+
+            drops:=[]string{
+                "DROP INDEX IF EXISTS uni_students_admission_number",
+                "DROP INDEX IF EXISTS idx_students_admission_number",
+                "DROP INDEX IF EXISTS uni_academic_sessions_name",
+                "DROP INDEX IF EXISTS idx_academic_sessions_name",
+                "DROP INDEX IF EXISTS uni_school_classes_name",
+                "DROP INDEX IF EXISTS idx_school_classes_name",
+                "DROP INDEX IF EXISTS uni_subjects_code",
+                "DROP INDEX IF EXISTS uni_subjects_name",
+                "DROP INDEX IF EXISTS idx_subjects_code",
+                "DROP INDEX IF EXISTS idx_subjects_name",
+                "DROP INDEX IF EXISTS uq_session_term",
+                "DROP INDEX IF EXISTS uq_fee_term_name",
+                "DROP INDEX IF EXISTS uni_invoices_invoice_number",
+                "DROP INDEX IF EXISTS idx_invoices_invoice_number",
+                "DROP INDEX IF EXISTS uq_student_session",
+                "DROP INDEX IF EXISTS uq_attendance_enrollment_date",
+                "DROP INDEX IF EXISTS uq_assessment_assignment_title",
+                "DROP INDEX IF EXISTS uq_result_assessment_enrollment",
+                "DROP INDEX IF EXISTS ux_guardian_student",
+                "DROP INDEX IF EXISTS uq_notification_user_source",
+            }
+            for _,query:=range drops { if err:=tx.Exec(query).Error;err!=nil{return err} }
+
+            indexes:=[]string{
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_student_admission ON students(school_id, admission_number)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_session_name ON academic_sessions(school_id, name)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_session_term ON terms(school_id, academic_session_id, name)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_class_name ON school_classes(school_id, name)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_class_section ON sections(school_id, class_id, name)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_subject_code ON subjects(school_id, code)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_subject_name ON subjects(school_id, name)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_student_session ON student_enrollments(school_id, student_id, academic_session_id)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_attendance_enrollment_date ON attendance_records(school_id, enrollment_id, term_id, date)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_assessment_assignment_title ON assessments(school_id, teacher_assignment_id, title)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_result_assessment_enrollment ON assessment_results(school_id, assessment_id, student_enrollment_id)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_fee_term_name ON fee_items(school_id, term_id, name)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_invoice_number ON invoices(school_id, invoice_number)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_school_guardian_student ON guardian_relationships(school_id, guardian_user_id, student_id)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_notification_user_source ON notifications(school_id, user_id, announcement_id)",
+            }
+            for _,query:=range indexes { if err:=tx.Exec(query).Error;err!=nil{return err} }
+
+            if tx.Dialector.Name()=="postgres" {
+                for _,item:=range required {
+                    if err:=tx.Exec("ALTER TABLE "+item.table+" ALTER COLUMN "+item.column+" SET NOT NULL").Error;err!=nil{return err}
+                }
+                constraints:=map[string]string{
+                    "students":"student_school_fk",
+                    "academic_sessions":"academic_session_school_fk",
+                    "terms":"term_school_fk",
+                    "school_classes":"school_class_school_fk",
+                    "sections":"section_school_fk",
+                    "subjects":"subject_school_fk",
+                    "student_enrollments":"student_enrollment_school_fk",
+                    "attendance_records":"attendance_record_school_fk",
+                    "teacher_assignments":"teacher_assignment_school_fk",
+                    "assessments":"assessment_school_fk",
+                    "assessment_results":"assessment_result_school_fk",
+                    "fee_items":"fee_item_school_fk",
+                    "invoices":"invoice_school_fk",
+                    "invoice_lines":"invoice_line_school_fk",
+                    "payments":"payment_school_fk",
+                    "timetable_entries":"timetable_entry_school_fk",
+                    "guardian_relationships":"guardian_relationship_school_fk",
+                    "announcements":"announcement_school_fk",
+                    "notifications":"notification_school_fk",
+                }
+                for table,constraint:=range constraints {
+                    if err:=tx.Exec("ALTER TABLE "+table+" ADD CONSTRAINT "+constraint+" FOREIGN KEY (school_id) REFERENCES schools(id) ON UPDATE CASCADE ON DELETE RESTRICT").Error;err!=nil{return err}
+                }
+            }
+            return nil
+        }},
+        {Version:18,Name:"database_tenant_integrity_constraints",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+
+            checks:=[]struct{name,query string}{
+                {"students.users","SELECT COUNT(*) FROM students s JOIN users u ON u.id=s.user_id WHERE s.school_id<>u.school_id"},
+                {"terms.sessions","SELECT COUNT(*) FROM terms t JOIN academic_sessions s ON s.id=t.academic_session_id WHERE t.school_id<>s.school_id"},
+                {"sections.classes","SELECT COUNT(*) FROM sections s JOIN school_classes c ON c.id=s.class_id WHERE s.school_id<>c.school_id"},
+                {"enrollments.students","SELECT COUNT(*) FROM student_enrollments e JOIN students s ON s.id=e.student_id WHERE e.school_id<>s.school_id"},
+                {"enrollments.sessions","SELECT COUNT(*) FROM student_enrollments e JOIN academic_sessions s ON s.id=e.academic_session_id WHERE e.school_id<>s.school_id"},
+                {"enrollments.classes","SELECT COUNT(*) FROM student_enrollments e JOIN school_classes c ON c.id=e.class_id WHERE e.school_id<>c.school_id"},
+                {"enrollments.sections","SELECT COUNT(*) FROM student_enrollments e JOIN sections s ON s.id=e.section_id WHERE e.school_id<>s.school_id"},
+                {"attendance.enrollments","SELECT COUNT(*) FROM attendance_records a JOIN student_enrollments e ON e.id=a.enrollment_id WHERE a.school_id<>e.school_id"},
+                {"attendance.terms","SELECT COUNT(*) FROM attendance_records a JOIN terms t ON t.id=a.term_id WHERE a.school_id<>t.school_id"},
+                {"teacher_assignments.teachers","SELECT COUNT(*) FROM teacher_assignments ta JOIN users u ON u.id=ta.teacher_id WHERE ta.school_id<>u.school_id"},
+                {"teacher_assignments.subjects","SELECT COUNT(*) FROM teacher_assignments ta JOIN subjects s ON s.id=ta.subject_id WHERE ta.school_id<>s.school_id"},
+                {"teacher_assignments.sessions","SELECT COUNT(*) FROM teacher_assignments ta JOIN academic_sessions s ON s.id=ta.academic_session_id WHERE ta.school_id<>s.school_id"},
+                {"teacher_assignments.terms","SELECT COUNT(*) FROM teacher_assignments ta JOIN terms t ON t.id=ta.term_id WHERE ta.school_id<>t.school_id"},
+                {"teacher_assignments.classes","SELECT COUNT(*) FROM teacher_assignments ta JOIN school_classes c ON c.id=ta.class_id WHERE ta.school_id<>c.school_id"},
+                {"teacher_assignments.sections","SELECT COUNT(*) FROM teacher_assignments ta JOIN sections s ON s.id=ta.section_id WHERE ta.section_id IS NOT NULL AND ta.school_id<>s.school_id"},
+                {"assessments.assignments","SELECT COUNT(*) FROM assessments a JOIN teacher_assignments ta ON ta.id=a.teacher_assignment_id WHERE a.school_id<>ta.school_id"},
+                {"results.assessments","SELECT COUNT(*) FROM assessment_results r JOIN assessments a ON a.id=r.assessment_id WHERE r.school_id<>a.school_id"},
+                {"results.enrollments","SELECT COUNT(*) FROM assessment_results r JOIN student_enrollments e ON e.id=r.student_enrollment_id WHERE r.school_id<>e.school_id"},
+                {"fee_items.terms","SELECT COUNT(*) FROM fee_items f JOIN terms t ON t.id=f.term_id WHERE f.school_id<>t.school_id"},
+                {"invoices.enrollments","SELECT COUNT(*) FROM invoices i JOIN student_enrollments e ON e.id=i.student_enrollment_id WHERE i.school_id<>e.school_id"},
+                {"invoices.terms","SELECT COUNT(*) FROM invoices i JOIN terms t ON t.id=i.term_id WHERE i.school_id<>t.school_id"},
+                {"invoice_lines.invoices","SELECT COUNT(*) FROM invoice_lines l JOIN invoices i ON i.id=l.invoice_id WHERE l.school_id<>i.school_id"},
+                {"invoice_lines.fee_items","SELECT COUNT(*) FROM invoice_lines l JOIN fee_items f ON f.id=l.fee_item_id WHERE l.fee_item_id IS NOT NULL AND l.school_id<>f.school_id"},
+                {"payments.invoices","SELECT COUNT(*) FROM payments p JOIN invoices i ON i.id=p.invoice_id WHERE p.school_id<>i.school_id"},
+                {"timetable.sessions","SELECT COUNT(*) FROM timetable_entries t JOIN academic_sessions s ON s.id=t.academic_session_id WHERE t.school_id<>s.school_id"},
+                {"timetable.terms","SELECT COUNT(*) FROM timetable_entries t JOIN terms x ON x.id=t.term_id WHERE t.school_id<>x.school_id"},
+                {"timetable.assignments","SELECT COUNT(*) FROM timetable_entries t JOIN teacher_assignments a ON a.id=t.teacher_assignment_id WHERE t.school_id<>a.school_id"},
+                {"timetable.classes","SELECT COUNT(*) FROM timetable_entries t JOIN school_classes c ON c.id=t.class_id WHERE t.school_id<>c.school_id"},
+                {"timetable.sections","SELECT COUNT(*) FROM timetable_entries t JOIN sections s ON s.id=t.section_id WHERE t.section_id IS NOT NULL AND t.school_id<>s.school_id"},
+                {"guardians.users","SELECT COUNT(*) FROM guardian_relationships g JOIN users u ON u.id=g.guardian_user_id WHERE g.school_id<>u.school_id"},
+                {"guardians.students","SELECT COUNT(*) FROM guardian_relationships g JOIN students s ON s.id=g.student_id WHERE g.school_id<>s.school_id"},
+                {"announcements.users","SELECT COUNT(*) FROM announcements a JOIN users u ON u.id=a.created_by WHERE a.school_id<>u.school_id"},
+                {"announcements.classes","SELECT COUNT(*) FROM announcements a JOIN school_classes c ON c.id=a.class_id WHERE a.class_id IS NOT NULL AND a.school_id<>c.school_id"},
+                {"notifications.users","SELECT COUNT(*) FROM notifications n JOIN users u ON u.id=n.user_id WHERE n.school_id<>u.school_id"},
+                {"notifications.announcements","SELECT COUNT(*) FROM notifications n JOIN announcements a ON a.id=n.announcement_id WHERE n.announcement_id IS NOT NULL AND n.school_id<>a.school_id"},
+            }
+            for _,check:=range checks {
+                var count int64
+                if err:=tx.Raw(check.query).Scan(&count).Error;err!=nil{return fmt.Errorf("check %s tenant consistency: %w",check.name,err)}
+                if count!=0{return fmt.Errorf("tenant consistency violation in %s: %d rows",check.name,count)}
+            }
+
+            parentTables:=[]string{"users","students","academic_sessions","terms","school_classes","sections","subjects","student_enrollments","teacher_assignments","assessments","assessment_results","fee_items","invoices","announcements"}
+            for _,table:=range parentTables {
+                if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_"+table+"_school_id ON "+table+"(school_id,id)").Error;err!=nil{return err}
+            }
+
+            constraints:=[]struct{name,table,columns,parent string}{
+                {"student_user_school_fk","students","school_id,user_id","users(school_id,id)"},
+                {"term_session_school_fk","terms","school_id,academic_session_id","academic_sessions(school_id,id)"},
+                {"section_class_school_fk","sections","school_id,class_id","school_classes(school_id,id)"},
+                {"enrollment_student_school_fk","student_enrollments","school_id,student_id","students(school_id,id)"},
+                {"enrollment_session_school_fk","student_enrollments","school_id,academic_session_id","academic_sessions(school_id,id)"},
+                {"enrollment_class_school_fk","student_enrollments","school_id,class_id","school_classes(school_id,id)"},
+                {"enrollment_section_school_fk","student_enrollments","school_id,section_id","sections(school_id,id)"},
+                {"attendance_enrollment_school_fk","attendance_records","school_id,enrollment_id","student_enrollments(school_id,id)"},
+                {"attendance_term_school_fk","attendance_records","school_id,term_id","terms(school_id,id)"},
+                {"teacher_assignment_teacher_school_fk","teacher_assignments","school_id,teacher_id","users(school_id,id)"},
+                {"teacher_assignment_subject_school_fk","teacher_assignments","school_id,subject_id","subjects(school_id,id)"},
+                {"teacher_assignment_session_school_fk","teacher_assignments","school_id,academic_session_id","academic_sessions(school_id,id)"},
+                {"teacher_assignment_term_school_fk","teacher_assignments","school_id,term_id","terms(school_id,id)"},
+                {"teacher_assignment_class_school_fk","teacher_assignments","school_id,class_id","school_classes(school_id,id)"},
+                {"teacher_assignment_section_school_fk","teacher_assignments","school_id,section_id","sections(school_id,id)"},
+                {"assessment_assignment_school_fk","assessments","school_id,teacher_assignment_id","teacher_assignments(school_id,id)"},
+                {"result_assessment_school_fk","assessment_results","school_id,assessment_id","assessments(school_id,id)"},
+                {"result_enrollment_school_fk","assessment_results","school_id,student_enrollment_id","student_enrollments(school_id,id)"},
+                {"fee_item_term_school_fk","fee_items","school_id,term_id","terms(school_id,id)"},
+                {"invoice_enrollment_school_fk","invoices","school_id,student_enrollment_id","student_enrollments(school_id,id)"},
+                {"invoice_term_school_fk","invoices","school_id,term_id","terms(school_id,id)"},
+                {"invoice_line_invoice_school_fk","invoice_lines","school_id,invoice_id","invoices(school_id,id)"},
+                {"invoice_line_fee_item_school_fk","invoice_lines","school_id,fee_item_id","fee_items(school_id,id)"},
+                {"payment_invoice_school_fk","payments","school_id,invoice_id","invoices(school_id,id)"},
+                {"timetable_session_school_fk","timetable_entries","school_id,academic_session_id","academic_sessions(school_id,id)"},
+                {"timetable_term_school_fk","timetable_entries","school_id,term_id","terms(school_id,id)"},
+                {"timetable_assignment_school_fk","timetable_entries","school_id,teacher_assignment_id","teacher_assignments(school_id,id)"},
+                {"timetable_class_school_fk","timetable_entries","school_id,class_id","school_classes(school_id,id)"},
+                {"timetable_section_school_fk","timetable_entries","school_id,section_id","sections(school_id,id)"},
+                {"guardian_user_school_fk","guardian_relationships","school_id,guardian_user_id","users(school_id,id)"},
+                {"guardian_student_school_fk","guardian_relationships","school_id,student_id","students(school_id,id)"},
+                {"announcement_user_school_fk","announcements","school_id,created_by","users(school_id,id)"},
+                {"announcement_class_school_fk","announcements","school_id,class_id","school_classes(school_id,id)"},
+                {"notification_user_school_fk","notifications","school_id,user_id","users(school_id,id)"},
+                {"notification_announcement_school_fk","notifications","school_id,announcement_id","announcements(school_id,id)"},
+            }
+            for _,fk:=range constraints {
+                if err:=tx.Exec("ALTER TABLE "+fk.table+" ADD CONSTRAINT "+fk.name+" FOREIGN KEY ("+fk.columns+") REFERENCES "+fk.parent+" ON UPDATE CASCADE ON DELETE RESTRICT").Error;err!=nil{return fmt.Errorf("add %s: %w",fk.name,err)}
+            }
+            return nil
+        }},
+        {Version:19,Name:"align_tenant_relationship_delete_semantics",Up:func(tx *gorm.DB) error {
+        if tx.Dialector.Name()!="postgres" { return nil }
+        changes:=[]struct{table,name,parent,onDelete string}{
+            {"sections","section_class_school_fk","school_classes(school_id,id)","CASCADE"},
+            {"terms","term_session_school_fk","academic_sessions(school_id,id)","CASCADE"},
+            {"invoice_lines","invoice_line_invoice_school_fk","invoices(school_id,id)","CASCADE"},
+        }
+        for _,v:=range changes {
+            if err:=tx.Exec("ALTER TABLE "+v.table+" DROP CONSTRAINT IF EXISTS "+v.name).Error;err!=nil{return err}
+            if err:=tx.Exec("ALTER TABLE "+v.table+" ADD CONSTRAINT "+v.name+" FOREIGN KEY (school_id,"+map[string]string{"section_class_school_fk":"class_id","term_session_school_fk":"academic_session_id","invoice_line_invoice_school_fk":"invoice_id"}[v.name]+") REFERENCES "+v.parent+" ON UPDATE CASCADE ON DELETE "+v.onDelete).Error;err!=nil{return fmt.Errorf("recreate %s: %w",v.name,err)}
+        }
+        return nil
+    }},
+        {Version:20,Name:"scope_audit_records_by_school",Up:func(tx *gorm.DB) error {
+            if err:=tx.AutoMigrate(&models.AuditLog{},&models.RoleChangeAudit{});err!=nil{return err}
+            if tx.Dialector.Name()=="postgres" {
+                if err:=tx.Exec("UPDATE audit_logs a SET school_id=u.school_id FROM users u WHERE a.school_id IS NULL AND a.actor_id=u.id AND u.school_id IS NOT NULL").Error;err!=nil{return err}
+                if err:=tx.Exec("UPDATE audit_logs a SET school_id=u.school_id FROM users u WHERE a.school_id IS NULL AND a.resource='user' AND a.resource_id=u.id AND u.school_id IS NOT NULL").Error;err!=nil{return err}
+                if err:=tx.Exec("UPDATE role_change_audits r SET school_id=u.school_id FROM users u WHERE r.school_id IS NULL AND r.target_id=u.id AND u.school_id IS NOT NULL").Error;err!=nil{return err}
+                if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_audit_logs_school_created_at ON audit_logs(school_id,created_at)").Error;err!=nil{return err}
+                if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_role_change_audits_school_created_at ON role_change_audits(school_id,created_at)").Error;err!=nil{return err}
+            }
+            return nil
+        }},
+        {Version:21,Name:"separate_platform_administrators_from_school_tenants",Up:func(tx *gorm.DB) error {
+            // Super admins belong to the Stonez Digital platform, not to a school tenant.
+            if err:=tx.Model(&models.User{}).Where("role = ?", "super_admin").Update("school_id", nil).Error;err!=nil{return err}
+            var unassignedTenantUsers int64
+            if err:=tx.Model(&models.User{}).Where("role <> ? AND school_id IS NULL", "super_admin").Count(&unassignedTenantUsers).Error;err!=nil{return err}
+            if unassignedTenantUsers!=0{return fmt.Errorf("found %d non-platform users without a school tenant", unassignedTenantUsers)}
+            return nil
+        }},        {Version:22,Name:"database_uniqueness_concurrency_hardening",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+
+            // Teacher allocation type was introduced after the original teacher_assignments table
+            // was created. Older PostgreSQL production databases therefore need the additive column
+            // before the duplicate checks and unique indexes below can run.
+            if err:=tx.Exec("ALTER TABLE teacher_assignments ADD COLUMN IF NOT EXISTS allocation_type varchar(30) NOT NULL DEFAULT 'subject_teacher'").Error;err!=nil{return err}
+            if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_teacher_assignments_allocation_type ON teacher_assignments(allocation_type)").Error;err!=nil{return err}
+
+            duplicateChecks:=[]struct{name,query string}{
+                {"student enrollments","SELECT 1 FROM student_enrollments GROUP BY school_id,student_id,academic_session_id HAVING COUNT(*)>1 LIMIT 1"},
+                {"sectioned teacher assignments","SELECT 1 FROM teacher_assignments WHERE section_id IS NOT NULL GROUP BY school_id,teacher_id,subject_id,academic_session_id,term_id,class_id,allocation_type,section_id HAVING COUNT(*)>1 LIMIT 1"},
+                {"unsectioned teacher assignments","SELECT 1 FROM teacher_assignments WHERE section_id IS NULL GROUP BY school_id,teacher_id,subject_id,academic_session_id,term_id,class_id,allocation_type HAVING COUNT(*)>1 LIMIT 1"},
+                {"active sectioned class teachers","SELECT 1 FROM teacher_assignments WHERE active=true AND allocation_type='class_teacher' AND section_id IS NOT NULL GROUP BY school_id,academic_session_id,term_id,class_id,section_id HAVING COUNT(*)>1 LIMIT 1"},
+                {"active unsectioned class teachers","SELECT 1 FROM teacher_assignments WHERE active=true AND allocation_type='class_teacher' AND section_id IS NULL GROUP BY school_id,academic_session_id,term_id,class_id HAVING COUNT(*)>1 LIMIT 1"},
+            }
+            for _,check:=range duplicateChecks {
+                var marker int
+                if err:=tx.Raw(check.query).Scan(&marker).Error;err!=nil{return fmt.Errorf("check %s duplicates: %w",check.name,err)}
+                if marker!=0{return fmt.Errorf("cannot apply uniqueness hardening: duplicate %s exist; resolve duplicates before deployment",check.name)}
+            }
+
+            indexes:=[]string{
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_student_session ON student_enrollments(school_id,student_id,academic_session_id)",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_teacher_assignment_unsectioned ON teacher_assignments(school_id,teacher_id,subject_id,academic_session_id,term_id,class_id,allocation_type) WHERE section_id IS NULL",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_teacher_assignment_sectioned ON teacher_assignments(school_id,teacher_id,subject_id,academic_session_id,term_id,class_id,allocation_type,section_id) WHERE section_id IS NOT NULL",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_active_class_teacher_unsectioned ON teacher_assignments(school_id,academic_session_id,term_id,class_id) WHERE active=true AND allocation_type='class_teacher' AND section_id IS NULL",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_active_class_teacher_sectioned ON teacher_assignments(school_id,academic_session_id,term_id,class_id,section_id) WHERE active=true AND allocation_type='class_teacher' AND section_id IS NOT NULL",
+            }
+            for _,query:=range indexes {
+                if err:=tx.Exec(query).Error;err!=nil{return fmt.Errorf("create uniqueness index: %w",err)}
+            }
+            return nil
+        }},
+
+        {Version:23,Name:"bulk_school_import_jobs",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.BulkImportJob{},&models.TeacherProfile{},&models.ParentProfile{})}},
+
+        {Version:24,Name:"harden_supabase_public_data_api",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+            tables:=[]string{"schools","bulk_import_jobs","teacher_profiles","parent_profiles"}
+            roles:=[]string{"anon","authenticated"}
+            for _,table:=range tables {
+                if err:=tx.Exec("ALTER TABLE "+table+" ENABLE ROW LEVEL SECURITY").Error;err!=nil{return err}
+                if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM public").Error;err!=nil{return err}
+                for _,role:=range roles {
+                    var exists bool
+                    if err:=tx.Raw("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)",role).Scan(&exists).Error;err!=nil{return err}
+                    if exists {
+                        if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM "+role).Error;err!=nil{return err}
+                    }
+                }
+            }
+            return nil
+        }},
+        {Version:25,Name:"bulk_onboarding_credential_delivery",Up:func(tx *gorm.DB) error{return tx.AutoMigrate(&models.BulkImportJob{})}},
+        {Version:26,Name:"school_branded_login",Up:func(tx *gorm.DB) error {
+            if err:=tx.AutoMigrate(&models.School{});err!=nil{return err}
+            var schools []models.School
+            if err:=tx.Find(&schools).Error;err!=nil{return err}
+            for _,school:=range schools {
+                if strings.TrimSpace(school.Slug)!="" {continue}
+                slug:=models.SchoolSlug(school.Name,school.Code)
+                candidate:=slug
+                suffix:=1
+                for {
+                    var count int64
+                    if err:=tx.Model(&models.School{}).Where("slug = ? AND id <> ?",candidate,school.ID).Count(&count).Error;err!=nil{return err}
+                    if count==0 {break}
+                    suffix++
+                    candidate=slug+"-"+fmt.Sprint(suffix)
+                }
+                if err:=tx.Model(&models.School{}).Where("id = ?",school.ID).Update("slug",candidate).Error;err!=nil{return err}
+            }
+            if tx.Dialector.Name()=="postgres" {
+                if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_schools_slug ON schools(slug) WHERE slug IS NOT NULL AND slug <> ''").Error;err!=nil{return err}
+            }
+            return nil
+        }},        {Version:27,Name:"finalize_tenant_slug_and_class_name_uniqueness",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+            if err:=tx.Exec("DROP INDEX IF EXISTS idx_schools_slug").Error;err!=nil{return err}
+            if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_schools_slug ON schools(slug) WHERE slug IS NOT NULL AND slug <> ''").Error;err!=nil{return err}
+            if err:=tx.Exec("ALTER TABLE school_classes DROP CONSTRAINT IF EXISTS school_classes_name_key").Error;err!=nil{return err}
+            if err:=tx.Exec("DROP INDEX IF EXISTS school_classes_name_key").Error;err!=nil{return err}
+            if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_school_class_name ON school_classes(school_id,name)").Error;err!=nil{return err}
+            return nil
+        }},
+        {Version:28,Name:"case_insensitive_school_slug_and_class_name_uniqueness",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+
+            var duplicateSlug int
+            if err:=tx.Raw("SELECT 1 FROM schools WHERE slug IS NOT NULL AND slug <> '' GROUP BY lower(slug) HAVING COUNT(*)>1 LIMIT 1").Scan(&duplicateSlug).Error;err!=nil{return err}
+            if duplicateSlug!=0{return fmt.Errorf("cannot apply case-insensitive school slug uniqueness: duplicate slugs exist")}
+
+            var duplicateClass int
+            if err:=tx.Raw("SELECT 1 FROM school_classes GROUP BY school_id,lower(name) HAVING COUNT(*)>1 LIMIT 1").Scan(&duplicateClass).Error;err!=nil{return err}
+            if duplicateClass!=0{return fmt.Errorf("cannot apply case-insensitive school class-name uniqueness: duplicate class names exist within a school")}
+
+            if err:=tx.Exec("DROP INDEX IF EXISTS uq_schools_slug").Error;err!=nil{return err}
+            if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_schools_slug ON schools(lower(slug)) WHERE slug IS NOT NULL AND slug <> ''").Error;err!=nil{return err}
+            if err:=tx.Exec("DROP INDEX IF EXISTS uq_school_class_name").Error;err!=nil{return err}
+            if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_school_class_name ON school_classes(school_id,lower(name))").Error;err!=nil{return err}
+            return nil
+        }},
+        {Version:29,Name:"one_active_enrollment_per_student",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+            var duplicate int
+            if err:=tx.Raw("SELECT 1 FROM student_enrollments WHERE status = ? GROUP BY school_id,student_id HAVING COUNT(*)>1 LIMIT 1",models.EnrollmentStatusActive).Scan(&duplicate).Error;err!=nil{return err}
+            if duplicate!=0{return fmt.Errorf("cannot apply active enrollment uniqueness: students have multiple active enrollments; resolve duplicates before deployment")}
+            if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_active_student_enrollment ON student_enrollments(school_id,student_id) WHERE status = 'active'").Error;err!=nil{return err}
+            return nil
+        }},
+        {Version:30,Name:"school_public_content",Up:func(tx *gorm.DB) error {
+            if err:=tx.AutoMigrate(&models.School{},&models.BlogPost{},&models.BlogCategory{},&models.GalleryAlbum{},&models.GalleryImage{});err!=nil{return err}
+            if tx.Dialector.Name()=="postgres" {
+                indexes:=[]string{
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_blog_slug ON blog_posts(school_id,lower(slug))",
+                    "CREATE INDEX IF NOT EXISTS idx_school_blog_status_published ON blog_posts(school_id,status,published_at)",
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_blog_category_slug ON blog_categories(school_id,lower(slug))",
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_gallery_album_slug ON gallery_albums(school_id,lower(slug))",
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_school_gallery_album_school_id ON gallery_albums(school_id,id)",
+                    "CREATE INDEX IF NOT EXISTS idx_school_gallery_album_status ON gallery_albums(school_id,status)",
+                    "CREATE INDEX IF NOT EXISTS idx_school_gallery_images_album_order ON gallery_images(school_id,album_id,display_order)",
+                }
+                for _,q:=range indexes {if err:=tx.Exec(q).Error;err!=nil{return err}}
+                fks:=[]struct{name,table,cols,parent string}{
+                    {"blog_post_school_fk","blog_posts","school_id","schools(id)"},{"blog_post_author_school_fk","blog_posts","school_id,author_id","users(school_id,id)"},
+                    {"blog_category_school_fk","blog_categories","school_id","schools(id)"},{"gallery_album_school_fk","gallery_albums","school_id","schools(id)"},
+                    {"gallery_image_school_fk","gallery_images","school_id","schools(id)"},{"gallery_image_album_school_fk","gallery_images","school_id,album_id","gallery_albums(school_id,id)"},
+                    {"gallery_image_uploader_school_fk","gallery_images","school_id,uploaded_by","users(school_id,id)"},
+                }
+                for _,fk:=range fks {if err:=tx.Exec("ALTER TABLE "+fk.table+" ADD CONSTRAINT "+fk.name+" FOREIGN KEY ("+fk.cols+") REFERENCES "+fk.parent+" ON DELETE RESTRICT ON UPDATE CASCADE").Error;err!=nil{return err}}
+            }
+            return nil
+        }},
+
+
+
+
+        {Version:31,Name:"school_advertisements",Up:func(tx *gorm.DB) error {
+            if err:=tx.AutoMigrate(&models.SchoolAdvertisement{});err!=nil{return err}
+            if tx.Dialector.Name()=="postgres" {
+                if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_school_advertisements_active ON school_advertisements(school_id,status,featured,starts_at,ends_at)").Error;err!=nil{return err}
+                if err:=tx.Exec("ALTER TABLE school_advertisements ADD CONSTRAINT advertisement_school_fk FOREIGN KEY (school_id) REFERENCES schools(id) ON UPDATE CASCADE ON DELETE RESTRICT").Error;err!=nil{return err}
+                if err:=tx.Exec("ALTER TABLE school_advertisements ADD CONSTRAINT advertisement_creator_school_fk FOREIGN KEY (school_id,created_by) REFERENCES users(school_id,id) ON UPDATE CASCADE ON DELETE RESTRICT").Error;err!=nil{return err}
+            }
+            return nil
+        }},
+
+        {Version:32,Name:"harden_public_school_content_tenant_isolation",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+            tables:=[]string{"blog_posts","blog_categories","gallery_albums","gallery_images","school_advertisements"}
+            roles:=[]string{"anon","authenticated"}
+            for _,table:=range tables {
+                if err:=tx.Exec("ALTER TABLE "+table+" ENABLE ROW LEVEL SECURITY").Error;err!=nil{return err}
+                if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM public").Error;err!=nil{return err}
+                for _,role:=range roles {
+                    var exists bool
+                    if err:=tx.Raw("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)",role).Scan(&exists).Error;err!=nil{return err}
+                    if exists {
+                        if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM "+role).Error;err!=nil{return err}
+                    }
+                }
+            }
+            return nil
+        }},
+        {Version:33,Name:"unique_school_parent_identifiers",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+
+            var duplicate int
+            if err:=tx.Raw("SELECT 1 FROM parent_profiles WHERE trim(coalesce(parent_identifier,'')) <> '' GROUP BY school_id,lower(trim(parent_identifier)) HAVING COUNT(*)>1 LIMIT 1").Scan(&duplicate).Error;err!=nil{return err}
+            if duplicate!=0{return fmt.Errorf("cannot apply parent identifier uniqueness: duplicate identifiers exist within a school")}
+
+            if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_school_parent_identifier ON parent_profiles(school_id,lower(trim(parent_identifier))) WHERE trim(coalesce(parent_identifier,'')) <> ''").Error;err!=nil{return fmt.Errorf("create parent identifier uniqueness index: %w",err)}
+            return nil
+        }},
+        {Version:34,Name:"active_primary_guardian_per_student",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+            var duplicate int
+            if err:=tx.Raw("SELECT 1 FROM guardian_relationships WHERE active=true AND \"primary\"=true GROUP BY school_id,student_id HAVING COUNT(*)>1 LIMIT 1").Scan(&duplicate).Error;err!=nil{return err}
+            if duplicate!=0{return fmt.Errorf("cannot apply primary guardian uniqueness: students have multiple active primary guardians")}
+            if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_active_primary_guardian_per_student ON guardian_relationships(school_id,student_id) WHERE active=true AND \"primary\"=true").Error;err!=nil{return fmt.Errorf("create primary guardian uniqueness index: %w",err)}
+            return nil
+        }},
+
+        {Version:35,Name:"curriculum_class_subject_applicability",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()=="postgres" {
+                if err:=tx.Exec(`CREATE TABLE IF NOT EXISTS class_subjects (
+                    id uuid PRIMARY KEY,
+                    school_id uuid NOT NULL,
+                    academic_session_id uuid NOT NULL,
+                    class_id uuid NOT NULL,
+                    subject_id uuid NOT NULL,
+                    curriculum_version varchar(100) NOT NULL,
+                    category varchar(20) NOT NULL,
+                    required boolean NOT NULL DEFAULT true,
+                    selection_group varchar(50),
+                    active boolean NOT NULL DEFAULT true,
+                    created_at timestamptz,
+                    updated_at timestamptz
+                )`).Error;err!=nil{return err}
+                if err:=tx.Exec("ALTER TABLE subjects DROP CONSTRAINT IF EXISTS subjects_code_key").Error;err!=nil{return err}
+                if err:=tx.Exec("ALTER TABLE subjects DROP CONSTRAINT IF EXISTS subjects_name_key").Error;err!=nil{return err}
+                if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_school_class_subject ON class_subjects(school_id,academic_session_id,class_id,subject_id,curriculum_version)").Error;err!=nil{return err}
+                if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_class_subjects_session_class ON class_subjects(school_id,academic_session_id,class_id,active)").Error;err!=nil{return err}
+                if err:=tx.Exec("CREATE INDEX IF NOT EXISTS idx_class_subjects_subject ON class_subjects(school_id,subject_id)").Error;err!=nil{return err}
+                fks:=[]string{
+                    "ALTER TABLE class_subjects ADD CONSTRAINT class_subject_school_fk FOREIGN KEY (school_id) REFERENCES schools(id) ON UPDATE CASCADE ON DELETE RESTRICT",
+                    "ALTER TABLE class_subjects ADD CONSTRAINT class_subject_session_fk FOREIGN KEY (school_id,academic_session_id) REFERENCES academic_sessions(school_id,id) ON UPDATE CASCADE ON DELETE RESTRICT",
+                    "ALTER TABLE class_subjects ADD CONSTRAINT class_subject_class_fk FOREIGN KEY (school_id,class_id) REFERENCES school_classes(school_id,id) ON UPDATE CASCADE ON DELETE RESTRICT",
+                    "ALTER TABLE class_subjects ADD CONSTRAINT class_subject_subject_fk FOREIGN KEY (school_id,subject_id) REFERENCES subjects(school_id,id) ON UPDATE CASCADE ON DELETE RESTRICT",
+                }
+                for _,q:=range fks {
+                    if err:=tx.Exec(q).Error;err!=nil {
+                        if !strings.Contains(strings.ToLower(err.Error()),"already exists") {return err}
+                    }
+                }
+            } else {
+                if err:=tx.AutoMigrate(&models.ClassSubject{});err!=nil{return err}
+            }
+            return nil
+        }},
+        {Version:37,Name:"nigeria_national_curriculum_foundation",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+            statements:=[]string{
+                `CREATE TABLE IF NOT EXISTS national_curricula (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),code varchar(50) NOT NULL UNIQUE,name varchar(200) NOT NULL,authority varchar(120) NOT NULL,version varchar(80) NOT NULL,description text,effective_from timestamptz,effective_to timestamptz,status varchar(20) NOT NULL DEFAULT 'draft',created_at timestamptz,updated_at timestamptz)`,
+                `CREATE TABLE IF NOT EXISTS national_curriculum_levels (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),curriculum_id uuid NOT NULL,code varchar(30) NOT NULL,name varchar(100) NOT NULL,display_order integer NOT NULL,created_at timestamptz,updated_at timestamptz,CONSTRAINT uq_national_curriculum_level UNIQUE(curriculum_id,code),CONSTRAINT national_curriculum_level_curriculum_fk FOREIGN KEY(curriculum_id) REFERENCES national_curricula(id) ON UPDATE CASCADE ON DELETE CASCADE)`,
+                `CREATE TABLE IF NOT EXISTS national_curriculum_classes (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),level_id uuid NOT NULL,code varchar(30) NOT NULL,name varchar(100) NOT NULL,display_order integer NOT NULL,created_at timestamptz,updated_at timestamptz,CONSTRAINT uq_national_curriculum_class UNIQUE(level_id,code),CONSTRAINT national_curriculum_class_level_fk FOREIGN KEY(level_id) REFERENCES national_curriculum_levels(id) ON UPDATE CASCADE ON DELETE CASCADE)`,
+                `CREATE TABLE IF NOT EXISTS national_curriculum_subjects (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),class_id uuid NOT NULL,code varchar(40) NOT NULL,name varchar(150) NOT NULL,category varchar(20) NOT NULL,required boolean NOT NULL DEFAULT true,selection_group varchar(60),effective_from timestamptz,effective_to timestamptz,active boolean NOT NULL DEFAULT true,created_at timestamptz,updated_at timestamptz,CONSTRAINT uq_national_curriculum_subject UNIQUE(class_id,code),CONSTRAINT national_curriculum_subject_class_fk FOREIGN KEY(class_id) REFERENCES national_curriculum_classes(id) ON UPDATE CASCADE ON DELETE CASCADE)`,
+                `CREATE INDEX IF NOT EXISTS idx_national_curriculum_levels_curriculum ON national_curriculum_levels(curriculum_id,display_order)`,
+                `CREATE INDEX IF NOT EXISTS idx_national_curriculum_classes_level ON national_curriculum_classes(level_id,display_order)`,
+                `CREATE INDEX IF NOT EXISTS idx_national_curriculum_subjects_class ON national_curriculum_subjects(class_id,active)`,
+            }
+            for _,q:=range statements { if err:=tx.Exec(q).Error;err!=nil{return err} }
+            for _,table:=range []string{"national_curricula","national_curriculum_levels","national_curriculum_classes","national_curriculum_subjects"} {
+                if err:=tx.Exec("ALTER TABLE "+table+" ENABLE ROW LEVEL SECURITY").Error;err!=nil{return err}
+                if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM public").Error;err!=nil{return err}
+                for _,role:=range []string{"anon","authenticated"} {
+                    var exists bool
+                    if err:=tx.Raw("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)",role).Scan(&exists).Error;err!=nil{return err}
+                    if exists { if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM "+role).Error;err!=nil{return err} }
+                }
+            }
+            return nil
+        }},
+
+        {Version:36,Name:"harden_class_subject_database_boundary",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+            if err:=tx.Exec("ALTER TABLE class_subjects ALTER COLUMN id SET DEFAULT gen_random_uuid()").Error;err!=nil{return err}
+            if err:=tx.Exec("ALTER TABLE class_subjects ENABLE ROW LEVEL SECURITY").Error;err!=nil{return err}
+            if err:=tx.Exec("REVOKE ALL ON TABLE class_subjects FROM public").Error;err!=nil{return err}
+            for _,role:=range []string{"anon","authenticated"} {
+                var exists bool
+                if err:=tx.Raw("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)",role).Scan(&exists).Error;err!=nil{return err}
+                if exists { if err:=tx.Exec("REVOKE ALL ON TABLE class_subjects FROM "+role).Error;err!=nil{return err} }
+            }
+            return nil
+        }},
+        {Version:38,Name:"seed_nigeria_national_curriculum_catalogue",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+            return seedNigeriaNationalCurriculum(tx)
+        }},
+        {Version:39,Name:"careerpath_assessment_attempts",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()=="postgres" {
+                // Avoid AutoMigrate traversing CareerPathAttempt's School/Student
+                // relations into the legacy users schema. Some production databases
+                // do not have GORM's expected uni_users_email constraint name.
+                statements:=[]string{
+                    `CREATE TABLE IF NOT EXISTS career_path_attempts (
+                        id uuid PRIMARY KEY,
+                        school_id uuid NOT NULL,
+                        student_id uuid NOT NULL,
+                        user_id uuid NOT NULL,
+                        version varchar(32) NOT NULL,
+                        status varchar(20) NOT NULL,
+                        responses text NOT NULL DEFAULT '{}',
+                        results text NOT NULL DEFAULT '[]',
+                        submitted_at timestamptz,
+                        created_at timestamptz,
+                        updated_at timestamptz,
+                        CONSTRAINT fk_career_path_attempts_school FOREIGN KEY (school_id) REFERENCES schools(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+                        CONSTRAINT fk_career_path_attempts_student FOREIGN KEY (student_id) REFERENCES students(id) ON UPDATE CASCADE ON DELETE RESTRICT
+                    )`,
+                    "CREATE INDEX IF NOT EXISTS idx_career_attempt_owner ON career_path_attempts(school_id, student_id)",
+                    "CREATE INDEX IF NOT EXISTS idx_career_path_attempts_user_id ON career_path_attempts(user_id)",
+                    "CREATE INDEX IF NOT EXISTS idx_career_path_attempts_status ON career_path_attempts(status)",
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_careerpath_one_draft ON career_path_attempts(school_id, student_id, version) WHERE status = 'in_progress'",
+                }
+                for _,q:=range statements { if err:=tx.Exec(q).Error;err!=nil{return err} }
+                return nil
+            }
+            if err:=tx.AutoMigrate(&models.CareerPathAttempt{});err!=nil{return err}
+            return tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_careerpath_one_draft ON career_path_attempts(school_id, student_id, version) WHERE status = 'in_progress'").Error
+        }},
+        {Version:40,Name:"careerpath_attempt_tenant_integrity",Up:func(tx *gorm.DB) error {
+            // Fail closed if existing rows don't prove that school, student, and user
+            // refer to the same tenant. Do not rewrite existing assessment records.
+            if tx.Dialector.Name()=="postgres" {
+                var mismatches int64
+                if err:=tx.Table("career_path_attempts AS a").
+                    Joins("LEFT JOIN students AS s ON s.id = a.student_id AND s.school_id = a.school_id AND s.user_id = a.user_id").
+                    Where("s.id IS NULL").Count(&mismatches).Error;err!=nil{return err}
+                if mismatches>0{return fmt.Errorf("CareerPath tenant integrity migration blocked: %d attempt rows have mismatched school/student/user ownership",mismatches)}
+                if err:=tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_students_school_id_id_user_id ON students(school_id, id, user_id)").Error;err!=nil{return err}
+                var constraintExists bool
+                if err:=tx.Raw("SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = ? AND conrelid = 'career_path_attempts'::regclass)", "fk_career_path_attempts_tenant_student").Scan(&constraintExists).Error;err!=nil{return err}
+                if constraintExists{return nil}
+                return tx.Exec("ALTER TABLE career_path_attempts ADD CONSTRAINT fk_career_path_attempts_tenant_student FOREIGN KEY (school_id, student_id, user_id) REFERENCES students(school_id, id, user_id) ON UPDATE CASCADE ON DELETE RESTRICT").Error
+            }
+            if tx.Dialector.Name()=="sqlite" {
+                // SQLite cannot add a composite foreign key to an existing table.
+                // These triggers enforce the same ownership invariant in automated tests.
+                statements:=[]string{
+                    `CREATE TRIGGER IF NOT EXISTS trg_career_path_attempts_tenant_insert
+                    BEFORE INSERT ON career_path_attempts
+                    FOR EACH ROW WHEN NOT EXISTS (
+                        SELECT 1 FROM students
+                        WHERE id = NEW.student_id AND school_id = NEW.school_id AND user_id = NEW.user_id
+                    )
+                    BEGIN SELECT RAISE(ABORT, 'careerpath student tenant mismatch'); END`,
+                    `CREATE TRIGGER IF NOT EXISTS trg_career_path_attempts_tenant_update
+                    BEFORE UPDATE OF school_id, student_id, user_id ON career_path_attempts
+                    FOR EACH ROW WHEN NOT EXISTS (
+                        SELECT 1 FROM students
+                        WHERE id = NEW.student_id AND school_id = NEW.school_id AND user_id = NEW.user_id
+                    )
+                    BEGIN SELECT RAISE(ABORT, 'careerpath student tenant mismatch'); END`,
+                }
+                for _,statement:=range statements {if err:=tx.Exec(statement).Error;err!=nil{return err}}
+            }
+            return nil
+        }},
+        {Version:41,Name:"school_enquiries",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()=="postgres" {
+                statements:=[]string{
+                    `CREATE TABLE IF NOT EXISTS school_enquiries (
+                        id uuid PRIMARY KEY,
+                        school_id uuid NOT NULL,
+                        full_name varchar(120) NOT NULL,
+                        email varchar(254) NOT NULL,
+                        phone varchar(40),
+                        subject varchar(80) NOT NULL,
+                        message varchar(2000) NOT NULL,
+                        status varchar(20) NOT NULL DEFAULT 'new',
+                        consent_at timestamptz NOT NULL,
+                        created_at timestamptz,
+                        updated_at timestamptz,
+                        CONSTRAINT school_enquiries_school_fk FOREIGN KEY (school_id) REFERENCES schools(id) ON UPDATE CASCADE ON DELETE RESTRICT
+                    )`,
+                    "CREATE INDEX IF NOT EXISTS idx_school_enquiries_school_created ON school_enquiries(school_id, created_at DESC)",
+                    "CREATE INDEX IF NOT EXISTS idx_school_enquiries_school_status ON school_enquiries(school_id, status)",
+                    "ALTER TABLE school_enquiries ENABLE ROW LEVEL SECURITY",
+                    "REVOKE ALL ON TABLE school_enquiries FROM public",
+                }
+                for _,q:=range statements {if err:=tx.Exec(q).Error;err!=nil{return err}}
+                for _,role:=range []string{"anon","authenticated"} {
+                    var exists bool
+                    if err:=tx.Raw("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)",role).Scan(&exists).Error;err!=nil{return err}
+                    if exists {if err:=tx.Exec("REVOKE ALL ON TABLE school_enquiries FROM "+role).Error;err!=nil{return err}}
+                }
+                return nil
+            }
+            return tx.AutoMigrate(&models.SchoolEnquiry{})
+        }},
+        {Version:42,Name:"school_enquiry_privacy_notice_version",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()=="postgres" {
+                return tx.Exec("ALTER TABLE school_enquiries ADD COLUMN IF NOT EXISTS privacy_notice_version varchar(40) NOT NULL DEFAULT '2026-11-05-v1'").Error
+            }
+            return tx.AutoMigrate(&models.SchoolEnquiry{})
+        }},
+        {Version:43,Name:"scope_academic_session_name_uniqueness_by_school",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+            // The original single-column unique constraint predates school tenancy.
+            // Keep the school-scoped unique index created by migration 17, and remove
+            // the legacy global constraint so different schools can use the same year.
+            if err:=tx.Exec("ALTER TABLE academic_sessions DROP CONSTRAINT IF EXISTS academic_sessions_name_key").Error;err!=nil{return err}
+            if err:=tx.Exec("DROP INDEX IF EXISTS academic_sessions_name_key").Error;err!=nil{return err}
+            return nil
+        }},
+        {Version:44,Name:"school_signup_profile_fields",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()=="postgres" {
+                statements:=[]string{
+                    "ALTER TABLE schools ADD COLUMN IF NOT EXISTS city varchar(100)",
+                    "ALTER TABLE schools ADD COLUMN IF NOT EXISTS state varchar(100)",
+                    "ALTER TABLE schools ADD COLUMN IF NOT EXISTS school_type varchar(30)",
+                }
+                for _,statement:=range statements { if err:=tx.Exec(statement).Error;err!=nil{return err} }
+                return nil
+            }
+            return tx.AutoMigrate(&models.School{})
+        }},
+        {Version:45,Name:"school_signup_requested_plan",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()=="postgres" {
+                return tx.Exec("ALTER TABLE schools ADD COLUMN IF NOT EXISTS requested_plan varchar(30)").Error
+            }
+            return tx.AutoMigrate(&models.School{})
+        }},
+        {Version:46,Name:"revoke_public_api_access_to_application_tables",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+            // The Go API is the only application data access layer. Public Data API
+            // roles must not retain table privileges: RLS does not constrain
+            // TRUNCATE, and deny-all policies are not a replacement for REVOKE.
+            tables:=[]string{
+                "academic_sessions","announcements","assessment_results","assessments",
+                "attendance_records","audit_logs","billing_plans","blog_categories","blog_posts",
+                "bulk_import_jobs","career_path_attempts","class_subjects","fee_items",
+                "gallery_albums","gallery_images","guardian_relationships","invoice_lines",
+                "invoices","migrations","national_curricula","national_curriculum_classes",
+                "national_curriculum_levels","national_curriculum_subjects","notifications",
+                "parent_profiles","password_reset_tokens","payments","refresh_tokens",
+                "role_change_audits","school_advertisements","school_classes","school_enquiries",
+                "school_subscriptions","schools","sections","sessions","student_enrollments",
+                "students","subjects","subscription_events","teacher_assignments",
+                "teacher_profiles","terms","timetable_entries","users",
+            }
+            roles:=[]string{}
+            for _,role:=range []string{"anon","authenticated"} {
+                var exists bool
+                if err:=tx.Raw("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ?)",role).Scan(&exists).Error;err!=nil{return err}
+                if exists { roles=append(roles,role) }
+            }
+            for _,table:=range tables {
+                // Some billing tables are provisioned by a separately approved
+                // foundation migration and are intentionally absent from clean
+                // CI databases. Skip only missing tables; never suppress a
+                // privilege-revocation error for a table that does exist.
+                if !tx.Migrator().HasTable(table) {
+                    continue
+                }
+                if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM PUBLIC").Error;err!=nil{return err}
+                for _,role:=range roles {
+                    if err:=tx.Exec("REVOKE ALL ON TABLE "+table+" FROM "+role).Error;err!=nil{return err}
+                }
+            }
+            return nil
+        }},
+        {Version:47,Name:"bulk_import_worker_leases",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()=="postgres" {
+                statements:=[]string{
+                    "ALTER TABLE bulk_import_jobs ADD COLUMN IF NOT EXISTS worker_id uuid",
+                    "ALTER TABLE bulk_import_jobs ADD COLUMN IF NOT EXISTS claimed_at timestamptz",
+                    "ALTER TABLE bulk_import_jobs ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0",
+                    "ALTER TABLE bulk_import_jobs ADD COLUMN IF NOT EXISTS last_error text",
+                    "CREATE INDEX IF NOT EXISTS idx_bulk_import_jobs_worker_id ON bulk_import_jobs(worker_id)",
+                    "CREATE INDEX IF NOT EXISTS idx_bulk_import_jobs_claimed_at ON bulk_import_jobs(claimed_at)",
+                }
+                for _,statement:=range statements { if err:=tx.Exec(statement).Error;err!=nil{return err} }
+                return nil
+            }
+            return tx.AutoMigrate(&models.BulkImportJob{})
+        }},
+        // Version 47 may already be recorded in deployed databases. Keep this
+        // additive follow-up migration so existing installations receive the
+        // lease-generation column before the claim function references it.
+        {Version:48,Name:"bulk_import_lease_generation",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()=="postgres" {
+                statements:=[]string{
+                    "ALTER TABLE bulk_import_jobs ADD COLUMN IF NOT EXISTS lease_id uuid",
+                    "CREATE INDEX IF NOT EXISTS idx_bulk_import_jobs_lease_id ON bulk_import_jobs(lease_id)",
+                }
+                for _,statement:=range statements { if err:=tx.Exec(statement).Error;err!=nil{return err} }
+                return nil
+            }
+            return tx.AutoMigrate(&models.BulkImportJob{})
+        }},
+    }
+    for _,migration:=range migrations{
+        var applied Migration
+        result:=db.Where("version = ?",migration.Version).First(&applied)
+        if result.Error==nil{continue}
+        if result.Error!=gorm.ErrRecordNotFound{return fmt.Errorf("check migration %d: %w",migration.Version,result.Error)}
+        if err:=db.Transaction(func(tx *gorm.DB) error{if err:=migration.Up(tx);err!=nil{return err};return tx.Create(&Migration{Version:migration.Version,Name:migration.Name}).Error});err!=nil{return fmt.Errorf("apply migration %d (%s): %w",migration.Version,migration.Name,err)}
+    }
+    return nil
+}
+type Migration struct{Version int `gorm:"primaryKey"`;Name string `gorm:"not null;uniqueIndex"`}
+type MigrationStep struct{Version int;Name string;Up func(*gorm.DB) error}

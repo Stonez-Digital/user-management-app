@@ -207,10 +207,11 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                 -- this separate from the privilege comparison avoids NULL
                 -- propagation from to_regprocedure() inside an OID array.
                 AND (
-                    SELECT count(*) = 10
+                    SELECT count(*) = 11
                       FROM pg_proc AS p
                      WHERE p.oid = ANY(ARRAY[
                          to_regprocedure('stonez_context_private.is_eligible_processing_login()'),
+                          to_regprocedure('stonez_context_private.bulk_worker_user_role_allowed(text)'),
                          to_regprocedure('stonez_context_private.verify_bulk_import_context(text)'),
                          to_regprocedure('stonez_context_private.current_worker_school_id()'),
                          to_regprocedure('stonez_context_private.current_worker_initiator_id()'),
@@ -241,6 +242,7 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                            has_function_privilege('stonez_bulk_worker_processing', p.oid, 'EXECUTE')
                                IS DISTINCT FROM COALESCE(p.oid = ANY(ARRAY[
                                    to_regprocedure('stonez_context_private.is_eligible_processing_login()'),
+                          to_regprocedure('stonez_context_private.bulk_worker_user_role_allowed(text)'),
                                    to_regprocedure('stonez_context_private.verify_bulk_import_context(text)'),
                                    to_regprocedure('stonez_context_private.current_worker_school_id()'),
                                    to_regprocedure('stonez_context_private.current_worker_initiator_id()'),

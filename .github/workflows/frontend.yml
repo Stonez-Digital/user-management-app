@@ -56,5 +56,3 @@ jobs:
         run: npm run test:backend-proxy
       - name: Production build
         run: npm run build
-      - name: Cloudflare compatibility build
-        run: npm run build:vinext

@@ -10,6 +10,9 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner') THEN
         RAISE EXCEPTION 'stonez_bulk_queue_owner is missing; install and verify the queue role boundary first';
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_queue_claim') THEN
+        RAISE EXCEPTION 'stonez_bulk_queue_claim is missing; install and verify the queue role boundary first';
+    END IF;
 END
 $$;
 
@@ -26,7 +29,7 @@ CREATE ROLE stonez_bulk_worker
 -- The login inherits only the restricted API group privileges. It cannot
 -- administer the group or SET ROLE into it; the claim function checks effective
 -- inherited membership via pg_has_role(..., 'USAGE').
-GRANT stonez_api_runtime TO stonez_bulk_worker
+GRANT stonez_bulk_queue_claim TO stonez_bulk_worker
     WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
 
 DO $$
@@ -43,14 +46,36 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'stonez_bulk_worker role attributes are not restricted';
     END IF;
-    IF NOT pg_has_role('stonez_bulk_worker', 'stonez_api_runtime', 'USAGE') THEN
-        RAISE EXCEPTION 'stonez_bulk_worker does not inherit stonez_api_runtime privileges';
+    IF NOT pg_has_role('stonez_bulk_worker', 'stonez_bulk_queue_claim', 'USAGE') THEN
+        RAISE EXCEPTION 'stonez_bulk_worker does not inherit the queue-claim group';
+    END IF;
+    IF pg_has_role('stonez_bulk_worker', 'stonez_api_runtime', 'MEMBER') THEN
+        RAISE EXCEPTION 'stonez_bulk_worker must not inherit broad API runtime privileges';
     END IF;
     IF pg_has_role('stonez_bulk_worker', 'stonez_bulk_queue_owner', 'MEMBER') THEN
         RAISE EXCEPTION 'stonez_bulk_worker must not be a member of stonez_bulk_queue_owner';
     END IF;
-    IF pg_has_role('stonez_bulk_worker', 'stonez_api_runtime', 'SET') THEN
-        RAISE EXCEPTION 'stonez_bulk_worker must not be able to SET ROLE stonez_api_runtime';
+    IF pg_has_role('stonez_bulk_worker', 'stonez_bulk_queue_claim', 'SET') THEN
+        RAISE EXCEPTION 'stonez_bulk_worker must not be able to SET ROLE stonez_bulk_queue_claim';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM pg_auth_members
+         WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_worker')
+           AND roleid <> (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_claim')
+    ) THEN
+        RAISE EXCEPTION 'stonez_bulk_worker must have only the queue-claim group membership';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM pg_class AS relation
+        JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+        WHERE namespace.nspname = 'public'
+          AND relation.relkind IN ('r','p','v','m')
+          AND (has_table_privilege('stonez_bulk_worker', relation.oid, 'SELECT')
+            OR has_table_privilege('stonez_bulk_worker', relation.oid, 'INSERT')
+            OR has_table_privilege('stonez_bulk_worker', relation.oid, 'UPDATE')
+            OR has_table_privilege('stonez_bulk_worker', relation.oid, 'DELETE'))
+    ) THEN
+        RAISE EXCEPTION 'stonez_bulk_worker must not have direct public-table privileges';
     END IF;
 END
 $$;
@@ -63,8 +88,9 @@ SELECT
     rolcreaterole,
     rolbypassrls,
     rolinherit,
-    pg_has_role('stonez_bulk_worker', 'stonez_api_runtime', 'USAGE') AS inherits_runtime_privileges,
-    pg_has_role('stonez_bulk_worker', 'stonez_api_runtime', 'SET') AS can_set_runtime_role,
+    pg_has_role('stonez_bulk_worker', 'stonez_bulk_queue_claim', 'USAGE') AS inherits_queue_claim,
+    pg_has_role('stonez_bulk_worker', 'stonez_bulk_queue_claim', 'SET') AS can_set_queue_claim,
+    pg_has_role('stonez_bulk_worker', 'stonez_api_runtime', 'MEMBER') AS is_api_runtime_member,
     pg_has_role('stonez_bulk_worker', 'stonez_bulk_queue_owner', 'MEMBER') AS is_queue_owner_member
 FROM pg_roles
 WHERE rolname = 'stonez_bulk_worker';

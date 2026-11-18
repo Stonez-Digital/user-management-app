@@ -119,37 +119,21 @@ const isPlainBranch = branch => {
   return true;
 };
 
-const hasUnescapedWildcardStar = branch => {
-  let escaped = false;
-  let brackets = 0;
+// A branch that starts with a bare (non-parenthesized) `*`/`?` quantifier
+// and has further content after it (e.g. `*a` or `?[ab]`) is unsafe to repeat
+// with an outer `+(...)`/`*(...)`: with no fixed prefix anchoring where the
+// quantifier ends, it compiles to a nested-quantifier regex that can backtrack
+// catastrophically (CVE-2026-112366). A bare quantifier with nothing after it,
+// a nested `*(...)`/`?(...)` group opener, and a quantifier anchored by a
+// literal prefix are left to the existing safeguards.
+const hasUnsafeLeadingQuantifier = branch => {
+  let i = 0;
 
-  for (const ch of branch) {
-    if (escaped === true) {
-      escaped = false;
-      continue;
-    }
-
-    if (ch === '\\') {
-      escaped = true;
-      continue;
-    }
-
-    if (ch === '[') {
-      brackets++;
-      continue;
-    }
-
-    if (ch === ']' && brackets > 0) {
-      brackets--;
-      continue;
-    }
-
-    if (brackets === 0 && ch === '*') {
-      return true;
-    }
+  while (i < branch.length && (branch[i] === '*' || branch[i] === '?') && branch[i + 1] !== '(') {
+    i++;
   }
 
-  return false;
+  return i > 0 && i < branch.length;
 };
 
 const normalizeSimpleBranch = branch => {
@@ -357,12 +341,7 @@ const analyzeRepeatedExtglob = (body, options) => {
       continue;
     }
 
-    // A raw wildcard star nested inside a repeated extglob creates an
-    // unbounded quantifier inside another unbounded quantifier. The upstream
-    // 4.0.7 guard missed single-branch forms such as +(*) and +(*a).
-    // Literalize those extglobs unless they were reduced above to a proven
-    // single-character star sequence.
-    if (hasUnescapedWildcardStar(branch)) {
+    if (hasUnsafeLeadingQuantifier(branch)) {
       return { risky: true };
     }
 

@@ -3,7 +3,7 @@
 -- through a dedicated policy on bulk_import_jobs.
 -- The API group role is NOBYPASSRLS; the later function installer grants only
 -- tenant-policy-controlled SELECT/INSERT/UPDATE on the queue table.
--- Do not grant either role to the current postgres API connection.
+-- Do not grant any of these group roles to the current API connection.
 BEGIN;
 DO $preflight$
 BEGIN

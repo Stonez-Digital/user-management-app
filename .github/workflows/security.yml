@@ -70,10 +70,9 @@ jobs:
           const vulnerabilities = report.vulnerabilities || {};
           const allowedAdvisory = 'GHSA-vfj7-8cjw-p6xm';
 
-          // Permit only the known unpatched braces advisory and its
-          // transitive dependency chain; all other high/critical findings block.
+          // Allow only the explicitly reviewed, currently unpatched braces advisory
+          // and packages whose complete vulnerability chain leads to that advisory.
           const reachesAllowedAdvisory = (packageName, visiting = new Set()) => {
-            if (packageName === 'braces') return true;
             if (visiting.has(packageName)) return false;
 
             const vulnerability = vulnerabilities[packageName];
@@ -86,10 +85,8 @@ jobs:
               if (typeof issue === 'string') {
                 return reachesAllowedAdvisory(issue, nextVisiting);
               }
-              if (issue && typeof issue === 'object') {
-                return issue.url?.endsWith('/' + allowedAdvisory);
-              }
-              return false;
+              return issue && typeof issue === 'object' &&
+                issue.url?.endsWith('/' + allowedAdvisory);
             });
           };
 
@@ -101,11 +98,17 @@ jobs:
           if (blocking.length) {
             console.error('Blocking high/critical frontend vulnerabilities remain:');
             for (const v of blocking) {
-              console.error('- ' + v.name + ': ' + v.severity);
+              console.error(JSON.stringify({
+                name: v.name,
+                severity: v.severity,
+                range: v.range,
+                direct: v.isDirect,
+                via: v.via,
+                fixAvailable: v.fixAvailable
+              }));
             }
             process.exit(1);
           }
 
           console.log('No blocking high/critical development dependency vulnerabilities found.');
-          console.log('The braces advisory is allowed only for the known unpatched advisory and its dependency chain.');
           NODE

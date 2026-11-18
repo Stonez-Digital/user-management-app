@@ -1,0 +1,80 @@
+name: Install signed bulk-import security on Neon staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_target:
+        description: 'Type STONEZ-STAGING to authorize the isolated staging installation'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-bulk-import-staging-install
+  cancel-in-progress: false
+
+jobs:
+  install-staging-security:
+    if: github.ref == 'refs/heads/security/bulk-worker-signed-context-verifier' && inputs.confirm_target == 'STONEZ-STAGING'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout approved branch
+        uses: actions/checkout@v4
+        with:
+          ref: security/bulk-worker-signed-context-verifier
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Validate staging endpoint without printing credentials
+        env:
+          DATABASE_URL: ${{ secrets.NEON_STAGING_DATABASE_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${DATABASE_URL}" ]]; then
+            echo "::error::NEON_STAGING_DATABASE_URL repository secret is not configured."
+            exit 1
+          fi
+          python3 - <<'PY'
+          import os
+          from urllib.parse import urlparse, parse_qs
+          u = urlparse(os.environ["DATABASE_URL"])
+          q = parse_qs(u.query)
+          assert u.scheme in ("postgres", "postgresql"), "Expected PostgreSQL URL"
+          assert u.hostname == "ep-snowy-term-b94cw7vl.c-7.eu-central-1.aws.neon.tech", "Unexpected database host"
+          assert u.path == "/stonez_staging", "Unexpected database name"
+          assert q.get("sslmode", [""])[0] in ("require", "verify-ca", "verify-full"), "TLS must be enabled"
+          print("Approved Neon staging host, database, and TLS mode confirmed.")
+          PY
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -Atc "SELECT CASE WHEN current_database()='stonez_staging' AND current_setting('server_version_num')::int >= 170000 THEN 'staging PostgreSQL 17 confirmed' ELSE 'unexpected target' END;"
+
+      - name: Verify pre-installed queue roles
+        env:
+          DATABASE_URL: ${{ secrets.NEON_STAGING_DATABASE_URL }}
+        run: psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f scripts/security/verify_bulk_import_queue_roles.sql
+
+      - name: Install queue claim function
+        env:
+          DATABASE_URL: ${{ secrets.NEON_STAGING_DATABASE_URL }}
+        run: psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_claim_function.sql
+
+      - name: Install signed-context verifier
+        env:
+          DATABASE_URL: ${{ secrets.NEON_STAGING_DATABASE_URL }}
+        run: psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_context_verifier.sql
+
+      - name: Install signed-context worker RLS policies
+        env:
+          DATABASE_URL: ${{ secrets.NEON_STAGING_DATABASE_URL }}
+        run: psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_context_worker_policies.sql
+
+      - name: Install account-setup outbox
+        env:
+          DATABASE_URL: ${{ secrets.NEON_STAGING_DATABASE_URL }}
+        run: psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_account_setup_outbox.sql

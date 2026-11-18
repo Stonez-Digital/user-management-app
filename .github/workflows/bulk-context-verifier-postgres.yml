@@ -2,6 +2,9 @@ name: Bulk-import signed context PostgreSQL verifier
 
 on:
   pull_request:
+  push:
+    branches:
+      - security/bulk-worker-signed-context-verifier
   workflow_dispatch:
 
 permissions:

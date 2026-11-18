@@ -4,7 +4,7 @@ on:
   # Security integration PRs may target a nested branch, not main.
   pull_request:
   push:
-    branches: [main, fix/supabase-pg17-queue-role-provisioning, feat/dedicated-bulk-import-worker-claim-connection]
+    branches: [main, fix/supabase-pg17-queue-role-provisioning, feat/dedicated-bulk-import-worker-claim-connection, security/bulk-worker-signed-context-verifier]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

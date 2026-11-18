@@ -53,6 +53,8 @@ jobs:
         run: npm run test:api-client
       - name: Multipart backend proxy regression checks
         run: npm run test:backend-proxy
+      - name: Picomatch repeated-extglob ReDoS regression checks
+        run: npm run test:picomatch-security
       - name: Production build
         run: npm run build
       - name: Cloudflare OpenNext compatibility build

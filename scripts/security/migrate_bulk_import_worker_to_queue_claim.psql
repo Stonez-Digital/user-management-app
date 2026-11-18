@@ -41,10 +41,8 @@ BEGIN
        OR claim_role.rolinherit THEN
         RAISE EXCEPTION 'stonez_bulk_queue_claim has unsafe role attributes';
     END IF;
-    IF pg_has_role('stonez_bulk_worker', 'stonez_bulk_queue_owner', 'MEMBER')
-       OR pg_has_role('stonez_bulk_worker', 'stonez_bulk_context_owner', 'MEMBER')
-       OR pg_has_role('stonez_bulk_worker', 'stonez_bulk_context_key_admin', 'MEMBER') THEN
-        RAISE EXCEPTION 'stonez_bulk_worker has an owner or key-admin membership';
+    IF pg_has_role('stonez_bulk_worker', 'stonez_bulk_queue_owner', 'MEMBER') THEN
+        RAISE EXCEPTION 'stonez_bulk_worker has queue-owner membership';
     END IF;
     IF EXISTS (
         SELECT 1 FROM pg_auth_members
@@ -116,6 +114,10 @@ BEGIN
             OR has_sequence_privilege('stonez_bulk_worker', relation.oid, 'UPDATE'))
     ) THEN
         RAISE EXCEPTION 'worker login retains public-sequence privileges';
+    END IF;
+    IF has_schema_privilege('stonez_bulk_worker', 'public', 'CREATE')
+       OR has_schema_privilege('stonez_bulk_worker', 'stonez_internal', 'CREATE') THEN
+        RAISE EXCEPTION 'worker login can create objects in application or internal schemas';
     END IF;
 END
 $verify$;

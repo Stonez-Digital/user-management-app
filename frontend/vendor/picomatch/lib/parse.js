@@ -129,7 +129,7 @@ const hasUnescapedWildcardStar = branch => {
       continue;
     }
 
-    if (ch === '\\\\') {
+    if (ch === '\\') {
       escaped = true;
       continue;
     }

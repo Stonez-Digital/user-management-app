@@ -5,7 +5,25 @@
 -- tenant-policy-controlled SELECT/INSERT/UPDATE on the queue table.
 -- Do not grant either role to the current postgres API connection.
 BEGIN;
-DO $$
+DO $preflight$
+BEGIN
+    IF to_regclass('public.bulk_import_jobs') IS NULL THEN
+        RAISE EXCEPTION 'public.bulk_import_jobs must exist before queue-role provisioning';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1
+          FROM pg_attribute
+         WHERE attrelid = 'public.bulk_import_jobs'::regclass
+           AND attname = 'lease_id'
+           AND attnum > 0
+           AND NOT attisdropped
+    ) THEN
+        RAISE EXCEPTION 'public.bulk_import_jobs.lease_id is missing; apply application migration 48 before queue-role provisioning';
+    END IF;
+END
+$preflight$;
+
+DO $
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner') THEN
         CREATE ROLE stonez_bulk_queue_owner;

@@ -1,4 +1,4 @@
-\\set ON_ERROR_STOP on
+\set ON_ERROR_STOP on
 -- Operator-run, transactional transition for an existing claim login.
 -- Removes broad API-runtime membership without rotating the worker password.
 BEGIN;

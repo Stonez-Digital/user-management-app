@@ -203,6 +203,35 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                        AND privilege.grantee = 0
                        AND privilege.privilege_type = 'EXECUTE'
                 )
+                -- Fail closed if any required signature is absent. Keeping
+                -- this separate from the privilege comparison avoids NULL
+                -- propagation from to_regprocedure() inside an OID array.
+                AND (
+                    SELECT count(*) = 10
+                      FROM pg_proc AS p
+                     WHERE p.oid = ANY(ARRAY[
+                         to_regprocedure('stonez_context_private.is_eligible_processing_login()'),
+                         to_regprocedure('stonez_context_private.verify_bulk_import_context(text)'),
+                         to_regprocedure('stonez_context_private.current_worker_school_id()'),
+                         to_regprocedure('stonez_context_private.current_worker_initiator_id()'),
+                         to_regprocedure('stonez_context_private.current_worker_job_id()'),
+                         to_regprocedure('stonez_context_private.enqueue_account_setup_notification(uuid,text,text,text)'),
+                         to_regprocedure('stonez_context_private.claim_account_setup_notification()'),
+                         to_regprocedure('stonez_context_private.complete_account_setup_notification(uuid,uuid,text)'),
+                         to_regprocedure('stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)'),
+                         to_regprocedure('stonez_context_private.account_setup_notification_counts()')
+                    ]::oid[])
+                )
+                AND (
+                    SELECT count(*) = 4
+                      FROM pg_proc AS p
+                     WHERE p.oid = ANY(ARRAY[
+                         to_regprocedure('stonez_context_private.register_verification_key(text,bytea,timestamptz,timestamptz)'),
+                         to_regprocedure('stonez_context_private.retire_verification_key(text,timestamptz)'),
+                         to_regprocedure('stonez_context_private.revoke_verification_key(text)'),
+                         to_regprocedure('stonez_context_private.prune_expired_contexts()')
+                    ]::oid[])
+                )
                 AND NOT EXISTS (
                     SELECT 1
                       FROM pg_proc AS p
@@ -210,7 +239,7 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                      WHERE n.nspname = 'stonez_context_private'
                        AND (
                            has_function_privilege('stonez_bulk_worker_processing', p.oid, 'EXECUTE')
-                               IS DISTINCT FROM (p.oid = ANY(ARRAY[
+                               IS DISTINCT FROM COALESCE(p.oid = ANY(ARRAY[
                                    to_regprocedure('stonez_context_private.is_eligible_processing_login()'),
                                    to_regprocedure('stonez_context_private.verify_bulk_import_context(text)'),
                                    to_regprocedure('stonez_context_private.current_worker_school_id()'),
@@ -221,14 +250,14 @@ func ValidateBulkImportSignedContextReady(db *gorm.DB) error {
                                    to_regprocedure('stonez_context_private.complete_account_setup_notification(uuid,uuid,text)'),
                                    to_regprocedure('stonez_context_private.retry_account_setup_notification(uuid,uuid,text,integer)'),
                                    to_regprocedure('stonez_context_private.account_setup_notification_counts()')
-                               ]::oid[]))
+                               ]::oid[]), false)
                            OR has_function_privilege('stonez_bulk_context_key_admin', p.oid, 'EXECUTE')
-                               IS DISTINCT FROM (p.oid = ANY(ARRAY[
+                               IS DISTINCT FROM COALESCE(p.oid = ANY(ARRAY[
                                    to_regprocedure('stonez_context_private.register_verification_key(text,bytea,timestamptz,timestamptz)'),
                                    to_regprocedure('stonez_context_private.retire_verification_key(text,timestamptz)'),
                                    to_regprocedure('stonez_context_private.revoke_verification_key(text)'),
                                    to_regprocedure('stonez_context_private.prune_expired_contexts()')
-                               ]::oid[]))
+                               ]::oid[]), false)
                        )
                 )
             ) AS function_acls_exact,

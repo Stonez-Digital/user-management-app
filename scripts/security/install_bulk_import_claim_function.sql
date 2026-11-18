@@ -125,6 +125,7 @@ $$;
 -- Keep the privileged function outside Supabase's exposed public schema.
 CREATE SCHEMA IF NOT EXISTS stonez_internal AUTHORIZATION CURRENT_USER;
 REVOKE ALL PRIVILEGES ON SCHEMA stonez_internal FROM PUBLIC;
+REVOKE ALL PRIVILEGES ON SCHEMA stonez_internal FROM stonez_api_runtime;
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN

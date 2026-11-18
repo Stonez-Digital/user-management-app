@@ -8,9 +8,9 @@ const picomatch = require("picomatch");
 
 test("single-branch leading quantifiers are literalized before regex compilation", () => {
   const expected = new Map([
-    ["+(*a)", String.raw`^(?:\\+\\(\\*a\\))$`],
-    ["*(*a)", String.raw`^(?:\\*\\(\\*a\\))$`],
-    ["+(a|*a)", String.raw`^(?:\\+\\(a\\|\\*a\\))$`],
+    ["+(*a)", String.raw`^(?:\+\(\*a\))$`],
+    ["*(*a)", String.raw`^(?:\*\(\*a\))$`],
+    ["+(a|*a)", String.raw`^(?:\+\(a\|\*a\))$`],
   ]);
 
   for (const [pattern, source] of expected) {

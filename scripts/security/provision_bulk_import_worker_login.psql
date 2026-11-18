@@ -26,9 +26,9 @@ CREATE ROLE stonez_bulk_worker
 -- psql hides both password prompts and sends only the encrypted verifier.
 \password stonez_bulk_worker
 
--- The login inherits only the restricted API group privileges. It cannot
--- administer the group or SET ROLE into it; the claim function checks effective
--- inherited membership via pg_has_role(..., 'USAGE').
+-- The login inherits only the dedicated queue-claim capability. It cannot
+-- administer or SET ROLE into that group, and receives no direct public-table
+-- or sequence privileges.
 GRANT stonez_bulk_queue_claim TO stonez_bulk_worker
     WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
 
@@ -42,6 +42,7 @@ BEGIN
            AND NOT rolcreatedb
            AND NOT rolcreaterole
            AND NOT rolbypassrls
+           AND NOT rolreplication
            AND rolinherit
     ) THEN
         RAISE EXCEPTION 'stonez_bulk_worker role attributes are not restricted';
@@ -76,6 +77,21 @@ BEGIN
             OR has_table_privilege('stonez_bulk_worker', relation.oid, 'DELETE'))
     ) THEN
         RAISE EXCEPTION 'stonez_bulk_worker must not have direct public-table privileges';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM pg_class AS relation
+        JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+        WHERE namespace.nspname = 'public'
+          AND relation.relkind = 'S'
+          AND (has_sequence_privilege('stonez_bulk_worker', relation.oid, 'USAGE')
+            OR has_sequence_privilege('stonez_bulk_worker', relation.oid, 'SELECT')
+            OR has_sequence_privilege('stonez_bulk_worker', relation.oid, 'UPDATE'))
+    ) THEN
+        RAISE EXCEPTION 'stonez_bulk_worker must not have public-sequence privileges';
+    END IF;
+    IF has_schema_privilege('stonez_bulk_worker', 'public', 'CREATE')
+       OR has_schema_privilege('stonez_bulk_worker', 'stonez_internal', 'CREATE') THEN
+        RAISE EXCEPTION 'stonez_bulk_worker must not create application or internal schema objects';
     END IF;
 END
 $$;

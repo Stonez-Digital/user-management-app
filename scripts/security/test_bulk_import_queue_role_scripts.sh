@@ -2,7 +2,7 @@
 set -euo pipefail
 
 : "${BULK_QUEUE_SCRIPT_TEST_DATABASE_URL:?must point to the disposable PostgreSQL CI database}"
-: "${BULK_QUEUE_SCRIPT_TEST_CLAIM_URL:?must point to the disposable restricted runtime login}"
+: "${BULK_QUEUE_SCRIPT_TEST_CLAIM_URL:?must point to the disposable queue-claim login}"
 : "${BULK_QUEUE_SCRIPT_TEST_OUTSIDER_URL:?must point to the disposable unrelated login}"
 : "${BULK_QUEUE_SCRIPT_TEST_DATABASE:?must explicitly name the disposable database}"
 

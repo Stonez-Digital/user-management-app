@@ -128,12 +128,12 @@ func TestBulkImportCredentialOutboxWorkerCrashRetry(t *testing.T) {
 	worker.processClaimed(job, firstRecoveryWorkerID)
 	if mailerCalls.Load() != 1 { t.Fatalf("expected first delivery attempt, got %d", mailerCalls.Load()) }
 
-	var outboxState struct { Status string; AttemptCount int }
+	var outboxState struct { Status string; AttemptCount int; FailureCode string }
 	if err := admin.Raw(
-		"SELECT status,attempt_count FROM stonez_context_private.account_setup_outbox WHERE job_id=? AND user_id=?",
+		"SELECT status,attempt_count,failure_code FROM stonez_context_private.account_setup_outbox WHERE job_id=? AND user_id=?",
 		jobID, accountID,
 	).Scan(&outboxState).Error; err != nil { t.Fatal(err) }
-	if outboxState.Status != "pending" || outboxState.AttemptCount != 1 {
+	if outboxState.Status != "pending" || outboxState.AttemptCount != 1 || outboxState.FailureCode != "provider_unavailable" {
 		t.Fatalf("provider failure was not durably scheduled for retry: %+v", outboxState)
 	}
 	if err := admin.First(&job, "id = ?", jobID).Error; err != nil { t.Fatalf("reload persisted job progress: %v", err) }

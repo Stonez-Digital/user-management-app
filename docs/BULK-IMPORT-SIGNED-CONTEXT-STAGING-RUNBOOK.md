@@ -45,7 +45,7 @@ Run each step only against the explicitly identified staging database. Stop on t
    `psql "$STAGING_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f scripts/security/install_bulk_import_account_setup_outbox.sql`
    Confirm the processing group has no direct outbox-table privileges and only the five scoped outbox function entry points.
 
-7. **Provision the dedicated processing login.** Run interactively so psql's \`\\password\` prompt handles the password without embedding it in command arguments:
+7. **Provision the dedicated processing login.** Run interactively; the script uses psql's password prompt so the password is not embedded in command arguments:
    `psql "$STAGING_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f scripts/security/provision_bulk_import_processing_login.psql`
    Store the generated credential directly in the staging worker secret manager. Never paste it into chat, GitHub, CI logs, or a source file. The script deliberately refuses to alter an existing login; if it already exists, stop and investigate rather than editing it in place.
 

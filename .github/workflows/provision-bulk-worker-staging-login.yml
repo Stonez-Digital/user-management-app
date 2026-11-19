@@ -58,19 +58,16 @@ jobs:
           assert u.username == "stonez_staging_owner", "Use the approved staging installation role"
           print("Approved isolated staging endpoint, database, installer role, and TLS mode confirmed.")
           PY
-          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -Atc "DO \\$\\$ BEGIN IF current_database() <> 'stonez_staging' OR current_user <> 'stonez_staging_owner' OR current_setting('server_version_num')::int < 170000 THEN RAISE EXCEPTION 'unexpected staging target or installer role'; END IF; END \\$\\$;"
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -Atc "DO \$\$ BEGIN IF current_database() <> 'stonez_staging' OR current_user <> 'stonez_staging_owner' OR current_setting('server_version_num')::int < 170000 THEN RAISE EXCEPTION 'unexpected staging target or installer role'; END IF; END \$\$;"
 
           # The password is read from the step environment by psql, never placed
           # in a command-line argument or echoed to the workflow log.
           psql "$DATABASE_URL" -X -qAt -v ON_ERROR_STOP=1 <<'SQL'
-          \\set ON_ERROR_STOP on
-          \\getenv worker_password STONEZ_BULK_WORKER_PASSWORD
+          \set ON_ERROR_STOP on
+          \getenv worker_password STONEZ_BULK_WORKER_PASSWORD
 
           DO $$
           BEGIN
-              IF length(:'worker_password') < 32 THEN
-                  RAISE EXCEPTION 'worker password is missing or too short';
-              END IF;
               IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_worker') THEN
                   RAISE EXCEPTION 'stonez_bulk_worker already exists; refusing to alter an existing login';
               END IF;
@@ -89,8 +86,8 @@ jobs:
           SELECT format(
               'CREATE ROLE stonez_bulk_worker LOGIN INHERIT CONNECTION LIMIT 5 PASSWORD %L',
               :'worker_password'
-          ) \\gexec
-          \\unset worker_password
+          ) \gexec
+          \unset worker_password
 
           GRANT stonez_bulk_queue_claim TO stonez_bulk_worker
               WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;

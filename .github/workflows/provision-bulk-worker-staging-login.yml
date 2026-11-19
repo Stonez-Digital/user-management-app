@@ -1,0 +1,184 @@
+name: Provision restricted bulk-import worker login on Neon staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_target:
+        description: 'Type STONEZ-STAGING to authorize creation on the isolated staging database'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-bulk-import-worker-login-provision
+  cancel-in-progress: false
+
+jobs:
+  provision-staging-worker-login:
+    if: github.ref == 'refs/heads/security/bulk-worker-signed-context-verifier' && inputs.confirm_target == 'STONEZ-STAGING'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout approved branch
+        uses: actions/checkout@v4
+        with:
+          ref: security/bulk-worker-signed-context-verifier
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Validate target and provision the restricted login
+        env:
+          DATABASE_URL: ${{ secrets.NEON_STAGING_DATABASE_URL }}
+          STONEZ_BULK_WORKER_PASSWORD: ${{ secrets.STONEZ_BULK_WORKER_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${DATABASE_URL}" ]]; then
+            echo "::error::NEON_STAGING_DATABASE_URL repository secret is not configured."
+            exit 1
+          fi
+          if [[ -z "${STONEZ_BULK_WORKER_PASSWORD}" || "${#STONEZ_BULK_WORKER_PASSWORD}" -lt 32 ]]; then
+            echo "::error::STONEZ_BULK_WORKER_PASSWORD must be configured and at least 32 characters."
+            exit 1
+          fi
+          python3 - <<'PY'
+          import os
+          from urllib.parse import urlparse, parse_qs
+          u = urlparse(os.environ["DATABASE_URL"])
+          q = parse_qs(u.query)
+          assert u.scheme in ("postgres", "postgresql"), "Expected PostgreSQL URL"
+          assert u.hostname == "ep-snowy-term-b94cw7vl.c-7.eu-central-1.aws.neon.tech", "Unexpected database host"
+          assert u.path == "/stonez_staging", "Unexpected database name"
+          assert q.get("sslmode", [""])[0] in ("require", "verify-ca", "verify-full"), "TLS must be enabled"
+          assert u.username == "stonez_staging_owner", "Use the approved staging installation role"
+          print("Approved isolated staging endpoint, database, installer role, and TLS mode confirmed.")
+          PY
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -Atc "DO \\$\\$ BEGIN IF current_database() <> 'stonez_staging' OR current_user <> 'stonez_staging_owner' OR current_setting('server_version_num')::int < 170000 THEN RAISE EXCEPTION 'unexpected staging target or installer role'; END IF; END \\$\\$;"
+
+          # The password is read from the step environment by psql, never placed
+          # in a command-line argument or echoed to the workflow log.
+          psql "$DATABASE_URL" -X -qAt -v ON_ERROR_STOP=1 <<'SQL'
+          \\set ON_ERROR_STOP on
+          \\getenv worker_password STONEZ_BULK_WORKER_PASSWORD
+
+          DO $$
+          BEGIN
+              IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_worker') THEN
+                  RAISE EXCEPTION 'stonez_bulk_worker already exists; refusing to alter an existing login';
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_api_runtime') THEN
+                  RAISE EXCEPTION 'stonez_api_runtime is missing';
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner') THEN
+                  RAISE EXCEPTION 'stonez_bulk_queue_owner is missing';
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_queue_claim') THEN
+                  RAISE EXCEPTION 'stonez_bulk_queue_claim is missing';
+              END IF;
+          END
+          $$;
+
+          SELECT format(
+              'CREATE ROLE stonez_bulk_worker LOGIN INHERIT CONNECTION LIMIT 5 PASSWORD %L',
+              :'worker_password'
+          ) \\gexec
+          \\unset worker_password
+
+          GRANT stonez_bulk_queue_claim TO stonez_bulk_worker
+              WITH ADMIN FALSE, INHERIT TRUE, SET FALSE;
+
+          DO $$
+          BEGIN
+              IF NOT EXISTS (
+                  SELECT 1 FROM pg_roles
+                   WHERE rolname = 'stonez_bulk_worker'
+                     AND rolcanlogin
+                     AND NOT rolsuper
+                     AND NOT rolcreatedb
+                     AND NOT rolcreaterole
+                     AND NOT rolbypassrls
+                     AND NOT rolreplication
+                     AND rolinherit
+              ) THEN
+                  RAISE EXCEPTION 'worker login attributes are not restricted';
+              END IF;
+              IF NOT pg_has_role('stonez_bulk_worker', 'stonez_bulk_queue_claim', 'USAGE') THEN
+                  RAISE EXCEPTION 'worker does not inherit queue-claim capability';
+              END IF;
+              IF pg_has_role('stonez_bulk_worker', 'stonez_bulk_queue_claim', 'SET')
+                 OR pg_has_role('stonez_bulk_worker', 'stonez_api_runtime', 'MEMBER')
+                 OR pg_has_role('stonez_bulk_worker', 'stonez_bulk_queue_owner', 'MEMBER') THEN
+                  RAISE EXCEPTION 'worker has an unsafe role membership or SET capability';
+              END IF;
+              IF EXISTS (
+                  SELECT 1 FROM pg_auth_members
+                   WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_worker')
+                     AND roleid <> (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_claim')
+              ) THEN
+                  RAISE EXCEPTION 'worker has an unexpected additional role membership';
+              END IF;
+              IF EXISTS (
+                  SELECT 1
+                    FROM pg_class c
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                   WHERE n.nspname = 'public'
+                     AND c.relkind IN ('r','p','v','m')
+                     AND (
+                       has_table_privilege('stonez_bulk_worker', c.oid, 'SELECT')
+                       OR has_table_privilege('stonez_bulk_worker', c.oid, 'INSERT')
+                       OR has_table_privilege('stonez_bulk_worker', c.oid, 'UPDATE')
+                       OR has_table_privilege('stonez_bulk_worker', c.oid, 'DELETE')
+                       OR has_table_privilege('stonez_bulk_worker', c.oid, 'TRUNCATE')
+                       OR has_table_privilege('stonez_bulk_worker', c.oid, 'REFERENCES')
+                       OR has_table_privilege('stonez_bulk_worker', c.oid, 'TRIGGER')
+                       OR has_any_column_privilege('stonez_bulk_worker', c.oid, 'SELECT')
+                       OR has_any_column_privilege('stonez_bulk_worker', c.oid, 'INSERT')
+                       OR has_any_column_privilege('stonez_bulk_worker', c.oid, 'UPDATE')
+                       OR has_any_column_privilege('stonez_bulk_worker', c.oid, 'REFERENCES')
+                     )
+              ) THEN
+                  RAISE EXCEPTION 'worker has direct public-table privileges';
+              END IF;
+              IF EXISTS (
+                  SELECT 1
+                    FROM pg_class c
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                   WHERE n.nspname = 'public'
+                     AND c.relkind = 'S'
+                     AND (
+                       has_sequence_privilege('stonez_bulk_worker', c.oid, 'USAGE')
+                       OR has_sequence_privilege('stonez_bulk_worker', c.oid, 'SELECT')
+                       OR has_sequence_privilege('stonez_bulk_worker', c.oid, 'UPDATE')
+                     )
+              ) THEN
+                  RAISE EXCEPTION 'worker has public-sequence privileges';
+              END IF;
+              IF has_schema_privilege('stonez_bulk_worker', 'public', 'CREATE')
+                 OR has_schema_privilege('stonez_bulk_worker', 'stonez_internal', 'CREATE') THEN
+                  RAISE EXCEPTION 'worker can create application or internal schema objects';
+              END IF;
+          END
+          $$;
+
+          SELECT
+              rolname,
+              rolcanlogin,
+              rolsuper,
+              rolcreatedb,
+              rolcreaterole,
+              rolbypassrls,
+              rolinherit,
+              pg_has_role('stonez_bulk_worker', 'stonez_bulk_queue_claim', 'USAGE') AS inherits_queue_claim,
+              pg_has_role('stonez_bulk_worker', 'stonez_bulk_queue_claim', 'SET') AS can_set_queue_claim,
+              pg_has_role('stonez_bulk_worker', 'stonez_api_runtime', 'MEMBER') AS is_api_runtime_member,
+              pg_has_role('stonez_bulk_worker', 'stonez_bulk_queue_owner', 'MEMBER') AS is_queue_owner_member
+          FROM pg_roles
+          WHERE rolname = 'stonez_bulk_worker';
+          SQL
+
+          echo "Restricted staging worker login provisioned and post-install privilege assertions passed."

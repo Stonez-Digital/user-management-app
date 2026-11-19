@@ -37,10 +37,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install PostgreSQL client
+      - name: Install PostgreSQL client (retry transient mirror failures)
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes postgresql-client
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            if sudo apt-get update && sudo apt-get install --yes --no-install-recommends postgresql-client; then
+              psql --version
+              exit 0
+            fi
+            if [[ "${attempt}" -eq 5 ]]; then
+              echo "::error::PostgreSQL client installation failed after five attempts."
+              exit 1
+            fi
+            delay=$((attempt * 15))
+            echo "Package mirror/network failure; retrying in ${delay}s (attempt ${attempt}/5)."
+            sleep "${delay}"
+          done
 
       - name: Set up Go
         uses: actions/setup-go@v5

@@ -70,7 +70,7 @@ func ConnectAuthBootstrap() (*gorm.DB, error) {
 		SchemaUsage bool `gorm:"column:schema_usage"`
 		SchemaCreate bool `gorm:"column:schema_create"`
 		FunctionExecute bool `gorm:"column:function_execute"`
-		ProtectedTablePrivileges bool `gorm:"column:protected_table_privileges"`
+		ProtectedRelationPrivileges bool `gorm:"column:protected_relation_privileges"`
 		FunctionOwnerMembership bool `gorm:"column:function_owner_membership"`
 	}
 	if err := db.WithContext(ctx).Raw(`
@@ -78,43 +78,50 @@ func ConnectAuthBootstrap() (*gorm.DB, error) {
 			has_schema_privilege(session_user, 'public', 'USAGE') AS schema_usage,
 			has_schema_privilege(session_user, 'public', 'CREATE') AS schema_create,
 			has_function_privilege(session_user, 'public.authenticate_access_session(uuid,uuid)', 'EXECUTE') AS function_execute,
-			EXISTS (
-				SELECT 1
-				FROM pg_class AS c
-				JOIN pg_namespace AS n ON n.oid = c.relnamespace
-				WHERE n.nspname = 'public'
-				  AND c.relname IN ('users', 'sessions')
-				  AND (
-					has_table_privilege(session_user, c.oid, 'SELECT')
-					OR has_table_privilege(session_user, c.oid, 'INSERT')
-					OR has_table_privilege(session_user, c.oid, 'UPDATE')
-					OR has_table_privilege(session_user, c.oid, 'DELETE')
-					OR has_table_privilege(session_user, c.oid, 'TRUNCATE')
-					OR has_table_privilege(session_user, c.oid, 'REFERENCES')
-					OR has_table_privilege(session_user, c.oid, 'TRIGGER')
-					OR EXISTS (
-						SELECT 1
-						FROM pg_attribute AS a
-						WHERE a.attrelid = c.oid
-						  AND a.attnum > 0
-						  AND NOT a.attisdropped
-						  AND (
-							has_column_privilege(session_user, c.oid, a.attnum, 'SELECT')
-							OR has_column_privilege(session_user, c.oid, a.attnum, 'INSERT')
-							OR has_column_privilege(session_user, c.oid, a.attnum, 'UPDATE')
-							OR has_column_privilege(session_user, c.oid, a.attnum, 'REFERENCES')
-						  )
-					)
-				  )
-			) AS protected_table_privileges,
+			(
+				EXISTS (
+					SELECT 1
+					FROM pg_class AS c
+					JOIN pg_namespace AS n ON n.oid = c.relnamespace
+					WHERE n.nspname !~ '^pg_'
+					  AND n.nspname <> 'information_schema'
+					  AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+					  AND (
+						has_table_privilege(session_user, c.oid, 'SELECT')
+						OR has_table_privilege(session_user, c.oid, 'INSERT')
+						OR has_table_privilege(session_user, c.oid, 'UPDATE')
+						OR has_table_privilege(session_user, c.oid, 'DELETE')
+						OR has_table_privilege(session_user, c.oid, 'TRUNCATE')
+						OR has_table_privilege(session_user, c.oid, 'REFERENCES')
+						OR has_table_privilege(session_user, c.oid, 'TRIGGER')
+						OR has_any_column_privilege(session_user, c.oid, 'SELECT')
+						OR has_any_column_privilege(session_user, c.oid, 'INSERT')
+						OR has_any_column_privilege(session_user, c.oid, 'UPDATE')
+						OR has_any_column_privilege(session_user, c.oid, 'REFERENCES')
+					  )
+				)
+				OR EXISTS (
+					SELECT 1
+					FROM pg_class AS c
+					JOIN pg_namespace AS n ON n.oid = c.relnamespace
+					WHERE n.nspname !~ '^pg_'
+					  AND n.nspname <> 'information_schema'
+					  AND c.relkind = 'S'
+					  AND (
+						has_sequence_privilege(session_user, c.oid, 'USAGE')
+						OR has_sequence_privilege(session_user, c.oid, 'SELECT')
+						OR has_sequence_privilege(session_user, c.oid, 'UPDATE')
+					  )
+				)
+			) AS protected_relation_privileges,
 			pg_has_role(session_user, 'stonez_auth_function_owner', 'MEMBER') AS function_owner_membership
 	`).Scan(&privileges).Error; err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("verify auth bootstrap grants: %w", err)
 	}
-	if !privileges.SchemaUsage || privileges.SchemaCreate || !privileges.FunctionExecute || privileges.ProtectedTablePrivileges || privileges.FunctionOwnerMembership {
+	if !privileges.SchemaUsage || privileges.SchemaCreate || !privileges.FunctionExecute || privileges.ProtectedRelationPrivileges || privileges.FunctionOwnerMembership {
 		_ = sqlDB.Close()
-		return nil, fmt.Errorf("auth bootstrap role grants are not least-privilege (schema_usage=%t schema_create=%t function_execute=%t protected_table_privileges=%t function_owner_membership=%t)",
+		return nil, fmt.Errorf("auth bootstrap role grants are not least-privilege (schema_usage=%t schema_create=%t function_execute=%t protected_relation_privileges=%t function_owner_membership=%t)",
 			privileges.SchemaUsage, privileges.SchemaCreate, privileges.FunctionExecute, privileges.ProtectedTablePrivileges, privileges.FunctionOwnerMembership)
 	}
 	return db, nil

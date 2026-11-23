@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"net/textproto"
 	"os"
 	"strings"
 	"testing"
@@ -104,7 +105,10 @@ func TestSchoolProfileLogoAndAuditRoutesEnforceTwoSchoolRLS(t *testing.T) {
 
 	var logoBody bytes.Buffer
 	writer:=multipart.NewWriter(&logoBody)
-	part,err:=writer.CreateFormFile("logo","school.png");if err!=nil{t.Fatal(err)}
+	partHeader:=make(textproto.MIMEHeader)
+	partHeader.Set("Content-Disposition",`form-data; name="logo"; filename="school.png"`)
+	partHeader.Set("Content-Type","image/png")
+	part,err:=writer.CreatePart(partHeader);if err!=nil{t.Fatal(err)}
 	if _,err:=part.Write([]byte{0x89,'P','N','G',0x0d,0x0a,0x1a,0x0a});err!=nil{t.Fatal(err)}
 	if err:=writer.Close();err!=nil{t.Fatal(err)}
 	logoReq:=httptest.NewRequest(http.MethodPost,"/school/logo",&logoBody);logoReq.Header.Set("Content-Type",writer.FormDataContentType())

@@ -45,7 +45,7 @@ func TestPostgresMigrationCatalogBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer adminSQL.Close()
+	t.Cleanup(func() { _ = adminSQL.Close() })
 
 	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
 	schema := "migration_parity_" + suffix
@@ -254,12 +254,15 @@ func TestPostgresMigrationCatalogBaseline(t *testing.T) {
 		}
 	}
 
-	var schemaCreate bool
-	if err := migrationDB.Raw("SELECT has_schema_privilege(?, ?, 'CREATE')", runtimeRole, schema).Scan(&schemaCreate).Error; err != nil {
-		t.Fatalf("inspect runtime schema CREATE privilege: %v", err)
+	var schemaUsage, schemaCreate bool
+	if err := migrationDB.Raw(`
+		SELECT has_schema_privilege(?, ?, 'USAGE') AS schema_usage,
+		       has_schema_privilege(?, ?, 'CREATE') AS schema_create
+	`, runtimeRole, schema, runtimeRole, schema).Row().Scan(&schemaUsage, &schemaCreate); err != nil {
+		t.Fatalf("inspect runtime schema privileges: %v", err)
 	}
-	if schemaCreate {
-		t.Fatal("temporary runtime role unexpectedly has CREATE on the migration schema")
+	if schemaUsage || schemaCreate {
+		t.Fatalf("temporary runtime role unexpectedly has schema privileges: USAGE=%t CREATE=%t", schemaUsage, schemaCreate)
 	}
 
 	var sequencePrivileges int64

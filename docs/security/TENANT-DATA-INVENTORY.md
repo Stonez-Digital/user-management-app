@@ -102,6 +102,20 @@ There is more than one migration source in this repository; they must not be con
 
 Therefore a test that calls only `database.Migrate` proves the automatic Go migration path only. It must not claim to have applied the review-only SQL files or the Supabase migration history. Those sources need separate, explicitly approved disposable-database coverage with schema-qualified assumptions resolved. In particular, the checkout SQL hardcodes `public`, so a search_path-only temporary schema is not sufficient to safely execute it.
 
+### Observed automatic Go migration RLS baseline
+
+The disposable catalog test confirms the automatic Go runner currently enables RLS on these 15 tables:
+
+- Migration 24: `schools`, `bulk_import_jobs`, `teacher_profiles`, `parent_profiles`.
+- Migration 32: `blog_posts`, `blog_categories`, `gallery_albums`, `gallery_images`, `school_advertisements`.
+- Migration 36: `class_subjects`.
+- Migration 37: `national_curricula`, `national_curriculum_levels`, `national_curriculum_classes`, `national_curriculum_subjects`.
+- Migration 41: `school_enquiries`.
+
+The Go migration catalog currently contains **zero** `pg_policies` entries for its migrated schema and does not set `relforcerowsecurity` on these tables. These are catalog facts, not a tenant-isolation guarantee. RLS enablement without tenant policies does not establish school boundaries, and the rollout notes identify the current API database connection as privileged/BYPASSRLS.
+
+Migration 32 specifically protects school public-content tables by enabling RLS and revoking `PUBLIC`, `anon`, and `authenticated` privileges; it does not create a tenant policy. Migration 46 separately revokes broad Data API privileges from its application-table inventory, but does not create a restricted API role or grant its least-privilege DML.
+
 ## Migration-parity assertions
 
 The disposable PostgreSQL suite must apply the real `database.Migrate` implementation and inspect catalogs. It must not create replacement policies in test setup.

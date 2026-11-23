@@ -145,3 +145,33 @@ func TestSubscriptionCheckoutMissingAuthorizationURLRemainsVerifiable(t *testing
 		t.Fatalf("expected verified late payment to activate, got %#v", activated)
 	}
 }
+
+
+func TestSubscriptionBillingRejectsSchoolOutsideBoundTenant(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil { t.Fatal(err) }
+	tenantSchool, otherSchool := uuid.New(), uuid.New()
+	svc := NewSubscriptionBillingService(db, nil).WithTenantContext(tenantSchool, uuid.New())
+	if _, err := svc.CreateCheckout(otherSchool, uuid.New(), models.BillingPlanBasic, "billing@example.test", ""); !errors.Is(err, ErrSubscriptionPaymentUnavailable) {
+		t.Fatalf("expected checkout to reject another school, got %v", err)
+	}
+	if _, err := svc.VerifyCheckout(otherSchool, "SUB-OTHER"); !errors.Is(err, ErrSubscriptionPaymentInvalid) {
+		t.Fatalf("expected verification to reject another school, got %v", err)
+	}
+	if _, err := svc.BillingContactEmail(otherSchool, uuid.New()); !errors.Is(err, ErrSubscriptionPaymentUnavailable) {
+		t.Fatalf("expected billing contact lookup to reject another school, got %v", err)
+	}
+}
+
+func TestSubscriptionServiceRejectsSchoolOutsideBoundTenant(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil { t.Fatal(err) }
+	tenantSchool, otherSchool := uuid.New(), uuid.New()
+	svc := NewSubscriptionService(db).WithTenantContext(tenantSchool, uuid.New())
+	if _, err := svc.CurrentSubscription(otherSchool); !errors.Is(err, ErrSubscriptionInvalid) {
+		t.Fatalf("expected current subscription lookup to reject another school, got %v", err)
+	}
+	if _, err := svc.StartTrial(otherSchool, uuid.New()); !errors.Is(err, ErrSubscriptionInvalid) {
+		t.Fatalf("expected trial start to reject another school, got %v", err)
+	}
+}

@@ -34,6 +34,11 @@ type CareerPathAttemptView struct { ID uuid.UUID `json:"id"`; Version string `js
 type CareerPathService struct { db *gorm.DB }
 func NewCareerPathService(db *gorm.DB) *CareerPathService { return &CareerPathService{db: db} }
 
+// WithDB returns a request-scoped service bound to the tenant transaction.
+func (s *CareerPathService) WithDB(db *gorm.DB) *CareerPathService {
+	return &CareerPathService{db: db}
+}
+
 func careerPathAssessment() CareerPathAssessment {
 	return CareerPathAssessment{
 		ID: "explore-v2", Version: CareerPathAssessmentVersion,

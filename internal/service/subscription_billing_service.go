@@ -33,6 +33,50 @@ type SubscriptionBillingService struct {
 	db *gorm.DB
 	provider SubscriptionPaymentProvider
 	now func() time.Time
+	tenantSchoolID uuid.UUID
+	tenantUserID uuid.UUID
+}
+
+// WithTenantContext returns a request-scoped billing service. Each database
+// phase opens a short transaction with transaction-local RLS claims; provider
+// calls remain outside those transactions.
+func (s *SubscriptionBillingService) WithTenantContext(schoolID, userID uuid.UUID) *SubscriptionBillingService {
+	clone := *s
+	clone.tenantSchoolID, clone.tenantUserID = schoolID, userID
+	return &clone
+}
+
+func (s *SubscriptionBillingService) tenantMatches(schoolID uuid.UUID) bool {
+	if s.tenantSchoolID == uuid.Nil && s.tenantUserID == uuid.Nil {
+		return true // internal/system callers remain explicitly unscoped until migrated.
+	}
+	return s.tenantSchoolID != uuid.Nil && s.tenantUserID != uuid.Nil && s.tenantSchoolID == schoolID
+}
+
+func (s *SubscriptionBillingService) transaction(fn func(*gorm.DB) error) error {
+	return tenantTransaction(s.db, s.tenantSchoolID, s.tenantUserID, fn)
+}
+
+// BillingContactEmail reads the authenticated school administrator's email
+// under the same short tenant-scoped transaction used by billing operations.
+func (s *SubscriptionBillingService) BillingContactEmail(schoolID, userID uuid.UUID) (string, error) {
+	if schoolID == uuid.Nil || userID == uuid.Nil || (s.tenantSchoolID != uuid.Nil && (s.tenantSchoolID != schoolID || s.tenantUserID != userID)) {
+		return "", ErrSubscriptionPaymentUnavailable
+	}
+	var email string
+	err := tenantTransaction(s.db, schoolID, userID, func(tx *gorm.DB) error {
+		var actor models.User
+		if err := tx.Select("id", "email", "school_id", "active").
+			Where("id = ? AND school_id = ?", userID, schoolID).First(&actor).Error; err != nil {
+			return err
+		}
+		if !actor.Active || strings.TrimSpace(actor.Email) == "" {
+			return ErrSubscriptionPaymentUnavailable
+		}
+		email = strings.TrimSpace(actor.Email)
+		return nil
+	})
+	return email, err
 }
 
 type SubscriptionCheckout struct {
@@ -49,12 +93,12 @@ func (s *SubscriptionBillingService) CreateCheckout(schoolID, termID uuid.UUID, 
 	reusedPending := false
 	planCode = strings.ToLower(strings.TrimSpace(planCode))
 	email = strings.TrimSpace(email)
-	if schoolID == uuid.Nil || termID == uuid.Nil || planCode == "" || email == "" || s.provider == nil {
+	if schoolID == uuid.Nil || !s.tenantMatches(schoolID) || termID == uuid.Nil || planCode == "" || email == "" || s.provider == nil {
 		return result, ErrSubscriptionPaymentUnavailable
 	}
 	now := s.now().UTC()
 	reference := "SUB-" + strings.ToUpper(strings.ReplaceAll(uuid.NewString(), "-", ""))
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err := s.transaction(func(tx *gorm.DB) error {
 		var school models.School
 		if err := tx.Clauses(clause.Locking{Strength:"UPDATE"}).First(&school, "id = ?", schoolID).Error; err != nil { return err }
 		if school.Status != models.SchoolStatusActive { return ErrSubscriptionPaymentUnavailable }
@@ -136,9 +180,15 @@ func (s *SubscriptionBillingService) CreateCheckout(schoolID, termID uuid.UUID, 
 	if checkout.Reference != reference || checkout.AuthorizationURL == "" || checkout.AccessCode == "" {
 		return SubscriptionCheckout{}, ErrSubscriptionPaymentUnavailable
 	}
-	if err := s.db.Model(&models.SubscriptionPayment{}).Where("id = ? AND status = ?",result.Payment.ID,models.SubscriptionPaymentPending).
-		Updates(map[string]interface{}{"authorization_url":checkout.AuthorizationURL,"access_code":checkout.AccessCode}).Error; err != nil {
-		return SubscriptionCheckout{}, err
+	if err := s.transaction(func(tx *gorm.DB) error {
+		updated := tx.Model(&models.SubscriptionPayment{}).
+			Where("id = ? AND school_id = ? AND reference = ? AND status = ?", result.Payment.ID, schoolID, reference, models.SubscriptionPaymentPending).
+			Updates(map[string]interface{}{"authorization_url": checkout.AuthorizationURL, "access_code": checkout.AccessCode})
+		if updated.Error != nil { return updated.Error }
+		if updated.RowsAffected != 1 { return ErrSubscriptionPaymentRecoveryRequired }
+		return nil
+	}); err != nil {
+		return result, err
 	}
 	result.Payment.AuthorizationURL, result.Payment.AccessCode = checkout.AuthorizationURL, checkout.AccessCode
 	return result, nil
@@ -147,19 +197,24 @@ func (s *SubscriptionBillingService) CreateCheckout(schoolID, termID uuid.UUID, 
 func (s *SubscriptionBillingService) VerifyCheckout(schoolID uuid.UUID, reference string) (SubscriptionCheckout, error) {
 	var result SubscriptionCheckout
 	reference = strings.TrimSpace(reference)
-	if schoolID == uuid.Nil || reference == "" || s.provider == nil { return result, ErrSubscriptionPaymentInvalid }
+	if schoolID == uuid.Nil || !s.tenantMatches(schoolID) || reference == "" || s.provider == nil { return result, ErrSubscriptionPaymentInvalid }
 	var payment models.SubscriptionPayment
-	if err := s.db.Where("school_id = ? AND reference = ?",schoolID,reference).First(&payment).Error; err != nil {
-		if errors.Is(err,gorm.ErrRecordNotFound) { return result, ErrSubscriptionPaymentNotFound }
-		return result, err
-	}
-	if payment.Provider != s.provider.Name() { return result, ErrSubscriptionPaymentInvalid }
-	if payment.Status == models.SubscriptionPaymentSucceeded {
-		if err:=s.db.Preload("Plan").Where("id = ? AND school_id = ?",payment.SubscriptionID,schoolID).First(&result.Subscription).Error;err!=nil{return result,err}
-		result.Payment=payment
-		return result,nil
-	}
-	if payment.Status != models.SubscriptionPaymentPending { return result, ErrSubscriptionPaymentInvalid }
+	err := s.transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("school_id = ? AND reference = ?", schoolID, reference).First(&payment).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) { return ErrSubscriptionPaymentNotFound }
+			return err
+		}
+		if payment.Provider != s.provider.Name() { return ErrSubscriptionPaymentInvalid }
+		if payment.Status == models.SubscriptionPaymentSucceeded {
+			if err := tx.Preload("Plan").Where("id = ? AND school_id = ?", payment.SubscriptionID, schoolID).First(&result.Subscription).Error; err != nil { return err }
+			result.Payment = payment
+			return nil
+		}
+		if payment.Status != models.SubscriptionPaymentPending { return ErrSubscriptionPaymentInvalid }
+		return nil
+	})
+	if err != nil { return result, err }
+	if payment.Status == models.SubscriptionPaymentSucceeded { return result, nil }
 
 	verified, err := s.provider.Verify(reference)
 	if err != nil || verified.Provider != s.provider.Name() || verified.Reference != reference || verified.AmountMinor != payment.AmountMinor ||
@@ -169,7 +224,7 @@ func (s *SubscriptionBillingService) VerifyCheckout(schoolID uuid.UUID, referenc
 	metadata, err := json.Marshal(verified.Metadata)
 	if err != nil { return result, ErrSubscriptionPaymentInvalid }
 	now := s.now().UTC()
-	err = s.db.Transaction(func(tx *gorm.DB) error {
+	err = s.transaction(func(tx *gorm.DB) error {
 		var locked models.SubscriptionPayment
 		if err:=tx.Clauses(clause.Locking{Strength:"UPDATE"}).Where("id = ? AND school_id = ?",payment.ID,schoolID).First(&locked).Error;err!=nil{return err}
 		if locked.Status == models.SubscriptionPaymentSucceeded {

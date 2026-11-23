@@ -38,9 +38,10 @@ func TestAuditListIsSchoolScoped(t *testing.T) {
     r := gin.New()
     r.Use(func(c *gin.Context) {
         c.Set(middleware.SchoolIDKey, schoolA.ID.String())
+        c.Set(middleware.UserIDKey, userA.ID.String())
         c.Next()
     })
-    r.GET("/admin/audit-logs", NewAuditController(db).List)
+    r.GET("/admin/audit-logs", middleware.TenantTransaction(db), NewAuditController(db).List)
 
     req := httptest.NewRequest(http.MethodGet, "/admin/audit-logs", nil)
     rec := httptest.NewRecorder()

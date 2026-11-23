@@ -89,3 +89,25 @@ func TestTenantTransactionRequiresAuthenticatedTenantContext(t *testing.T) {
 	r.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
 	if recorder.Code != http.StatusForbidden { t.Fatalf("expected missing tenant context to be denied, got %d", recorder.Code) }
 }
+
+func TestTenantTransactionRunsExternalCallbacksAfterCommit(t *testing.T) {
+    db := tenantTransactionSQLite(t)
+    committed := false
+    recorder := tenantTransactionRequest(db, uuid.New(), uuid.New(), func(c *gin.Context) {
+        OnTenantCommit(c, func() error { committed = true; return nil })
+        c.Status(http.StatusOK)
+    })
+    if recorder.Code != http.StatusOK { t.Fatalf("expected 200, got %d", recorder.Code) }
+    if !committed { t.Fatal("expected after-commit callback to run") }
+}
+
+func TestTenantTransactionRunsCompensationAfterRollback(t *testing.T) {
+    db := tenantTransactionSQLite(t)
+    compensated := false
+    recorder := tenantTransactionRequest(db, uuid.New(), uuid.New(), func(c *gin.Context) {
+        OnTenantRollback(c, func() error { compensated = true; return nil })
+        c.Status(http.StatusInternalServerError)
+    })
+    if recorder.Code != http.StatusInternalServerError { t.Fatalf("expected 500, got %d", recorder.Code) }
+    if !compensated { t.Fatal("expected rollback compensation callback to run") }
+}

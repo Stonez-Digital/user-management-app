@@ -86,6 +86,17 @@ func TestPostgresMigrationCatalogBaseline(t *testing.T) {
 	migrationSQL.SetMaxIdleConns(1)
 	t.Cleanup(func() { _ = migrationSQL.Close() })
 
+	// Prove the connection is pinned to the unique test schema before any
+	// migration executes. This prevents accidental writes to public if the
+	// driver ignores or rejects the search_path connection parameter.
+	var connectedSchema string
+	if err := migrationDB.Raw("SELECT current_schema()").Scan(&connectedSchema).Error; err != nil {
+		t.Fatalf("inspect isolated connection schema: %v", err)
+	}
+	if connectedSchema != schema {
+		t.Fatalf("refusing to run migrations outside disposable schema: current_schema=%q expected=%q", connectedSchema, schema)
+	}
+
 	if err := Migrate(migrationDB); err != nil {
 		t.Fatalf("apply actual versioned database.Migrate path in disposable schema: %v", err)
 	}

@@ -24,7 +24,12 @@ type tenantRLSRecord struct {
 
 func TestPostgresTenantTransactionEnforcesRLSAndResetsPooledContext(t *testing.T) {
 	rawDSN := strings.TrimSpace(os.Getenv("TEST_DATABASE_URL"))
-	if rawDSN == "" { t.Skip("TEST_DATABASE_URL is not configured") }
+	if rawDSN == "" {
+		if strings.EqualFold(os.Getenv("CI"), "true") {
+			t.Fatal("TEST_DATABASE_URL is required in CI; refusing to silently skip the PostgreSQL 17 RLS integration test")
+		}
+		t.Skip("TEST_DATABASE_URL is not configured outside CI")
+	}
 	admin, err := gorm.Open(postgres.Open(rawDSN), &gorm.Config{})
 	if err != nil { t.Fatal(err) }
 	adminSQL, err := admin.DB()

@@ -44,17 +44,17 @@ func ConnectAuthBootstrap() (*gorm.DB, error) {
 	}
 	// A zero-UUID lookup must return no row. This verifies EXECUTE permission
 	// and function availability at startup without exposing or changing data.
-	var probe struct {
-		UserID uuid.UUID
-		Role string
-		SchoolID *uuid.UUID
-	}
+	var probeRows int64
 	if err := db.WithContext(ctx).Raw(
-		"SELECT user_id, user_role, school_id FROM public.authenticate_access_session(?, ?)",
+		"SELECT count(*) FROM public.authenticate_access_session(?, ?)",
 		uuid.Nil, uuid.Nil,
-	).Scan(&probe).Error; err != nil {
+	).Scan(&probeRows).Error; err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("verify auth bootstrap capability: %w", err)
+	}
+	if probeRows != 0 {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("auth bootstrap zero-UUID startup probe unexpectedly returned %d rows", probeRows)
 	}
 	roleStatus, err := InspectPostgresRole(db)
 	if err != nil {

@@ -17,9 +17,11 @@ An invalid/revoked/expired session returns HTTP 401. An unavailable bootstrap da
 
 PostgreSQL deployments must configure `AUTH_BOOTSTRAP_DATABASE_URL` separately from `DATABASE_URL` and `MIGRATION_DATABASE_URL`.
 
-The credential should:
+Role provisioning should keep the capability roles non-login: `stonez_auth_function_owner` owns the SECURITY DEFINER function and `stonez_auth_runtime` receives its EXECUTE grant. `AUTH_BOOTSTRAP_DATABASE_URL` must authenticate as a separate, dedicated LOGIN principal that inherits from `stonez_auth_runtime` (ordinary INHERIT membership), not as either capability role.
+
+The login principal should:
 - be a dedicated login role;
-- have schema USAGE and EXECUTE only on `public.authenticate_access_session(uuid, uuid)`;
+- inherit schema USAGE and EXECUTE only on `public.authenticate_access_session(uuid, uuid)` from `stonez_auth_runtime`;
 - have no direct SELECT access to `users` or `sessions`;
 - be NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE, and NOREPLICATION;
 - not be a member of the function-owner or migration-owner role.

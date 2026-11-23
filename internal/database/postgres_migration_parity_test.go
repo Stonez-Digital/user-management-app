@@ -1,7 +1,6 @@
 package database
 
 import (
-	"fmt"
 	"net/url"
 	"os"
 	"sort"
@@ -221,6 +220,10 @@ func TestPostgresMigrationCatalogBaseline(t *testing.T) {
 		t.Fatalf("temporary runtime role has unsafe attributes: %+v", role)
 	}
 
+	var migrationOwner string
+	if err := migrationDB.Raw("SELECT current_user").Scan(&migrationOwner).Error; err != nil {
+		t.Fatalf("inspect migration connection owner: %v", err)
+	}
 	for _, table := range expectedTables {
 		var owner string
 		if err := migrationDB.Raw(`
@@ -230,8 +233,8 @@ func TestPostgresMigrationCatalogBaseline(t *testing.T) {
 		`, schema+"."+table).Scan(&owner).Error; err != nil {
 			t.Fatalf("inspect owner for %s: %v", table, err)
 		}
-		if owner != currentDatabaseUser(migrationDB) {
-			t.Errorf("%s owner=%q; expected migration connection owner %q", table, owner, currentDatabaseUser(migrationDB))
+		if owner != migrationOwner {
+			t.Errorf("%s owner=%q; expected migration connection owner %q", table, owner, migrationOwner)
 		}
 		var isOwnerOrMember bool
 		if err := migrationDB.Raw("SELECT pg_has_role(?, ?, 'MEMBER')", runtimeRole, owner).Scan(&isOwnerOrMember).Error; err != nil {
@@ -281,10 +284,3 @@ func TestPostgresMigrationCatalogBaseline(t *testing.T) {
 	t.Logf("catalog baseline inspected %d application tables; RLS-enabled tables: %v; tenant policies: %d", len(expectedTables), rlsEnabledTables, len(policies))
 }
 
-func currentDatabaseUser(db *gorm.DB) string {
-	var user string
-	_ = db.Raw("SELECT current_user").Scan(&user).Error
-	return user
-}
-
-var _ = fmt.Sprintf

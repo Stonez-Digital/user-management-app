@@ -79,8 +79,19 @@ func TestAuthMiddlewareAcceptsActiveSessionAccessToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A role change after token issuance must be reflected immediately.
+	if err := db.Model(&models.User{}).Where("id = ?", user.ID).Update("role", "teacher").Error; err != nil {
+		t.Fatal(err)
+	}
 	router := gin.New()
-	router.GET("/protected", AuthMiddleware(database.NewLegacyAuthBootstrapStore(db)), func(c *gin.Context) { schoolID, ok := SchoolIDFromContext(c); if !ok || schoolID != school.ID || c.GetString(RoleKey) != "student" || c.GetString(UserIDKey) != user.ID.String() { c.Status(http.StatusInternalServerError); return }; c.Status(http.StatusNoContent) })
+	router.GET("/protected", AuthMiddleware(database.NewLegacyAuthBootstrapStore(db)), func(c *gin.Context) {
+		schoolID, ok := SchoolIDFromContext(c)
+		if !ok || schoolID != school.ID || c.GetString(RoleKey) != "teacher" || c.GetString(UserIDKey) != user.ID.String() {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		c.Status(http.StatusNoContent)
+	})
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()

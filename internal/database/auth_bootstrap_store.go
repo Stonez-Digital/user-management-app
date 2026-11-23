@@ -68,6 +68,7 @@ func ConnectAuthBootstrap() (*gorm.DB, error) {
 
 	var privileges struct {
 		SchemaUsage bool `gorm:"column:schema_usage"`
+		SchemaCreate bool `gorm:"column:schema_create"`
 		FunctionExecute bool `gorm:"column:function_execute"`
 		ProtectedTablePrivileges bool `gorm:"column:protected_table_privileges"`
 		FunctionOwnerMembership bool `gorm:"column:function_owner_membership"`
@@ -75,6 +76,7 @@ func ConnectAuthBootstrap() (*gorm.DB, error) {
 	if err := db.WithContext(ctx).Raw(`
 		SELECT
 			has_schema_privilege(session_user, 'public', 'USAGE') AS schema_usage,
+			has_schema_privilege(session_user, 'public', 'CREATE') AS schema_create,
 			has_function_privilege(session_user, 'public.authenticate_access_session(uuid,uuid)', 'EXECUTE') AS function_execute,
 			EXISTS (
 				SELECT 1
@@ -88,6 +90,8 @@ func ConnectAuthBootstrap() (*gorm.DB, error) {
 					OR has_table_privilege(session_user, c.oid, 'UPDATE')
 					OR has_table_privilege(session_user, c.oid, 'DELETE')
 					OR has_table_privilege(session_user, c.oid, 'TRUNCATE')
+					OR has_table_privilege(session_user, c.oid, 'REFERENCES')
+					OR has_table_privilege(session_user, c.oid, 'TRIGGER')
 					OR EXISTS (
 						SELECT 1
 						FROM pg_attribute AS a
@@ -108,10 +112,10 @@ func ConnectAuthBootstrap() (*gorm.DB, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("verify auth bootstrap grants: %w", err)
 	}
-	if !privileges.SchemaUsage || !privileges.FunctionExecute || privileges.ProtectedTablePrivileges || privileges.FunctionOwnerMembership {
+	if !privileges.SchemaUsage || privileges.SchemaCreate || !privileges.FunctionExecute || privileges.ProtectedTablePrivileges || privileges.FunctionOwnerMembership {
 		_ = sqlDB.Close()
-		return nil, fmt.Errorf("auth bootstrap role grants are not least-privilege (schema_usage=%t function_execute=%t protected_table_privileges=%t function_owner_membership=%t)",
-			privileges.SchemaUsage, privileges.FunctionExecute, privileges.ProtectedTablePrivileges, privileges.FunctionOwnerMembership)
+		return nil, fmt.Errorf("auth bootstrap role grants are not least-privilege (schema_usage=%t schema_create=%t function_execute=%t protected_table_privileges=%t function_owner_membership=%t)",
+			privileges.SchemaUsage, privileges.SchemaCreate, privileges.FunctionExecute, privileges.ProtectedTablePrivileges, privileges.FunctionOwnerMembership)
 	}
 	return db, nil
 }

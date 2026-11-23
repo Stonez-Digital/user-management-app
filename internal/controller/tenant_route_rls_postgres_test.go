@@ -40,7 +40,7 @@ func TestSchoolContentRoutesEnforceTwoSchoolRLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adminSQL.SetMaxOpenConns(2)
+	adminSQL.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = adminSQL.Close() })
 
 	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")

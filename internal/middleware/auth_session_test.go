@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/onoja217/users-management-app/internal/auth"
+	"github.com/onoja217/users-management-app/internal/database"
 	"github.com/onoja217/users-management-app/internal/models"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -39,7 +40,7 @@ func TestAuthMiddlewareRejectsRevokedSessionAccessToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	router := gin.New()
-	router.GET("/protected", AuthMiddleware(db), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.GET("/protected", AuthMiddleware(database.NewLegacyAuthBootstrapStore(db)), func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
@@ -74,7 +75,7 @@ func TestAuthMiddlewareAcceptsActiveSessionAccessToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	router := gin.New()
-	router.GET("/protected", AuthMiddleware(db), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.GET("/protected", AuthMiddleware(database.NewLegacyAuthBootstrapStore(db)), func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()

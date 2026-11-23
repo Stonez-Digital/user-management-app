@@ -78,6 +78,11 @@ func TestAuthBootstrapCapabilityPostgres(t *testing.T) {
     exec(fmt.Sprintf("INSERT INTO %s.users(id,active,role,school_id,password_hash) VALUES ($1,true,'school_admin',$2,'must-not-be-readable')", qs), userID, schoolID)
     exec(fmt.Sprintf("INSERT INTO %s.sessions(id,user_id,expires_at,revoked,refresh_token_hash) VALUES ($1,$2,now()+interval '1 hour',false,'refresh-secret')", qs), sessionID, userID)
 
+    // Simulate pre-existing broad permissive policies. The capability's
+    // restrictive guard must intersect them instead of allowing policy OR-widening.
+    exec("CREATE POLICY auth_bootstrap_test_broad_users ON "+qs+".users FOR SELECT TO "+qo+" USING (true)")
+    exec("CREATE POLICY auth_bootstrap_test_broad_sessions ON "+qs+".sessions FOR SELECT TO "+qo+" USING (true)")
+
     exec("SET ROLE "+qr)
     var gotUser, gotSchool uuid.UUID
     var gotRole string
@@ -160,6 +165,14 @@ func TestAuthBootstrapCapabilityPostgres(t *testing.T) {
         "SELECT qual FROM pg_policies WHERE schemaname=$1 AND tablename='sessions' AND policyname='auth_bootstrap_function_owner_read'",schema).Scan(&sessionsPolicy);err!=nil{t.Fatal(err)}
     if !strings.Contains(usersPolicy,"current_setting")||!strings.Contains(sessionsPolicy,"current_setting")||strings.Trim(strings.TrimSpace(strings.ToLower(usersPolicy)),"() ")=="true"||strings.Trim(strings.TrimSpace(strings.ToLower(sessionsPolicy)),"() ")=="true"{
         t.Fatalf("auth owner RLS policies are not lookup-scoped: users=%q sessions=%q",usersPolicy,sessionsPolicy)
+    }
+    var usersGuard, sessionsGuard string
+    if err:=conn.QueryRowContext(context.Background(),
+        "SELECT permissive FROM pg_policies WHERE schemaname=$1 AND tablename='users' AND policyname='auth_bootstrap_function_owner_scope_guard'",schema).Scan(&usersGuard);err!=nil{t.Fatal(err)}
+    if err:=conn.QueryRowContext(context.Background(),
+        "SELECT permissive FROM pg_policies WHERE schemaname=$1 AND tablename='sessions' AND policyname='auth_bootstrap_function_owner_scope_guard'",schema).Scan(&sessionsGuard);err!=nil{t.Fatal(err)}
+    if usersGuard!="RESTRICTIVE"||sessionsGuard!="RESTRICTIVE"{
+        t.Fatalf("auth owner scope guards must be restrictive: users=%q sessions=%q",usersGuard,sessionsGuard)
     }
     exec("SET ROLE "+qo)
     var ownerVisibleUsers, ownerVisibleSessions int

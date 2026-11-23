@@ -46,6 +46,7 @@ This document classifies ownership. It does **not** claim PostgreSQL currently e
 | `bulk_import_jobs` | `school_id` + `initiated_by` | Require school and initiating-user match; worker lease fields are system-managed. |
 | `school_subscriptions` | `school_id` | School may read own subscription; billing mutations need explicit platform/service authorization. |
 | `subscription_events` | `school_id` | School-scoped history; platform-generated events may require a distinct platform capability. |
+| `subscription_payments` | `school_id` + `subscription_id` | Present only in the separate review-only checkout SQL migration; verify parent subscription school. |
 
 ## User-owned / account-security records
 
@@ -88,6 +89,18 @@ This document classifies ownership. It does **not** claim PostgreSQL currently e
 Candidates for unauthenticated application-mediated reads: published school blog posts/categories, visible gallery albums/images, active advertisements, explicitly public school-profile fields, and active national curriculum data. Public school enquiry submission is a write surface, not public read access. Each handler must resolve the school from a trusted hostname/slug, enforce publication/status rules, and return only explicitly public columns.
 
 No table should receive broad direct privileges merely because a public page consumes some of its data.
+
+## Migration provenance and coverage boundary
+
+There is more than one migration source in this repository; they must not be conflated:
+
+- `internal/database/postgres.go` is the automatic Go/GORM application migration runner (currently 47 numbered steps).
+- `migrations/20261112_school_subscription_foundation.sql` explicitly says **REVIEW ONLY** and is intentionally not registered in the automatic runner. It defines `billing_plans`, `school_subscriptions`, and `subscription_events`, enables RLS on those three tables, and revokes broad Data API privileges.
+- `migrations/20261112_subscription_checkout_payments.sql` also explicitly says **REVIEW ONLY** and is not registered in the GORM runner. It defines `subscription_payments`, enables RLS, and revokes broad privileges.
+- `supabase/migrations/20261013120721_careerpath_attempts_backend_only_access.sql` is a separate Supabase migration source. It enables RLS on `career_path_attempts`, revokes `anon`/`authenticated`, and grants `service_role`; it does not create a tenant-aware policy or force RLS.
+- The Go migration runner itself creates `career_path_attempts` and adds its composite school/student/user integrity constraint. That Go migration and the separate Supabase access migration are distinct operations.
+
+Therefore a test that calls only `database.Migrate` proves the automatic Go migration path only. It must not claim to have applied the review-only SQL files or the Supabase migration history. Those sources need separate, explicitly approved disposable-database coverage with schema-qualified assumptions resolved. In particular, the checkout SQL hardcodes `public`, so a search_path-only temporary schema is not sufficient to safely execute it.
 
 ## Migration-parity assertions
 

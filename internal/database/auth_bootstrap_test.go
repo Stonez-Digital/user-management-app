@@ -3,6 +3,7 @@ package database
 import (
     "context"
     "database/sql"
+    "errors"
     "embed"
     "fmt"
     "net/url"
@@ -11,6 +12,7 @@ import (
     "testing"
 
     "github.com/google/uuid"
+    "github.com/onoja217/users-management-app/internal/authbootstrap"
     "gorm.io/driver/postgres"
     "gorm.io/gorm"
 )
@@ -83,6 +85,26 @@ func TestAuthBootstrapCapabilityPostgres(t *testing.T) {
     countQuery := fmt.Sprintf("SELECT count(*) FROM %s.authenticate_access_session($1,$2)", qs)
     if err := conn.QueryRowContext(context.Background(), query, sessionID, userID).Scan(&gotUser,&gotRole,&gotSchool); err != nil { t.Fatalf("valid session rejected: %v", err) }
     if gotUser != userID || gotSchool != schoolID || gotRole != "school_admin" { t.Fatalf("unexpected bootstrap result: %s %s %s", gotUser,gotRole,gotSchool) }
+
+    // Exercise the real Go adapter against the same disposable SQL capability,
+    // using a single pooled connection with the restricted runtime role active.
+    adapterDB, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+    if err != nil { t.Fatalf("open adapter PostgreSQL pool: %v", err) }
+    adapterSQLDB, err := adapterDB.DB()
+    if err != nil { t.Fatal(err) }
+    adapterSQLDB.SetMaxOpenConns(1)
+    adapterSQLDB.SetMaxIdleConns(1)
+    defer adapterSQLDB.Close()
+    if err := adapterDB.Exec("SET ROLE "+qr).Error; err != nil { t.Fatalf("set adapter runtime role: %v", err) }
+    adapter := newPostgresAuthBootstrapStoreForSchema(adapterDB, schema)
+    identity, err := adapter.AuthenticateAccessSession(context.Background(), sessionID, userID)
+    if err != nil { t.Fatalf("Go adapter rejected valid SQL capability: %v", err) }
+    if identity.UserID != userID || identity.Role != "school_admin" || identity.SchoolID == nil || *identity.SchoolID != schoolID {
+        t.Fatalf("Go adapter returned unexpected identity: user=%s role=%q school=%v", identity.UserID, identity.Role, identity.SchoolID)
+    }
+    if _, err := adapter.AuthenticateAccessSession(context.Background(), uuid.New(), userID); !errors.Is(err, authbootstrap.ErrUnauthenticated) {
+        t.Fatalf("Go adapter should reject an unknown session as unauthenticated, got %v", err)
+    }
 
     if _, err := conn.ExecContext(context.Background(), "SELECT password_hash FROM "+qs+".users"); err == nil { t.Fatal("runtime unexpectedly read password_hash / users table") }
     if _, err := conn.ExecContext(context.Background(), "SELECT refresh_token_hash FROM "+qs+".sessions"); err == nil { t.Fatal("runtime unexpectedly read refresh_token_hash / sessions table") }

@@ -81,6 +81,7 @@ func TestAuthBootstrapCapabilityPostgres(t *testing.T) {
     var gotUser, gotSchool uuid.UUID
     var gotRole string
     query := fmt.Sprintf("SELECT user_id,current_role,school_id FROM %s.authenticate_access_session($1,$2)", qs)
+    countQuery := fmt.Sprintf("SELECT count(*) FROM %s.authenticate_access_session($1,$2)", qs)
     if err := conn.QueryRowContext(context.Background(), query, sessionID, userID).Scan(&gotUser,&gotRole,&gotSchool); err != nil { t.Fatalf("valid session rejected: %v", err) }
     if gotUser != userID || gotSchool != schoolID || gotRole != "school_admin" { t.Fatalf("unexpected bootstrap result: %s %s %s", gotUser,gotRole,gotSchool) }
 
@@ -97,22 +98,22 @@ func TestAuthBootstrapCapabilityPostgres(t *testing.T) {
     exec("RESET ROLE")
     exec(fmt.Sprintf("UPDATE %s.sessions SET revoked=true WHERE id=$1",qs),sessionID)
     exec("SET ROLE "+qr)
-    assertNoAuthRow(t,conn,query,sessionID,userID,"revoked session")
+    assertNoAuthRow(t,conn,countQuery,sessionID,userID,"revoked session")
 
     exec("RESET ROLE")
     exec(fmt.Sprintf("UPDATE %s.sessions SET revoked=false,expires_at=now()-interval '1 second' WHERE id=$1",qs),sessionID)
     exec("SET ROLE "+qr)
-    assertNoAuthRow(t,conn,query,sessionID,userID,"expired session")
+    assertNoAuthRow(t,conn,countQuery,sessionID,userID,"expired session")
 
     exec("RESET ROLE")
     exec(fmt.Sprintf("UPDATE %s.sessions SET expires_at=now()+interval '1 hour' WHERE id=$1",qs),sessionID)
     exec("SET ROLE "+qr)
-    assertNoAuthRow(t,conn,query,sessionID,uuid.New(),"session/user mismatch")
+    assertNoAuthRow(t,conn,countQuery,sessionID,uuid.New(),"session/user mismatch")
 
     exec("RESET ROLE")
     exec(fmt.Sprintf("UPDATE %s.users SET active=false WHERE id=$1",qs),userID)
     exec("SET ROLE "+qr)
-    assertNoAuthRow(t,conn,query,sessionID,userID,"inactive user")
+    assertNoAuthRow(t,conn,countQuery,sessionID,userID,"inactive user")
 
     exec("RESET ROLE")
     var ownerLogin,ownerBypass,runtimeLogin,runtimeBypass,runtimeMember bool
@@ -121,6 +122,8 @@ func TestAuthBootstrapCapabilityPostgres(t *testing.T) {
     if err:=conn.QueryRowContext(context.Background(),"SELECT pg_has_role($1,$2,'MEMBER')",runtime,owner).Scan(&runtimeMember);err!=nil{t.Fatal(err)}
     if ownerLogin||ownerBypass||runtimeLogin||runtimeBypass||runtimeMember{t.Fatalf("unsafe role attributes/membership: owner(login=%t bypass=%t) runtime(login=%t bypass=%t member=%t)",ownerLogin,ownerBypass,runtimeLogin,runtimeBypass,runtimeMember)}
 
+    exec("ALTER TABLE "+qs+".users FORCE ROW LEVEL SECURITY")
+    exec("ALTER TABLE "+qs+".sessions FORCE ROW LEVEL SECURITY")
     var forceUsers,forceSessions,ownerPassword,runtimeTable,runtimeExecute bool
     if err:=conn.QueryRowContext(context.Background(),"SELECT relforcerowsecurity FROM pg_class WHERE oid=$1::regclass",schema+".users").Scan(&forceUsers);err!=nil{t.Fatal(err)}
     if err:=conn.QueryRowContext(context.Background(),"SELECT relforcerowsecurity FROM pg_class WHERE oid=$1::regclass",schema+".sessions").Scan(&forceSessions);err!=nil{t.Fatal(err)}

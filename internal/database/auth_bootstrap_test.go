@@ -136,7 +136,7 @@ func TestAuthBootstrapCapabilityPostgres(t *testing.T) {
         "SELECT qual FROM pg_policies WHERE schemaname=$1 AND tablename='users' AND policyname='auth_bootstrap_function_owner_read'",schema).Scan(&usersPolicy);err!=nil{t.Fatal(err)}
     if err:=conn.QueryRowContext(context.Background(),
         "SELECT qual FROM pg_policies WHERE schemaname=$1 AND tablename='sessions' AND policyname='auth_bootstrap_function_owner_read'",schema).Scan(&sessionsPolicy);err!=nil{t.Fatal(err)}
-    if !strings.Contains(usersPolicy,"current_setting")||!strings.Contains(sessionsPolicy,"current_setting")||strings.Contains(usersPolicy,"true")||strings.Contains(sessionsPolicy,"true"){
+    if !strings.Contains(usersPolicy,"current_setting")||!strings.Contains(sessionsPolicy,"current_setting")||strings.Trim(strings.TrimSpace(strings.ToLower(usersPolicy)),"() ")=="true"||strings.Trim(strings.TrimSpace(strings.ToLower(sessionsPolicy)),"() ")=="true"{
         t.Fatalf("auth owner RLS policies are not lookup-scoped: users=%q sessions=%q",usersPolicy,sessionsPolicy)
     }
     exec("SET ROLE "+qo)

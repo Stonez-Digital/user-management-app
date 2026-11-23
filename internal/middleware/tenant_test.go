@@ -78,3 +78,29 @@ func TestTenantRollbackCleanupDoesNotRunAfterCommit(t *testing.T) {
 	if rec.Code != http.StatusNoContent { t.Fatalf("expected 204, got %d", rec.Code) }
 	if cleanupCalls != 0 { t.Fatalf("cleanup must not run after commit, got %d calls", cleanupCalls) }
 }
+
+
+func TestTenantRollbackCleanupRunsWhenHandlerPanics(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:tenant-panic-cleanup?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil { t.Fatal(err) }
+	schoolID, userID := uuid.New(), uuid.New()
+	cleanupCalls := 0
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(gin.Recovery())
+	r.Use(func(c *gin.Context) {
+		c.Set(UserIDKey, userID.String())
+		c.Set(SchoolIDKey, schoolID.String())
+		c.Next()
+	})
+	r.Use(TenantTransaction(db))
+	r.GET("/panic", func(c *gin.Context) {
+		if err := RegisterTenantRollbackCleanup(c, func() error { cleanupCalls++; return nil }); err != nil { t.Fatal(err) }
+		panic("simulated handler failure after external upload")
+	})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/panic", nil))
+	if rec.Code != http.StatusInternalServerError { t.Fatalf("expected recovered 500, got %d", rec.Code) }
+	if cleanupCalls != 1 { t.Fatalf("expected panic rollback cleanup once, got %d", cleanupCalls) }
+}

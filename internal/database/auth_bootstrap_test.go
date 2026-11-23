@@ -122,6 +122,31 @@ func TestAuthBootstrapCapabilityPostgres(t *testing.T) {
     if err:=conn.QueryRowContext(context.Background(),"SELECT pg_has_role($1,$2,'MEMBER')",runtime,owner).Scan(&runtimeMember);err!=nil{t.Fatal(err)}
     if ownerLogin||ownerBypass||runtimeLogin||runtimeBypass||runtimeMember{t.Fatalf("unsafe role attributes/membership: owner(login=%t bypass=%t) runtime(login=%t bypass=%t member=%t)",ownerLogin,ownerBypass,runtimeLogin,runtimeBypass,runtimeMember)}
 
+    // The function owner is not a table owner and must see no rows when the
+    // function has not installed its transaction-local lookup context.
+    var ownerOwnsUsers, ownerOwnsSessions bool
+    if err:=conn.QueryRowContext(context.Background(),
+        "SELECT c.relowner=(SELECT oid FROM pg_roles WHERE rolname=$1) FROM pg_class c WHERE c.oid=$2::regclass",
+        owner,schema+".users").Scan(&ownerOwnsUsers);err!=nil{t.Fatal(err)}
+    if err:=conn.QueryRowContext(context.Background(),
+        "SELECT c.relowner=(SELECT oid FROM pg_roles WHERE rolname=$1) FROM pg_class c WHERE c.oid=$2::regclass",
+        owner,schema+".sessions").Scan(&ownerOwnsSessions);err!=nil{t.Fatal(err)}
+    if ownerOwnsUsers||ownerOwnsSessions{t.Fatal("auth function owner unexpectedly owns a protected table")}
+    var usersPolicy, sessionsPolicy string
+    if err:=conn.QueryRowContext(context.Background(),
+        "SELECT qual FROM pg_policies WHERE schemaname=$1 AND tablename='users' AND policyname='auth_bootstrap_function_owner_read'",schema).Scan(&usersPolicy);err!=nil{t.Fatal(err)}
+    if err:=conn.QueryRowContext(context.Background(),
+        "SELECT qual FROM pg_policies WHERE schemaname=$1 AND tablename='sessions' AND policyname='auth_bootstrap_function_owner_read'",schema).Scan(&sessionsPolicy);err!=nil{t.Fatal(err)}
+    if !strings.Contains(usersPolicy,"current_setting")||!strings.Contains(sessionsPolicy,"current_setting")||strings.Contains(usersPolicy,"true")||strings.Contains(sessionsPolicy,"true"){
+        t.Fatalf("auth owner RLS policies are not lookup-scoped: users=%q sessions=%q",usersPolicy,sessionsPolicy)
+    }
+    exec("SET ROLE "+qo)
+    var ownerVisibleUsers, ownerVisibleSessions int
+    if err:=conn.QueryRowContext(context.Background(),"SELECT count(id) FROM "+qs+".users").Scan(&ownerVisibleUsers);err!=nil{t.Fatal(err)}
+    if err:=conn.QueryRowContext(context.Background(),"SELECT count(id) FROM "+qs+".sessions").Scan(&ownerVisibleSessions);err!=nil{t.Fatal(err)}
+    if ownerVisibleUsers!=0||ownerVisibleSessions!=0{t.Fatalf("function owner sees rows without lookup context: users=%d sessions=%d",ownerVisibleUsers,ownerVisibleSessions)}
+    exec("RESET ROLE")
+
     exec("UPDATE "+qs+".users SET active=true WHERE id=$1",userID)
     exec("ALTER TABLE "+qs+".users FORCE ROW LEVEL SECURITY")
     exec("ALTER TABLE "+qs+".sessions FORCE ROW LEVEL SECURITY")
@@ -147,3 +172,39 @@ func assertNoAuthRow(t *testing.T, conn *sql.Conn, query string, sessionID,userI
 }
 
 func quoteIdentifier(value string) string { return "\"" + value + "\"" }
+
+
+// splitSQLStatements separates SQL commands without splitting semicolons inside
+// dollar-quoted function bodies.
+func splitSQLStatements(script string) []string {
+    var statements []string
+    start := 0
+    var dollarTag string
+    for i := 0; i < len(script); {
+        if dollarTag == "" && script[i] == '$' {
+            end := strings.IndexByte(script[i+1:], '$')
+            if end >= 0 {
+                tag := script[i : i+end+2]
+                if strings.Trim(tag[1:len(tag)-1], "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") == "" {
+                    dollarTag = tag
+                    i += len(tag)
+                    continue
+                }
+            }
+        }
+        if dollarTag != "" && strings.HasPrefix(script[i:], dollarTag) {
+            i += len(dollarTag)
+            dollarTag = ""
+            continue
+        }
+        if dollarTag == "" && script[i] == ';' {
+            statements = append(statements, script[start:i])
+            start = i + 1
+        }
+        i++
+    }
+    if tail := strings.TrimSpace(script[start:]); tail != "" {
+        statements = append(statements, tail)
+    }
+    return statements
+}

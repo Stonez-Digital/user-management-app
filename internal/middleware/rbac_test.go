@@ -9,6 +9,7 @@ import (
     "github.com/gin-gonic/gin"
     "github.com/google/uuid"
     "github.com/onoja217/users-management-app/internal/auth"
+	"github.com/onoja217/users-management-app/internal/database"
     "github.com/onoja217/users-management-app/internal/authz"
     "github.com/onoja217/users-management-app/internal/models"
     "gorm.io/driver/sqlite"
@@ -34,7 +35,7 @@ func TestAuthMiddlewareUsesCurrentDatabaseRole(t *testing.T) {
 
     gin.SetMode(gin.TestMode)
     r := gin.New()
-    r.Use(AuthMiddleware(db), RequirePermission(authz.PermissionUsersRead))
+    r.Use(AuthMiddleware(database.NewLegacyAuthBootstrapStore(db)), RequirePermission(authz.PermissionUsersRead))
     r.GET("/admin/users", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 
     req := httptest.NewRequest(http.MethodGet, "/admin/users", nil)

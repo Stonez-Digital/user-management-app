@@ -15,6 +15,7 @@ CREATE POLICY auth_bootstrap_function_owner_read ON public.sessions
 -- Restrictive guard intersects with every permissive policy that may also
 -- apply to the function owner, preventing an existing broad policy from
 -- widening this capability beyond the requested session/user pair.
+DROP POLICY IF EXISTS auth_bootstrap_function_owner_scope_guard ON public.sessions;
 CREATE POLICY auth_bootstrap_function_owner_scope_guard ON public.sessions
     AS RESTRICTIVE
     FOR SELECT TO stonez_auth_function_owner
@@ -31,6 +32,7 @@ CREATE POLICY auth_bootstrap_function_owner_read ON public.users
         id = nullif(pg_catalog.current_setting('app.auth_user_id', true), '')::uuid
     );
 
+DROP POLICY IF EXISTS auth_bootstrap_function_owner_scope_guard ON public.users;
 CREATE POLICY auth_bootstrap_function_owner_scope_guard ON public.users
     AS RESTRICTIVE
     FOR SELECT TO stonez_auth_function_owner

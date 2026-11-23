@@ -116,6 +116,14 @@ The Go migration catalog currently contains **zero** `pg_policies` entries for i
 
 Migration 32 specifically protects school public-content tables by enabling RLS and revoking `PUBLIC`, `anon`, and `authenticated` privileges; it does not create a tenant policy. Migration 46 separately revokes broad Data API privileges from its application-table inventory, but does not create a restricted API role or grant its least-privilege DML.
 
+### Production-documented posture is a separate evidence source
+
+The existing `docs/SECURITY-RLS-ROLLOUT.md` reports that the deployed production catalog had RLS enabled on all 45 public application tables, RLS was not forced, and the existing `deny_client_access` policies applied only to Supabase `anon` and `authenticated`. That is a reported production-catalog snapshot, not something this disposable Go-migration test can independently verify.
+
+The clean automatic Go migration schema has 42 tables and enables RLS on 15 of them, with zero policies. Three subscription tables are absent because their SQL files are explicitly review-only and not registered in the Go runner. The different counts/postures must be treated as **migration/provisioning drift to reconcile**, not as proof that either source is wrong. Possible causes include separately applied Supabase/dashboard DDL, the separately managed subscription SQL, or stale rollout documentation.
+
+Before policy cutover, capture a read-only catalog export from the approved staging environment (and reconcile with the latest production evidence through the established review process): all application tables, owners, RLS flags, `pg_policies` definitions, role memberships, schema/table/sequence privileges, and grants. Compare that export against both the automatic Go migration baseline and separately managed SQL/Supabase migration sources. Do not connect this test to production or attempt to repair the difference with production DDL.
+
 ## Migration-parity assertions
 
 The disposable PostgreSQL suite must apply the real `database.Migrate` implementation and inspect catalogs. It must not create replacement policies in test setup.

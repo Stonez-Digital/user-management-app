@@ -24,7 +24,7 @@ func TestAuthMiddlewareRejectsRevokedSessionAccessToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.User{}, &models.Session{}); err != nil {
+	if err := db.AutoMigrate(&models.School{}, &models.User{}, &models.Session{}); err != nil {
 		t.Fatal(err)
 	}
 	user := models.User{ID: uuid.New(), Name: "Session Test", Email: "session-test@example.com", Role: "student", Active: true}
@@ -40,7 +40,7 @@ func TestAuthMiddlewareRejectsRevokedSessionAccessToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	router := gin.New()
-	router.GET("/protected", AuthMiddleware(database.NewLegacyAuthBootstrapStore(db)), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.GET("/protected", AuthMiddleware(database.NewLegacyAuthBootstrapStore(db)), func(c *gin.Context) { schoolID, ok := SchoolIDFromContext(c); if !ok || schoolID != school.ID || c.GetString(RoleKey) != "student" || c.GetString(UserIDKey) != user.ID.String() { c.Status(http.StatusInternalServerError); return }; c.Status(http.StatusNoContent) })
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
@@ -62,7 +62,9 @@ func TestAuthMiddlewareAcceptsActiveSessionAccessToken(t *testing.T) {
 	if err := db.AutoMigrate(&models.User{}, &models.Session{}); err != nil {
 		t.Fatal(err)
 	}
-	user := models.User{ID: uuid.New(), Name: "Active Session Test", Email: "active-session-test@example.com", Role: "student", Active: true}
+	school := models.School{Name: "Active Session School", Code: "AUTH-SESSION-TEST"}
+	if err := db.Create(&school).Error; err != nil { t.Fatal(err) }
+	user := models.User{ID: uuid.New(), Name: "Active Session Test", Email: "active-session-test@example.com", Role: "student", Active: true, SchoolID: &school.ID}
 	if err := db.Create(&user).Error; err != nil {
 		t.Fatal(err)
 	}

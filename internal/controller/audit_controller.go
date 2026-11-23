@@ -14,6 +14,11 @@ type AuditController struct { DB *gorm.DB }
 func NewAuditController(db *gorm.DB) *AuditController { return &AuditController{DB: db} }
 
 func (ac *AuditController) List(c *gin.Context) {
+    tx, txOK := middleware.TenantDBFromContext(c)
+    if !txOK {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "tenant_transaction_required"})
+        return
+    }
     schoolID, ok := middleware.SchoolIDFromContext(c)
     if !ok {
         c.JSON(http.StatusForbidden, gin.H{"error": "school context required"})
@@ -21,7 +26,7 @@ func (ac *AuditController) List(c *gin.Context) {
     }
     limit := 50
     var logs []models.AuditLog
-    if err := ac.DB.Where("school_id = ?", schoolID).Order("created_at DESC").Limit(limit).Find(&logs).Error; err != nil {
+    if err := tx.Where("school_id = ?", schoolID).Order("created_at DESC").Limit(limit).Find(&logs).Error; err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load audit logs"})
         return
     }

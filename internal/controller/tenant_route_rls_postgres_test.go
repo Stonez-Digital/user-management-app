@@ -63,30 +63,20 @@ func TestSchoolContentRoutesEnforceTwoSchoolRLS(t *testing.T) {
 		_ = admin.Exec(fmt.Sprintf("DROP ROLE IF EXISTS \"%s\"", role)).Error
 	})
 
-	createTable := fmt.Sprintf(`CREATE TABLE %s (
-		id uuid PRIMARY KEY,
-		school_id uuid NOT NULL,
-		author_id uuid NOT NULL,
-		category_id uuid NULL,
-		title varchar(240) NOT NULL,
-		slug varchar(240) NOT NULL,
-		excerpt varchar(500) NOT NULL DEFAULT '',
-		content text NOT NULL,
-		featured_image_url varchar(1200) NOT NULL DEFAULT '',
-		status varchar(20) NOT NULL,
-		featured boolean NOT NULL DEFAULT false,
-		published_at timestamptz NULL,
-		created_at timestamptz NOT NULL DEFAULT now(),
-		updated_at timestamptz NOT NULL DEFAULT now()
-	)`, table)
-	if err := admin.Exec(createTable).Error; err != nil {
-		t.Fatalf("create isolated blog_posts table: %v", err)
+	// Build the table from the production GORM model rather than a hand-written
+	// approximation, so selected columns, nullability, defaults and indexes track
+	// the model used by SchoolContentService.
+	if err := admin.Exec(fmt.Sprintf("SET search_path TO \"%s\", public", schema)).Error; err != nil {
+		t.Fatalf("set isolated schema search path: %v", err)
 	}
-	if err := admin.Exec(fmt.Sprintf("INSERT INTO %s (id, school_id, author_id, title, slug, content, status) VALUES (?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?)", table),
-		uuid.New(), schoolA, userID, "School A post", "school-a-post", "A content", models.ContentPublished,
-		uuid.New(), schoolB, uuid.New(), "School B post", "school-b-post", "B content", models.ContentPublished,
-	).Error; err != nil {
-		t.Fatalf("seed isolated blog posts: %v", err)
+	if err := admin.AutoMigrate(&models.BlogPost{}); err != nil {
+		t.Fatalf("auto-migrate production BlogPost model: %v", err)
+	}
+	if err := admin.Create(&models.BlogPost{ID: uuid.New(), SchoolID: schoolA, AuthorID: userID, Title: "School A post", Slug: "school-a-post", Content: "A content", Status: models.ContentPublished}).Error; err != nil {
+		t.Fatalf("seed School A blog post: %v", err)
+	}
+	if err := admin.Create(&models.BlogPost{ID: uuid.New(), SchoolID: schoolB, AuthorID: uuid.New(), Title: "School B post", Slug: "school-b-post", Content: "B content", Status: models.ContentPublished}).Error; err != nil {
+		t.Fatalf("seed School B blog post: %v", err)
 	}
 	if err := admin.Exec(fmt.Sprintf("ALTER TABLE %s ENABLE ROW LEVEL SECURITY", table)).Error; err != nil {
 		t.Fatal(err)

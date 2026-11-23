@@ -56,6 +56,63 @@ func ConnectAuthBootstrap() (*gorm.DB, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("verify auth bootstrap capability: %w", err)
 	}
+	roleStatus, err := InspectPostgresRole(db)
+	if err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("inspect auth bootstrap database role: %w", err)
+	}
+	if err := ValidatePostgresRoleSecurity(roleStatus, true); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("auth bootstrap database role is not restricted: %w", err)
+	}
+
+	var privileges struct {
+		SchemaUsage bool `gorm:"column:schema_usage"`
+		FunctionExecute bool `gorm:"column:function_execute"`
+		ProtectedTablePrivileges bool `gorm:"column:protected_table_privileges"`
+		FunctionOwnerMembership bool `gorm:"column:function_owner_membership"`
+	}
+	if err := db.WithContext(ctx).Raw(`
+		SELECT
+			has_schema_privilege(session_user, 'public', 'USAGE') AS schema_usage,
+			has_function_privilege(session_user, 'public.authenticate_access_session(uuid,uuid)', 'EXECUTE') AS function_execute,
+			EXISTS (
+				SELECT 1
+				FROM pg_class AS c
+				JOIN pg_namespace AS n ON n.oid = c.relnamespace
+				WHERE n.nspname = 'public'
+				  AND c.relname IN ('users', 'sessions')
+				  AND (
+					has_table_privilege(session_user, c.oid, 'SELECT')
+					OR has_table_privilege(session_user, c.oid, 'INSERT')
+					OR has_table_privilege(session_user, c.oid, 'UPDATE')
+					OR has_table_privilege(session_user, c.oid, 'DELETE')
+					OR has_table_privilege(session_user, c.oid, 'TRUNCATE')
+					OR EXISTS (
+						SELECT 1
+						FROM pg_attribute AS a
+						WHERE a.attrelid = c.oid
+						  AND a.attnum > 0
+						  AND NOT a.attisdropped
+						  AND (
+							has_column_privilege(session_user, c.oid, a.attnum, 'SELECT')
+							OR has_column_privilege(session_user, c.oid, a.attnum, 'INSERT')
+							OR has_column_privilege(session_user, c.oid, a.attnum, 'UPDATE')
+							OR has_column_privilege(session_user, c.oid, a.attnum, 'REFERENCES')
+						  )
+					)
+				  )
+			) AS protected_table_privileges,
+			pg_has_role(session_user, 'stonez_auth_function_owner', 'MEMBER') AS function_owner_membership
+	`).Scan(&privileges).Error; err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("verify auth bootstrap grants: %w", err)
+	}
+	if !privileges.SchemaUsage || !privileges.FunctionExecute || privileges.ProtectedTablePrivileges || privileges.FunctionOwnerMembership {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("auth bootstrap role grants are not least-privilege (schema_usage=%t function_execute=%t protected_table_privileges=%t function_owner_membership=%t)",
+			privileges.SchemaUsage, privileges.FunctionExecute, privileges.ProtectedTablePrivileges, privileges.FunctionOwnerMembership)
+	}
 	return db, nil
 }
 
@@ -107,7 +164,7 @@ func NewLegacyAuthBootstrapStore(db *gorm.DB) *LegacyAuthBootstrapStore {
 }
 
 func (s *LegacyAuthBootstrapStore) AuthenticateAccessSession(ctx context.Context, sessionID, userID uuid.UUID) (authbootstrap.Identity, error) {
-	if s == nil || s.db == nil || s.db.Dialector.Name() == "postgres" {
+	if s == nil || s.db == nil || s.db.Dialector.Name() != "sqlite" {
 		return authbootstrap.Identity{}, fmt.Errorf("legacy auth bootstrap is available only for non-PostgreSQL development")
 	}
 	var session models.Session

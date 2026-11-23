@@ -60,6 +60,11 @@ func TestPostgresTenantTransactionEnforcesRLSAndResetsPooledContext(t *testing.T
 	if err := admin.Exec(policy).Error; err != nil { t.Fatal(err) }
 	if err := admin.Exec(fmt.Sprintf("GRANT USAGE ON SCHEMA \"%s\" TO \"%s\"", schema, role)).Error; err != nil { t.Fatal(err) }
 	if err := admin.Exec(fmt.Sprintf("GRANT SELECT, INSERT, UPDATE, DELETE ON %s TO \"%s\"", table, role)).Error; err != nil { t.Fatal(err) }
+	commitParent := fmt.Sprintf("\"%s\".commit_parent", schema)
+	commitChild := fmt.Sprintf("\"%s\".commit_child", schema)
+	if err := admin.Exec(fmt.Sprintf("CREATE TABLE %s (id uuid PRIMARY KEY)", commitParent)).Error; err != nil { t.Fatal(err) }
+	if err := admin.Exec(fmt.Sprintf("CREATE TABLE %s (parent_id uuid NOT NULL REFERENCES %s(id) DEFERRABLE INITIALLY DEFERRED)", commitChild, commitParent)).Error; err != nil { t.Fatal(err) }
+	if err := admin.Exec(fmt.Sprintf("GRANT INSERT ON %s TO \"%s\"", commitChild, role)).Error; err != nil { t.Fatal(err) }
 
 	parsed, err := url.Parse(rawDSN)
 	if err != nil || parsed.Scheme == "" { t.Fatalf("TEST_DATABASE_URL must be a PostgreSQL URL: %v", err) }
@@ -159,4 +164,39 @@ func TestPostgresTenantTransactionEnforcesRLSAndResetsPooledContext(t *testing.T
 	if noContextInsert.Error == nil {
 		t.Fatal("expected INSERT without tenant context to be rejected by RLS")
 	}
+
+	// A deferred constraint can fail only after the handler has returned 2xx,
+	// during COMMIT. External uploads must still be compensated in that case.
+	cleanupCalls := 0
+	commitRouter := gin.New()
+	commitRouter.Use(func(c *gin.Context) {
+		c.Set(UserIDKey, userID.String())
+		c.Set(SchoolIDKey, schoolA.String())
+		c.Next()
+	})
+	commitRouter.Use(TenantTransaction(restricted))
+	commitRouter.POST("/commit-failure", func(c *gin.Context) {
+		if err := RegisterTenantRollbackCleanup(c, func() error { cleanupCalls++; return nil }); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "cleanup registration failed"})
+			return
+		}
+		tx, ok := TenantDBFromContext(c)
+		if !ok { c.JSON(http.StatusInternalServerError, gin.H{"error": "tenant transaction missing"}); return }
+		if err := tx.Exec(fmt.Sprintf("INSERT INTO %s (parent_id) VALUES (?)", commitChild), uuid.New()).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "insert failed"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"accepted": true})
+	})
+	commitRecorder := httptest.NewRecorder()
+	commitRouter.ServeHTTP(commitRecorder, httptest.NewRequest(http.MethodPost, "/commit-failure", nil))
+	if commitRecorder.Code != http.StatusInternalServerError {
+		t.Fatalf("deferred commit failure must become 500, got %d: %s", commitRecorder.Code, commitRecorder.Body.String())
+	}
+	if cleanupCalls != 1 {
+		t.Fatalf("expected external-resource cleanup after commit failure, got %d calls", cleanupCalls)
+	}
+	var orphanRows int64
+	if err := admin.Table(commitChild).Count(&orphanRows).Error; err != nil { t.Fatal(err) }
+	if orphanRows != 0 { t.Fatalf("failed transaction must not persist deferred child row; got %d", orphanRows) }
 }

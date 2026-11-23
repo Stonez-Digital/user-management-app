@@ -28,4 +28,4 @@ This PR deliberately does not wire the function into AuthMiddleware or RequireSc
 
 ## Verification
 
-TestAuthBootstrapCapabilityPostgres requires TEST_DATABASE_URL pointing to local disposable PostgreSQL. It creates an isolated schema and uniquely named roles, executes the SQL capability there, and verifies valid/invalid sessions, current role/school changes, denial of underlying table and sensitive-column access, restricted owner column privileges, resistance to deliberately broad permissive policies, restrictive scope guards, forced RLS, role attributes/membership, and search_path resistance.
+TestAuthBootstrapCapabilityPostgres requires TEST_DATABASE_URL pointing to local disposable PostgreSQL. It creates an isolated schema and uniquely named roles, executes the SQL capability there, and verifies re-applicable SQL, valid/invalid sessions, current role/school changes, denial of underlying table and sensitive-column access, restricted owner column privileges, resistance to deliberately broad permissive policies, restrictive scope guards, forced RLS, role attributes/membership, and search_path resistance.

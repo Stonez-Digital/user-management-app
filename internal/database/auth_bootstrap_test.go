@@ -65,9 +65,8 @@ func TestAuthBootstrapCapabilityPostgres(t *testing.T) {
     script = strings.ReplaceAll(script, "stonez_auth_function_owner", owner)
     script = strings.ReplaceAll(script, "stonez_auth_runtime", runtime)
     script = strings.ReplaceAll(script, "public", schema)
-    // Statements are separated by semicolon/newline; the function body contains
-    // no internal semicolon, so each command is executed independently.
-    for _, statement := range strings.Split(script, ";\n") {
+    // Split only on SQL statement terminators outside dollar-quoted bodies.
+    for _, statement := range splitSQLStatements(script) {
         statement = strings.TrimSpace(statement)
         if statement == "" || strings.HasPrefix(statement, "--") { continue }
         exec(statement)

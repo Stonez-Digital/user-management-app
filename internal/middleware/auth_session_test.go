@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,6 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/onoja217/users-management-app/internal/auth"
+	"github.com/onoja217/users-management-app/internal/authbootstrap"
+	"github.com/onoja217/users-management-app/internal/database"
 	"github.com/onoja217/users-management-app/internal/models"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -23,7 +27,7 @@ func TestAuthMiddlewareRejectsRevokedSessionAccessToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.User{}, &models.Session{}); err != nil {
+	if err := db.AutoMigrate(&models.School{}, &models.User{}, &models.Session{}); err != nil {
 		t.Fatal(err)
 	}
 	user := models.User{ID: uuid.New(), Name: "Session Test", Email: "session-test@example.com", Role: "student", Active: true}
@@ -39,7 +43,7 @@ func TestAuthMiddlewareRejectsRevokedSessionAccessToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	router := gin.New()
-	router.GET("/protected", AuthMiddleware(db), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.GET("/protected", AuthMiddleware(database.NewLegacyAuthBootstrapStore(db)), func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
@@ -58,10 +62,12 @@ func TestAuthMiddlewareAcceptsActiveSessionAccessToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.User{}, &models.Session{}); err != nil {
+	if err := db.AutoMigrate(&models.School{}, &models.User{}, &models.Session{}); err != nil {
 		t.Fatal(err)
 	}
-	user := models.User{ID: uuid.New(), Name: "Active Session Test", Email: "active-session-test@example.com", Role: "student", Active: true}
+	school := models.School{Name: "Active Session School", Code: "AUTH-SESSION-TEST"}
+	if err := db.Create(&school).Error; err != nil { t.Fatal(err) }
+	user := models.User{ID: uuid.New(), Name: "Active Session Test", Email: "active-session-test@example.com", Role: "student", Active: true, SchoolID: &school.ID}
 	if err := db.Create(&user).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -73,13 +79,54 @@ func TestAuthMiddlewareAcceptsActiveSessionAccessToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A role change after token issuance must be reflected immediately.
+	if err := db.Model(&models.User{}).Where("id = ?", user.ID).Update("role", "teacher").Error; err != nil {
+		t.Fatal(err)
+	}
 	router := gin.New()
-	router.GET("/protected", AuthMiddleware(db), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.GET("/protected", AuthMiddleware(database.NewLegacyAuthBootstrapStore(db)), func(c *gin.Context) {
+		schoolID, ok := SchoolIDFromContext(c)
+		if !ok || schoolID != school.ID || c.GetString(RoleKey) != "teacher" || c.GetString(UserIDKey) != user.ID.String() {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		c.Status(http.StatusNoContent)
+	})
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected active session token to pass, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+
+type unavailableAuthBootstrapStore struct{}
+
+func (unavailableAuthBootstrapStore) AuthenticateAccessSession(_ context.Context, _, _ uuid.UUID) (authbootstrap.Identity, error) {
+	return authbootstrap.Identity{}, errors.New("database unavailable")
+}
+
+func TestAuthMiddlewareFailsClosedWhenBootstrapStoreUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	if err := auth.ConfigureSecret("test-auth-secret-for-middleware-tests-32chars"); err != nil {
+		t.Fatal(err)
+	}
+	userID, sessionID := uuid.New(), uuid.New()
+	token, err := auth.GenerateTokenForSession(userID.String(), "student", sessionID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := gin.New()
+	router.GET("/protected", AuthMiddleware(unavailableAuthBootstrapStore{}), func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected unavailable bootstrap store to return 503, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

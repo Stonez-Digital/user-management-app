@@ -122,7 +122,7 @@ func ConnectAuthBootstrap() (*gorm.DB, error) {
 	if !privileges.SchemaUsage || privileges.SchemaCreate || !privileges.FunctionExecute || privileges.ProtectedRelationPrivileges || privileges.FunctionOwnerMembership {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("auth bootstrap role grants are not least-privilege (schema_usage=%t schema_create=%t function_execute=%t protected_relation_privileges=%t function_owner_membership=%t)",
-			privileges.SchemaUsage, privileges.SchemaCreate, privileges.FunctionExecute, privileges.ProtectedTablePrivileges, privileges.FunctionOwnerMembership)
+			privileges.SchemaUsage, privileges.SchemaCreate, privileges.FunctionExecute, privileges.ProtectedRelationPrivileges, privileges.FunctionOwnerMembership)
 	}
 	return db, nil
 }

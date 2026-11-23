@@ -20,7 +20,7 @@ The runtime role receives schema USAGE and EXECUTE on one function. It receives 
 
 The function authenticate_access_session(session_id,user_id) checks the exact session/user pair, revocation, expiry, and current user active status. It returns no row for invalid sessions or inactive users. Role and school are read from the current user row on every invocation.
 
-The function is SECURITY DEFINER, has a fixed search_path, and uses schema-qualified relation names. Its owner receives only column-level SELECT on the four session columns and four user columns required by the lookup. The function-owner role is explicitly allowed by narrow SELECT policies on users and sessions; both tables use ENABLE and FORCE ROW LEVEL SECURITY. The function owner is not a table owner and does not have BYPASSRLS.
+The function is SECURITY DEFINER, has a fixed search_path, and uses schema-qualified relation names. Its owner receives only column-level SELECT on the four session columns and four user columns required by the lookup. The function-owner role is explicitly allowed by narrow SELECT policies on users and sessions; both tables use ENABLE ROW LEVEL SECURITY. The disposable test additionally applies FORCE ROW LEVEL SECURITY and verifies the function still works, proving compatibility with a later reviewed FORCE RLS cutover. The function owner is not a table owner and does not have BYPASSRLS.
 
 ## Staging boundary
 

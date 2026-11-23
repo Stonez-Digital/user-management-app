@@ -17,6 +17,45 @@ const (
 
 var errTenantRequestRollback = errors.New("tenant request returned an error status")
 
+const tenantRollbackCleanupKey = "tenant_rollback_cleanup"
+
+// RegisterTenantRollbackCleanup schedules best-effort external-resource cleanup
+// when the surrounding tenant transaction rolls back, including commit failures.
+func RegisterTenantRollbackCleanup(c *gin.Context, cleanup func() error) error {
+	if cleanup == nil {
+		return errors.New("tenant rollback cleanup is required")
+	}
+	raw, exists := c.Get(tenantRollbackCleanupKey)
+	var cleanups []func() error
+	if exists {
+		var ok bool
+		cleanups, ok = raw.([]func() error)
+		if !ok {
+			return errors.New("invalid tenant rollback cleanup state")
+		}
+	}
+	cleanups = append(cleanups, cleanup)
+	c.Set(tenantRollbackCleanupKey, cleanups)
+	return nil
+}
+
+func runTenantRollbackCleanups(c *gin.Context) {
+	raw, exists := c.Get(tenantRollbackCleanupKey)
+	if !exists {
+		return
+	}
+	cleanups, ok := raw.([]func() error)
+	if !ok {
+		c.Error(errors.New("invalid tenant rollback cleanup state"))
+		return
+	}
+	for i := len(cleanups) - 1; i >= 0; i-- {
+		if err := cleanups[i](); err != nil {
+			c.Error(err)
+		}
+	}
+}
+
 // RequireSchoolContext derives the tenant from the authenticated database user.
 // It never trusts a school ID supplied by the client.
 func RequireSchoolContext(db *gorm.DB) gin.HandlerFunc {
@@ -78,10 +117,18 @@ func TenantTransaction(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		c.Set(tenantRollbackCleanupKey, []func() error{})
 		originalWriter := c.Writer
 		bufferedWriter := newTenantResponseWriter(originalWriter)
 		c.Writer = bufferedWriter
 		defer func() {
+			if recovered := recover(); recovered != nil {
+				c.Writer = originalWriter
+				c.Set(TenantDBKey, nil)
+				runTenantRollbackCleanups(c)
+				c.Set(tenantRollbackCleanupKey, nil)
+				panic(recovered)
+			}
 			c.Writer = originalWriter
 			c.Set(TenantDBKey, nil)
 		}()
@@ -109,6 +156,10 @@ func TenantTransaction(db *gorm.DB) gin.HandlerFunc {
 
 		c.Writer = originalWriter
 		c.Set(TenantDBKey, nil)
+		if err != nil {
+			runTenantRollbackCleanups(c)
+		}
+		c.Set(tenantRollbackCleanupKey, nil)
 		switch {
 		case errors.Is(err, errTenantRequestRollback):
 			bufferedWriter.flushTo(originalWriter)

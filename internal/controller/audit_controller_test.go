@@ -36,7 +36,11 @@ func TestAuditListIsSchoolScoped(t *testing.T) {
 
     gin.SetMode(gin.TestMode)
     r := gin.New()
+    tx := db.Begin()
+    if tx.Error != nil { t.Fatal(tx.Error) }
+    defer tx.Rollback()
     r.Use(func(c *gin.Context) {
+        c.Set(middleware.TenantDBKey, tx)
         c.Set(middleware.SchoolIDKey, schoolA.ID.String())
         c.Next()
     })

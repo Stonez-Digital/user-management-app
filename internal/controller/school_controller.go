@@ -125,8 +125,15 @@ func (ctrl *SchoolController) UploadLogo(c *gin.Context) {
         return
     }
 
+    if cleanupErr := middleware.RegisterTenantRollbackCleanup(c, func() error {
+        return ctrl.logoStorage.Delete(schoolID, logoURL)
+    }); cleanupErr != nil {
+        _ = ctrl.logoStorage.Delete(schoolID, logoURL)
+        httpx.Error(c, http.StatusInternalServerError, "school_logo_cleanup_registration_failed", "could not register logo rollback cleanup")
+        return
+    }
+
     if err := scopedService.UpdateSchoolLogo(schoolID, logoURL); err != nil {
-        _ = ctrl.logoStorage.Delete(schoolID, logoURL) // Best-effort cleanup of the unreferenced upload.
         if errors.Is(err, service.ErrInvalidSchoolLogo) {
             httpx.Error(c, http.StatusBadRequest, "school_logo_invalid", "school logo URL is invalid")
             return

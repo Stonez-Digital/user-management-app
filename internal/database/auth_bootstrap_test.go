@@ -122,6 +122,7 @@ func TestAuthBootstrapCapabilityPostgres(t *testing.T) {
     if err:=conn.QueryRowContext(context.Background(),"SELECT pg_has_role($1,$2,'MEMBER')",runtime,owner).Scan(&runtimeMember);err!=nil{t.Fatal(err)}
     if ownerLogin||ownerBypass||runtimeLogin||runtimeBypass||runtimeMember{t.Fatalf("unsafe role attributes/membership: owner(login=%t bypass=%t) runtime(login=%t bypass=%t member=%t)",ownerLogin,ownerBypass,runtimeLogin,runtimeBypass,runtimeMember)}
 
+    exec("UPDATE "+qs+".users SET active=true WHERE id=$1",userID)
     exec("ALTER TABLE "+qs+".users FORCE ROW LEVEL SECURITY")
     exec("ALTER TABLE "+qs+".sessions FORCE ROW LEVEL SECURITY")
     var forceUsers,forceSessions,ownerPassword,runtimeTable,runtimeExecute bool
@@ -132,7 +133,6 @@ func TestAuthBootstrapCapabilityPostgres(t *testing.T) {
     if err:=conn.QueryRowContext(context.Background(),"SELECT has_function_privilege($1,$2,'EXECUTE')",runtime,schema+".authenticate_access_session(uuid,uuid)").Scan(&runtimeExecute);err!=nil{t.Fatal(err)}
     if !forceUsers||!forceSessions||ownerPassword||runtimeTable||!runtimeExecute{t.Fatalf("RLS/privilege invariant failed: force_users=%t force_sessions=%t owner_password=%t runtime_table=%t runtime_execute=%t",forceUsers,forceSessions,ownerPassword,runtimeTable,runtimeExecute)}
 
-    exec("UPDATE "+qs+".users SET active=true WHERE id=$1",userID)
     exec("SET ROLE "+qr)
     exec("SET search_path=pg_catalog")
     if err:=conn.QueryRowContext(context.Background(),query,sessionID,userID).Scan(&gotUser,&gotRole,&gotSchool);err!=nil{t.Fatalf("fixed search_path failed under caller search_path: %v",err)}

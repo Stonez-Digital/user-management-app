@@ -183,6 +183,14 @@ func TestAuthBootstrapCapabilityPostgres(t *testing.T) {
     exec("SET search_path=pg_catalog")
     if err:=conn.QueryRowContext(context.Background(),query,sessionID,userID).Scan(&gotUser,&gotRole,&gotSchool);err!=nil{t.Fatalf("fixed search_path failed under caller search_path: %v",err)}
     if gotUser!=userID||gotRole!="teacher"||gotSchool!=newSchool{t.Fatal("caller search_path changed bootstrap result")}
+
+    // Re-run the Go adapter after FORCE ROW LEVEL SECURITY is enabled on both
+    // protected tables, proving the real runtime call path survives forced RLS.
+    identity, err = adapter.AuthenticateAccessSession(context.Background(), sessionID, userID)
+    if err != nil { t.Fatalf("Go adapter failed under FORCE ROW LEVEL SECURITY: %v", err) }
+    if identity.UserID != userID || identity.Role != "teacher" || identity.SchoolID == nil || *identity.SchoolID != newSchool {
+        t.Fatalf("Go adapter returned unexpected forced-RLS identity: user=%s role=%q school=%v", identity.UserID, identity.Role, identity.SchoolID)
+    }
 }
 
 func assertNoAuthRow(t *testing.T, conn *sql.Conn, query string, sessionID,userID uuid.UUID,label string) {

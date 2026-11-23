@@ -24,7 +24,7 @@ The credential should:
 - be NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE, and NOREPLICATION;
 - not be a member of the function-owner or migration-owner role.
 
-The application opens a separate bounded connection pool, pings it, and executes a zero-UUID lookup at startup to verify the function is callable. It also verifies the connected role is non-superuser and NOBYPASSRLS, has no privileged-role membership, has schema USAGE but not CREATE, can execute the capability, has no direct privileges on application tables, views, or sequences in non-system schemas, and is not a member of the function-owner role. The probe is read-only and is expected to return no row. Startup fails closed if any invariant is not met.
+The application opens a separate bounded connection pool, pings it, and executes a zero-UUID lookup at startup to verify the function is callable. It also verifies the connected role is non-superuser and NOBYPASSRLS, has no privileged-role membership, has schema USAGE but not CREATE, can execute the capability, has no direct privileges on the reviewed application relations in the public schema, including tables, views, and sequences, and is not a member of the function-owner role. The probe is read-only and is expected to return no row. Startup fails closed if any invariant is not met.
 
 Local non-PostgreSQL development retains a legacy GORM adapter. That adapter explicitly refuses PostgreSQL connections and cannot be used as a production fallback.
 

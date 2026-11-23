@@ -146,4 +146,4 @@ func assertNoAuthRow(t *testing.T, conn *sql.Conn, query string, sessionID,userI
     if count!=0{t.Fatalf("%s: expected no auth row, got %d",label,count)}
 }
 
-func quoteIdentifier(value string) string { return "\"" + strings.ReplaceAll(value,"\"","\\"") + "\"" }
+func quoteIdentifier(value string) string { return "\"" + value + "\"" }

@@ -122,6 +122,13 @@ func TenantTransaction(db *gorm.DB) gin.HandlerFunc {
 		bufferedWriter := newTenantResponseWriter(originalWriter)
 		c.Writer = bufferedWriter
 		defer func() {
+			if recovered := recover(); recovered != nil {
+				c.Writer = originalWriter
+				c.Set(TenantDBKey, nil)
+				runTenantRollbackCleanups(c)
+				c.Set(tenantRollbackCleanupKey, nil)
+				panic(recovered)
+			}
 			c.Writer = originalWriter
 			c.Set(TenantDBKey, nil)
 		}()

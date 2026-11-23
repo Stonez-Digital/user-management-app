@@ -12,9 +12,6 @@ CREATE POLICY auth_bootstrap_function_owner_read ON public.sessions
         AND user_id = nullif(pg_catalog.current_setting('app.auth_user_id', true), '')::uuid
     );
 
--- Restrictive guard intersects with every permissive policy that may also
--- apply to the function owner, preventing an existing broad policy from
--- widening this capability beyond the requested session/user pair.
 DROP POLICY IF EXISTS auth_bootstrap_function_owner_scope_guard ON public.sessions;
 CREATE POLICY auth_bootstrap_function_owner_scope_guard ON public.sessions
     AS RESTRICTIVE

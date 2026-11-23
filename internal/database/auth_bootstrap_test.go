@@ -80,7 +80,7 @@ func TestAuthBootstrapCapabilityPostgres(t *testing.T) {
     exec("SET ROLE "+qr)
     var gotUser, gotSchool uuid.UUID
     var gotRole string
-    query := fmt.Sprintf("SELECT user_id,current_role,school_id FROM %s.authenticate_access_session($1,$2)", qs)
+    query := fmt.Sprintf("SELECT user_id,user_role,school_id FROM %s.authenticate_access_session($1,$2)", qs)
     countQuery := fmt.Sprintf("SELECT count(*) FROM %s.authenticate_access_session($1,$2)", qs)
     if err := conn.QueryRowContext(context.Background(), query, sessionID, userID).Scan(&gotUser,&gotRole,&gotSchool); err != nil { t.Fatalf("valid session rejected: %v", err) }
     if gotUser != userID || gotSchool != schoolID || gotRole != "school_admin" { t.Fatalf("unexpected bootstrap result: %s %s %s", gotUser,gotRole,gotSchool) }
@@ -93,7 +93,7 @@ func TestAuthBootstrapCapabilityPostgres(t *testing.T) {
     exec(fmt.Sprintf("UPDATE %s.users SET role='teacher',school_id=$2 WHERE id=$1", qs), userID,newSchool)
     exec("SET ROLE "+qr)
     if err := conn.QueryRowContext(context.Background(), query, sessionID,userID).Scan(&gotUser,&gotRole,&gotSchool); err != nil { t.Fatalf("updated user rejected: %v",err) }
-    if gotRole != "teacher" || gotSchool != newSchool { t.Fatalf("bootstrap did not observe current authority: role=%q school=%s",gotRole,gotSchool) }
+    if gotRole != "teacher" || gotSchool != newSchool { t.Fatalf("bootstrap did not observe current authority: role=%q school=%s",gotRole,newSchool) }
 
     exec("RESET ROLE")
     exec(fmt.Sprintf("UPDATE %s.sessions SET revoked=true WHERE id=$1",qs),sessionID)

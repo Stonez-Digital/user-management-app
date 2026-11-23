@@ -219,6 +219,17 @@ func TestPostgresMigrationCatalogBaseline(t *testing.T) {
 	if !role.CanLogin || role.Superuser || role.BypassRLS || role.CreateDB || role.CreateRole {
 		t.Fatalf("temporary runtime role has unsafe attributes: %+v", role)
 	}
+	var membershipCount int64
+	if err := migrationDB.Raw(`
+		SELECT COUNT(*)
+		FROM pg_auth_members
+		WHERE member = (SELECT oid FROM pg_roles WHERE rolname = ?)
+	`, runtimeRole).Scan(&membershipCount).Error; err != nil {
+		t.Fatalf("inspect runtime role memberships: %v", err)
+	}
+	if membershipCount != 0 {
+		t.Fatalf("temporary runtime role unexpectedly has %d role memberships", membershipCount)
+	}
 
 	var migrationOwner string
 	if err := migrationDB.Raw("SELECT current_user").Scan(&migrationOwner).Error; err != nil {
@@ -236,6 +247,9 @@ func TestPostgresMigrationCatalogBaseline(t *testing.T) {
 		if owner != migrationOwner {
 			t.Errorf("%s owner=%q; expected migration connection owner %q", table, owner, migrationOwner)
 		}
+		if owner == runtimeRole {
+			t.Errorf("runtime role unexpectedly owns protected table %s", table)
+		}
 		var isOwnerOrMember bool
 		if err := migrationDB.Raw("SELECT pg_has_role(?, ?, 'MEMBER')", runtimeRole, owner).Scan(&isOwnerOrMember).Error; err != nil {
 			t.Fatalf("inspect runtime membership in owner role for %s: %v", table, err)
@@ -250,6 +264,15 @@ func TestPostgresMigrationCatalogBaseline(t *testing.T) {
 			}
 			if granted {
 				t.Errorf("temporary runtime role unexpectedly has %s on %s", privilege, table)
+			}
+		}
+		for _, privilege := range []string{"SELECT", "INSERT", "UPDATE", "REFERENCES"} {
+			var granted bool
+			if err := migrationDB.Raw("SELECT has_any_column_privilege(?, ?, ?)", runtimeRole, schema+"."+table, privilege).Scan(&granted).Error; err != nil {
+				t.Fatalf("inspect column-level %s privilege on %s: %v", privilege, table, err)
+			}
+			if granted {
+				t.Errorf("temporary runtime role unexpectedly has column-level %s on %s", privilege, table)
 			}
 		}
 	}

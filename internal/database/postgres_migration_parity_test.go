@@ -163,10 +163,11 @@ func TestPostgresMigrationCatalogBaseline(t *testing.T) {
 	// These are the tables explicitly ENABLEd by the automatic Go migration
 	// path. FORCE RLS and tenant policies are not currently installed by it.
 	rlsEnabledTables := []string{
-		"bulk_import_jobs", "class_subjects", "national_curricula",
+		"blog_categories", "blog_posts", "bulk_import_jobs", "class_subjects",
+		"gallery_albums", "gallery_images", "national_curricula",
 		"national_curriculum_classes", "national_curriculum_levels",
-		"national_curriculum_subjects", "parent_profiles", "school_enquiries",
-		"schools", "teacher_profiles",
+		"national_curriculum_subjects", "parent_profiles", "school_advertisements",
+		"school_enquiries", "schools", "teacher_profiles",
 	}
 	rlsEnabled := make(map[string]bool, len(rlsEnabledTables))
 	for _, table := range rlsEnabledTables {

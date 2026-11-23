@@ -11,6 +11,7 @@ import (
     "github.com/onoja217/users-management-app/internal/audit"
     "github.com/onoja217/users-management-app/internal/httpx"
     "github.com/onoja217/users-management-app/internal/middleware"
+    "github.com/onoja217/users-management-app/internal/repository"
     "github.com/onoja217/users-management-app/internal/models"
     "github.com/onoja217/users-management-app/internal/service"
     "gorm.io/gorm"
@@ -35,11 +36,22 @@ type UpdateSchoolRequest struct {
     WebsiteURL string `json:"website_url" binding:"omitempty,max=500"`
 }
 
+
+func (ctrl *SchoolController) requestService(c *gin.Context) (*service.SchoolService, bool) {
+    tx, ok := middleware.TenantDBFromContext(c)
+    if !ok {
+        httpx.Error(c, http.StatusInternalServerError, "tenant_transaction_required", "tenant transaction is required for this operation")
+        return nil, false
+    }
+    return service.NewSchoolService(repository.NewSchoolRepository(tx), tx), true
+}
+
 func (ctrl *SchoolController) Get(c *gin.Context) {
+ scopedService,ready:=ctrl.requestService(c);if !ready{return};
     schoolID, ok := middleware.SchoolIDFromContext(c)
     if !ok { httpx.Error(c, http.StatusForbidden, "school_context_required", "school context required"); return }
 
-    school, err := ctrl.service.GetSchool(schoolID)
+    school, err := scopedService.GetSchool(schoolID)
     if errors.Is(err, service.ErrSchoolNotFound) { httpx.Error(c, http.StatusNotFound, "school_not_found", "school not found"); return }
     if err != nil { httpx.Error(c, http.StatusInternalServerError, "school_read_failed", "failed to load school"); return }
 
@@ -47,13 +59,14 @@ func (ctrl *SchoolController) Get(c *gin.Context) {
 }
 
 func (ctrl *SchoolController) Update(c *gin.Context) {
+ scopedService,ready:=ctrl.requestService(c);if !ready{return};
     schoolID, ok := middleware.SchoolIDFromContext(c)
     if !ok { httpx.Error(c, http.StatusForbidden, "school_context_required", "school context required"); return }
 
     var req UpdateSchoolRequest
     if err := c.ShouldBindJSON(&req); err != nil { httpx.Validation(c, httpx.ValidationErrors(err)); return }
 
-    if err := ctrl.service.UpdateSchool(schoolID, models.School{Name: req.Name, LogoURL: req.LogoURL, Description: req.Description, Address: req.Address, ContactEmail: req.ContactEmail, ContactPhone: req.ContactPhone, WebsiteURL: req.WebsiteURL}); err != nil {
+    if err := scopedService.UpdateSchool(schoolID, models.School{Name: req.Name, LogoURL: req.LogoURL, Description: req.Description, Address: req.Address, ContactEmail: req.ContactEmail, ContactPhone: req.ContactPhone, WebsiteURL: req.WebsiteURL}); err != nil {
         switch {
         case errors.Is(err, service.ErrSchoolNotFound), errors.Is(err, gorm.ErrRecordNotFound):
             httpx.Error(c, http.StatusNotFound, "school_not_found", "school not found")
@@ -66,14 +79,15 @@ func (ctrl *SchoolController) Update(c *gin.Context) {
     }
 
     actor, _ := uuid.Parse(c.GetString("user_id"))
-    _ = audit.Record(ctrl.service.DB(), c, &actor, "school.update", "school", &schoolID, nil)
+    _ = audit.Record(scopedService.DB(), c, &actor, "school.update", "school", &schoolID, nil)
 
-    school, err := ctrl.service.GetSchool(schoolID)
+    school, err := scopedService.GetSchool(schoolID)
     if err != nil { httpx.Error(c, http.StatusInternalServerError, "school_read_failed", "failed to load school"); return }
     c.JSON(http.StatusOK, school)
 }
 
 func (ctrl *SchoolController) UploadLogo(c *gin.Context) {
+ scopedService,ready:=ctrl.requestService(c);if !ready{return};
     schoolID, ok := middleware.SchoolIDFromContext(c)
     if !ok {
         httpx.Error(c, http.StatusForbidden, "school_context_required", "school context required")
@@ -111,7 +125,7 @@ func (ctrl *SchoolController) UploadLogo(c *gin.Context) {
         return
     }
 
-    if err := ctrl.service.UpdateSchoolLogo(schoolID, logoURL); err != nil {
+    if err := scopedService.UpdateSchoolLogo(schoolID, logoURL); err != nil {
         _ = ctrl.logoStorage.Delete(schoolID, logoURL) // Best-effort cleanup of the unreferenced upload.
         if errors.Is(err, service.ErrInvalidSchoolLogo) {
             httpx.Error(c, http.StatusBadRequest, "school_logo_invalid", "school logo URL is invalid")
@@ -126,9 +140,9 @@ func (ctrl *SchoolController) UploadLogo(c *gin.Context) {
     }
 
     actor, _ := uuid.Parse(c.GetString("user_id"))
-    _ = audit.Record(ctrl.service.DB(), c, &actor, "school.logo_upload", "school", &schoolID, nil)
+    _ = audit.Record(scopedService.DB(), c, &actor, "school.logo_upload", "school", &schoolID, nil)
 
-    school, err := ctrl.service.GetSchool(schoolID)
+    school, err := scopedService.GetSchool(schoolID)
     if err != nil {
         httpx.Error(c, http.StatusInternalServerError, "school_read_failed", "failed to load school")
         return

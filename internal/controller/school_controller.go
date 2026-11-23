@@ -79,7 +79,7 @@ func (ctrl *SchoolController) Update(c *gin.Context) {
     }
 
     actor, _ := uuid.Parse(c.GetString("user_id"))
-    _ = audit.Record(scopedService.DB(), c, &actor, "school.update", "school", &schoolID, nil)
+    if err := audit.Record(scopedService.DB(), c, &actor, "school.update", "school", &schoolID, nil); err != nil { httpx.Error(c, http.StatusInternalServerError, "school_audit_write_failed", "failed to record school update"); return }
 
     school, err := scopedService.GetSchool(schoolID)
     if err != nil { httpx.Error(c, http.StatusInternalServerError, "school_read_failed", "failed to load school"); return }
@@ -147,7 +147,7 @@ func (ctrl *SchoolController) UploadLogo(c *gin.Context) {
     }
 
     actor, _ := uuid.Parse(c.GetString("user_id"))
-    _ = audit.Record(scopedService.DB(), c, &actor, "school.logo_upload", "school", &schoolID, nil)
+    if err := audit.Record(scopedService.DB(), c, &actor, "school.logo_upload", "school", &schoolID, nil); err != nil { httpx.Error(c, http.StatusInternalServerError, "school_audit_write_failed", "failed to record school logo upload"); return }
 
     school, err := scopedService.GetSchool(schoolID)
     if err != nil {

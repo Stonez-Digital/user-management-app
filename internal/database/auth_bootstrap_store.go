@@ -126,10 +126,20 @@ func ConnectAuthBootstrap() (*gorm.DB, error) {
 	return db, nil
 }
 
-type PostgresAuthBootstrapStore struct{ db *gorm.DB }
+type PostgresAuthBootstrapStore struct {
+	db *gorm.DB
+	functionName string
+}
 
 func NewPostgresAuthBootstrapStore(db *gorm.DB) *PostgresAuthBootstrapStore {
-	return &PostgresAuthBootstrapStore{db: db}
+	return &PostgresAuthBootstrapStore{db: db, functionName: "public.authenticate_access_session"}
+}
+
+// newPostgresAuthBootstrapStoreForSchema is only used by disposable-schema
+// PostgreSQL tests. Production always uses the fixed public capability above.
+func newPostgresAuthBootstrapStoreForSchema(db *gorm.DB, schema string) *PostgresAuthBootstrapStore {
+	quotedSchema := "\"" + strings.ReplaceAll(schema, "\"", "\"\"") + "\""
+	return &PostgresAuthBootstrapStore{db: db, functionName: quotedSchema + ".authenticate_access_session"}
 }
 
 func (s *PostgresAuthBootstrapStore) AuthenticateAccessSession(ctx context.Context, sessionID, userID uuid.UUID) (authbootstrap.Identity, error) {
@@ -142,7 +152,7 @@ func (s *PostgresAuthBootstrapStore) AuthenticateAccessSession(ctx context.Conte
 	var result authbootstrap.Identity
 	var schoolID sql.NullString
 	row := s.db.WithContext(ctx).Raw(
-		"SELECT user_id, user_role, school_id FROM public.authenticate_access_session(?, ?)",
+		"SELECT user_id, user_role, school_id FROM "+s.functionName+"(?, ?)",
 		sessionID, userID,
 	).Row()
 	if err := row.Scan(&result.UserID, &result.Role, &schoolID); err != nil {

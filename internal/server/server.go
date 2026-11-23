@@ -144,6 +144,9 @@ func ValidateEnvironment() error {
 		if strings.TrimSpace(os.Getenv("DATABASE_URL")) == "" {
 			return fmt.Errorf("production requires DATABASE_URL")
 		}
+		if strings.TrimSpace(os.Getenv("AUTH_BOOTSTRAP_DATABASE_URL")) == "" {
+			return fmt.Errorf("production requires AUTH_BOOTSTRAP_DATABASE_URL for restricted authentication bootstrap")
+		}
 		if strings.TrimSpace(os.Getenv("CORS_ALLOWED_ORIGINS")) == "" {
 			return fmt.Errorf("production requires CORS_ALLOWED_ORIGINS")
 		}

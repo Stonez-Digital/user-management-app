@@ -50,7 +50,7 @@ func ConnectAuthBootstrap() (*gorm.DB, error) {
 		SchoolID *uuid.UUID
 	}
 	if err := db.WithContext(ctx).Raw(
-		"SELECT user_id, user_role, school_id FROM "+s.functionName+"(?, ?)",
+		"SELECT user_id, user_role, school_id FROM public.authenticate_access_session(?, ?)",
 		uuid.Nil, uuid.Nil,
 	).Scan(&probe).Error; err != nil {
 		_ = sqlDB.Close()
@@ -146,7 +146,7 @@ func (s *PostgresAuthBootstrapStore) AuthenticateAccessSession(ctx context.Conte
 	var result authbootstrap.Identity
 	var schoolID sql.NullString
 	row := s.db.WithContext(ctx).Raw(
-		"SELECT user_id, user_role, school_id FROM public.authenticate_access_session(?, ?)",
+		"SELECT user_id, user_role, school_id FROM "+s.functionName+"(?, ?)",
 		sessionID, userID,
 	).Row()
 	if err := row.Scan(&result.UserID, &result.Role, &schoolID); err != nil {

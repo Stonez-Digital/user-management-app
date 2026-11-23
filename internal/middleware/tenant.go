@@ -17,29 +17,15 @@ const (
 
 var errTenantRequestRollback = errors.New("tenant request returned an error status")
 
-// RequireSchoolContext derives the tenant from the authenticated database user.
-// It never trusts a school ID supplied by the client.
-func RequireSchoolContext(db *gorm.DB) gin.HandlerFunc {
+// RequireSchoolContext uses the school identity already returned by the
+// authentication bootstrap capability. It performs no second users-table read.
+func RequireSchoolContext() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID, err := uuid.Parse(c.GetString(UserIDKey))
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid user context"})
-			return
-		}
-		var user models.User
-		if err := db.Select("id", "school_id", "active").First(&user, "id = ?", userID).Error; err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
-			return
-		}
-		if !user.Active {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "account inactive"})
-			return
-		}
-		if user.SchoolID == nil || *user.SchoolID == uuid.Nil {
+		schoolID, ok := SchoolIDFromContext(c)
+		if !ok || schoolID == uuid.Nil {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "school context required"})
 			return
 		}
-		c.Set(SchoolIDKey, user.SchoolID.String())
 		c.Next()
 	}
 }

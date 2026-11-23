@@ -14,7 +14,7 @@ The capability validates an access-token session and returns only authenticated 
 
 - stonez_auth_runtime: initially NOLOGIN, NOSUPERUSER, NOBYPASSRLS, no database/role creation and no replication. A later connection-pool change may provision login capability and credentials independently.
 
-The runtime role receives schema USAGE and EXECUTE on one function. It receives no table or column privileges and is not a member of the function-owner role.
+The two roles must be provisioned by the reviewed database-operations step before this SQL is applied; this file does not create roles or set login credentials. The runtime role receives schema USAGE and EXECUTE on one function. It receives no table or column privileges and is not a member of the function-owner role.
 
 ## Function and RLS
 

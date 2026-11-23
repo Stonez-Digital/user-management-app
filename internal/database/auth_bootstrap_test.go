@@ -73,6 +73,13 @@ func TestAuthBootstrapCapabilityPostgres(t *testing.T) {
         if statement == "" || strings.HasPrefix(statement, "--") { continue }
         exec(statement)
     }
+    // Applying the capability twice must safely replace its own policies and
+    // function definition without leaving duplicate-policy failures.
+    for _, statement := range splitSQLStatements(script) {
+        statement = strings.TrimSpace(statement)
+        if statement == "" || strings.HasPrefix(statement, "--") { continue }
+        exec(statement)
+    }
 
     userID, sessionID, schoolID := uuid.New(), uuid.New(), uuid.New()
     exec(fmt.Sprintf("INSERT INTO %s.users(id,active,role,school_id,password_hash) VALUES ($1,true,'school_admin',$2,'must-not-be-readable')", qs), userID, schoolID)

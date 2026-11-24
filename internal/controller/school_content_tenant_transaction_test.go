@@ -74,3 +74,54 @@ func TestSchoolProfileControllerFailsClosedWithoutTenantTransaction(t *testing.T
  response:=schoolContentTenantRequest(db,school.ID,uuid.New(),false,"/school",ctrl.Get)
  if response.Code!=http.StatusInternalServerError { t.Fatalf("expected missing transaction to fail closed with 500, got %d: %s",response.Code,response.Body.String()) }
 }
+
+func TestEverySchoolAdminContentHandlerFailsClosedWithoutTenantTransaction(t *testing.T) {
+ db := schoolContentTenantDB(t)
+ school := models.School{Name: "All Handler Guard", Code: "ALL-HANDLER-GUARD"}
+ if err := db.Create(&school).Error; err != nil { t.Fatal(err) }
+ content := NewSchoolContentController(service.NewSchoolContentService(db), nil, db)
+ profile := NewSchoolController(service.NewSchoolService(repository.NewSchoolRepository(db), db), nil)
+
+ handlers := []struct {
+  name string
+  handler gin.HandlerFunc
+ }{
+  {"list advertisements", content.ListAdvertisements},
+  {"create advertisement", content.CreateAdvertisement},
+  {"update advertisement", content.UpdateAdvertisement},
+  {"delete advertisement", content.DeleteAdvertisement},
+  {"upload advertisement image", content.UploadAdvertisementImage},
+  {"list blogs", content.ListBlogs},
+  {"create blog", content.CreateBlog},
+  {"update blog", content.UpdateBlog},
+  {"delete blog", content.DeleteBlog},
+  {"publish blog", content.PublishBlog},
+  {"list albums", content.ListAlbums},
+  {"create album", content.CreateAlbum},
+  {"update album", content.UpdateAlbum},
+  {"delete album", content.DeleteAlbum},
+  {"upload gallery image", content.UploadImage},
+  {"delete gallery image", content.DeleteImage},
+  {"upload blog image", content.UploadBlogImage},
+  {"list enquiries", content.ListEnquiries},
+  {"update enquiry status", content.UpdateEnquiryStatus},
+  {"delete enquiry", content.DeleteEnquiry},
+  {"get school profile", profile.Get},
+  {"update school profile", profile.Update},
+  {"upload school logo", profile.UploadLogo},
+ }
+
+ for _, test := range handlers {
+  t.Run(test.name, func(t *testing.T) {
+   response := schoolContentTenantRequest(db, school.ID, uuid.New(), false, "/guard", test.handler)
+   if response.Code != http.StatusInternalServerError {
+    t.Fatalf("handler must reject requests without a tenant transaction: got %d: %s", response.Code, response.Body.String())
+   }
+   var payload map[string]interface{}
+   if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil { t.Fatalf("expected JSON error response: %v", err) }
+   if payload["code"] != "tenant_transaction_required" {
+    t.Fatalf("expected tenant_transaction_required, got %v", payload["code"])
+   }
+  })
+ }
+}

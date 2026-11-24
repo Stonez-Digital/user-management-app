@@ -385,9 +385,44 @@ CREATE POLICY bulk_import_jobs_processing_select
         )
     );
 
+-- PostgreSQL permissive policies are OR-combined. Keep an independent
+-- restrictive guard so a pre-existing PUBLIC or role-wide policy cannot
+-- widen the processing login beyond its verified job context.
+DROP POLICY IF EXISTS bulk_import_jobs_processing_select_guard ON public.bulk_import_jobs;
+CREATE POLICY bulk_import_jobs_processing_select_guard
+    ON public.bulk_import_jobs AS RESTRICTIVE FOR SELECT TO stonez_bulk_process_group
+    USING (
+        EXISTS (
+            SELECT 1 FROM stonez_internal.current_bulk_import_context() AS ctx
+             WHERE ctx.job_id = bulk_import_jobs.id
+               AND ctx.school_id = bulk_import_jobs.school_id
+               AND ctx.initiated_by = bulk_import_jobs.initiated_by
+        )
+    );
+
 DROP POLICY IF EXISTS bulk_import_jobs_processing_update ON public.bulk_import_jobs;
 CREATE POLICY bulk_import_jobs_processing_update
     ON public.bulk_import_jobs FOR UPDATE TO stonez_bulk_process_group
+    USING (
+        EXISTS (
+            SELECT 1 FROM stonez_internal.current_bulk_import_context() AS ctx
+             WHERE ctx.job_id = bulk_import_jobs.id
+               AND ctx.school_id = bulk_import_jobs.school_id
+               AND ctx.initiated_by = bulk_import_jobs.initiated_by
+        )
+    )
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM stonez_internal.current_bulk_import_context() AS ctx
+             WHERE ctx.job_id = bulk_import_jobs.id
+               AND ctx.school_id = bulk_import_jobs.school_id
+               AND ctx.initiated_by = bulk_import_jobs.initiated_by
+        )
+    );
+
+DROP POLICY IF EXISTS bulk_import_jobs_processing_update_guard ON public.bulk_import_jobs;
+CREATE POLICY bulk_import_jobs_processing_update_guard
+    ON public.bulk_import_jobs AS RESTRICTIVE FOR UPDATE TO stonez_bulk_process_group
     USING (
         EXISTS (
             SELECT 1 FROM stonez_internal.current_bulk_import_context() AS ctx

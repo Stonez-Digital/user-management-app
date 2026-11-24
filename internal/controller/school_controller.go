@@ -25,6 +25,15 @@ func NewSchoolController(s *service.SchoolService, logoStorage *service.SchoolLo
     return &SchoolController{service: s, logoStorage: logoStorage}
 }
 
+func (ctrl *SchoolController) requestDB(c *gin.Context) (*SchoolController, bool) {
+    tx, ok := middleware.TenantDBFromContext(c)
+    if !ok || tx == nil {
+        httpx.Error(c, http.StatusInternalServerError, "tenant_transaction_required", "tenant transaction is required for this operation")
+        return nil, false
+    }
+    return &SchoolController{service: ctrl.service.WithDB(tx), logoStorage: ctrl.logoStorage}, true
+}
+
 type UpdateSchoolRequest struct {
     Name string `json:"name" binding:"required,min=2,max=160"`
     LogoURL string `json:"logo_url" binding:"omitempty,max=1000"`
@@ -36,6 +45,9 @@ type UpdateSchoolRequest struct {
 }
 
 func (ctrl *SchoolController) Get(c *gin.Context) {
+    requestCtrl, ok := ctrl.requestDB(c)
+    if !ok { return }
+    ctrl = requestCtrl
     schoolID, ok := middleware.SchoolIDFromContext(c)
     if !ok { httpx.Error(c, http.StatusForbidden, "school_context_required", "school context required"); return }
 
@@ -47,6 +59,9 @@ func (ctrl *SchoolController) Get(c *gin.Context) {
 }
 
 func (ctrl *SchoolController) Update(c *gin.Context) {
+    requestCtrl, ok := ctrl.requestDB(c)
+    if !ok { return }
+    ctrl = requestCtrl
     schoolID, ok := middleware.SchoolIDFromContext(c)
     if !ok { httpx.Error(c, http.StatusForbidden, "school_context_required", "school context required"); return }
 
@@ -74,6 +89,9 @@ func (ctrl *SchoolController) Update(c *gin.Context) {
 }
 
 func (ctrl *SchoolController) UploadLogo(c *gin.Context) {
+    requestCtrl, ok := ctrl.requestDB(c)
+    if !ok { return }
+    ctrl = requestCtrl
     schoolID, ok := middleware.SchoolIDFromContext(c)
     if !ok {
         httpx.Error(c, http.StatusForbidden, "school_context_required", "school context required")

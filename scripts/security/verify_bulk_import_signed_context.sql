@@ -111,8 +111,25 @@ BEGIN
          WHERE schemaname = 'public'
            AND tablename = 'bulk_import_jobs'
            AND policyname = 'bulk_import_jobs_processing_update'
+    ) OR NOT EXISTS (
+        SELECT 1 FROM pg_policies
+         WHERE schemaname = 'public'
+           AND tablename = 'bulk_import_jobs'
+           AND policyname = 'bulk_import_jobs_processing_select_guard'
+           AND permissive = 'RESTRICTIVE'
+           AND roles @> ARRAY['stonez_bulk_process_group']::name[]
+           AND qual LIKE '%current_bulk_import_context%'
+    ) OR NOT EXISTS (
+        SELECT 1 FROM pg_policies
+         WHERE schemaname = 'public'
+           AND tablename = 'bulk_import_jobs'
+           AND policyname = 'bulk_import_jobs_processing_update_guard'
+           AND permissive = 'RESTRICTIVE'
+           AND roles @> ARRAY['stonez_bulk_process_group']::name[]
+           AND qual LIKE '%current_bulk_import_context%'
+           AND with_check LIKE '%current_bulk_import_context%'
     ) THEN
-        RAISE EXCEPTION 'verified-context queue RLS policies are missing';
+        RAISE EXCEPTION 'verified-context queue RLS policies or restrictive guards are missing';
     END IF;
 
     RAISE NOTICE 'Signed bulk-import context verifier and restricted queue boundary verified; no key material was displayed.';

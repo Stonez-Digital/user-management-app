@@ -96,7 +96,7 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 		"worker_id uuid, lease_generation bigint NOT NULL DEFAULT 0, status text NOT NULL, claimed_at timestamptz, "+
 		"created integer NOT NULL DEFAULT 0, skipped integer NOT NULL DEFAULT 0, failed integer NOT NULL DEFAULT 0, "+
 		"credentials_sent integer NOT NULL DEFAULT 0, credential_emails_failed integer NOT NULL DEFAULT 0, "+
-		"errors_json text NOT NULL DEFAULT '[]', last_error text NOT NULL DEFAULT '', updated_at timestamptz NOT NULL DEFAULT clock_timestamp())"
+		"errors_json text NOT NULL DEFAULT '[]', rows_json text NOT NULL DEFAULT '[]', last_error text NOT NULL DEFAULT '', updated_at timestamptz NOT NULL DEFAULT clock_timestamp())"
 	if err := admin.Exec(createQueue).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -149,6 +149,20 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	}
 	if err := loginDB.Exec("SET ROLE "+processRole).Error; err == nil {
 		t.Fatal("processing login unexpectedly SET ROLE to its privilege group")
+	}
+
+	// The worker receives the payload from the SECURITY DEFINER claim function.
+	// Its processing connection may read only the columns needed by the guarded
+	// progress UPDATE predicate, never the stored import payload.
+	var allowedQueueColumns struct {
+		ID, SchoolID, InitiatedBy, WorkerID string
+	}
+	if err := loginDB.Raw("SELECT id, school_id, initiated_by, worker_id FROM bulk_import_jobs LIMIT 1").Scan(&allowedQueueColumns).Error; err != nil {
+		t.Fatalf("processing login could not read queue predicate columns: %v", err)
+	}
+	var payload string
+	if err := loginDB.Raw("SELECT rows_json FROM bulk_import_jobs LIMIT 1").Scan(&payload).Error; err == nil {
+		t.Fatal("processing login unexpectedly read the stored bulk-import payload")
 	}
 
 	key := bulkcontext.Key{ID: "integration-key-1", Secret: []byte("integration-test-key-0123456789abcdef")}

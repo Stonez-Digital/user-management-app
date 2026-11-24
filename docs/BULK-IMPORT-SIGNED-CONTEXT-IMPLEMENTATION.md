@@ -108,6 +108,17 @@ go run ./cmd/bulk-context-key-provisioner
 
 Required non-secret configuration: `BULK_IMPORT_CONTEXT_VAULT_ADDR`, `BULK_IMPORT_CONTEXT_VAULT_TOKEN_FILE`, `BULK_IMPORT_CONTEXT_VAULT_KV_MOUNT`, and `BULK_IMPORT_CONTEXT_VAULT_KV_PATH`. The operator-only database URL is `BULK_IMPORT_CONTEXT_PROVISIONER_DATABASE_URL` and must use PostgreSQL TLS. This command has not been run against any live database.
 
+## Worker connection configuration
+
+The dedicated worker must receive two separate PostgreSQL URLs:
+
+- `BULK_IMPORT_PROCESSING_DATABASE_URL`: the dedicated `stonez_bulk_process_login` connection used only for tenant-scoped processing transactions. Startup inspects this connection and requires the restricted processing-group membership, no `BYPASSRLS`, no privileged role membership, and no ability to `SET ROLE` into the processing group.
+- `BULK_IMPORT_CLAIM_DATABASE_URL`: the separate claim-only connection used only for the narrowly granted queue claim function. Startup validates its claim-role boundary independently.
+
+Both values are mandatory. The worker does not fall back to `DATABASE_URL`, `DB_HOST`/user/password settings, or a shared API connection. The API's `DATABASE_URL` is not read by the worker executable. The two URLs must be configured as distinct credentials; role validation is the authoritative check of their database identities and capabilities.
+
+This change only defines application configuration and startup validation. It does not create either login, grant database privileges, set Render environment variables, or switch any deployed worker. Provisioning and deployment require separate reviewed staging evidence and explicit approval.
+
 ## 6. Go integration contract
 
 The Go signer accepts only a `Binding` built from the trusted row returned by the claim function. The worker Vault policy returns only the active signing key; the worker never retrieves retiring verification keys. It must not accept tenant IDs from imported spreadsheet values. The Vault adapter implements the key-source interface and returns only the active key to the signer.

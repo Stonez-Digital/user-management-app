@@ -119,8 +119,9 @@ func TestEverySchoolAdminContentHandlerFailsClosedWithoutTenantTransaction(t *te
    }
    var payload map[string]interface{}
    if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil { t.Fatalf("expected JSON error response: %v", err) }
-   if payload["code"] != "tenant_transaction_required" {
-    t.Fatalf("expected tenant_transaction_required, got %v", payload["code"])
+   errorBody, ok := payload["error"].(map[string]interface{})
+   if !ok || errorBody["code"] != "tenant_transaction_required" {
+    t.Fatalf("expected tenant_transaction_required, got %v", payload["error"])
    }
   })
  }

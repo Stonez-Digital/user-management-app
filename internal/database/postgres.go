@@ -873,8 +873,9 @@ func Migrate(db *gorm.DB) error {
         {Version:48,Name:"enforce_profile_user_school_consistency",Up:func(tx *gorm.DB) error {
             if tx.Dialector.Name()!="postgres" { return nil }
 
-            // Fail closed before adding the constraints. IS DISTINCT FROM also
-            // catches platform users whose school_id is NULL.
+            // Fail closed before adding the constraints. The LEFT JOIN catches
+            // missing users; IS DISTINCT FROM catches cross-school and platform
+            // users whose school_id is NULL.
             checks:=[]struct{name,query string}{
                 {"teacher_profiles","SELECT COUNT(*) FROM teacher_profiles p LEFT JOIN users u ON u.id=p.user_id WHERE u.id IS NULL OR p.school_id IS DISTINCT FROM u.school_id"},
                 {"parent_profiles","SELECT COUNT(*) FROM parent_profiles p LEFT JOIN users u ON u.id=p.user_id WHERE u.id IS NULL OR p.school_id IS DISTINCT FROM u.school_id"},

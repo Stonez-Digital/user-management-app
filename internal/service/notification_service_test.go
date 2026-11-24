@@ -1,6 +1,6 @@
 package service
 import("testing";"github.com/google/uuid";"github.com/onoja217/users-management-app/internal/models";"github.com/onoja217/users-management-app/internal/authz";"github.com/onoja217/users-management-app/internal/repository";"gorm.io/driver/sqlite";"gorm.io/gorm")
-func TestNotificationPublishAndSchoolIsolation(t *testing.T){db,e:=gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"),&gorm.Config{});if e!=nil{t.Fatal(e)};if e=db.AutoMigrate(&models.School{},&models.User{},&models.Announcement{},&models.Notification{});e!=nil{t.Fatal(e)};a:=models.School{Name:"School A",Code:"NA"};b:=models.School{Name:"School B",Code:"NB"};if e=db.Create(&a).Error;e!=nil{t.Fatal(e)};if e=db.Create(&b).Error;e!=nil{t.Fatal(e)};pa:=models.User{Name:"Parent A",Email:"pa-"+uuid.NewString()+"@test",Role:"parent",Active:true,SchoolID:&a.ID};pb:=models.User{Name:"Parent B",Email:"pb-"+uuid.NewString()+"@test",Role:"parent",Active:true,SchoolID:&b.ID};if e=db.Create(&pa).Error;e!=nil{t.Fatal(e)};if e=db.Create(&pb).Error;e!=nil{t.Fatal(e)};r:=repository.NewNotificationRepository(db);s:=NewNotificationService(r,db);x,e:=s.CreateAnnouncement(b.ID,models.Announcement{CreatedBy:pb.ID,Title:"Fees",Body:"Payment due",Category:"fees",Audience:models.AudienceParents});if e!=nil{t.Fatal(e)};if _,e=s.CreateAnnouncement(a.ID,models.Announcement{CreatedBy:pb.ID,Title:"Cross",Body:"Denied",Category:"fees",Audience:models.AudienceParents});e!=ErrNotificationInvalid{t.Fatalf("expected cross-school creator rejection, got %v",e)};if v,e:=s.ListAnnouncements(a.ID);e!=nil||len(v)!=0{t.Fatalf("school A must not see B announcements: %d %v",len(v),e)};n,e:=s.Publish(b.ID,x.ID);if e!=nil||n!=1{t.Fatalf("publish: %d %v",n,e)};if v,e:=s.List(a.ID,pa.ID);e!=nil||len(v)!=0{t.Fatalf("school A user must not receive B notification: %d %v",len(v),e)};if v,e:=s.List(b.ID,pb.ID);e!=nil||len(v)!=1{t.Fatalf("school B parent should receive notification: %d %v",len(v),e)};if e=s.MarkRead(a.ID,pa.ID,x.ID);e!=nil{t.Fatal(e)}}
+func TestNotificationPublishAndSchoolIsolation(t *testing.T){db,e:=gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"),&gorm.Config{});if e!=nil{t.Fatal(e)};if e=db.AutoMigrate(&models.School{},&models.User{},&models.Announcement{},&models.Notification{});e!=nil{t.Fatal(e)};a:=models.School{Name:"School A",Code:"NA"};b:=models.School{Name:"School B",Code:"NB"};if e=db.Create(&a).Error;e!=nil{t.Fatal(e)};if e=db.Create(&b).Error;e!=nil{t.Fatal(e)};pa:=models.User{Name:"Parent A",Email:"pa-"+uuid.NewString()+"@test",Role:"parent",Active:true,SchoolID:&a.ID};pb:=models.User{Name:"Parent B",Email:"pb-"+uuid.NewString()+"@test",Role:"parent",Active:true,SchoolID:&b.ID};if e=db.Create(&pa).Error;e!=nil{t.Fatal(e)};if e=db.Create(&pb).Error;e!=nil{t.Fatal(e)};r:=repository.NewNotificationRepository(db);s:=NewNotificationService(r,db);x,e:=s.CreateAnnouncement(b.ID,models.Announcement{CreatedBy:pb.ID,Title:"Fees",Body:"Payment due",Category:"fees",Audience:models.AudienceParents});if e!=nil{t.Fatal(e)};if _,e=s.CreateAnnouncement(a.ID,models.Announcement{CreatedBy:pb.ID,Title:"Cross",Body:"Denied",Category:"fees",Audience:models.AudienceParents});e!=ErrNotificationInvalid{t.Fatalf("expected cross-school creator rejection, got %v",e)};if v,e:=s.ListAnnouncements(a.ID);e!=nil||len(v)!=0{t.Fatalf("school A must not see B announcements: %d %v",len(v),e)};n,e:=s.Publish(b.ID,x.ID);if e!=nil||n!=1{t.Fatalf("publish: %d %v",n,e)};if v,e:=s.List(a.ID,pa.ID);e!=nil||len(v)!=0{t.Fatalf("school A user must not receive B notification: %d %v",len(v),e)};if v,e:=s.List(b.ID,pb.ID);e!=nil||len(v)!=1{t.Fatalf("school B parent should receive notification: %d %v",len(v),e)}else if e=s.MarkRead(b.ID,pb.ID,v[0].ID);e!=nil{t.Fatalf("school B parent should mark own notification read: %v",e)}}
 
 func TestNotificationAudienceGroups(t *testing.T){db,e:=gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"),&gorm.Config{});if e!=nil{t.Fatal(e)};if e=db.AutoMigrate(&models.School{},&models.User{},&models.Announcement{},&models.Notification{});e!=nil{t.Fatal(e)};school:=models.School{Name:"School",Code:"N"};if e=db.Create(&school).Error;e!=nil{t.Fatal(e)};users:=[]models.User{{Name:"Admin",Email:"admin-"+uuid.NewString()+"@test",Role:"school_admin",Active:true,SchoolID:&school.ID},{Name:"Teacher",Email:"teacher-"+uuid.NewString()+"@test",Role:"teacher",Active:true,SchoolID:&school.ID},{Name:"Student",Email:"student-"+uuid.NewString()+"@test",Role:"student",Active:true,SchoolID:&school.ID},{Name:"Parent",Email:"parent-"+uuid.NewString()+"@test",Role:"parent",Active:true,SchoolID:&school.ID}};for i:=range users{if e=db.Create(&users[i]).Error;e!=nil{t.Fatal(e)}};r:=repository.NewNotificationRepository(db);s:=NewNotificationService(r,db);groups:=[]struct{audience,role string}{{models.AudienceTeachers,authz.RoleTeacher},{models.AudienceStudents,authz.RoleStudent},{models.AudienceParents,authz.RoleParent}};for _,g:=range groups{a,e:=s.CreateAnnouncement(school.ID,models.Announcement{CreatedBy:users[0].ID,Title:"Test",Body:"Message",Category:"general",Audience:g.audience});if e!=nil{t.Fatal(e)};n,e:=s.Publish(school.ID,a.ID);if e!=nil||n!=1{t.Fatalf("%s publish: %d %v",g.audience,n,e)};var recipient models.User;for i:=range users{if users[i].Role==g.role{recipient=users[i]}};v,e:=s.List(school.ID,recipient.ID);if e!=nil||len(v)!=1{t.Fatalf("%s recipient should receive exactly one notification: %d %v",g.audience,len(v),e)}}}
 
@@ -31,4 +31,38 @@ func TestNotificationPublishUsesRequestTransaction(t *testing.T) {
     var stored models.Announcement
     if err := db.First(&stored, "id = ?", announcement.ID).Error; err != nil { t.Fatal(err) }
     if stored.Published { t.Fatal("announcement publication escaped rolled-back request transaction") }
+}
+
+
+func TestNotificationMarkReadRequiresOwningSchoolAndUser(t *testing.T) {
+ db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
+ if err != nil { t.Fatal(err) }
+ if err := db.AutoMigrate(&models.School{}, &models.User{}, &models.Notification{}); err != nil { t.Fatal(err) }
+ schoolA := models.School{Name:"School A", Code:"MARK-A"}
+ schoolB := models.School{Name:"School B", Code:"MARK-B"}
+ if err := db.Create(&schoolA).Error; err != nil { t.Fatal(err) }
+ if err := db.Create(&schoolB).Error; err != nil { t.Fatal(err) }
+ userA := models.User{Name:"Parent A", Email:"mark-a-"+uuid.NewString()+"@test", Role:authz.RoleParent, Active:true, SchoolID:&schoolA.ID}
+ userB := models.User{Name:"Parent B", Email:"mark-b-"+uuid.NewString()+"@test", Role:authz.RoleParent, Active:true, SchoolID:&schoolB.ID}
+ if err := db.Create(&userA).Error; err != nil { t.Fatal(err) }
+ if err := db.Create(&userB).Error; err != nil { t.Fatal(err) }
+ notification := models.Notification{SchoolID:schoolB.ID, UserID:userB.ID, Title:"Private notice", Body:"School B only", Category:"general"}
+ if err := db.Create(&notification).Error; err != nil { t.Fatal(err) }
+ svc := NewNotificationService(repository.NewNotificationRepository(db), db)
+
+ if err := svc.MarkRead(schoolA.ID, userA.ID, notification.ID); err != ErrNotificationNotFound {
+  t.Fatalf("cross-school read must be hidden as not found, got %v", err)
+ }
+ if err := svc.MarkRead(schoolB.ID, userA.ID, notification.ID); err != ErrNotificationNotFound {
+  t.Fatalf("another parent must not mark this notification read, got %v", err)
+ }
+ var stored models.Notification
+ if err := db.First(&stored, "id = ?", notification.ID).Error; err != nil { t.Fatal(err) }
+ if stored.Read { t.Fatal("unauthorized read attempt changed the notification") }
+
+ if err := svc.MarkRead(schoolB.ID, userB.ID, notification.ID); err != nil {
+  t.Fatalf("owning parent should mark the notification read: %v", err)
+ }
+ if err := db.First(&stored, "id = ?", notification.ID).Error; err != nil { t.Fatal(err) }
+ if !stored.Read { t.Fatal("owning parent's read was not persisted") }
 }

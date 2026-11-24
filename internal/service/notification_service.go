@@ -45,5 +45,5 @@ func(s *NotificationService)Publish(schoolID,id uuid.UUID)(int,error){
 }
 func(s *NotificationService)ListAnnouncements(schoolID uuid.UUID)([]models.Announcement,error){return s.repo.ListAnnouncements(schoolID)}
 func(s *NotificationService)List(schoolID,userID uuid.UUID)([]models.Notification,error){return s.repo.ListForUser(schoolID,userID)}
-func(s *NotificationService)MarkRead(schoolID,userID,nid uuid.UUID)error{return s.repo.MarkRead(schoolID,userID,nid)}
+func(s *NotificationService)MarkRead(schoolID,userID,nid uuid.UUID)error{err:=s.repo.MarkRead(schoolID,userID,nid);if errors.Is(err,gorm.ErrRecordNotFound){return ErrNotificationNotFound};return err}
 func(s *NotificationService)EventHook(schoolID,userID uuid.UUID,title,body,category string)error{if schoolID==uuid.Nil||userID==uuid.Nil||strings.TrimSpace(title)==""||strings.TrimSpace(body)==""{return ErrNotificationInvalid};n:=models.Notification{SchoolID:schoolID,UserID:userID,Title:title,Body:body,Category:category};_,e:=s.repo.CreateNotification(schoolID,n);return e}

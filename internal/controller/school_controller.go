@@ -25,6 +25,15 @@ func NewSchoolController(s *service.SchoolService, logoStorage *service.SchoolLo
     return &SchoolController{service: s, logoStorage: logoStorage}
 }
 
+func (ctrl *SchoolController) requestDB(c *gin.Context) (*SchoolController, bool) {
+    tx, ok := middleware.TenantDBFromContext(c)
+    if !ok || tx == nil {
+        httpx.Error(c, http.StatusInternalServerError, "tenant_transaction_required", "tenant transaction is required for this operation")
+        return nil, false
+    }
+    return &SchoolController{service: ctrl.service.WithDB(tx), logoStorage: ctrl.logoStorage}, true
+}
+
 type UpdateSchoolRequest struct {
     Name string `json:"name" binding:"required,min=2,max=160"`
     LogoURL string `json:"logo_url" binding:"omitempty,max=1000"`
@@ -36,6 +45,9 @@ type UpdateSchoolRequest struct {
 }
 
 func (ctrl *SchoolController) Get(c *gin.Context) {
+    requestCtrl, ok := ctrl.requestDB(c)
+    if !ok { return }
+    ctrl = requestCtrl
     schoolID, ok := middleware.SchoolIDFromContext(c)
     if !ok { httpx.Error(c, http.StatusForbidden, "school_context_required", "school context required"); return }
 
@@ -47,6 +59,9 @@ func (ctrl *SchoolController) Get(c *gin.Context) {
 }
 
 func (ctrl *SchoolController) Update(c *gin.Context) {
+    requestCtrl, ok := ctrl.requestDB(c)
+    if !ok { return }
+    ctrl = requestCtrl
     schoolID, ok := middleware.SchoolIDFromContext(c)
     if !ok { httpx.Error(c, http.StatusForbidden, "school_context_required", "school context required"); return }
 
@@ -66,7 +81,10 @@ func (ctrl *SchoolController) Update(c *gin.Context) {
     }
 
     actor, _ := uuid.Parse(c.GetString("user_id"))
-    _ = audit.Record(ctrl.service.DB(), c, &actor, "school.update", "school", &schoolID, nil)
+    if err := audit.Record(ctrl.service.DB(), c, &actor, "school.update", "school", &schoolID, nil); err != nil {
+        httpx.Error(c, http.StatusInternalServerError, "school_audit_failed", "failed to record school profile change")
+        return
+    }
 
     school, err := ctrl.service.GetSchool(schoolID)
     if err != nil { httpx.Error(c, http.StatusInternalServerError, "school_read_failed", "failed to load school"); return }
@@ -74,6 +92,9 @@ func (ctrl *SchoolController) Update(c *gin.Context) {
 }
 
 func (ctrl *SchoolController) UploadLogo(c *gin.Context) {
+    requestCtrl, ok := ctrl.requestDB(c)
+    if !ok { return }
+    ctrl = requestCtrl
     schoolID, ok := middleware.SchoolIDFromContext(c)
     if !ok {
         httpx.Error(c, http.StatusForbidden, "school_context_required", "school context required")
@@ -110,9 +131,13 @@ func (ctrl *SchoolController) UploadLogo(c *gin.Context) {
         httpx.Error(c, http.StatusBadRequest, "school_logo_upload_failed", fmt.Sprintf("%v", err))
         return
     }
+    if err := middleware.RegisterTenantRollbackCleanup(c, func() error { return ctrl.logoStorage.Delete(schoolID, logoURL) }); err != nil {
+        _ = ctrl.logoStorage.Delete(schoolID, logoURL)
+        httpx.Error(c, http.StatusInternalServerError, "school_logo_cleanup_registration_failed", "failed to register logo rollback cleanup")
+        return
+    }
 
     if err := ctrl.service.UpdateSchoolLogo(schoolID, logoURL); err != nil {
-        _ = ctrl.logoStorage.Delete(schoolID, logoURL) // Best-effort cleanup of the unreferenced upload.
         if errors.Is(err, service.ErrInvalidSchoolLogo) {
             httpx.Error(c, http.StatusBadRequest, "school_logo_invalid", "school logo URL is invalid")
             return
@@ -126,7 +151,10 @@ func (ctrl *SchoolController) UploadLogo(c *gin.Context) {
     }
 
     actor, _ := uuid.Parse(c.GetString("user_id"))
-    _ = audit.Record(ctrl.service.DB(), c, &actor, "school.logo_upload", "school", &schoolID, nil)
+    if err := audit.Record(ctrl.service.DB(), c, &actor, "school.logo_upload", "school", &schoolID, nil); err != nil {
+        httpx.Error(c, http.StatusInternalServerError, "school_audit_failed", "failed to record school logo change")
+        return
+    }
 
     school, err := ctrl.service.GetSchool(schoolID)
     if err != nil {

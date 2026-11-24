@@ -3,6 +3,7 @@ package controller
 import (
  "errors"
  "fmt"
+ "net/http"
  "net/mail"
  "strconv"
  "strings"
@@ -19,35 +20,126 @@ import (
 
 type SchoolContentController struct{content *service.SchoolContentService;storage *service.SchoolMediaStorage;ads *service.SchoolAdvertisementService;db *gorm.DB}
 func NewSchoolContentController(content *service.SchoolContentService,storage *service.SchoolMediaStorage,db *gorm.DB)*SchoolContentController{return &SchoolContentController{content:content,storage:storage,ads:service.NewSchoolAdvertisementService(db),db:db}}
+func (ctrl *SchoolContentController) requestDB(c *gin.Context) (*SchoolContentController, bool) {
+ tx, ok := middleware.TenantDBFromContext(c)
+ if !ok || tx == nil {
+  httpx.Error(c, http.StatusInternalServerError, "tenant_transaction_required", "tenant transaction is required for this operation")
+  return nil, false
+ }
+ return &SchoolContentController{content:ctrl.content.WithDB(tx), storage:ctrl.storage, ads:ctrl.ads.WithDB(tx), db:tx}, true
+}
+
 
 
 type advertisementRequest struct{Title string `json:"title" binding:"required,min=2,max=240"`;Description string `json:"description" binding:"max=1000"`;ButtonText string `json:"button_text" binding:"max=80"`;TargetURL string `json:"target_url" binding:"omitempty,max=1200"`;Status string `json:"status" binding:"omitempty,oneof=draft published archived"`;Featured bool `json:"featured"`;StartsAt *time.Time `json:"starts_at"`;EndsAt *time.Time `json:"ends_at"`}
 
-func(ctrl *SchoolContentController)ListAdvertisements(c *gin.Context){id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};v,e:=ctrl.ads.List(id);if e!=nil{httpx.Error(c,500,"advertisement_read_failed","failed to load advertisements");return};c.JSON(200,gin.H{"advertisements":v})}
-func(ctrl *SchoolContentController)CreateAdvertisement(c *gin.Context){id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};var r advertisementRequest;if e:=c.ShouldBindJSON(&r);e!=nil{httpx.Validation(c,httpx.ValidationErrors(e));return};a,e:=ctrl.ads.Create(id,actorID(c),&models.SchoolAdvertisement{Title:r.Title,Description:r.Description,ButtonText:r.ButtonText,TargetURL:r.TargetURL,Status:r.Status,Featured:r.Featured,StartsAt:r.StartsAt,EndsAt:r.EndsAt});if e!=nil{httpx.Error(c,400,"advertisement_invalid","invalid advertisement");return};c.JSON(201,a)}
-func(ctrl *SchoolContentController)UpdateAdvertisement(c *gin.Context){id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};aid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_advertisement_id","invalid advertisement id");return};var r map[string]interface{};if e=c.ShouldBindJSON(&r);e!=nil{httpx.Error(c,400,"invalid_advertisement","invalid advertisement payload");return};a,e:=ctrl.ads.Update(id,aid,r);if errors.Is(e,service.ErrAdvertisementNotFound){httpx.Error(c,404,"advertisement_not_found","advertisement not found");return};if errors.Is(e,service.ErrAdvertisementInvalid){httpx.Error(c,400,"advertisement_invalid","invalid advertisement");return};if e!=nil{httpx.Error(c,500,"advertisement_update_failed","failed to update advertisement");return};c.JSON(200,a)}
-func(ctrl *SchoolContentController)DeleteAdvertisement(c *gin.Context){id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};aid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_advertisement_id","invalid advertisement id");return};e=ctrl.ads.Delete(id,aid);if errors.Is(e,service.ErrAdvertisementNotFound){httpx.Error(c,404,"advertisement_not_found","advertisement not found");return};if e!=nil{httpx.Error(c,500,"advertisement_delete_failed","failed to delete advertisement");return};c.JSON(200,gin.H{"deleted":true})}
-func(ctrl *SchoolContentController)UploadAdvertisementImage(c *gin.Context){id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};if ctrl.storage==nil{httpx.Error(c,503,"media_storage_unavailable","media storage is not configured");return};aid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_advertisement_id","invalid advertisement id");return};var a models.SchoolAdvertisement;if e=ctrl.db.Where("school_id=? AND id=?",id,aid).First(&a).Error;e!=nil{httpx.Error(c,404,"advertisement_not_found","advertisement not found");return};limitMultipartUpload(c,11<<20);f,h,e:=c.Request.FormFile("image");if e!=nil{if multipartUploadTooLarge(e){httpx.Error(c,413,"image_request_too_large","image request exceeds the 10 MB upload limit");return};httpx.Error(c,400,"image_required","image file is required");return};defer f.Close();ct:=h.Header.Get("Content-Type");if ct==""{ct="application/octet-stream"};url,e:=ctrl.storage.Upload(id,"advertisements/"+aid.String(),h.Filename,ct,f,h.Size);if e!=nil{httpx.Error(c,400,"image_upload_failed",fmt.Sprintf("%v",e));return};updated,e:=ctrl.ads.Update(id,aid,map[string]interface{}{"image_url":url});if e!=nil{_ = ctrl.storage.Delete(id,url);contentError(c,e);return};c.JSON(200,updated)}
+func(ctrl *SchoolContentController)ListAdvertisements(c *gin.Context){
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
+ id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};v,e:=ctrl.ads.List(id);if e!=nil{httpx.Error(c,500,"advertisement_read_failed","failed to load advertisements");return};c.JSON(200,gin.H{"advertisements":v})}
+func(ctrl *SchoolContentController)CreateAdvertisement(c *gin.Context){
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
+ id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};var r advertisementRequest;if e:=c.ShouldBindJSON(&r);e!=nil{httpx.Validation(c,httpx.ValidationErrors(e));return};a,e:=ctrl.ads.Create(id,actorID(c),&models.SchoolAdvertisement{Title:r.Title,Description:r.Description,ButtonText:r.ButtonText,TargetURL:r.TargetURL,Status:r.Status,Featured:r.Featured,StartsAt:r.StartsAt,EndsAt:r.EndsAt});if e!=nil{httpx.Error(c,400,"advertisement_invalid","invalid advertisement");return};if !recordSchoolContentAudit(c,ctrl.db,"school.advertisement.create","school_advertisement",a.ID){return};c.JSON(201,a)}
+func(ctrl *SchoolContentController)UpdateAdvertisement(c *gin.Context){
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
+ id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};aid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_advertisement_id","invalid advertisement id");return};var r map[string]interface{};if e=c.ShouldBindJSON(&r);e!=nil{httpx.Error(c,400,"invalid_advertisement","invalid advertisement payload");return};a,e:=ctrl.ads.Update(id,aid,r);if errors.Is(e,service.ErrAdvertisementNotFound){httpx.Error(c,404,"advertisement_not_found","advertisement not found");return};if errors.Is(e,service.ErrAdvertisementInvalid){httpx.Error(c,400,"advertisement_invalid","invalid advertisement");return};if e!=nil{httpx.Error(c,500,"advertisement_update_failed","failed to update advertisement");return};if !recordSchoolContentAudit(c,ctrl.db,"school.advertisement.update","school_advertisement",aid){return};c.JSON(200,a)}
+func(ctrl *SchoolContentController)DeleteAdvertisement(c *gin.Context){
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
+ id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};aid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_advertisement_id","invalid advertisement id");return};e=ctrl.ads.Delete(id,aid);if errors.Is(e,service.ErrAdvertisementNotFound){httpx.Error(c,404,"advertisement_not_found","advertisement not found");return};if e!=nil{httpx.Error(c,500,"advertisement_delete_failed","failed to delete advertisement");return};if !recordSchoolContentAudit(c,ctrl.db,"school.advertisement.delete","school_advertisement",aid){return};c.JSON(200,gin.H{"deleted":true})}
+func(ctrl *SchoolContentController)UploadAdvertisementImage(c *gin.Context){
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
+ id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};if ctrl.storage==nil{httpx.Error(c,503,"media_storage_unavailable","media storage is not configured");return};aid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_advertisement_id","invalid advertisement id");return};var a models.SchoolAdvertisement;if e=ctrl.db.Where("school_id=? AND id=?",id,aid).First(&a).Error;e!=nil{httpx.Error(c,404,"advertisement_not_found","advertisement not found");return};limitMultipartUpload(c,11<<20);f,h,e:=c.Request.FormFile("image");if e!=nil{if multipartUploadTooLarge(e){httpx.Error(c,413,"image_request_too_large","image request exceeds the 10 MB upload limit");return};httpx.Error(c,400,"image_required","image file is required");return};defer f.Close();ct:=h.Header.Get("Content-Type");if ct==""{ct="application/octet-stream"};url,e:=ctrl.storage.Upload(id,"advertisements/"+aid.String(),h.Filename,ct,f,h.Size);if e!=nil{httpx.Error(c,400,"image_upload_failed",fmt.Sprintf("%v",e));return};if !registerSchoolMediaRollbackCleanup(c,ctrl.storage,id,url){return};updated,e:=ctrl.ads.Update(id,aid,map[string]interface{}{"image_url":url});if e!=nil{contentError(c,e);return};if !recordSchoolContentAudit(c,ctrl.db,"school.advertisement.image_upload","school_advertisement",aid){return};c.JSON(200,updated)}
 
 type blogRequest struct{Title string `json:"title" binding:"required,min=2,max=240"`;Slug string `json:"slug" binding:"omitempty,max=240"`;Excerpt string `json:"excerpt" binding:"max=500"`;Content string `json:"content" binding:"required"`;FeaturedImageURL string `json:"featured_image_url" binding:"omitempty,max=1200"`;Status string `json:"status" binding:"omitempty,oneof=draft published archived"`;Featured bool `json:"featured"`}
 type albumRequest struct{Title string `json:"title" binding:"required,min=2,max=180"`;Slug string `json:"slug" binding:"omitempty,max=200"`;Description string `json:"description" binding:"max=1000"`;CoverImageURL string `json:"cover_image_url" binding:"omitempty,max=1200"`;Status string `json:"status" binding:"omitempty,oneof=draft published archived"`;Featured bool `json:"featured"`}
 
 func contentSchoolID(c *gin.Context)(uuid.UUID,bool){id,ok:=middleware.SchoolIDFromContext(c);return id,ok}
 func actorID(c *gin.Context)uuid.UUID{id,_:=uuid.Parse(c.GetString("user_id"));return id}
+
+func registerSchoolMediaRollbackCleanup(c *gin.Context, storage *service.SchoolMediaStorage, schoolID uuid.UUID, mediaURL string) bool {
+ if err := middleware.RegisterTenantRollbackCleanup(c, func() error { return storage.Delete(schoolID, mediaURL) }); err != nil {
+  _ = storage.Delete(schoolID, mediaURL)
+  httpx.Error(c, http.StatusInternalServerError, "media_cleanup_registration_failed", "failed to register media rollback cleanup")
+  return false
+ }
+ return true
+}
+func recordSchoolContentAudit(c *gin.Context, db *gorm.DB, action, resource string, id uuid.UUID) bool {
+ actor := actorID(c)
+ if err := audit.Record(db, c, &actor, action, resource, &id, nil); err != nil {
+  httpx.Error(c, http.StatusInternalServerError, "content_audit_failed", "failed to record school content change")
+  return false
+ }
+ return true
+}
+
 func contentError(c *gin.Context,err error){switch{case errors.Is(err,service.ErrContentNotFound):httpx.Error(c,404,"content_not_found","content not found");case errors.Is(err,service.ErrContentSlugExists):httpx.Error(c,409,"content_slug_exists","content slug already exists");case errors.Is(err,service.ErrContentInvalidStatus):httpx.Error(c,400,"content_invalid_status","invalid content status");default:httpx.Error(c,500,"content_operation_failed","content operation failed")}}
 
-func(ctrl *SchoolContentController)ListBlogs(c *gin.Context){id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};v,e:=ctrl.content.ListBlogs(id);if e!=nil{contentError(c,e);return};c.JSON(200,gin.H{"posts":v})}
-func(ctrl *SchoolContentController)CreateBlog(c *gin.Context){id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};var r blogRequest;if e:=c.ShouldBindJSON(&r);e!=nil{httpx.Validation(c,httpx.ValidationErrors(e));return};p,e:=ctrl.content.CreateBlog(id,actorID(c),&models.BlogPost{Title:r.Title,Slug:r.Slug,Excerpt:r.Excerpt,Content:r.Content,FeaturedImageURL:r.FeaturedImageURL,Status:r.Status,Featured:r.Featured});if e!=nil{contentError(c,e);return};actor:=actorID(c);_=audit.Record(ctrl.db,c,&actor,"content.blog.create","blog_post",&p.ID,nil);c.JSON(201,p)}
-func(ctrl *SchoolContentController)UpdateBlog(c *gin.Context){id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};pid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_content_id","invalid content id");return};var r map[string]interface{};if e=c.ShouldBindJSON(&r);e!=nil{httpx.Error(c,400,"invalid_content","invalid content payload");return};p,e:=ctrl.content.UpdateBlog(id,pid,r);if e!=nil{contentError(c,e);return};c.JSON(200,p)}
-func(ctrl *SchoolContentController)DeleteBlog(c *gin.Context){id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};pid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_content_id","invalid content id");return};if e=ctrl.content.DeleteBlog(id,pid);e!=nil{contentError(c,e);return};c.JSON(200,gin.H{"deleted":true})}
-func(ctrl *SchoolContentController)PublishBlog(c *gin.Context){id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};pid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_content_id","invalid content id");return};p,e:=ctrl.content.UpdateBlog(id,pid,map[string]interface{}{"status":models.ContentPublished});if e!=nil{contentError(c,e);return};c.JSON(200,p)}
+func(ctrl *SchoolContentController)ListBlogs(c *gin.Context){
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
+ id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};v,e:=ctrl.content.ListBlogs(id);if e!=nil{contentError(c,e);return};c.JSON(200,gin.H{"posts":v})}
+func(ctrl *SchoolContentController)CreateBlog(c *gin.Context){
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
+ id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};var r blogRequest;if e:=c.ShouldBindJSON(&r);e!=nil{httpx.Validation(c,httpx.ValidationErrors(e));return};p,e:=ctrl.content.CreateBlog(id,actorID(c),&models.BlogPost{Title:r.Title,Slug:r.Slug,Excerpt:r.Excerpt,Content:r.Content,FeaturedImageURL:r.FeaturedImageURL,Status:r.Status,Featured:r.Featured});if e!=nil{contentError(c,e);return};if !recordSchoolContentAudit(c,ctrl.db,"content.blog.create","blog_post",p.ID){return};c.JSON(201,p)}
+func(ctrl *SchoolContentController)UpdateBlog(c *gin.Context){
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
+ id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};pid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_content_id","invalid content id");return};var r map[string]interface{};if e=c.ShouldBindJSON(&r);e!=nil{httpx.Error(c,400,"invalid_content","invalid content payload");return};p,e:=ctrl.content.UpdateBlog(id,pid,r);if e!=nil{contentError(c,e);return};if !recordSchoolContentAudit(c,ctrl.db,"content.blog.update","blog_post",pid){return};c.JSON(200,p)}
+func(ctrl *SchoolContentController)DeleteBlog(c *gin.Context){
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
+ id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};pid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_content_id","invalid content id");return};if e=ctrl.content.DeleteBlog(id,pid);e!=nil{contentError(c,e);return};if !recordSchoolContentAudit(c,ctrl.db,"content.blog.delete","blog_post",pid){return};c.JSON(200,gin.H{"deleted":true})}
+func(ctrl *SchoolContentController)PublishBlog(c *gin.Context){
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
+ id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};pid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_content_id","invalid content id");return};p,e:=ctrl.content.UpdateBlog(id,pid,map[string]interface{}{"status":models.ContentPublished});if e!=nil{contentError(c,e);return};if !recordSchoolContentAudit(c,ctrl.db,"content.blog.publish","blog_post",pid){return};c.JSON(200,p)}
 
-func(ctrl *SchoolContentController)ListAlbums(c *gin.Context){id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};v,e:=ctrl.content.ListAlbums(id);if e!=nil{contentError(c,e);return};c.JSON(200,gin.H{"albums":v})}
-func(ctrl *SchoolContentController)CreateAlbum(c *gin.Context){id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};var r albumRequest;if e:=c.ShouldBindJSON(&r);e!=nil{httpx.Validation(c,httpx.ValidationErrors(e));return};a,e:=ctrl.content.CreateAlbum(id,&models.GalleryAlbum{Title:r.Title,Slug:r.Slug,Description:r.Description,CoverImageURL:r.CoverImageURL,Status:r.Status,Featured:r.Featured});if e!=nil{contentError(c,e);return};c.JSON(201,a)}
-func(ctrl *SchoolContentController)UpdateAlbum(c *gin.Context){id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};aid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_content_id","invalid content id");return};var r map[string]interface{};if e=c.ShouldBindJSON(&r);e!=nil{httpx.Error(c,400,"invalid_content","invalid content payload");return};a,e:=ctrl.content.UpdateAlbum(id,aid,r);if e!=nil{contentError(c,e);return};c.JSON(200,a)}
-func(ctrl *SchoolContentController)DeleteAlbum(c *gin.Context){id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};aid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_content_id","invalid content id");return};if e=ctrl.content.DeleteAlbum(id,aid);e!=nil{contentError(c,e);return};c.JSON(200,gin.H{"deleted":true})}
-func(ctrl *SchoolContentController)UploadImage(c *gin.Context){id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};if ctrl.storage==nil{httpx.Error(c,503,"media_storage_unavailable","media storage is not configured");return};aid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_album_id","invalid album id");return};limitMultipartUpload(c,11<<20);f,h,e:=c.Request.FormFile("image");if e!=nil{if multipartUploadTooLarge(e){httpx.Error(c,413,"image_request_too_large","image request exceeds the 10 MB upload limit");return};httpx.Error(c,400,"image_required","image file is required");return};defer f.Close();ct:=h.Header.Get("Content-Type");if ct==""{ct="application/octet-stream"};url,e:=ctrl.storage.Upload(id,"gallery/"+aid.String(),h.Filename,ct,f,h.Size);if e!=nil{httpx.Error(c,400,"image_upload_failed",fmt.Sprintf("%v",e));return};img,e:=ctrl.content.AddImage(id,actorID(c),aid,&models.GalleryImage{ImageURL:url,Caption:c.PostForm("caption"),AltText:c.PostForm("alt_text")});if e!=nil{_ = ctrl.storage.Delete(id,url);contentError(c,e);return};c.JSON(201,img)}
-func(ctrl *SchoolContentController)DeleteImage(c *gin.Context){id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};iid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_image_id","invalid image id");return};if e=ctrl.content.DeleteImage(id,iid);e!=nil{contentError(c,e);return};c.JSON(200,gin.H{"deleted":true})}
+func(ctrl *SchoolContentController)ListAlbums(c *gin.Context){
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
+ id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};v,e:=ctrl.content.ListAlbums(id);if e!=nil{contentError(c,e);return};c.JSON(200,gin.H{"albums":v})}
+func(ctrl *SchoolContentController)CreateAlbum(c *gin.Context){
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
+ id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};var r albumRequest;if e:=c.ShouldBindJSON(&r);e!=nil{httpx.Validation(c,httpx.ValidationErrors(e));return};a,e:=ctrl.content.CreateAlbum(id,&models.GalleryAlbum{Title:r.Title,Slug:r.Slug,Description:r.Description,CoverImageURL:r.CoverImageURL,Status:r.Status,Featured:r.Featured});if e!=nil{contentError(c,e);return};if !recordSchoolContentAudit(c,ctrl.db,"content.gallery.album.create","gallery_album",a.ID){return};c.JSON(201,a)}
+func(ctrl *SchoolContentController)UpdateAlbum(c *gin.Context){
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
+ id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};aid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_content_id","invalid content id");return};var r map[string]interface{};if e=c.ShouldBindJSON(&r);e!=nil{httpx.Error(c,400,"invalid_content","invalid content payload");return};a,e:=ctrl.content.UpdateAlbum(id,aid,r);if e!=nil{contentError(c,e);return};if !recordSchoolContentAudit(c,ctrl.db,"content.gallery.album.update","gallery_album",aid){return};c.JSON(200,a)}
+func(ctrl *SchoolContentController)DeleteAlbum(c *gin.Context){
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
+ id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};aid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_content_id","invalid content id");return};if e=ctrl.content.DeleteAlbum(id,aid);e!=nil{contentError(c,e);return};if !recordSchoolContentAudit(c,ctrl.db,"content.gallery.album.delete","gallery_album",aid){return};c.JSON(200,gin.H{"deleted":true})}
+func(ctrl *SchoolContentController)UploadImage(c *gin.Context){
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
+ id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};if ctrl.storage==nil{httpx.Error(c,503,"media_storage_unavailable","media storage is not configured");return};aid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_album_id","invalid album id");return};limitMultipartUpload(c,11<<20);f,h,e:=c.Request.FormFile("image");if e!=nil{if multipartUploadTooLarge(e){httpx.Error(c,413,"image_request_too_large","image request exceeds the 10 MB upload limit");return};httpx.Error(c,400,"image_required","image file is required");return};defer f.Close();ct:=h.Header.Get("Content-Type");if ct==""{ct="application/octet-stream"};url,e:=ctrl.storage.Upload(id,"gallery/"+aid.String(),h.Filename,ct,f,h.Size);if e!=nil{httpx.Error(c,400,"image_upload_failed",fmt.Sprintf("%v",e));return};if !registerSchoolMediaRollbackCleanup(c,ctrl.storage,id,url){return};img,e:=ctrl.content.AddImage(id,actorID(c),aid,&models.GalleryImage{ImageURL:url,Caption:c.PostForm("caption"),AltText:c.PostForm("alt_text")});if e!=nil{contentError(c,e);return};if !recordSchoolContentAudit(c,ctrl.db,"content.gallery.image.create","gallery_image",img.ID){return};c.JSON(201,img)}
+func(ctrl *SchoolContentController)DeleteImage(c *gin.Context){
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
+ id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};iid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_image_id","invalid image id");return};if e=ctrl.content.DeleteImage(id,iid);e!=nil{contentError(c,e);return};if !recordSchoolContentAudit(c,ctrl.db,"content.gallery.image.delete","gallery_image",iid){return};c.JSON(200,gin.H{"deleted":true})}
 
 func(ctrl *SchoolContentController)PublicSchool(c *gin.Context){slug:=strings.TrimSpace(c.Param("slug"));var school models.School;if e:=ctrl.db.Where("lower(slug)=lower(?)",slug).First(&school).Error;e!=nil{httpx.Error(c,404,"school_not_found","school not found");return};if school.Status!=models.SchoolStatusActive{httpx.Error(c,410,"school_inactive","school account is currently inactive");return};blogs,albums,e:=ctrl.content.PublicHome(school.ID);if e!=nil{httpx.Error(c,500,"public_content_failed","failed to load school content");return};ads,e:=ctrl.ads.Public(school.ID);if e!=nil{httpx.Error(c,500,"public_content_failed","failed to load school advertisements");return};type publicPost struct{ID uuid.UUID `json:"id"`;Title string `json:"title"`;Slug string `json:"slug"`;Excerpt string `json:"excerpt"`;Content string `json:"content"`;FeaturedImageURL string `json:"featured_image_url,omitempty"`;Featured bool `json:"featured"`;PublishedAt interface{} `json:"published_at,omitempty"`};type publicAlbum struct{ID uuid.UUID `json:"id"`;Title string `json:"title"`;Slug string `json:"slug"`;Description string `json:"description"`;CoverImageURL string `json:"cover_image_url,omitempty"`;Featured bool `json:"featured"`};type publicAdvertisement struct{ID uuid.UUID `json:"id"`;Title string `json:"title"`;Description string `json:"description"`;ImageURL string `json:"image_url"`;ButtonText string `json:"button_text,omitempty"`;TargetURL string `json:"target_url,omitempty"`;Featured bool `json:"featured"`;StartsAt interface{} `json:"starts_at,omitempty"`;EndsAt interface{} `json:"ends_at,omitempty"`};bp:=make([]publicPost,0,len(blogs));for _,p:=range blogs{bp=append(bp,publicPost{ID:p.ID,Title:p.Title,Slug:p.Slug,Excerpt:p.Excerpt,Content:p.Content,FeaturedImageURL:p.FeaturedImageURL,Featured:p.Featured,PublishedAt:p.PublishedAt})};ba:=make([]publicAlbum,0,len(albums));for _,a:=range albums{ba=append(ba,publicAlbum{ID:a.ID,Title:a.Title,Slug:a.Slug,Description:a.Description,CoverImageURL:a.CoverImageURL,Featured:a.Featured})};pa:=make([]publicAdvertisement,0,len(ads));for _,a:=range ads{pa=append(pa,publicAdvertisement{ID:a.ID,Title:a.Title,Description:a.Description,ImageURL:a.ImageURL,ButtonText:a.ButtonText,TargetURL:a.TargetURL,Featured:a.Featured,StartsAt:a.StartsAt,EndsAt:a.EndsAt})};c.JSON(200,gin.H{"school":gin.H{"id":school.ID,"name":school.Name,"slug":school.Slug,"logo_url":school.LogoURL},"featured_blog":bp,"featured_gallery":ba,"advertisements":pa})}
 func(ctrl *SchoolContentController)PublicBlogs(c *gin.Context){slug:=strings.TrimSpace(c.Param("slug"));var school models.School;if e:=ctrl.db.Where("lower(slug)=lower(?)",slug).First(&school).Error;e!=nil{httpx.Error(c,404,"school_not_found","school not found");return};if school.Status!=models.SchoolStatusActive{httpx.Error(c,410,"school_inactive","school account is currently inactive");return};v,e:=ctrl.content.PublicBlogs(school.ID);if e!=nil{contentError(c,e);return};type publicPost struct{ID uuid.UUID `json:"id"`;Title string `json:"title"`;Slug string `json:"slug"`;Excerpt string `json:"excerpt"`;Content string `json:"content"`;FeaturedImageURL string `json:"featured_image_url,omitempty"`;Featured bool `json:"featured"`;PublishedAt interface{} `json:"published_at,omitempty"`};out:=make([]publicPost,0,len(v));for _,p:=range v{out=append(out,publicPost{ID:p.ID,Title:p.Title,Slug:p.Slug,Excerpt:p.Excerpt,Content:p.Content,FeaturedImageURL:p.FeaturedImageURL,Featured:p.Featured,PublishedAt:p.PublishedAt})};c.JSON(200,gin.H{"school":gin.H{"id":school.ID,"name":school.Name,"slug":school.Slug,"logo_url":school.LogoURL},"posts":out})}
@@ -55,7 +147,11 @@ func(ctrl *SchoolContentController)PublicBlog(c *gin.Context){slug:=strings.Trim
 func(ctrl *SchoolContentController)PublicAlbums(c *gin.Context){slug:=strings.TrimSpace(c.Param("slug"));var school models.School;if e:=ctrl.db.Where("lower(slug)=lower(?)",slug).First(&school).Error;e!=nil{httpx.Error(c,404,"school_not_found","school not found");return};a,e:=ctrl.content.PublicAlbums(school.ID);if e!=nil{contentError(c,e);return};type publicAlbum struct{ID uuid.UUID `json:"id"`;Title string `json:"title"`;Slug string `json:"slug"`;Description string `json:"description"`;CoverImageURL string `json:"cover_image_url,omitempty"`;Featured bool `json:"featured"`};out:=make([]publicAlbum,0,len(a));for _,v:=range a{out=append(out,publicAlbum{ID:v.ID,Title:v.Title,Slug:v.Slug,Description:v.Description,CoverImageURL:v.CoverImageURL,Featured:v.Featured})};c.JSON(200,gin.H{"school":gin.H{"id":school.ID,"name":school.Name,"slug":school.Slug,"logo_url":school.LogoURL},"albums":out})}
 func(ctrl *SchoolContentController)PublicAlbum(c *gin.Context){slug:=strings.TrimSpace(c.Param("slug"));var school models.School;if e:=ctrl.db.Where("lower(slug)=lower(?)",slug).First(&school).Error;e!=nil{httpx.Error(c,404,"school_not_found","school not found");return};a,imgs,e:=ctrl.content.PublicAlbum(school.ID,c.Param("album"));if e!=nil{contentError(c,e);return};type publicImage struct{ID uuid.UUID `json:"id"`;ImageURL string `json:"image_url"`;Caption string `json:"caption"`;AltText string `json:"alt_text"`;DisplayOrder int `json:"display_order"`};out:=make([]publicImage,0,len(imgs));for _,i:=range imgs{out=append(out,publicImage{ID:i.ID,ImageURL:i.ImageURL,Caption:i.Caption,AltText:i.AltText,DisplayOrder:i.DisplayOrder})};c.JSON(200,gin.H{"album":gin.H{"id":a.ID,"title":a.Title,"slug":a.Slug,"description":a.Description,"cover_image_url":a.CoverImageURL},"images":out})}
 
-func(ctrl *SchoolContentController)UploadBlogImage(c *gin.Context){id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};if ctrl.storage==nil{httpx.Error(c,503,"media_storage_unavailable","media storage is not configured");return};pid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_post_id","invalid post id");return};var p models.BlogPost;if e=ctrl.db.Where("school_id=? AND id=?",id,pid).First(&p).Error;e!=nil{contentError(c,service.ErrContentNotFound);return};limitMultipartUpload(c,11<<20);f,h,e:=c.Request.FormFile("image");if e!=nil{if multipartUploadTooLarge(e){httpx.Error(c,413,"image_request_too_large","image request exceeds the 10 MB upload limit");return};httpx.Error(c,400,"image_required","image file is required");return};defer f.Close();ct:=h.Header.Get("Content-Type");if ct==""{ct="application/octet-stream"};url,e:=ctrl.storage.Upload(id,"blog/"+pid.String(),h.Filename,ct,f,h.Size);if e!=nil{httpx.Error(c,400,"image_upload_failed",fmt.Sprintf("%v",e));return};p,e=ctrl.content.UpdateBlog(id,pid,map[string]interface{}{"featured_image_url":url});if e!=nil{_ = ctrl.storage.Delete(id,url);contentError(c,e);return};c.JSON(200,p)}
+func(ctrl *SchoolContentController)UploadBlogImage(c *gin.Context){
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
+ id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};if ctrl.storage==nil{httpx.Error(c,503,"media_storage_unavailable","media storage is not configured");return};pid,e:=uuid.Parse(c.Param("id"));if e!=nil{httpx.Error(c,400,"invalid_post_id","invalid post id");return};var p models.BlogPost;if e=ctrl.db.Where("school_id=? AND id=?",id,pid).First(&p).Error;e!=nil{contentError(c,service.ErrContentNotFound);return};limitMultipartUpload(c,11<<20);f,h,e:=c.Request.FormFile("image");if e!=nil{if multipartUploadTooLarge(e){httpx.Error(c,413,"image_request_too_large","image request exceeds the 10 MB upload limit");return};httpx.Error(c,400,"image_required","image file is required");return};defer f.Close();ct:=h.Header.Get("Content-Type");if ct==""{ct="application/octet-stream"};url,e:=ctrl.storage.Upload(id,"blog/"+pid.String(),h.Filename,ct,f,h.Size);if e!=nil{httpx.Error(c,400,"image_upload_failed",fmt.Sprintf("%v",e));return};if !registerSchoolMediaRollbackCleanup(c,ctrl.storage,id,url){return};p,e=ctrl.content.UpdateBlog(id,pid,map[string]interface{}{"featured_image_url":url});if e!=nil{contentError(c,e);return};if !recordSchoolContentAudit(c,ctrl.db,"content.blog.image_upload","blog_post",pid){return};c.JSON(200,p)}
 
 
 type publicSchoolEnquiryRequest struct {
@@ -116,6 +212,9 @@ func (ctrl *SchoolContentController) CreatePublicEnquiry(c *gin.Context) {
 }
 
 func (ctrl *SchoolContentController) ListEnquiries(c *gin.Context) {
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
 	schoolID, ok := contentSchoolID(c)
 	if !ok {
 		httpx.Error(c, 403, "school_context_required", "school context required")
@@ -134,6 +233,9 @@ func (ctrl *SchoolContentController) ListEnquiries(c *gin.Context) {
 }
 
 func (ctrl *SchoolContentController) UpdateEnquiryStatus(c *gin.Context) {
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
 	schoolID, ok := contentSchoolID(c)
 	if !ok {
 		httpx.Error(c, 403, "school_context_required", "school context required")
@@ -160,12 +262,16 @@ func (ctrl *SchoolContentController) UpdateEnquiryStatus(c *gin.Context) {
 	case err != nil:
 		httpx.Error(c, 500, "enquiry_update_failed", "failed to update enquiry")
 	default:
+        if !recordSchoolContentAudit(c, ctrl.db, "school.enquiry.status_update", "school_enquiry", id) { return }
 		c.JSON(200, item)
 	}
 }
 
 
 func (ctrl *SchoolContentController) DeleteEnquiry(c *gin.Context) {
+ requestCtrl, ok := ctrl.requestDB(c)
+ if !ok { return }
+ ctrl = requestCtrl
 	schoolID, ok := contentSchoolID(c)
 	if !ok {
 		httpx.Error(c, 403, "school_context_required", "school context required")

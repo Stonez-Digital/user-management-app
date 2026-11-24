@@ -206,6 +206,14 @@ func TestBulkImportProcessingCandidatePrivilegesAgainstActualMigrations(t *testi
 			}
 			if !exists { t.Fatalf("actual application migrations did not create expected column %s.%s", table, column) }
 		}
+		var rlsEnabled, forceRLS bool
+		if err := db.Raw("SELECT c.relrowsecurity, c.relforcerowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=? AND c.relname=?", schema, table).Row().Scan(&rlsEnabled, &forceRLS); err != nil {
+			t.Fatalf("inspect actual RLS flags for %s: %v", table, err)
+		}
+		wantRLS := table == "teacher_profiles" || table == "parent_profiles"
+		if rlsEnabled != wantRLS || forceRLS {
+			t.Fatalf("actual migration RLS flags for %s = enabled:%t forced:%t, want enabled:%t forced:false", table, rlsEnabled, forceRLS, wantRLS)
+		}
 		var policyCount int64
 		if err := db.Raw("SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=? AND c.relname=?", schema, table).Scan(&policyCount).Error; err != nil {
 			t.Fatalf("inspect actual migration policies for %s: %v", table, err)

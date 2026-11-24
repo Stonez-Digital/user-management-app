@@ -18,6 +18,10 @@ func NewSchoolEnquiryService(db *gorm.DB) *SchoolEnquiryService {
 	return &SchoolEnquiryService{db: db}
 }
 
+func (s *SchoolEnquiryService) WithDB(db *gorm.DB) *SchoolEnquiryService {
+	return NewSchoolEnquiryService(db)
+}
+
 func (s *SchoolEnquiryService) Create(schoolID uuid.UUID, enquiry *models.SchoolEnquiry) error {
 	enquiry.ID = uuid.New()
 	enquiry.SchoolID = schoolID

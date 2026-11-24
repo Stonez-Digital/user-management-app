@@ -71,9 +71,23 @@ func main() {
         if closeErr != nil { log.Fatalf("get migration database connection for close: %v", closeErr) }
         if closeErr = sqlDB.Close(); closeErr != nil { log.Fatalf("close migration database connection: %v", closeErr) }
     }
+    requirePlatformDatabase := strings.EqualFold(strings.TrimSpace(os.Getenv("REQUIRE_PLATFORM_DATABASE")), "true")
+    platformDB, platformErr := database.ConnectPlatformRuntime(requirePlatformDatabase)
+    if platformErr != nil { log.Fatalf("connect dedicated platform runtime database: %v", platformErr) }
+    if platformDB == nil {
+        platformDB = db
+        log.Printf("SECURITY WARNING: platform routes are using the legacy shared application database connection; set PLATFORM_DATABASE_URL and REQUIRE_PLATFORM_DATABASE=true only after platform grants and RLS policies pass staging verification")
+    } else {
+        log.Printf("platform routes are using the dedicated restricted platform runtime connection")
+        defer func() {
+            sqlDB, closeErr := platformDB.DB()
+            if closeErr != nil { log.Printf("get platform runtime connection pool for shutdown: %v", closeErr); return }
+            if closeErr = sqlDB.Close(); closeErr != nil { log.Printf("close platform runtime database: %v", closeErr) }
+        }()
+    }
     r:=gin.Default();r.SetTrustedProxies(nil);server.Configure(r)
     repo:=repository.NewUserRepository(db);svc:=service.NewUserService(repo,db);ctrl:=controller.NewUserController(svc)
-    authController:=controller.NewAuthController(db);auditController:=controller.NewAuditController(db);platformSchoolController:=controller.NewPlatformSchoolController(db);schoolDomainReconciliationController:=controller.NewSchoolDomainReconciliationController(db)
+    authController:=controller.NewAuthController(db);auditController:=controller.NewAuditController(db);platformSchoolController:=controller.NewPlatformSchoolController(platformDB);schoolDomainReconciliationController:=controller.NewSchoolDomainReconciliationController(platformDB)
     paystackProvider,paystackErr:=service.NewPaystackProviderFromEnv();if paystackErr!=nil{log.Printf("Paystack subscription checkout disabled: provider is not configured")};subscriptionBillingController:=controller.NewSubscriptionBillingController(db,paystackProvider)
     studentRepo:=repository.NewStudentRepository(db);studentService:=service.NewStudentService(studentRepo,db);studentController:=controller.NewStudentController(studentService)
      schoolRepo:=repository.NewSchoolRepository(db);schoolService:=service.NewSchoolService(schoolRepo,db);schoolLogoStorage:=service.NewSchoolLogoStorageFromEnv();schoolController:=controller.NewSchoolController(schoolService,schoolLogoStorage)
@@ -81,7 +95,7 @@ func main() {
     classRepo:=repository.NewClassRepository(db);sectionRepo:=repository.NewSectionRepository(db);classService:=service.NewClassService(classRepo,sectionRepo,db);classController:=controller.NewClassController(classService)
     subjectRepo:=repository.NewSubjectRepository(db);subjectService:=service.NewSubjectService(subjectRepo,db);subjectController:=controller.NewSubjectController(subjectService)
     classSubjectRepo:=repository.NewClassSubjectRepository(db);classSubjectService:=service.NewClassSubjectService(classSubjectRepo,db);classSubjectController:=controller.NewClassSubjectController(classSubjectService)
-    nationalCurriculumRepo:=repository.NewNationalCurriculumRepository(db);nationalCurriculumService:=service.NewNationalCurriculumService(nationalCurriculumRepo);nationalCurriculumController:=controller.NewNationalCurriculumController(nationalCurriculumService)
+    nationalCurriculumRepo:=repository.NewNationalCurriculumRepository(platformDB);nationalCurriculumService:=service.NewNationalCurriculumService(nationalCurriculumRepo);nationalCurriculumController:=controller.NewNationalCurriculumController(nationalCurriculumService)
     assignmentRepo:=repository.NewTeacherAssignmentRepository(db);assignmentService:=service.NewTeacherAssignmentService(assignmentRepo,db);assignmentController:=controller.NewTeacherAssignmentController(assignmentService)
     enrollmentRepo:=repository.NewEnrollmentRepository(db);enrollmentService:=service.NewEnrollmentService(enrollmentRepo,db);enrollmentController:=controller.NewEnrollmentController(enrollmentService)
     attendanceRepo:=repository.NewAttendanceRepository(db);attendanceService:=service.NewAttendanceService(attendanceRepo,db);attendanceController:=controller.NewAttendanceController(attendanceService)

@@ -5,6 +5,7 @@ import (
  "net/http"
  "net/http/httptest"
  "testing"
+ "time"
 
  "github.com/gin-gonic/gin"
  "github.com/google/uuid"
@@ -124,5 +125,41 @@ func TestEverySchoolAdminContentHandlerFailsClosedWithoutTenantTransaction(t *te
     t.Fatalf("expected tenant_transaction_required, got %v", payload["error"])
    }
   })
+ }
+}
+
+func TestSchoolContentListsAdvertisementsAndEnquiriesOnlyForRequestTenant(t *testing.T) {
+ db := schoolContentTenantDB(t)
+ schoolA := models.School{Name: "Tenant A", Code: "LIST-TENANT-A"}
+ schoolB := models.School{Name: "Tenant B", Code: "LIST-TENANT-B"}
+ if err := db.Create(&schoolA).Error; err != nil { t.Fatal(err) }
+ if err := db.Create(&schoolB).Error; err != nil { t.Fatal(err) }
+
+ adA := models.SchoolAdvertisement{ID: uuid.New(), SchoolID: schoolA.ID, Title: "A advert", ImageURL: "https://media.invalid/a.png", Status: models.ContentDraft, CreatedBy: uuid.New()}
+ adB := models.SchoolAdvertisement{ID: uuid.New(), SchoolID: schoolB.ID, Title: "B advert", ImageURL: "https://media.invalid/b.png", Status: models.ContentDraft, CreatedBy: uuid.New()}
+ for _, ad := range []models.SchoolAdvertisement{adA, adB} {
+  if err := db.Create(&ad).Error; err != nil { t.Fatal(err) }
+ }
+ enquiryA := models.SchoolEnquiry{ID: uuid.New(), SchoolID: schoolA.ID, FullName: "A Contact", Email: "a@example.test", Subject: "General", Message: "A private enquiry", Status: models.SchoolEnquiryNew, ConsentAt: time.Now().UTC()}
+ enquiryB := models.SchoolEnquiry{ID: uuid.New(), SchoolID: schoolB.ID, FullName: "B Contact", Email: "b@example.test", Subject: "General", Message: "B private enquiry", Status: models.SchoolEnquiryNew, ConsentAt: time.Now().UTC()}
+ for _, enquiry := range []models.SchoolEnquiry{enquiryA, enquiryB} {
+  if err := db.Create(&enquiry).Error; err != nil { t.Fatal(err) }
+ }
+
+ ctrl := NewSchoolContentController(service.NewSchoolContentService(db), nil, db)
+ adResponse := schoolContentTenantRequest(db, schoolA.ID, uuid.New(), true, "/advertisements", ctrl.ListAdvertisements)
+ if adResponse.Code != http.StatusOK { t.Fatalf("advertisement list failed: %d %s", adResponse.Code, adResponse.Body.String()) }
+ var adPayload struct { Advertisements []models.SchoolAdvertisement `json:"advertisements"` }
+ if err := json.Unmarshal(adResponse.Body.Bytes(), &adPayload); err != nil { t.Fatal(err) }
+ if len(adPayload.Advertisements) != 1 || adPayload.Advertisements[0].ID != adA.ID {
+  t.Fatalf("school A must only see its own advertisements, got %+v", adPayload.Advertisements)
+ }
+
+ enquiryResponse := schoolContentTenantRequest(db, schoolA.ID, uuid.New(), true, "/enquiries", ctrl.ListEnquiries)
+ if enquiryResponse.Code != http.StatusOK { t.Fatalf("enquiry list failed: %d %s", enquiryResponse.Code, enquiryResponse.Body.String()) }
+ var enquiryPayload struct { Enquiries []models.SchoolEnquiry `json:"enquiries"` }
+ if err := json.Unmarshal(enquiryResponse.Body.Bytes(), &enquiryPayload); err != nil { t.Fatal(err) }
+ if len(enquiryPayload.Enquiries) != 1 || enquiryPayload.Enquiries[0].ID != enquiryA.ID {
+  t.Fatalf("school A must only see its own enquiries, got %+v", enquiryPayload.Enquiries)
  }
 }

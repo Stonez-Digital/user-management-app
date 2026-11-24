@@ -336,10 +336,23 @@ func assertColumnPrivilege(t *testing.T, db *gorm.DB, role, schema, table, colum
 func TestTeacherAndParentProfilesRequireCompositeSchoolUserForeignKeys(t *testing.T) {
 	db, schema, _, _, _ := openBulkWorkerPostgres(t)
 
-	// Inspect the real application-migration catalog before applying any
-	// candidate constraint. This records the gap without changing migrations.
+	for _, item := range []struct{ table, constraint string }{
+		{"teacher_profiles", "teacher_profile_user_school_fk"},
+		{"parent_profiles", "parent_profile_user_school_fk"},
+	} {
+		var count int64
+		query := "SELECT count(*) FROM pg_constraint fk " +
+			"JOIN pg_class child ON child.oid = fk.conrelid " +
+			"JOIN pg_namespace child_ns ON child_ns.oid = child.relnamespace " +
+			"WHERE fk.contype = 'f' AND child_ns.nspname = ? AND child.relname = ? AND fk.conname = ?"
+		if err := db.Raw(query, schema, item.table, item.constraint).Scan(&count).Error; err != nil {
+			t.Fatalf("inspect migrated %s constraint: %v", item.table, err)
+		}
+		if count != 1 { t.Fatalf("actual migrations installed %d copies of %s on %s; want exactly one", count, item.constraint, item.table) }
+	}
+
 	for _, table := range []string{"teacher_profiles", "parent_profiles"} {
-		var compositeCount int64
+		var count int64
 		query := "SELECT count(*) FROM pg_constraint fk " +
 			"JOIN pg_class child ON child.oid = fk.conrelid " +
 			"JOIN pg_namespace child_ns ON child_ns.oid = child.relnamespace " +
@@ -347,66 +360,32 @@ func TestTeacherAndParentProfilesRequireCompositeSchoolUserForeignKeys(t *testin
 			"JOIN pg_namespace parent_ns ON parent_ns.oid = parent.relnamespace " +
 			"WHERE fk.contype = 'f' AND child_ns.nspname = ? AND child.relname = ? " +
 			"AND parent_ns.nspname = ? AND parent.relname = 'users' " +
-			"AND (SELECT array_agg(a.attname::text ORDER BY k.ordinality) " +
-			"FROM unnest(fk.conkey) WITH ORDINALITY AS k(attnum, ordinality) " +
-			"JOIN pg_attribute a ON a.attrelid = child.oid AND a.attnum = k.attnum) = ARRAY['school_id','user_id']::text[] " +
-			"AND (SELECT array_agg(a.attname::text ORDER BY k.ordinality) " +
-			"FROM unnest(fk.confkey) WITH ORDINALITY AS k(attnum, ordinality) " +
-			"JOIN pg_attribute a ON a.attrelid = parent.oid AND a.attnum = k.attnum) = ARRAY['school_id','id']::text[]"
-		if err := db.Raw(query, schema, table, schema).Scan(&compositeCount).Error; err != nil {
-			t.Fatalf("inspect actual %s composite school/user FK: %v", table, err)
-		}
-		if compositeCount != 0 {
-			t.Fatalf("migration baseline unexpectedly has %d %s composite school/user FKs; review candidate migration", compositeCount, table)
-		}
-	}
-
-	// Install candidate constraints only in this disposable migration schema.
-	for _, item := range []struct{ table, name string }{
-		{"teacher_profiles", "test_teacher_profile_school_user_fk"},
-		{"parent_profiles", "test_parent_profile_school_user_fk"},
-	} {
-		statement := fmt.Sprintf(
-			"ALTER TABLE %s.%s ADD CONSTRAINT %s FOREIGN KEY (school_id, user_id) REFERENCES %s.users (school_id, id) ON UPDATE CASCADE ON DELETE RESTRICT",
-			schema, item.table, item.name, schema,
-		)
-		if err := db.Exec(statement).Error; err != nil {
-			t.Fatalf("install disposable candidate constraint %s: %v", item.name, err)
-		}
+			"AND (SELECT array_agg(a.attname::text ORDER BY k.ordinality) FROM unnest(fk.conkey) WITH ORDINALITY AS k(attnum, ordinality) JOIN pg_attribute a ON a.attrelid = child.oid AND a.attnum = k.attnum) = ARRAY['school_id','user_id']::text[] " +
+			"AND (SELECT array_agg(a.attname::text ORDER BY k.ordinality) FROM unnest(fk.confkey) WITH ORDINALITY AS k(attnum, ordinality) JOIN pg_attribute a ON a.attrelid = parent.oid AND a.attnum = k.attnum) = ARRAY['school_id','id']::text[]"
+		if err := db.Raw(query, schema, table, schema).Scan(&count).Error; err != nil { t.Fatalf("inspect %s composite school/user FK: %v", table, err) }
+		if count != 1 { t.Fatalf("%s has %d composite (school_id,user_id)->users(school_id,id) FKs; want exactly one", table, count) }
 	}
 
 	schools := []models.School{
 		{Name: "Profile FK School A", Code: "PROFILE-FK-A", Status: models.SchoolStatusActive},
 		{Name: "Profile FK School B", Code: "PROFILE-FK-B", Status: models.SchoolStatusActive},
 	}
-	if err := db.Create(&schools).Error; err != nil {
-		t.Fatalf("create isolated schools: %v", err)
-	}
+	if err := db.Create(&schools).Error; err != nil { t.Fatalf("create isolated schools: %v", err) }
 	users := []models.User{
 		{SchoolID: &schools[0].ID, Name: "Teacher A", Email: "teacher-a-profile-fk@example.invalid", PasswordHash: "hash", Role: "teacher", Active: true},
 		{SchoolID: &schools[1].ID, Name: "Teacher B", Email: "teacher-b-profile-fk@example.invalid", PasswordHash: "hash", Role: "teacher", Active: true},
 		{SchoolID: &schools[0].ID, Name: "Parent A", Email: "parent-a-profile-fk@example.invalid", PasswordHash: "hash", Role: "parent", Active: true},
 		{SchoolID: &schools[1].ID, Name: "Parent B", Email: "parent-b-profile-fk@example.invalid", PasswordHash: "hash", Role: "parent", Active: true},
 	}
-	if err := db.Create(&users).Error; err != nil {
-		t.Fatalf("create isolated profile users: %v", err)
-	}
+	if err := db.Create(&users).Error; err != nil { t.Fatalf("create isolated profile users: %v", err) }
 
 	validTeacher := models.TeacherProfile{SchoolID: schools[0].ID, UserID: users[0].ID, StaffID: "PROFILE-FK-VALID"}
-	if err := db.Create(&validTeacher).Error; err != nil {
-		t.Fatalf("same-school teacher profile should be accepted: %v", err)
-	}
+	if err := db.Create(&validTeacher).Error; err != nil { t.Fatalf("same-school teacher profile should be accepted: %v", err) }
 	invalidTeacher := models.TeacherProfile{SchoolID: schools[0].ID, UserID: users[1].ID, StaffID: "PROFILE-FK-CROSS"}
-	if err := db.Create(&invalidTeacher).Error; err == nil {
-		t.Fatal("cross-school teacher profile was accepted; composite tenant FK is ineffective")
-	}
+	if err := db.Create(&invalidTeacher).Error; err == nil { t.Fatal("cross-school teacher profile was accepted; migrated composite FK is ineffective") }
 
 	validParent := models.ParentProfile{SchoolID: schools[0].ID, UserID: users[2].ID, ParentIdentifier: "PROFILE-PARENT-VALID"}
-	if err := db.Create(&validParent).Error; err != nil {
-		t.Fatalf("same-school parent profile should be accepted: %v", err)
-	}
+	if err := db.Create(&validParent).Error; err != nil { t.Fatalf("same-school parent profile should be accepted: %v", err) }
 	invalidParent := models.ParentProfile{SchoolID: schools[0].ID, UserID: users[3].ID, ParentIdentifier: "PROFILE-PARENT-CROSS"}
-	if err := db.Create(&invalidParent).Error; err == nil {
-		t.Fatal("cross-school parent profile was accepted; composite tenant FK is ineffective")
-	}
+	if err := db.Create(&invalidParent).Error; err == nil { t.Fatal("cross-school parent profile was accepted; migrated composite FK is ineffective") }
 }

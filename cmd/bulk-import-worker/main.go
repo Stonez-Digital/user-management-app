@@ -38,6 +38,9 @@ func main() {
 	if err := database.ValidateBulkImportClaimRole(claimDB); err != nil {
 		log.Fatalf("restricted bulk import claim role validation failed: %v", err)
 	}
+	if err := database.ValidateDistinctBulkImportWorkerRoles(processingDB, claimDB); err != nil {
+		log.Fatal(err)
+	}
 
 	processingRole, err := database.InspectBulkImportProcessingRole(processingDB)
 	if err != nil {

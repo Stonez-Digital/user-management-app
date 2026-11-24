@@ -109,7 +109,7 @@ The following column sets are derived from the current worker's explicit project
 | Table | Candidate SELECT columns (projection plus predicate/RLS context) | Candidate INSERT columns | Candidate UPDATE columns |
 | --- | --- | --- | --- |
 | `bulk_import_jobs` | `id, school_id, initiated_by, worker_id` | None | `created, skipped, failed, credentials_sent, credential_emails_failed, errors_json, claimed_at, status, worker_id, last_error` |
-| `users` | `id, school_id, email, role` | `id, school_id, name, email, password_hash, role, active, created_at, updated_at` (confirm generated SQL; timestamps/defaults may be dialect/model dependent) | None |
+| `users` | `id, school_id, email, role` | `id, school_id, name, email, password_hash, role, active` (the current `User` model has no timestamp fields) | None |
 | `students` | `id, school_id, admission_number` | `id, school_id, user_id, admission_number, enrollment_status, guardian_name, guardian_phone, guardian_email, gender, created_at, updated_at` (confirm generated SQL) | None |
 | `teacher_profiles` | `id, school_id, staff_id` | `id, school_id, user_id, staff_id, phone, gender, department, designation, subjects, classes, status, created_at, updated_at` (confirm generated SQL) | None |
 | `parent_profiles` | `id, school_id, parent_identifier, user_id` | `id, school_id, user_id, parent_identifier, phone, address, occupation, created_at, updated_at` (confirm generated SQL) | None |

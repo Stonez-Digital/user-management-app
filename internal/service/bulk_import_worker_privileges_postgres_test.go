@@ -146,6 +146,26 @@ func TestBulkImportProcessingCandidatePrivilegesAgainstActualMigrations(t *testi
 		candidates[query.table] = candidate
 	}
 
+	// The processing worker reads only these four queue predicate columns.
+	queueSelect := db.Session(&gorm.Session{DryRun: true}).Model(&models.BulkImportJob{}).
+		Select("id", "school_id", "initiated_by", "worker_id").
+		Where("id = ? AND school_id = ? AND initiated_by = ? AND worker_id = ?", uuid.New(), schoolID, userID, uuid.New()).
+		First(&models.BulkImportJob{}).Statement
+	queueSelectSQL := queueSelect.SQL.String()
+	if queueSelect.Error != nil || !strings.Contains(strings.ToLower(queueSelectSQL), "select") {
+		t.Fatalf("generate queue predicate SELECT SQL: sql=%q err=%v", queueSelectSQL, queueSelect.Error)
+	}
+	for _, column := range []string{"id", "school_id", "initiated_by", "worker_id"} {
+		if !strings.Contains(queueSelectSQL, "\""+column+"\"") {
+			t.Fatalf("queue SELECT SQL does not project %q: %s", column, queueSelectSQL)
+		}
+	}
+	for _, forbidden := range []string{"rows_json", "errors_json", "kind", "file_name", "lease_generation"} {
+		if strings.Contains(queueSelectSQL, "\""+forbidden+"\"") {
+			t.Fatalf("queue SELECT SQL unexpectedly includes %q: %s", forbidden, queueSelectSQL)
+		}
+	}
+
 	// Queue progress is the only UPDATE path on these tables. Generate its
 	// SQL from the worker's progress/error field set and grant only its SET
 	// columns; WHERE columns are covered by the queue SELECT grant.
@@ -236,6 +256,13 @@ func TestBulkImportProcessingCandidatePrivilegesAgainstActualMigrations(t *testi
 		assertColumnPrivilege(t, db, role, schema, "bulk_import_jobs", column, "UPDATE", true)
 	}
 	assertColumnPrivilege(t, db, role, schema, "bulk_import_jobs", "rows_json", "UPDATE", false)
+	for _, privilege := range []string{"SELECT", "INSERT", "UPDATE", "DELETE"} {
+		var tablePrivilege bool
+		if err := db.Raw("SELECT has_table_privilege(?, ?, ?)", role, schema+".bulk_import_jobs", privilege).Scan(&tablePrivilege).Error; err != nil {
+			t.Fatalf("inspect queue table-level %s privilege: %v", privilege, err)
+		}
+		if tablePrivilege { t.Fatalf("candidate role unexpectedly has table-level %s on bulk_import_jobs", privilege) }
+	}
 }
 
 func selectPredicateColumns(table string) []string {

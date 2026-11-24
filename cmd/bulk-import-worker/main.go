@@ -20,20 +20,16 @@ func main() {
 	if !strings.EqualFold(strings.TrimSpace(os.Getenv("DB_DRIVER")), "postgres") {
 		log.Fatal("bulk import worker requires DB_DRIVER=postgres")
 	}
-	if strings.TrimSpace(os.Getenv("DATABASE_URL")) == "" {
-		log.Fatal("bulk import worker requires DATABASE_URL for job processing")
-	}
-	claimDSN := strings.TrimSpace(os.Getenv("BULK_IMPORT_CLAIM_DATABASE_URL"))
-	if claimDSN == "" {
-		log.Fatal("bulk import worker requires BULK_IMPORT_CLAIM_DATABASE_URL")
+	processingDSN, claimDSN, err := requiredWorkerDatabaseURLs(os.Getenv)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	// DATABASE_URL is used only for the existing tenant-scoped job processing
-	// operations. The claim-only credential is opened separately and is never
-	// used for application table reads or writes.
-	processingDB, err := database.Connect()
+	// The worker never uses the API's DATABASE_URL. Each capability has an
+	// explicit credential and is validated independently before polling.
+	processingDB, err := database.ConnectPostgresURL(processingDSN)
 	if err != nil {
-		log.Fatalf("connect bulk import processing database: %v", err)
+		log.Fatalf("connect dedicated bulk import processing database: %v", err)
 	}
 	claimDB, err := database.ConnectPostgresURL(claimDSN)
 	if err != nil {

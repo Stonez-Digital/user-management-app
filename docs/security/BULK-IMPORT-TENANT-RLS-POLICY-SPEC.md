@@ -104,3 +104,8 @@ These are source-review findings only. No migration, grant, policy, production d
 - Proves cross-school teacher and parent profile inserts fail.
 
 This is a regression test of the proposed database invariant, not a production migration. The actual migration gap remains open until the constraint migration is separately reviewed and approved.
+
+
+### Profile relationship migration candidate (migration 48)
+
+Migration 48 adds two database-enforced composite foreign keys: `teacher_profiles(school_id,user_id) -> users(school_id,id)` and `parent_profiles(school_id,user_id) -> users(school_id,id)`. Before adding either constraint it counts mismatched or unassigned user-school relationships and fails with a table-specific error if any exist. It relies on the `(school_id,id)` unique indexes established by migration 18. PostgreSQL 17 integration coverage validates the constraints installed by the real migration runner and verifies same-school inserts succeed while cross-school inserts fail. Production has not been migrated.

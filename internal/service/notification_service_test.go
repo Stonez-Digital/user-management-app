@@ -32,3 +32,37 @@ func TestNotificationPublishUsesRequestTransaction(t *testing.T) {
     if err := db.First(&stored, "id = ?", announcement.ID).Error; err != nil { t.Fatal(err) }
     if stored.Published { t.Fatal("announcement publication escaped rolled-back request transaction") }
 }
+
+
+func TestNotificationMarkReadRequiresOwningSchoolAndUser(t *testing.T) {
+ db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
+ if err != nil { t.Fatal(err) }
+ if err := db.AutoMigrate(&models.School{}, &models.User{}, &models.Notification{}); err != nil { t.Fatal(err) }
+ schoolA := models.School{Name:"School A", Code:"MARK-A"}
+ schoolB := models.School{Name:"School B", Code:"MARK-B"}
+ if err := db.Create(&schoolA).Error; err != nil { t.Fatal(err) }
+ if err := db.Create(&schoolB).Error; err != nil { t.Fatal(err) }
+ userA := models.User{Name:"Parent A", Email:"mark-a-"+uuid.NewString()+"@test", Role:authz.RoleParent, Active:true, SchoolID:&schoolA.ID}
+ userB := models.User{Name:"Parent B", Email:"mark-b-"+uuid.NewString()+"@test", Role:authz.RoleParent, Active:true, SchoolID:&schoolB.ID}
+ if err := db.Create(&userA).Error; err != nil { t.Fatal(err) }
+ if err := db.Create(&userB).Error; err != nil { t.Fatal(err) }
+ notification := models.Notification{SchoolID:schoolB.ID, UserID:userB.ID, Title:"Private notice", Body:"School B only", Category:"general"}
+ if err := db.Create(&notification).Error; err != nil { t.Fatal(err) }
+ svc := NewNotificationService(repository.NewNotificationRepository(db), db)
+
+ if err := svc.MarkRead(schoolA.ID, userA.ID, notification.ID); err != ErrNotificationNotFound {
+  t.Fatalf("cross-school read must be hidden as not found, got %v", err)
+ }
+ if err := svc.MarkRead(schoolB.ID, userA.ID, notification.ID); err != ErrNotificationNotFound {
+  t.Fatalf("another parent must not mark this notification read, got %v", err)
+ }
+ var stored models.Notification
+ if err := db.First(&stored, "id = ?", notification.ID).Error; err != nil { t.Fatal(err) }
+ if stored.Read { t.Fatal("unauthorized read attempt changed the notification") }
+
+ if err := svc.MarkRead(schoolB.ID, userB.ID, notification.ID); err != nil {
+  t.Fatalf("owning parent should mark the notification read: %v", err)
+ }
+ if err := db.First(&stored, "id = ?", notification.ID).Error; err != nil { t.Fatal(err) }
+ if !stored.Read { t.Fatal("owning parent's read was not persisted") }
+}

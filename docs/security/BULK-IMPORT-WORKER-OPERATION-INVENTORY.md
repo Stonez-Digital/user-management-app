@@ -89,7 +89,7 @@ Reviewed directly against the worker/service source and the GORM model definitio
 
 ### GORM projection and privilege implications
 
-The current worker uses `First(&model)` for several lookups without an explicit `Select` projection. GORM therefore loads the model's selected columns rather than only the predicate/return fields. In particular, user lookups currently hydrate the full `User` model, including `password_hash`, even though the worker does not need that value. This is a concrete least-privilege/code-hardening opportunity: narrow the projections before designing column-level SELECT grants. Do not grant broad SELECT merely to make the current unprojected queries pass.
+The source audit identified that unprojected `First(&model)` calls would hydrate unnecessary fields (including `users.password_hash`). The worker lookup queries have now been narrowed on this branch: user reads select only `id`, `school_id`, `email`, and `role`; the initiating-user membership check selects only `id`; profile, student, class, section, enrollment, and guardian-link existence checks select only their required identity columns; academic-session lookup selects only `id` and `status`. This reduces the eventual column-level SELECT grant surface. The actual generated SQL and privilege set still need PostgreSQL 17 integration verification; do not grant broad SELECT to bypass that gate.
 
 The processing path has no direct DELETE statements against the ten listed tables. Student/teacher/parent/profile/enrollment/link operations are SELECT/INSERT; queue progress is the only UPDATE path. The separate claim function owns queue selection, lease assignment, attempts, and lease generation.
 

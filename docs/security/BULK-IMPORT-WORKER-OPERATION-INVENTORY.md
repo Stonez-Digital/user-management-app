@@ -57,3 +57,11 @@ Before a processing role is granted table access:
 6. Run the tests against disposable PostgreSQL 17 using the actual application migrations, not synthetic replacement policies.
 
 No production database state, credentials, roles, grants, policies, secrets, or deployments are changed by this inventory.
+
+## Current test evidence boundary
+
+The PostgreSQL claim-function test in `internal/service/bulk_import_worker_postgres_test.go` creates a private schema, applies migrations, then installs its own queue-table grants and policies for the test roles. This is useful evidence for the isolated claim-function boundary; it is not a test of the processing login against tenant policies installed by the real application migrations.
+
+The signed-context PostgreSQL integration tests exercise the verifier and transaction-bound assertion under a restricted test login, but they do not establish that the processing login has the required least-privilege grants and tenant policies on all import target tables listed above.
+
+Accordingly, current green CI does not clear the worker table-access gate. The next database test must apply the real application migrations, install only the reviewed candidate policy/grant set in a disposable PostgreSQL 17 database, and run actual student, teacher, and parent worker flows with two schools using the restricted processing login. Until that exists, keep the processing role unprovisioned for production and do not enable the worker against production.

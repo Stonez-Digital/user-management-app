@@ -93,3 +93,14 @@ Required follow-up before policy approval:
 4. Test verified-context policy evaluation with the real signed-context function owner, including FORCE RLS behavior, in disposable PostgreSQL 17.
 
 These are source-review findings only. No migration, grant, policy, production database, or deployment was changed.
+
+### Disposable PostgreSQL 17 regression coverage added
+
+`TestTeacherAndParentProfilesRequireCompositeSchoolUserForeignKeys` now:
+
+- Applies the actual application migrations in a private schema and confirms neither profile table currently has the composite `(school_id,user_id) -> users(school_id,id)` foreign key.
+- Installs candidate constraints only inside that disposable schema.
+- Proves same-school teacher and parent profile inserts succeed.
+- Proves cross-school teacher and parent profile inserts fail.
+
+This is a regression test of the proposed database invariant, not a production migration. The actual migration gap remains open until the constraint migration is separately reviewed and approved.

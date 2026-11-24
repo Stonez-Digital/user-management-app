@@ -51,9 +51,9 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 				_ = sqlDB.Close()
 			}
 		}
-		_ = admin.Exec("REVOKE "+processRole+" FROM "+loginRole).Error
-		_ = admin.Exec("DROP OWNED BY "+loginRole).Error
-		_ = admin.Exec("DROP ROLE IF EXISTS "+loginRole).Error
+		// The test may fail before the LOGIN role is created. Guard cleanup so
+		// an early fixture failure does not generate misleading missing-role SQL errors.
+		_ = admin.Exec("DO $cleanup$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '"+loginRole+"') THEN EXECUTE 'DROP OWNED BY "+loginRole+"'; EXECUTE 'DROP ROLE "+loginRole+"'; END IF; END $cleanup$").Error
 		_ = admin.Exec("DROP SCHEMA IF EXISTS "+privateSchema+" CASCADE").Error
 		_ = admin.Exec("DROP SCHEMA IF EXISTS "+tableSchema+" CASCADE").Error
 		_ = admin.Exec("REVOKE "+ownerRole+", "+processRole+" FROM CURRENT_USER").Error
@@ -93,10 +93,13 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 
 	createQueue := "CREATE TABLE "+tableSchema+".bulk_import_jobs ("+
 		"id uuid PRIMARY KEY, school_id uuid NOT NULL, initiated_by uuid NOT NULL, "+
-		"worker_id uuid, lease_generation bigint NOT NULL DEFAULT 0, status text NOT NULL, claimed_at timestamptz, "+
-		"created integer NOT NULL DEFAULT 0, skipped integer NOT NULL DEFAULT 0, failed integer NOT NULL DEFAULT 0, "+
-		"credentials_sent integer NOT NULL DEFAULT 0, credential_emails_failed integer NOT NULL DEFAULT 0, "+
-		"errors_json text NOT NULL DEFAULT '[]', rows_json text NOT NULL DEFAULT '[]', last_error text NOT NULL DEFAULT '', updated_at timestamptz NOT NULL DEFAULT clock_timestamp())"
+		"kind text NOT NULL DEFAULT 'students', file_name text NOT NULL DEFAULT 'fixture.csv', "+
+		"status text NOT NULL, total integer NOT NULL DEFAULT 0, valid integer NOT NULL DEFAULT 0, "+
+		"created integer NOT NULL DEFAULT 0, updated integer NOT NULL DEFAULT 0, skipped integer NOT NULL DEFAULT 0, failed integer NOT NULL DEFAULT 0, "+
+		"send_credentials boolean NOT NULL DEFAULT false, credentials_sent integer NOT NULL DEFAULT 0, credential_emails_failed integer NOT NULL DEFAULT 0, "+
+		"worker_id uuid, claimed_at timestamptz, attempts integer NOT NULL DEFAULT 0, lease_generation bigint NOT NULL DEFAULT 0, "+
+		"last_error text NOT NULL DEFAULT '', rows_json text NOT NULL DEFAULT '[]', errors_json text NOT NULL DEFAULT '[]', "+
+		"created_at timestamptz NOT NULL DEFAULT clock_timestamp(), updated_at timestamptz NOT NULL DEFAULT clock_timestamp())"
 	if err := admin.Exec(createQueue).Error; err != nil {
 		t.Fatal(err)
 	}

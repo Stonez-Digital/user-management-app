@@ -78,7 +78,6 @@ func TestBulkImportProcessingCandidatePrivilegesAgainstActualMigrations(t *testi
 	// Generate INSERT SQL with the actual GORM models. The exact generated
 	// column list—not a handwritten model-field guess—drives the candidate
 	// INSERT column grants below.
-	insertColumnsByTable := make(map[string][]string, len(insertModels))
 	for table, model := range insertModels {
 		stmt := db.Session(&gorm.Session{DryRun: true}).Create(model).Statement
 		if stmt.Error != nil {
@@ -88,7 +87,6 @@ func TestBulkImportProcessingCandidatePrivilegesAgainstActualMigrations(t *testi
 		if err != nil {
 			t.Fatalf("parse generated %s INSERT SQL %q: %v", table, stmt.SQL.String(), err)
 		}
-		insertColumnsByTable[table] = columns
 		candidate := candidates[table]
 		candidate.insertColumns = columns
 		candidates[table] = candidate
@@ -267,7 +265,10 @@ var quotedIdentifierPattern = regexp.MustCompile(`"([^"]+)"`)
 func generatedInsertColumns(sqlText string) ([]string, error) {
 	match := insertColumnsPattern.FindStringSubmatch(sqlText)
 	if len(match) != 2 { return nil, fmt.Errorf("could not locate INSERT column list") }
-	return quotedIdentifierPattern.FindAllStringSubmatchValues(match[1]), nil
+	matches := quotedIdentifierPattern.FindAllStringSubmatch(match[1], -1)
+	columns := make([]string, 0, len(matches))
+	for _, column := range matches { columns = append(columns, column[1]) }
+	return columns, nil
 }
 
 func generatedUpdateColumns(sqlText string) ([]string, error) {

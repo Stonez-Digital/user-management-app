@@ -21,7 +21,7 @@ func schoolContentTenantDB(t *testing.T) *gorm.DB {
  t.Helper()
  db, err := gorm.Open(sqlite.Open("file:school_content_tenant_"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{})
  if err != nil { t.Fatal(err) }
- if err := db.AutoMigrate(&models.School{}, &models.BlogPost{}, &models.GalleryAlbum{}, &models.GalleryImage{}, &models.SchoolAdvertisement{}, &models.SchoolEnquiry{}); err != nil { t.Fatal(err) }
+ if err := db.AutoMigrate(&models.School{}, &models.BlogPost{}, &models.GalleryAlbum{}, &models.GalleryImage{}, &models.SchoolAdvertisement{}, &models.SchoolEnquiry{}, &models.AuditLog{}); err != nil { t.Fatal(err) }
  return db
 }
 
@@ -162,4 +162,34 @@ func TestSchoolContentListsAdvertisementsAndEnquiriesOnlyForRequestTenant(t *tes
  if len(enquiryPayload.Enquiries) != 1 || enquiryPayload.Enquiries[0].ID != enquiryA.ID {
   t.Fatalf("school A must only see its own enquiries, got %+v", enquiryPayload.Enquiries)
  }
+}
+
+
+func TestBlogMutationRollsBackWhenAuditWriteFails(t *testing.T) {
+ db := schoolContentTenantDB(t)
+ school := models.School{Name: "Audit rollback", Code: "AUDIT-ROLLBACK"}
+ if err := db.Create(&school).Error; err != nil { t.Fatal(err) }
+ post := models.BlogPost{ID: uuid.New(), SchoolID: school.ID, AuthorID: uuid.New(), Title: "Must remain", Slug: "must-remain", Content: "body", Status: models.ContentDraft}
+ if err := db.Create(&post).Error; err != nil { t.Fatal(err) }
+ if err := db.Exec(`CREATE TRIGGER reject_content_audit BEFORE INSERT ON audit_logs BEGIN SELECT RAISE(FAIL, 'audit unavailable'); END`).Error; err != nil { t.Fatal(err) }
+
+ ctrl := NewSchoolContentController(service.NewSchoolContentService(db), nil, db)
+ gin.SetMode(gin.TestMode)
+ router := gin.New()
+ router.Use(func(c *gin.Context) {
+  c.Set(middleware.SchoolIDKey, school.ID.String())
+  c.Set(middleware.UserIDKey, uuid.NewString())
+  c.Next()
+ })
+ router.Use(middleware.TenantTransaction(db))
+ router.DELETE("/blogs/:id", ctrl.DeleteBlog)
+ response := httptest.NewRecorder()
+ request := httptest.NewRequest(http.MethodDelete, "/blogs/"+post.ID.String(), nil)
+ router.ServeHTTP(response, request)
+ if response.Code != http.StatusInternalServerError {
+  t.Fatalf("expected audit failure to return 500, got %d: %s", response.Code, response.Body.String())
+ }
+ var count int64
+ if err := db.Model(&models.BlogPost{}).Where("school_id = ? AND id = ?", school.ID, post.ID).Count(&count).Error; err != nil { t.Fatal(err) }
+ if count != 1 { t.Fatalf("blog deletion must roll back when its audit write fails; found %d rows", count) }
 }

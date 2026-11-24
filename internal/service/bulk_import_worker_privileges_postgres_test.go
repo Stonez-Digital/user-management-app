@@ -124,7 +124,7 @@ func TestBulkImportProcessingCandidatePrivilegesAgainstActualMigrations(t *testi
 		case "student_enrollments": destination = &models.StudentEnrollment{}
 		case "guardian_relationships": destination = &models.GuardianRelationship{}
 		}
-		stmt := db.Session(&gorm.Session{DryRun: true}).Model(query.model).Select(query.columns).Where(query.where, query.args...).Limit(1).Find(destination).Statement
+		stmt := db.Session(&gorm.Session{DryRun: true}).Model(query.model).Select(query.columns).Where(query.where, query.args...).First(destination).Statement
 		sqlText := stmt.SQL.String()
 		if stmt.Error != nil || !strings.Contains(strings.ToLower(sqlText), "select") {
 			t.Fatalf("generate %s SELECT SQL: sql=%q err=%v", query.table, sqlText, stmt.Error)

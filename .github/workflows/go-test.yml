@@ -2,7 +2,7 @@ name: Go Tests
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, security/bulk-worker-context-architecture]
   push:
     branches: [main, fix/supabase-pg17-queue-role-provisioning, feat/dedicated-bulk-import-worker-claim-connection]
 

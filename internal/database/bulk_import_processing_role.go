@@ -88,3 +88,36 @@ func ValidateBulkImportProcessingRole(status *BulkImportProcessingRoleStatus) er
 	}
 	return nil
 }
+
+// ValidateDistinctBulkImportWorkerRoles confirms that the two worker
+// capabilities authenticate as different PostgreSQL login identities. URL
+// string comparison alone is insufficient because different URLs can resolve
+// to the same role.
+func ValidateDistinctBulkImportWorkerRoles(processingDB, claimDB *gorm.DB) error {
+	if processingDB == nil || claimDB == nil ||
+		processingDB.Dialector.Name() != "postgres" || claimDB.Dialector.Name() != "postgres" {
+		return fmt.Errorf("bulk import processing and claim connections must both use PostgreSQL")
+	}
+	var processing struct {
+		CurrentRole string
+		SessionRole string
+	}
+	var claim struct {
+		CurrentRole string
+		SessionRole string
+	}
+	if err := processingDB.Raw("SELECT current_user AS current_role, session_user AS session_role").Scan(&processing).Error; err != nil {
+		return fmt.Errorf("inspect bulk import processing identity: %w", err)
+	}
+	if err := claimDB.Raw("SELECT current_user AS current_role, session_user AS session_role").Scan(&claim).Error; err != nil {
+		return fmt.Errorf("inspect bulk import claim identity: %w", err)
+	}
+	if processing.SessionRole == "" || claim.SessionRole == "" ||
+		processing.CurrentRole == "" || claim.CurrentRole == "" {
+		return fmt.Errorf("bulk import worker database identities could not be determined")
+	}
+	if processing.SessionRole == claim.SessionRole || processing.CurrentRole == claim.CurrentRole {
+		return fmt.Errorf("bulk import processing and claim connections must authenticate as distinct PostgreSQL roles")
+	}
+	return nil
+}

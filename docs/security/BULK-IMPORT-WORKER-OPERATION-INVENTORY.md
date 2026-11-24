@@ -69,3 +69,35 @@ Accordingly, current green CI does not clear the worker table-access gate. The n
 ## Queue payload confidentiality correction
 
 The signed-context installer now explicitly revokes table-level SELECT and all known column-level SELECT privileges from `stonez_bulk_process_group`, then grants SELECT only on `id`, `school_id`, `initiated_by`, and `worker_id`. The claim-only connection receives the full claimed job through the SECURITY DEFINER claim function; the processing connection does not need to read `rows_json`. The verification SQL rejects table-level SELECT and SELECT on payload/metadata columns, and the restricted-login PostgreSQL test asserts that reading `rows_json` fails while the four predicate columns remain readable.
+
+## Statement-level review of the processing path
+
+Reviewed directly against the worker/service source and the GORM model definitions on this branch. This section records the operations that the code actually issues; it is still not a grant script or policy approval.
+
+| Physical table | Processing-path statements | Required operation class | Important boundary |
+| --- | --- | --- | --- |
+| `bulk_import_jobs` | Reads the four predicate columns for guarded progress updates; updates progress, status, error, worker and lease timestamp fields | SELECT on `id`, `school_id`, `initiated_by`, `worker_id`; UPDATE on the exact progress fields | No processing SELECT on `rows_json`, `errors_json`, `kind`, `file_name`, or lease-generation/claim-selection fields. Payload arrives only from the claim function. |
+| `users` | Reads the job initiator by `id + school_id`; looks up an existing account by lower-cased email; parent path also reads a user by ID; inserts new accounts | SELECT and INSERT | The current `createUser` lookup is `LOWER(email) = ?` without an explicit `school_id` predicate. It must rely on the tenant RLS policy to hide other schools. Do not solve this by adding a cross-school SELECT policy. The global unique email constraint may still reject an insert for an email hidden by RLS. |
+| `students` | Checks admission number; inserts student; parent import resolves student by school and admission number | SELECT and INSERT | No worker UPDATE or DELETE. |
+| `teacher_profiles` | Checks school + staff ID; inserts teacher profile | SELECT and INSERT | No worker UPDATE or DELETE. |
+| `parent_profiles` | Looks up identifier, profile by user + school, and conflicting identifier; inserts parent profile | SELECT and INSERT | No worker UPDATE or DELETE. |
+| `academic_sessions` | Resolves school + name and reads status | SELECT only | No worker write. |
+| `school_classes` | Resolves school + case-insensitive name | SELECT only | Physical table name confirmed by `SchoolClass` model and migration inventory. |
+| `sections` | Resolves school + class + name | SELECT only | No worker write. |
+| `student_enrollments` | Checks existing enrollment and active enrollment in another session; inserts enrollment | SELECT and INSERT | No worker UPDATE or DELETE. |
+| `guardian_relationships` | Checks school + guardian + student link; inserts relationship | SELECT and INSERT | No worker UPDATE or DELETE. |
+
+### GORM projection and privilege implications
+
+The current worker uses `First(&model)` for several lookups without an explicit `Select` projection. GORM therefore loads the model's selected columns rather than only the predicate/return fields. In particular, user lookups currently hydrate the full `User` model, including `password_hash`, even though the worker does not need that value. This is a concrete least-privilege/code-hardening opportunity: narrow the projections before designing column-level SELECT grants. Do not grant broad SELECT merely to make the current unprojected queries pass.
+
+The processing path has no direct DELETE statements against the ten listed tables. Student/teacher/parent/profile/enrollment/link operations are SELECT/INSERT; queue progress is the only UPDATE path. The separate claim function owns queue selection, lease assignment, attempts, and lease generation.
+
+### Open policy blockers (not solved by this source audit)
+
+1. The current migrations' zero-policy catalog result means the worker cannot safely be enabled under a NOBYPASSRLS login yet. RLS enabled without a matching policy is not tenant access.
+2. Every target table needs a reviewed school predicate policy, and tests must prove both visibility and write checks for two schools. The policy must use the verified transaction-bound school context, not a caller-settable GUC.
+3. `users` requires particular care because the model has a globally unique email and the current account lookup is email-only. Keep other schools invisible; decide separately how to handle a hidden global-unique collision without leaking whether the other school's account exists.
+4. Before column-level grants are finalized, narrow the worker's unprojected `First` queries and capture the resulting SQL/column set in PostgreSQL 17 integration tests. Do not treat this document as authorization to install any role, grant, or policy.
+
+No production database objects, credentials, roles, grants, policies, secrets, or deployments are changed by this audit.

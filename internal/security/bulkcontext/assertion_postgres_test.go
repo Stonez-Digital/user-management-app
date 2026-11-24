@@ -138,6 +138,12 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 		t.Fatal(err)
 	}
 	parsedDSN.User = url.UserPassword(loginRole, loginPassword)
+	// Keep every unqualified relation lookup inside this test's isolated schema.
+	// Without this, PostgreSQL's default search_path resolves bulk_import_jobs
+	// against public instead of the table whose column grants were installed.
+	query := parsedDSN.Query()
+	query.Set("options", "-csearch_path="+tableSchema+","+privateSchema+",extensions,public")
+	parsedDSN.RawQuery = query.Encode()
 	loginDB, err = gorm.Open(postgres.Open(parsedDSN.String()), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("connect with restricted processing login: %v", err)
@@ -150,6 +156,26 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	if sessionUser != loginRole || currentUser != loginRole {
 		t.Fatalf("expected authenticated processing login, got session=%q current=%q", sessionUser, currentUser)
 	}
+	var privilegeCheck struct {
+		CanReadID, CanReadSchoolID, CanReadInitiatedBy, CanReadWorkerID bool
+		CanReadRowsJSON, CanReadErrorsJSON, CanReadKind, CanReadFileName bool
+	}
+	privilegeSQL := "SELECT " +
+		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'id', 'SELECT'), " +
+		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'school_id', 'SELECT'), " +
+		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'initiated_by', 'SELECT'), " +
+		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'worker_id', 'SELECT'), " +
+		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'rows_json', 'SELECT'), " +
+		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'errors_json', 'SELECT'), " +
+		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'kind', 'SELECT'), " +
+		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'file_name', 'SELECT')"
+	if err := loginDB.Raw(privilegeSQL).Scan(&privilegeCheck).Error; err != nil {
+		t.Fatalf("inspect inherited processing column privileges: %v", err)
+	}
+	if !privilegeCheck.CanReadID || !privilegeCheck.CanReadSchoolID || !privilegeCheck.CanReadInitiatedBy || !privilegeCheck.CanReadWorkerID ||
+		privilegeCheck.CanReadRowsJSON || privilegeCheck.CanReadErrorsJSON || privilegeCheck.CanReadKind || privilegeCheck.CanReadFileName {
+		t.Fatalf("processing login has unexpected inherited queue column privileges: %+v", privilegeCheck)
+	}
 	if err := loginDB.Exec("SET ROLE "+processRole).Error; err == nil {
 		t.Fatal("processing login unexpectedly SET ROLE to its privilege group")
 	}
@@ -160,12 +186,12 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	var allowedQueueColumns struct {
 		ID, SchoolID, InitiatedBy, WorkerID string
 	}
-	if err := loginDB.Raw("SELECT id, school_id, initiated_by, worker_id FROM bulk_import_jobs LIMIT 1").Scan(&allowedQueueColumns).Error; err != nil {
+	if err := loginDB.Raw("SELECT id, school_id, initiated_by, worker_id FROM "+tableSchema+".bulk_import_jobs LIMIT 1").Scan(&allowedQueueColumns).Error; err != nil {
 		t.Fatalf("processing login could not read queue predicate columns: %v", err)
 	}
 	for _, column := range []string{"rows_json", "errors_json", "kind", "file_name", "status", "lease_generation"} {
 		var hiddenValue string
-		query := fmt.Sprintf("SELECT %s FROM bulk_import_jobs LIMIT 1", column)
+		query := fmt.Sprintf("SELECT %s FROM %s.bulk_import_jobs LIMIT 1", column, tableSchema)
 		if err := loginDB.Raw(query).Scan(&hiddenValue).Error; err == nil {
 			t.Fatalf("processing login unexpectedly read restricted queue column %q", column)
 		}

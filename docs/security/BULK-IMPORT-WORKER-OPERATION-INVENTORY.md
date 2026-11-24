@@ -101,3 +101,27 @@ The processing path has no direct DELETE statements against the ten listed table
 4. Before column-level grants are finalized, narrow the worker's unprojected `First` queries and capture the resulting SQL/column set in PostgreSQL 17 integration tests. Do not treat this document as authorization to install any role, grant, or policy.
 
 No production database objects, credentials, roles, grants, policies, secrets, or deployments are changed by this audit.
+
+## Candidate column sets for PostgreSQL privilege tests
+
+The following column sets are derived from the current worker's explicit projections, predicates, and GORM create/update models. They are candidate test inputs, not approved grants. The PostgreSQL 17 tests must capture the actual generated SQL and verify each privilege with `has_column_privilege` before any provisioning script is authored.
+
+| Table | Candidate SELECT columns (projection plus predicate/RLS context) | Candidate INSERT columns | Candidate UPDATE columns |
+| --- | --- | --- | --- |
+| `bulk_import_jobs` | `id, school_id, initiated_by, worker_id` | None | `created, skipped, failed, credentials_sent, credential_emails_failed, errors_json, claimed_at, status, worker_id, last_error` |
+| `users` | `id, school_id, email, role` | `id, school_id, name, email, password_hash, role, active, created_at, updated_at` (confirm generated SQL; timestamps/defaults may be dialect/model dependent) | None |
+| `students` | `id, school_id, admission_number` | `id, school_id, user_id, admission_number, enrollment_status, guardian_name, guardian_phone, guardian_email, gender, created_at, updated_at` (confirm generated SQL) | None |
+| `teacher_profiles` | `id, school_id, staff_id` | `id, school_id, user_id, staff_id, phone, gender, department, designation, subjects, classes, status, created_at, updated_at` (confirm generated SQL) | None |
+| `parent_profiles` | `id, school_id, parent_identifier, user_id` | `id, school_id, user_id, parent_identifier, phone, address, occupation, created_at, updated_at` (confirm generated SQL) | None |
+| `academic_sessions` | `id, school_id, name, status` | None | None |
+| `school_classes` | `id, school_id, name` | None | None |
+| `sections` | `id, school_id, class_id, name` | None | None |
+| `student_enrollments` | `id, school_id, student_id, academic_session_id, status` | `id, school_id, student_id, academic_session_id, class_id, section_id, status, enrolled_at, created_at, updated_at` (confirm generated SQL) | None |
+| `guardian_relationships` | `id, school_id, guardian_user_id, student_id` | `id, school_id, guardian_user_id, student_id, relationship, primary, active, created_at, updated_at` (confirm generated SQL) | None |
+
+Important details:
+- PostgreSQL column privileges must cover columns read by predicates as well as columns returned by the projection. The table above includes both.
+- The worker performs no direct DELETE on these tables and no UPDATE on them other than the queue progress columns listed above.
+- `users.password_hash` is intentionally absent from the candidate SELECT set. User creation still needs INSERT on `password_hash` to persist the generated password hash; the worker does not need to read it.
+- These candidate sets do not grant access to private `stonez_internal` signing-key/assertion tables. Those remain function-mediated.
+- Do not convert these candidates into SQL grants until generated-SQL and two-school RLS tests pass on disposable PostgreSQL 17 with the actual migrations.

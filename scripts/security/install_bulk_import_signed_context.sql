@@ -353,12 +353,14 @@ BEGIN
 END
 $$;
 
--- The processing group can inspect and update only the job's operational
--- progress fields. It cannot read the stored import payload or change lease
--- ownership/generation.
+-- The claim function returns the job payload to the worker. The processing
+-- connection needs only the key columns used by its guarded UPDATE predicate;
+-- it must not be able to SELECT rows_json or other payload columns.
 RESET ROLE;
 
-GRANT SELECT ON TABLE public.bulk_import_jobs TO stonez_bulk_process_group;
+REVOKE SELECT ON TABLE public.bulk_import_jobs FROM stonez_bulk_process_group;
+GRANT SELECT (id, school_id, initiated_by, worker_id)
+    ON TABLE public.bulk_import_jobs TO stonez_bulk_process_group;
 GRANT UPDATE (
     status, created, skipped, failed, credentials_sent,
     credential_emails_failed, errors_json, claimed_at, worker_id,

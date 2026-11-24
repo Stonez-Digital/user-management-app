@@ -16,6 +16,7 @@ var ErrContentInvalidStatus=errors.New("invalid content status")
 
 type SchoolContentService struct{db *gorm.DB}
 func NewSchoolContentService(db *gorm.DB)*SchoolContentService{return &SchoolContentService{db:db}}
+func (s *SchoolContentService) WithDB(db *gorm.DB) *SchoolContentService { return NewSchoolContentService(db) }
 func slugify(v string)string{v=strings.ToLower(strings.TrimSpace(v));var b strings.Builder;dash:=false;for _,r:=range v{if unicode.IsLetter(r)||unicode.IsDigit(r){b.WriteRune(r);dash=false}else if !dash{b.WriteByte('-');dash=true}};return strings.Trim(b.String(),"-")}
 func validStatus(v string)bool{return v==models.ContentDraft||v==models.ContentPublished||v==models.ContentArchived}
 

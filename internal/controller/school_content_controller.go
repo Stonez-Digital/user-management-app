@@ -75,7 +75,7 @@ func(ctrl *SchoolContentController)CreateBlog(c *gin.Context){
  requestCtrl, ok := ctrl.requestDB(c)
  if !ok { return }
  ctrl = requestCtrl
- id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};var r blogRequest;if e:=c.ShouldBindJSON(&r);e!=nil{httpx.Validation(c,httpx.ValidationErrors(e));return};p,e:=ctrl.content.CreateBlog(id,actorID(c),&models.BlogPost{Title:r.Title,Slug:r.Slug,Excerpt:r.Excerpt,Content:r.Content,FeaturedImageURL:r.FeaturedImageURL,Status:r.Status,Featured:r.Featured});if e!=nil{contentError(c,e);return};actor:=actorID(c);_=audit.Record(ctrl.db,c,&actor,"content.blog.create","blog_post",&p.ID,nil);c.JSON(201,p)}
+ id,ok:=contentSchoolID(c);if !ok{httpx.Error(c,403,"school_context_required","school context required");return};var r blogRequest;if e:=c.ShouldBindJSON(&r);e!=nil{httpx.Validation(c,httpx.ValidationErrors(e));return};p,e:=ctrl.content.CreateBlog(id,actorID(c),&models.BlogPost{Title:r.Title,Slug:r.Slug,Excerpt:r.Excerpt,Content:r.Content,FeaturedImageURL:r.FeaturedImageURL,Status:r.Status,Featured:r.Featured});if e!=nil{contentError(c,e);return};actor:=actorID(c);if err:=audit.Record(ctrl.db,c,&actor,"content.blog.create","blog_post",&p.ID,nil);err!=nil{httpx.Error(c,500,"content_audit_failed","failed to record blog creation");return};c.JSON(201,p)}
 func(ctrl *SchoolContentController)UpdateBlog(c *gin.Context){
  requestCtrl, ok := ctrl.requestDB(c)
  if !ok { return }

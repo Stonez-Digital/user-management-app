@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/onoja217/users-management-app/internal/database"
 	"github.com/onoja217/users-management-app/internal/models"
 	"gorm.io/gorm"
 )
@@ -388,4 +389,94 @@ func TestTeacherAndParentProfilesRequireCompositeSchoolUserForeignKeys(t *testin
 	if err := db.Create(&validParent).Error; err != nil { t.Fatalf("same-school parent profile should be accepted: %v", err) }
 	invalidParent := models.ParentProfile{SchoolID: schools[0].ID, UserID: users[3].ID, ParentIdentifier: "PROFILE-PARENT-CROSS"}
 	if err := db.Create(&invalidParent).Error; err == nil { t.Fatal("cross-school parent profile was accepted; migrated composite FK is ineffective") }
+}
+
+
+// TestProfileSchoolConsistencyMigrationFailsClosedAndCanBeRetried verifies
+// that migration 48 rejects legacy cross-school rows, leaves no migration
+// record or partial constraints behind, and succeeds after the data is fixed.
+func TestProfileSchoolConsistencyMigrationFailsClosedAndCanBeRetried(t *testing.T) {
+	db, schema, _, _, _ := openBulkWorkerPostgres(t)
+
+	for _, item := range []struct{ table, constraint string }{
+		{"teacher_profiles", "teacher_profile_user_school_fk"},
+		{"parent_profiles", "parent_profile_user_school_fk"},
+	} {
+		if err := db.Exec("ALTER TABLE " + schema + "." + item.table + " DROP CONSTRAINT " + item.constraint).Error; err != nil {
+			t.Fatalf("remove %s for legacy-data fixture: %v", item.constraint, err)
+		}
+	}
+	if err := db.Exec("DELETE FROM " + schema + ".migrations WHERE version = 48").Error; err != nil {
+		t.Fatalf("reset migration 48 for legacy-data fixture: %v", err)
+	}
+
+	schools := []models.School{
+		{Name: "Legacy Profile School A", Code: "LEGACY-PROFILE-A", Status: models.SchoolStatusActive},
+		{Name: "Legacy Profile School B", Code: "LEGACY-PROFILE-B", Status: models.SchoolStatusActive},
+	}
+	if err := db.Create(&schools).Error; err != nil {
+		t.Fatalf("create legacy-data schools: %v", err)
+	}
+	users := []models.User{
+		{SchoolID: &schools[0].ID, Name: "Legacy Teacher", Email: "legacy-teacher-profile@example.invalid", PasswordHash: "hash", Role: "teacher", Active: true},
+		{SchoolID: &schools[1].ID, Name: "Legacy Parent", Email: "legacy-parent-profile@example.invalid", PasswordHash: "hash", Role: "parent", Active: true},
+	}
+	if err := db.Create(&users).Error; err != nil {
+		t.Fatalf("create legacy-data users: %v", err)
+	}
+	teacher := models.TeacherProfile{SchoolID: schools[0].ID, UserID: users[1].ID, StaffID: "LEGACY-CROSS-SCHOOL-TEACHER"}
+	if err := db.Create(&teacher).Error; err != nil {
+		t.Fatalf("seed cross-school teacher profile: %v", err)
+	}
+	parent := models.ParentProfile{SchoolID: schools[1].ID, UserID: users[0].ID, ParentIdentifier: "LEGACY-CROSS-SCHOOL-PARENT"}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("seed cross-school parent profile: %v", err)
+	}
+
+	assertMigrationNotRecorded := func(stage string) {
+		t.Helper()
+		var count int64
+		if err := db.Model(&database.Migration{}).Where("version = ?", 48).Count(&count).Error; err != nil {
+			t.Fatalf("%s: inspect migration record: %v", stage, err)
+		}
+		if count != 0 {
+			t.Fatalf("%s: failed migration 48 was recorded", stage)
+		}
+		var constraints int64
+		if err := db.Raw("SELECT count(*) FROM pg_constraint WHERE conname IN ('teacher_profile_user_school_fk','parent_profile_user_school_fk')").Scan(&constraints).Error; err != nil {
+			t.Fatalf("%s: inspect partial constraints: %v", stage, err)
+		}
+		if constraints != 0 {
+			t.Fatalf("%s: failed migration left %d profile constraints behind", stage, constraints)
+		}
+	}
+
+	err := database.Migrate(db)
+	if err == nil || !strings.Contains(err.Error(), "teacher_profiles contains 1 rows") {
+		t.Fatalf("migration should fail closed on the teacher profile mismatch, got %v", err)
+	}
+	assertMigrationNotRecorded("teacher mismatch")
+
+	if err := db.Delete(&teacher).Error; err != nil {
+		t.Fatalf("remove invalid teacher profile: %v", err)
+	}
+	err = database.Migrate(db)
+	if err == nil || !strings.Contains(err.Error(), "parent_profiles contains 1 rows") {
+		t.Fatalf("migration should fail closed on the parent profile mismatch, got %v", err)
+	}
+	assertMigrationNotRecorded("parent mismatch")
+
+	if err := db.Delete(&parent).Error; err != nil {
+		t.Fatalf("remove invalid parent profile: %v", err)
+	}
+	if err := database.Migrate(db); err != nil {
+		t.Fatalf("migration should succeed after legacy profile rows are corrected: %v", err)
+	}
+	var migrationCount int64
+	if err := db.Model(&database.Migration{}).Where("version = ?", 48).Count(&migrationCount).Error; err != nil {
+		t.Fatalf("verify successful migration record: %v", err)
+	}
+	if migrationCount != 1 {
+		t.Fatalf("successful migration recorded %d times; want exactly one", migrationCount)
+	}
 }

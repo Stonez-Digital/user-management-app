@@ -168,7 +168,7 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	var roleAttributes struct {
 		Login, Superuser, BypassRLS, CreateDB, CreateRole, CanSetGroup bool
 	}
-	if err := admin.Raw("SELECT r.rolcanlogin, r.rolsuper, r.rolbypassrls, r.rolcreatedb, r.rolcreaterole, pg_has_role(?, ?, 'SET') FROM pg_roles r WHERE r.rolname = ?", loginRole, ownerRole, loginRole).Scan(&roleAttributes).Error; err != nil {
+	if err := admin.Raw("SELECT r.rolcanlogin AS login, r.rolsuper AS superuser, r.rolbypassrls AS bypass_rls, r.rolcreatedb AS create_db, r.rolcreaterole AS create_role, pg_has_role(?, ?, 'SET') AS can_set_group FROM pg_roles r WHERE r.rolname = ?", loginRole, ownerRole, loginRole).Scan(&roleAttributes).Error; err != nil {
 		t.Fatalf("inspect candidate login attributes: %v", err)
 	}
 	if !roleAttributes.Login || roleAttributes.Superuser || roleAttributes.BypassRLS || roleAttributes.CreateDB || roleAttributes.CreateRole || roleAttributes.CanSetGroup {

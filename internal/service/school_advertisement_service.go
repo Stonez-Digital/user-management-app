@@ -14,6 +14,7 @@ var ErrAdvertisementInvalid=errors.New("invalid advertisement")
 
 type SchoolAdvertisementService struct{db *gorm.DB}
 func NewSchoolAdvertisementService(db *gorm.DB)*SchoolAdvertisementService{return &SchoolAdvertisementService{db:db}}
+func (s *SchoolAdvertisementService) WithDB(db *gorm.DB) *SchoolAdvertisementService { return NewSchoolAdvertisementService(db) }
 
 func(s *SchoolAdvertisementService) List(schoolID uuid.UUID)([]models.SchoolAdvertisement,error){
  var ads []models.SchoolAdvertisement

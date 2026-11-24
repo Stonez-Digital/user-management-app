@@ -25,6 +25,10 @@ func NewSchoolService(repo repository.SchoolRepository, db *gorm.DB) *SchoolServ
 
 func (s *SchoolService) DB() *gorm.DB { return s.db }
 
+func (s *SchoolService) WithDB(db *gorm.DB) *SchoolService {
+	return NewSchoolService(repository.NewSchoolRepository(db), db)
+}
+
 func (s *SchoolService) GetSchool(id uuid.UUID) (models.School, error) {
     school, err := s.repo.GetByID(id)
     if errors.Is(err, gorm.ErrRecordNotFound) { return school, ErrSchoolNotFound }

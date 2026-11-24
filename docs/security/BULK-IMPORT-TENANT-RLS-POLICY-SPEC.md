@@ -75,3 +75,21 @@ RLS should be enabled and forced for these tables when the migration owner/runti
 ## Safety boundary
 
 This specification is not an approved migration, grant script, or production rollout instruction. No policies or grants are created by this document. Production database state, credentials, secrets, and deployments remain untouched.
+
+## Source-verified schema findings (2026-11-24)
+
+Reviewed against `internal/database/postgres.go` migrations 16–24 and the current GORM model definitions. These findings narrow the open decisions above:
+
+- **Global email uniqueness is present in the model.** `models.User.Email` carries GORM `uniqueIndex`; migration 16 deliberately avoids rebuilding the existing PostgreSQL users table because older databases may have a legacy email constraint/index. The worker's email lookup must remain tenant-filtered by RLS, and a hidden global-unique collision must be handled without disclosing another school's account.
+- **Composite school-consistency constraints exist for several import relationships.** Migration 18 creates composite foreign keys for `students(school_id,user_id)`, `sections(school_id,class_id)`, all four `student_enrollments` references (student, session, class, section), and both `guardian_relationships` references (guardian user and student). These are stronger than application-only checks and should be asserted by catalog tests.
+- **Teacher and parent profile user relationships are not covered by migration 18's composite-FK inventory.** `teacher_profiles` and `parent_profiles` are introduced in migration 23, while migration 18's composite parent-table and constraint lists omit both profile tables. Their `school_id,user_id` consistency is therefore an explicit blocker: add and test composite unique/FK constraints or an equivalent database-enforced mechanism before approving worker INSERT policies.
+- **Platform users are intentionally outside school tenancy.** Migration 21 sets `school_id = NULL` for `super_admin` users. A school-scoped `users` SELECT/INSERT policy must not grant access to platform users; worker initiator validation must require a non-null school ID equal to the verified context.
+- **RLS behavior for policy evaluation remains unproven.** The signed-context helper is SECURITY DEFINER, owned by `stonez_bulk_context_owner`, with `row_security = on` and fixed `search_path = pg_catalog`. The installer verifies its owner and search path, but this does not prove the helper can see `bulk_import_jobs` after any future FORCE RLS change or that policy evaluation is recursion-free. Add an isolated PostgreSQL 17 test for this exact owner/policy interaction before enabling FORCE RLS.
+
+Required follow-up before policy approval:
+1. Extend the actual-migration catalog test to assert each composite FK above and explicitly assert the absence of the two profile-user composite FKs.
+2. Add a reviewed migration/test for teacher and parent profile school/user consistency; do not silently assume their existing single-column foreign keys provide tenant integrity.
+3. Test the global-email collision path under the restricted role and verify the response does not reveal whether the email belongs to another school.
+4. Test verified-context policy evaluation with the real signed-context function owner, including FORCE RLS behavior, in disposable PostgreSQL 17.
+
+These are source-review findings only. No migration, grant, policy, production database, or deployment was changed.

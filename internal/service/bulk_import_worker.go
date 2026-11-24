@@ -238,7 +238,7 @@ func (s *BulkImportService) processClaimed(job models.BulkImportJob, workerID uu
 	err := s.withTenantTransaction(job, func(tx *gorm.DB) error {
 		if workerID != uuid.Nil {
 			var initiator models.User
-			if err := tx.Where("id = ? AND school_id = ?", job.InitiatedBy, job.SchoolID).First(&initiator).Error; err != nil {
+			if err := tx.Select("id").Where("id = ? AND school_id = ?", job.InitiatedBy, job.SchoolID).First(&initiator).Error; err != nil {
 				return fmt.Errorf("initiating user is not a member of the job's school: %w", err)
 			}
 		}

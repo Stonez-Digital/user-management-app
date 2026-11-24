@@ -103,6 +103,15 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 	if err := admin.Exec(createQueue).Error; err != nil {
 		t.Fatal(err)
 	}
+	// Simulate legacy/global permissive policies. PostgreSQL OR-combines
+	// permissive policies, so the signed-context installer must add a
+	// restrictive guard that still applies to the processing group.
+	broadQueuePolicies := "ALTER TABLE " + tableSchema + ".bulk_import_jobs ENABLE ROW LEVEL SECURITY; " +
+		"CREATE POLICY broad_public_queue_select ON " + tableSchema + ".bulk_import_jobs FOR SELECT TO PUBLIC USING (true); " +
+		"CREATE POLICY broad_public_queue_update ON " + tableSchema + ".bulk_import_jobs FOR UPDATE TO PUBLIC USING (true) WITH CHECK (true)"
+	if err := admin.Exec(broadQueuePolicies).Error; err != nil {
+		t.Fatalf("create simulated broad pre-existing queue policies: %v", err)
+	}
 
 	scriptBytes, err := os.ReadFile("../../../scripts/security/install_bulk_import_signed_context.sql")
 	if err != nil {
@@ -281,6 +290,13 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 		if visible != 1 {
 			return fmt.Errorf("school A context should see one row, got %d", visible)
 		}
+		var visibleJobs int64
+		if err := tx.Table(tableSchema+".bulk_import_jobs").Where("id = ?", jobID).Count(&visibleJobs).Error; err != nil {
+			return err
+		}
+		if visibleJobs != 1 {
+			return fmt.Errorf("valid signed context should see its own queue job despite broad legacy policies, got %d", visibleJobs)
+		}
 		return rollbackMarker
 	})
 	if !errors.Is(err, rollbackMarker) {
@@ -377,7 +393,14 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 				return err
 			}
 			if visible != 0 {
-				return fmt.Errorf("unverified context pointer exposed %d rows", visible)
+				return fmt.Errorf("unverified context pointer exposed %d tenant rows", visible)
+			}
+			var visibleJobs int64
+			if err := tx.Table(tableSchema+".bulk_import_jobs").Where("id = ?", jobID).Count(&visibleJobs).Error; err != nil {
+				return err
+			}
+			if visibleJobs != 0 {
+				return fmt.Errorf("unverified context pointer exposed %d queue jobs despite broad legacy policies", visibleJobs)
 			}
 			return nil
 		})

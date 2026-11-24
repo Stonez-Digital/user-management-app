@@ -69,7 +69,7 @@ func TestSchoolContentRoutesEnforceTwoSchoolRLS(t *testing.T) {
 	if err := admin.Exec(fmt.Sprintf("SET search_path TO \"%s\", public", schema)).Error; err != nil {
 		t.Fatalf("set isolated schema search path: %v", err)
 	}
-	if err := admin.AutoMigrate(&models.BlogPost{}); err != nil {
+	if err := admin.AutoMigrate(&models.BlogPost{}, &models.AuditLog{}); err != nil {
 		t.Fatalf("auto-migrate production BlogPost model: %v", err)
 	}
 	if err := admin.Create(&models.BlogPost{ID: uuid.New(), SchoolID: schoolA, AuthorID: userID, Title: "School A post", Slug: "school-a-post", Content: "A content", Status: models.ContentPublished}).Error; err != nil {
@@ -94,6 +94,12 @@ func TestSchoolContentRoutesEnforceTwoSchoolRLS(t *testing.T) {
 	if err := admin.Exec(fmt.Sprintf("GRANT SELECT, INSERT, UPDATE, DELETE ON %s TO \"%s\"", table, role)).Error; err != nil {
 		t.Fatal(err)
 	}
+	auditTable := fmt.Sprintf("\"%s\".audit_logs", schema)
+	if err := admin.Exec(fmt.Sprintf("ALTER TABLE %s ENABLE ROW LEVEL SECURITY", auditTable)).Error; err != nil { t.Fatal(err) }
+	if err := admin.Exec(fmt.Sprintf("ALTER TABLE %s FORCE ROW LEVEL SECURITY", auditTable)).Error; err != nil { t.Fatal(err) }
+	auditPolicy := fmt.Sprintf("CREATE POLICY audit_school_isolation ON %s USING (school_id = nullif(current_setting('app.current_school_id', true), '')::uuid) WITH CHECK (school_id = nullif(current_setting('app.current_school_id', true), '')::uuid)", auditTable)
+	if err := admin.Exec(auditPolicy).Error; err != nil { t.Fatal(err) }
+	if err := admin.Exec(fmt.Sprintf("GRANT INSERT ON %s TO \"%s\"", auditTable, role)).Error; err != nil { t.Fatal(err) }
 
 	parsed, err := url.Parse(rawDSN)
 	if err != nil || parsed.Scheme == "" {

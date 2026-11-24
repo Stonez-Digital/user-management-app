@@ -26,6 +26,6 @@ func TestSchoolContentIsTenantScoped(t *testing.T){
  if _,e=svc.PublicBlog(a.ID,"missing");e!=ErrContentNotFound{t.Fatalf("expected not found, got %v",e)}
  album,e:=svc.CreateAlbum(a.ID,&models.GalleryAlbum{Title:"Events",Status:models.ContentPublished});if e!=nil{t.Fatal(e)}
  if _,e=svc.AddImage(b.ID,authorB.ID,album.ID,&models.GalleryImage{ImageURL:"https://example.invalid/x.webp"});e!=ErrContentNotFound{t.Fatalf("cross-school album write should fail, got %v",e)}
- if e=svc.DeleteAlbum(b.ID,album.ID);e!=nil{t.Fatal(e)}
+ if e=svc.DeleteAlbum(b.ID,album.ID);e!=ErrContentNotFound{t.Fatalf("cross-school album delete should fail with not found, got %v",e)}
  var count int64;if e=db.Model(&models.GalleryAlbum{}).Where("id=?",album.ID).Count(&count).Error;e!=nil{t.Fatal(e)};if count!=1{t.Fatal("school B must not delete school A album")}
 }

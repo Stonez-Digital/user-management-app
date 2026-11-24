@@ -24,7 +24,7 @@ The PostgreSQL claim path uses the SECURITY DEFINER function. The SQLite direct-
 
 | Table (GORM model) | Operations in worker path | Scope and notes |
 | --- | --- | --- |
-| `bulk_import_jobs` (`BulkImportJob`) | Receives the claimed job from the claim function; updates progress/status/error fields after each row and on completion/failure | Processing updates are constrained by job ID, school ID, initiating user, and worker ID. The claim function owns queue selection/lease mutation. Do not grant processing login general queue-management rights. |
+| `bulk_import_jobs` (`BulkImportJob`) | Receives the claimed job and payload from the claim function; the processing connection reads only the `id`, `school_id`, `initiated_by`, and `worker_id` columns needed by its guarded progress UPDATE predicate, then updates progress/status/error fields | Processing updates are constrained by job ID, school ID, initiating user, and worker ID. The claim function owns queue selection/lease mutation. Do not grant processing login table-level SELECT or access to `rows_json`. |
 | `users` (`User`) | Reads the initiating user; looks up an existing user by email; inserts a user when needed | Reads and writes must remain tenant-scoped by the verified school context. The email lookup predicate itself is global, but RLS must prevent cross-school row visibility; do not add a cross-tenant SELECT policy to preserve the duplicate-email message. A global unique constraint may still reject a duplicate hidden by RLS. |
 | `students` (`Student`) | Checks admission-number duplicate; inserts student | School-scoped read/insert. |
 | `teacher_profiles` (`TeacherProfile`) | Checks staff-ID duplicate; inserts teacher profile | School-scoped read/insert. |

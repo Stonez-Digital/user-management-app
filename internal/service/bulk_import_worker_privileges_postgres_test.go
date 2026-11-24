@@ -443,7 +443,7 @@ func TestProfileSchoolConsistencyMigrationFailsClosedAndCanBeRetried(t *testing.
 			t.Fatalf("%s: failed migration 48 was recorded", stage)
 		}
 		var constraints int64
-		if err := db.Raw("SELECT count(*) FROM pg_constraint WHERE conname IN ('teacher_profile_user_school_fk','parent_profile_user_school_fk')").Scan(&constraints).Error; err != nil {
+		if err := db.Raw("SELECT count(*) FROM pg_constraint fk JOIN pg_class c ON c.oid = fk.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = ? AND fk.conname IN ('teacher_profile_user_school_fk','parent_profile_user_school_fk')", schema).Scan(&constraints).Error; err != nil {
 			t.Fatalf("%s: inspect partial constraints: %v", stage, err)
 		}
 		if constraints != 0 {

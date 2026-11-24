@@ -161,14 +161,14 @@ func TestPostgresVerifierBindsAssertionToTransactionAndLease(t *testing.T) {
 		CanReadRowsJSON, CanReadErrorsJSON, CanReadKind, CanReadFileName bool
 	}
 	privilegeSQL := "SELECT " +
-		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'id', 'SELECT'), " +
-		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'school_id', 'SELECT'), " +
-		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'initiated_by', 'SELECT'), " +
-		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'worker_id', 'SELECT'), " +
-		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'rows_json', 'SELECT'), " +
-		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'errors_json', 'SELECT'), " +
-		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'kind', 'SELECT'), " +
-		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'file_name', 'SELECT')"
+		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'id', 'SELECT') AS can_read_id, " +
+		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'school_id', 'SELECT') AS can_read_school_id, " +
+		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'initiated_by', 'SELECT') AS can_read_initiated_by, " +
+		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'worker_id', 'SELECT') AS can_read_worker_id, " +
+		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'rows_json', 'SELECT') AS can_read_rows_json, " +
+		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'errors_json', 'SELECT') AS can_read_errors_json, " +
+		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'kind', 'SELECT') AS can_read_kind, " +
+		"has_column_privilege(current_user, '"+tableSchema+".bulk_import_jobs', 'file_name', 'SELECT') AS can_read_file_name"
 	if err := loginDB.Raw(privilegeSQL).Scan(&privilegeCheck).Error; err != nil {
 		t.Fatalf("inspect inherited processing column privileges: %v", err)
 	}

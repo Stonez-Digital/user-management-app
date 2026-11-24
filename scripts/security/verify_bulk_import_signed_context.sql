@@ -84,7 +84,13 @@ BEGIN
        OR has_table_privilege('stonez_bulk_process_group', 'public.bulk_import_jobs', 'UPDATE') THEN
         RAISE EXCEPTION 'processing group has direct verifier-table access or broad queue UPDATE';
     END IF;
-    IF NOT has_table_privilege('stonez_bulk_process_group', 'public.bulk_import_jobs', 'SELECT')
+    IF has_table_privilege('stonez_bulk_process_group', 'public.bulk_import_jobs', 'SELECT')
+       OR NOT has_column_privilege('stonez_bulk_process_group', 'public.bulk_import_jobs', 'id', 'SELECT')
+       OR NOT has_column_privilege('stonez_bulk_process_group', 'public.bulk_import_jobs', 'school_id', 'SELECT')
+       OR NOT has_column_privilege('stonez_bulk_process_group', 'public.bulk_import_jobs', 'initiated_by', 'SELECT')
+       OR NOT has_column_privilege('stonez_bulk_process_group', 'public.bulk_import_jobs', 'worker_id', 'SELECT')
+       OR has_column_privilege('stonez_bulk_process_group', 'public.bulk_import_jobs', 'rows_json', 'SELECT')
+       OR has_column_privilege('stonez_bulk_process_group', 'public.bulk_import_jobs', 'lease_generation', 'SELECT')
        OR NOT has_column_privilege('stonez_bulk_process_group', 'public.bulk_import_jobs', 'status', 'UPDATE')
        OR NOT has_column_privilege('stonez_bulk_process_group', 'public.bulk_import_jobs', 'errors_json', 'UPDATE')
        OR has_column_privilege('stonez_bulk_process_group', 'public.bulk_import_jobs', 'lease_generation', 'UPDATE')

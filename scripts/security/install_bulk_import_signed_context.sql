@@ -359,6 +359,12 @@ $$;
 RESET ROLE;
 
 REVOKE SELECT ON TABLE public.bulk_import_jobs FROM stonez_bulk_process_group;
+REVOKE SELECT (
+    id, school_id, initiated_by, kind, file_name, status, total, valid,
+    created, updated, skipped, failed, send_credentials, credentials_sent,
+    credential_emails_failed, worker_id, claimed_at, attempts, lease_generation,
+    last_error, rows_json, errors_json, created_at, updated_at
+) ON TABLE public.bulk_import_jobs FROM stonez_bulk_process_group;
 GRANT SELECT (id, school_id, initiated_by, worker_id)
     ON TABLE public.bulk_import_jobs TO stonez_bulk_process_group;
 GRANT UPDATE (

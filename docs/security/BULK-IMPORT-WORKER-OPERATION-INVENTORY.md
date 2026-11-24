@@ -65,3 +65,7 @@ The PostgreSQL claim-function test in `internal/service/bulk_import_worker_postg
 The signed-context PostgreSQL integration tests exercise the verifier and transaction-bound assertion under a restricted test login, but they do not establish that the processing login has the required least-privilege grants and tenant policies on all import target tables listed above.
 
 Accordingly, current green CI does not clear the worker table-access gate. The next database test must apply the real application migrations, install only the reviewed candidate policy/grant set in a disposable PostgreSQL 17 database, and run actual student, teacher, and parent worker flows with two schools using the restricted processing login. Until that exists, keep the processing role unprovisioned for production and do not enable the worker against production.
+
+## Queue payload confidentiality correction
+
+The signed-context installer now explicitly revokes table-level SELECT and all known column-level SELECT privileges from `stonez_bulk_process_group`, then grants SELECT only on `id`, `school_id`, `initiated_by`, and `worker_id`. The claim-only connection receives the full claimed job through the SECURITY DEFINER claim function; the processing connection does not need to read `rows_json`. The verification SQL rejects table-level SELECT and SELECT on payload/metadata columns, and the restricted-login PostgreSQL test asserts that reading `rows_json` fails while the four predicate columns remain readable.

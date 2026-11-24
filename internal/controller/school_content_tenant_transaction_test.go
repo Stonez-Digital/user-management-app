@@ -4,6 +4,7 @@ import (
  "encoding/json"
  "net/http"
  "net/http/httptest"
+ "strings"
  "testing"
  "time"
 
@@ -192,4 +193,104 @@ func TestBlogMutationRollsBackWhenAuditWriteFails(t *testing.T) {
  var count int64
  if err := db.Model(&models.BlogPost{}).Where("school_id = ? AND id = ?", school.ID, post.ID).Count(&count).Error; err != nil { t.Fatal(err) }
  if count != 1 { t.Fatalf("blog deletion must roll back when its audit write fails; found %d rows", count) }
+}
+
+
+func TestSchoolAMutationsCannotReadOrChangeSchoolBContent(t *testing.T) {
+ db := schoolContentTenantDB(t)
+ schoolA := models.School{Name: "Mutation A", Code: "MUTATION-A"}
+ schoolB := models.School{Name: "Mutation B", Code: "MUTATION-B"}
+ if err := db.Create(&schoolA).Error; err != nil { t.Fatal(err) }
+ if err := db.Create(&schoolB).Error; err != nil { t.Fatal(err) }
+
+ blogB := models.BlogPost{ID: uuid.New(), SchoolID: schoolB.ID, AuthorID: uuid.New(), Title: "B blog", Slug: "b-blog", Content: "private", Status: models.ContentDraft}
+ albumB := models.GalleryAlbum{ID: uuid.New(), SchoolID: schoolB.ID, Title: "B album", Slug: "b-album", Status: models.ContentDraft}
+ adB := models.SchoolAdvertisement{ID: uuid.New(), SchoolID: schoolB.ID, Title: "B advert", ImageURL: "https://media.invalid/b.png", Status: models.ContentDraft, CreatedBy: uuid.New()}
+ enquiryB := models.SchoolEnquiry{ID: uuid.New(), SchoolID: schoolB.ID, FullName: "B Contact", Email: "b@example.test", Subject: "General", Message: "Private school B enquiry", Status: models.SchoolEnquiryNew, ConsentAt: time.Now().UTC()}
+ for _, record := range []interface{}{&blogB, &albumB, &adB, &enquiryB} {
+  if err := db.Create(record).Error; err != nil { t.Fatal(err) }
+ }
+ imageB := models.GalleryImage{ID: uuid.New(), SchoolID: schoolB.ID, AlbumID: albumB.ID, UploadedBy: uuid.New(), ImageURL: "https://media.invalid/b-gallery.png"}
+ if err := db.Create(&imageB).Error; err != nil { t.Fatal(err) }
+
+ ctrl := NewSchoolContentController(service.NewSchoolContentService(db), nil, db)
+ userID := uuid.New()
+ gin.SetMode(gin.TestMode)
+ router := gin.New()
+ router.Use(func(c *gin.Context) {
+  c.Set(middleware.SchoolIDKey, schoolA.ID.String())
+  c.Set(middleware.UserIDKey, userID.String())
+  c.Next()
+ })
+ router.Use(middleware.TenantTransaction(db))
+ router.PUT("/blogs/:id", ctrl.UpdateBlog)
+ router.DELETE("/blogs/:id", ctrl.DeleteBlog)
+ router.PUT("/albums/:id", ctrl.UpdateAlbum)
+ router.DELETE("/albums/:id", ctrl.DeleteAlbum)
+ router.DELETE("/images/:id", ctrl.DeleteImage)
+ router.PUT("/advertisements/:id", ctrl.UpdateAdvertisement)
+ router.DELETE("/advertisements/:id", ctrl.DeleteAdvertisement)
+ router.PATCH("/enquiries/:id", ctrl.UpdateEnquiryStatus)
+ router.DELETE("/enquiries/:id", ctrl.DeleteEnquiry)
+
+ cases := []struct{method, path, body string}{
+  {http.MethodPut, "/blogs/"+blogB.ID.String(), `{"title":"tampered"}`},
+  {http.MethodDelete, "/blogs/"+blogB.ID.String(), ""},
+  {http.MethodPut, "/albums/"+albumB.ID.String(), `{"title":"tampered"}`},
+  {http.MethodDelete, "/albums/"+albumB.ID.String(), ""},
+  {http.MethodDelete, "/images/"+imageB.ID.String(), ""},
+  {http.MethodPut, "/advertisements/"+adB.ID.String(), `{"title":"tampered"}`},
+  {http.MethodDelete, "/advertisements/"+adB.ID.String(), ""},
+  {http.MethodPatch, "/enquiries/"+enquiryB.ID.String(), `{"status":"closed"}`},
+  {http.MethodDelete, "/enquiries/"+enquiryB.ID.String(), ""},
+ }
+ for _, tc := range cases {
+  request := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+  response := httptest.NewRecorder()
+  router.ServeHTTP(response, request)
+  if response.Code != http.StatusNotFound {
+   t.Errorf("%s %s should not find school B's record, got %d: %s", tc.method, tc.path, response.Code, response.Body.String())
+  }
+ }
+
+ var blog models.BlogPost
+ if err := db.Where("id = ?", blogB.ID).First(&blog).Error; err != nil { t.Fatalf("school B blog was changed or deleted: %v", err) }
+ if blog.Title != "B blog" { t.Fatalf("school B blog was modified: %q", blog.Title) }
+ var album models.GalleryAlbum
+ if err := db.Where("id = ?", albumB.ID).First(&album).Error; err != nil { t.Fatalf("school B album was changed or deleted: %v", err) }
+ var imageCount, adCount, enquiryCount, auditCount int64
+ if err := db.Model(&models.GalleryImage{}).Where("id = ?", imageB.ID).Count(&imageCount).Error; err != nil { t.Fatal(err) }
+ if err := db.Model(&models.SchoolAdvertisement{}).Where("id = ?", adB.ID).Count(&adCount).Error; err != nil { t.Fatal(err) }
+ if err := db.Model(&models.SchoolEnquiry{}).Where("id = ?", enquiryB.ID).Count(&enquiryCount).Error; err != nil { t.Fatal(err) }
+ if err := db.Model(&models.AuditLog{}).Count(&auditCount).Error; err != nil { t.Fatal(err) }
+ if imageCount != 1 || adCount != 1 || enquiryCount != 1 { t.Fatalf("school B data was changed: image=%d ad=%d enquiry=%d", imageCount, adCount, enquiryCount) }
+ if auditCount != 0 { t.Fatalf("rejected cross-tenant mutations must not leave audit writes, got %d", auditCount) }
+}
+
+func TestSchoolContentAuditUsesRequestTenant(t *testing.T) {
+ db := schoolContentTenantDB(t)
+ schoolA := models.School{Name: "Audit Tenant A", Code: "AUDIT-TENANT-A"}
+ schoolB := models.School{Name: "Audit Tenant B", Code: "AUDIT-TENANT-B"}
+ if err := db.Create(&schoolA).Error; err != nil { t.Fatal(err) }
+ if err := db.Create(&schoolB).Error; err != nil { t.Fatal(err) }
+ ctrl := NewSchoolContentController(service.NewSchoolContentService(db), nil, db)
+ userID := uuid.New()
+ gin.SetMode(gin.TestMode)
+ router := gin.New()
+ router.Use(func(c *gin.Context) {
+  c.Set(middleware.SchoolIDKey, schoolA.ID.String())
+  c.Set(middleware.UserIDKey, userID.String())
+  c.Next()
+ })
+ router.Use(middleware.TenantTransaction(db))
+ router.POST("/blogs", ctrl.CreateBlog)
+ request := httptest.NewRequest(http.MethodPost, "/blogs", strings.NewReader(`{"title":"Tenant A update","content":"owned by A"}`))
+ response := httptest.NewRecorder()
+ router.ServeHTTP(response, request)
+ if response.Code != http.StatusCreated { t.Fatalf("blog create failed: %d %s", response.Code, response.Body.String()) }
+ var logs []models.AuditLog
+ if err := db.Where("action = ?", "content.blog.create").Find(&logs).Error; err != nil { t.Fatal(err) }
+ if len(logs) != 1 || logs[0].SchoolID == nil || *logs[0].SchoolID != schoolA.ID {
+  t.Fatalf("audit must be written for request tenant A only, got %+v", logs)
+ }
 }

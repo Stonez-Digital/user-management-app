@@ -200,8 +200,20 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	if err := admin.Exec(restoreUsersGuard).Error; err != nil {
 		t.Fatalf("restore only the removed users restrictive guard: %v", err)
 	}
+	// A policy that contains the tenant expression but adds an OR bypass
+	// must also be rejected by the read-only verifier.
+	if err := admin.Exec("ALTER POLICY users_bulk_import_tenant_select ON " + schema + ".users USING (school_id IS NOT NULL AND EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = users.school_id) OR true)").Error; err != nil {
+		t.Fatalf("weaken SELECT policy for verifier predicate test: %v", err)
+	}
+	if err := verifyTenantPolicies(); err == nil {
+		t.Fatal("tenant RLS verifier accepted an expanded SELECT predicate")
+	}
+	restoreUsersSelect := "ALTER POLICY users_bulk_import_tenant_select ON " + schema + ".users USING (school_id IS NOT NULL AND EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = users.school_id))"
+	if err := admin.Exec(restoreUsersSelect).Error; err != nil {
+		t.Fatalf("restore exact users SELECT predicate: %v", err)
+	}
 	if err := verifyTenantPolicies(); err != nil {
-		t.Fatalf("verify restored tenant RLS policies: %v", err)
+		t.Fatalf("verify exact restored tenant RLS predicates: %v", err)
 	}
 
 	// Assert the test login inherits only the candidate role and has no direct

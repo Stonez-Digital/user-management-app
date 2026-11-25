@@ -916,6 +916,24 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 			}
 			return fmt.Errorf("%s: %w", stage, cause)
 		}
+		var policyDiagnostics []string
+		if err := tx.Raw(`
+			SELECT format('policy=%s roles=%s command=%s permissive=%s qual=%s check=%s',
+				p.polname, p.polroles::text, p.polcmd, p.polpermissive,
+				COALESCE(pg_get_expr(p.polqual, p.polrelid), '<null>'),
+				COALESCE(pg_get_expr(p.polwithcheck, p.polrelid), '<null>'))
+			FROM pg_policy p
+			JOIN pg_class c ON c.oid = p.polrelid
+			JOIN pg_namespace n ON n.oid = c.relnamespace
+			WHERE n.nspname = 'public'
+			  AND p.polname LIKE '%_bulk_import_tenant_%'
+			ORDER BY p.polname
+		`).Scan(&policyDiagnostics).Error; err != nil {
+			return rollbackFailed("collect installer policy diagnostics", err)
+		}
+		for _, diagnostic := range policyDiagnostics {
+			t.Logf("rollback preflight policy diagnostic: %s", diagnostic)
+		}
 		if err := tx.Exec(preflightSQL).Error; err != nil {
 			return rollbackFailed("execute candidate RLS rollback preflight", err)
 		}

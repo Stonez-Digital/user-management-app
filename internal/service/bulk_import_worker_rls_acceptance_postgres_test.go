@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/onoja217/users-management-app/internal/database"
 	"github.com/onoja217/users-management-app/internal/models"
 	"github.com/onoja217/users-management-app/internal/security/bulkcontext"
@@ -39,6 +41,7 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	}
 
 	loginRole := "bi_accept_login_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	runtimeRole := "bi_accept_runtime_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	loginPassword := uuid.NewString() + uuid.NewString()
 	privateSchema := "stonez_internal"
 
@@ -52,13 +55,52 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	if err := admin.Exec("CREATE ROLE " + loginRole + " LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS PASSWORD '" + loginPassword + "'").Error; err != nil {
 		t.Fatalf("create disposable restricted processing login: %v", err)
 	}
+	if err := admin.Exec("CREATE ROLE " + runtimeRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS").Error; err != nil {
+		t.Fatalf("create disposable application runtime role: %v", err)
+	}
+	if err := admin.Exec("GRANT " + runtimeRole + " TO CURRENT_USER").Error; err != nil {
+		t.Fatalf("grant disposable application runtime role to test session: %v", err)
+	}
 	if err := admin.Exec("GRANT " + processGroup + " TO " + loginRole + " WITH INHERIT TRUE, SET FALSE").Error; err != nil {
 		t.Fatalf("grant test processing group to login: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = admin.Exec("DROP OWNED BY " + loginRole).Error
-		_ = admin.Exec("REVOKE " + processGroup + " FROM " + loginRole).Error
-		_ = admin.Exec("DROP ROLE " + loginRole).Error
+		if err := admin.Exec("DROP OWNED BY " + loginRole).Error; err != nil {
+			t.Errorf("clean up disposable processing login privileges: %v", err)
+		}
+		if err := admin.Exec("REVOKE " + processGroup + " FROM " + loginRole).Error; err != nil {
+			t.Errorf("revoke disposable processing login membership: %v", err)
+		}
+		if err := admin.Exec("DROP ROLE " + loginRole).Error; err != nil {
+			t.Errorf("drop disposable processing login: %v", err)
+		}
+
+		// Restore table ownership before DROP OWNED. Dropping objects owned by
+		// runtimeRole first fails because other fixture tables have foreign keys
+		// that depend on these tenant tables. Cleanup failures must fail the test
+		// rather than being silently ignored.
+		runtimeTablesRestored := true
+		for _, table := range []string{
+			"users", "students", "teacher_profiles", "parent_profiles",
+			"academic_sessions", "school_classes", "sections",
+			"student_enrollments", "guardian_relationships",
+		} {
+			if err := admin.Exec("ALTER TABLE " + schema + "." + table + " OWNER TO " + ownerRole).Error; err != nil {
+				t.Errorf("restore %s table owner after API runtime acceptance: %v", table, err)
+				runtimeTablesRestored = false
+			}
+		}
+		if runtimeTablesRestored {
+			if err := admin.Exec("DROP OWNED BY " + runtimeRole).Error; err != nil {
+				t.Errorf("clean up disposable API runtime privileges: %v", err)
+			}
+		}
+		if err := admin.Exec("REVOKE " + runtimeRole + " FROM CURRENT_USER").Error; err != nil {
+			t.Errorf("revoke disposable API runtime membership: %v", err)
+		}
+		if err := admin.Exec("DROP ROLE " + runtimeRole).Error; err != nil {
+			t.Errorf("drop disposable API runtime role: %v", err)
+		}
 	})
 
 	// The verifier's pgcrypto dependency is installed only in the disposable
@@ -97,106 +139,182 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		t.Fatalf("grant verifier function schema usage: %v", err)
 	}
 
-	// Candidate policy and column-grant fixture. It intentionally applies
-	// FORCE RLS to every worker tenant table, including tables where the
-	// application migrations currently leave RLS disabled. The policy shape
-	// is a test hypothesis only and remains subject to separate review.
-	type tableFixture struct {
-		name          string
-		model         any
-		selectColumns []string
-		allowInsert   bool
+	// Install the exact operator policy SQL against this disposable schema.
+	// The installer must refuse a second run rather than silently replace any
+	// policy, ACL, or RLS state that may have appeared after initial approval.
+	installTenantPolicies := func() error {
+		raw, err := os.ReadFile("../../scripts/security/install_bulk_import_tenant_rls.sql")
+		if err != nil { return fmt.Errorf("read tenant RLS installer: %w", err) }
+		script := strings.ReplaceAll(string(raw), "\\set ON_ERROR_STOP on\n", "")
+		script = strings.ReplaceAll(script, "stonez_bulk_process_group", processGroup)
+		script = strings.ReplaceAll(script, "stonez_internal", privateSchema)
+		script = strings.ReplaceAll(script, "public", schema)
+		return admin.Exec(script).Error
 	}
-	tables := []tableFixture{
-		{"users", &models.User{}, []string{"id", "school_id", "email", "role"}, true},
-		{"students", &models.Student{}, []string{"id", "school_id", "admission_number"}, true},
-		{"teacher_profiles", &models.TeacherProfile{}, []string{"id", "school_id", "staff_id"}, true},
-		{"parent_profiles", &models.ParentProfile{}, []string{"id", "school_id", "parent_identifier", "user_id"}, true},
-		{"academic_sessions", &models.AcademicSession{}, []string{"id", "school_id", "name", "status"}, false},
-		{"school_classes", &models.SchoolClass{}, []string{"id", "school_id", "name"}, false},
-		{"sections", &models.Section{}, []string{"id", "school_id", "class_id", "name"}, false},
-		{"student_enrollments", &models.StudentEnrollment{}, []string{"id", "school_id", "student_id", "academic_session_id", "status"}, true},
-		{"guardian_relationships", &models.GuardianRelationship{}, []string{"id", "school_id", "guardian_user_id", "student_id"}, true},
+
+	// A worker login must not bring unrelated inherited/SET ROLE memberships
+	// into the processing session. The installer must reject this identity
+	// before changing table ACLs or RLS state.
+	extraRole := "bi_accept_extra_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	if err := admin.Exec("CREATE ROLE " + extraRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS").Error; err != nil {
+		t.Fatalf("create disposable extra membership role: %v", err)
 	}
-	for _, table := range tables {
-		if len(table.selectColumns) == 0 {
-			t.Fatalf("%s candidate SELECT privileges unexpectedly empty", table.name)
-		}
-		var insertColumns []string
-		if table.allowInsert {
-			stmt := admin.Session(&gorm.Session{DryRun: true}).Create(table.model).Statement
-			if stmt.Error != nil {
-				t.Fatalf("generate %s insert columns: %v", table.name, stmt.Error)
-			}
-			insertColumns, err = generatedInsertColumns(stmt.SQL.String())
-			if err != nil {
-				t.Fatalf("derive %s insert columns from GORM SQL: %v", table.name, err)
-			}
-			if len(insertColumns) == 0 {
-				t.Fatalf("%s candidate INSERT privileges unexpectedly empty", table.name)
-			}
-		}
-		quotedSelect := make([]string, 0, len(table.selectColumns))
-		quotedInsert := make([]string, 0, len(insertColumns))
-		for _, column := range table.selectColumns {
-			quotedSelect = append(quotedSelect, fmt.Sprintf("%q", column))
-		}
-		for _, column := range insertColumns {
-			quotedInsert = append(quotedInsert, fmt.Sprintf("%q", column))
-		}
-		if err := admin.Exec("GRANT SELECT (" + strings.Join(quotedSelect, ",") + ") ON TABLE " + schema + "." + table.name + " TO " + processGroup).Error; err != nil {
-			t.Fatalf("grant candidate SELECT columns on %s: %v", table.name, err)
-		}
-		if table.allowInsert {
-			if err := admin.Exec("GRANT INSERT (" + strings.Join(quotedInsert, ",") + ") ON TABLE " + schema + "." + table.name + " TO " + processGroup).Error; err != nil {
-				t.Fatalf("grant candidate INSERT columns on %s: %v", table.name, err)
-			}
-		}
-		if err := admin.Exec("ALTER TABLE " + schema + "." + table.name + " ENABLE ROW LEVEL SECURITY").Error; err != nil {
-			t.Fatalf("enable candidate RLS on %s: %v", table.name, err)
-		}
-		if err := admin.Exec("ALTER TABLE " + schema + "." + table.name + " FORCE ROW LEVEL SECURITY").Error; err != nil {
-			t.Fatalf("force candidate RLS on %s: %v", table.name, err)
-		}
-		policy := "CREATE POLICY " + table.name + "_bulk_context_select ON " + schema + "." + table.name +
-			" FOR SELECT TO " + processGroup +
-			" USING (EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = " + table.name + ".school_id))"
-		if table.name == "users" {
-			policy = "CREATE POLICY users_bulk_context_select ON " + schema + ".users FOR SELECT TO " + processGroup +
-				" USING (school_id IS NOT NULL AND EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = users.school_id))"
-		}
-		if err := admin.Exec(policy).Error; err != nil {
-			t.Fatalf("create test-only SELECT policy on %s: %v", table.name, err)
-		}
-		if table.allowInsert {
-			insertPolicy := "CREATE POLICY " + table.name + "_bulk_context_insert ON " + schema + "." + table.name +
-				" FOR INSERT TO " + processGroup +
-				" WITH CHECK (EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = " + table.name + ".school_id))"
-			if table.name == "users" {
-				insertPolicy = "CREATE POLICY users_bulk_context_insert ON " + schema + ".users FOR INSERT TO " + processGroup +
-					" WITH CHECK (school_id IS NOT NULL AND EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = users.school_id))"
-			}
-			if err := admin.Exec(insertPolicy).Error; err != nil {
-				t.Fatalf("create test-only INSERT policy on %s: %v", table.name, err)
-			}
-		}
-		// Restrictive policies are ANDed with every applicable permissive
-		// policy, preventing a later broad policy from bypassing tenancy.
-		guardPredicate := "EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = " + table.name + ".school_id)"
-		if table.name == "users" {
-			guardPredicate = "school_id IS NOT NULL AND EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = users.school_id)"
-		}
-		guard := "CREATE POLICY " + table.name + "_bulk_context_guard ON " + schema + "." + table.name +
-			" AS RESTRICTIVE FOR ALL TO " + processGroup +
-			" USING (" + guardPredicate + ") WITH CHECK (" + guardPredicate + ")"
-		if err := admin.Exec(guard).Error; err != nil {
-			t.Fatalf("create test-only restrictive tenant guard on %s: %v", table.name, err)
+	if err := admin.Exec("GRANT " + extraRole + " TO " + loginRole + " WITH INHERIT TRUE, SET TRUE").Error; err != nil {
+		t.Fatalf("grant disposable extra membership to processing login: %v", err)
+	}
+	if err := installTenantPolicies(); err == nil {
+		t.Fatal("tenant RLS installer accepted a processing login with an additional role membership")
+	}
+	if err := admin.Exec("REVOKE " + extraRole + " FROM " + loginRole).Error; err != nil {
+		t.Fatalf("revoke disposable extra membership: %v", err)
+	}
+	if err := admin.Exec("DROP ROLE " + extraRole).Error; err != nil {
+		t.Fatalf("drop disposable extra membership role: %v", err)
+	}
+
+	// Preserve the true pre-install RLS baseline in Go memory. The rollback
+	// acceptance later recreates this manifest on the exact SQL session used
+	// to execute the candidate rollback script.
+	type rollbackRLSBaseline struct {
+		TableName string
+		RLS       bool
+		ForceRLS  bool
+	}
+	var rollbackBaseline []rollbackRLSBaseline
+	if err := admin.Raw(
+		"SELECT c.relname AS table_name, c.relrowsecurity AS rls, c.relforcerowsecurity AS force_rls " +
+			"FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace " +
+			"WHERE n.nspname=? AND c.relname IN " +
+			"('users','students','teacher_profiles','parent_profiles','academic_sessions','school_classes','sections','student_enrollments','guardian_relationships')",
+		schema,
+	).Scan(&rollbackBaseline).Error; err != nil {
+		t.Fatalf("capture pre-install RLS baseline: %v", err)
+	}
+	if len(rollbackBaseline) != 9 {
+		t.Fatalf("expected nine pre-install tenant tables in rollback baseline, found %d", len(rollbackBaseline))
+	}
+	for _, baseline := range rollbackBaseline {
+		if baseline.ForceRLS {
+			t.Fatalf("unexpected pre-install FORCE RLS on %s", baseline.TableName)
 		}
 	}
+
+	// PUBLIC privileges are effective for every role. The installer must
+	// reject them before changing any table state, then succeed after cleanup.
+	if err := admin.Exec("GRANT SELECT ON TABLE " + schema + ".users TO PUBLIC").Error; err != nil {
+		t.Fatalf("create disposable PUBLIC ACL regression: %v", err)
+	}
+	if err := installTenantPolicies(); err == nil {
+		t.Fatal("tenant RLS installer accepted a pre-existing PUBLIC table grant")
+	}
+	if err := admin.Exec("REVOKE SELECT ON TABLE " + schema + ".users FROM PUBLIC").Error; err != nil {
+		t.Fatalf("remove disposable PUBLIC ACL regression: %v", err)
+	}
+	if err := installTenantPolicies(); err != nil {
+		t.Fatalf("install test-only tenant RLS policies after PUBLIC ACL cleanup: %v", err)
+	}
+	if err := installTenantPolicies(); err == nil {
+		t.Fatal("installer accepted a second run over pre-existing RLS state")
+	}
+
 	// Deliberately simulate a future broad permissive policy. The restrictive
-	// tenant guard above must still prevent cross-school visibility and writes.
+	// tenant guards must still prevent cross-school visibility and writes.
 	if err := admin.Exec("CREATE POLICY users_acceptance_broad_permissive ON " + schema + ".users AS PERMISSIVE FOR ALL TO " + processGroup + " USING (true) WITH CHECK (true)").Error; err != nil {
 		t.Fatalf("create broad permissive regression policy: %v", err)
+	}
+
+	// The read-only verifier must accept the installed catalog, including the
+	// intentionally broad policy that is constrained by the restrictive guard.
+	verifyTenantPolicies := func() error {
+		raw, err := os.ReadFile("../../scripts/security/verify_bulk_import_tenant_rls.sql")
+		if err != nil { return fmt.Errorf("read tenant RLS verifier: %w", err) }
+		script := strings.ReplaceAll(string(raw), "stonez_bulk_process_group", processGroup)
+		script = strings.ReplaceAll(script, "stonez_internal", privateSchema)
+		script = strings.ReplaceAll(script, "public", schema)
+		return admin.Exec(script).Error
+	}
+	if err := verifyTenantPolicies(); err != nil {
+		t.Fatalf("verify installed tenant RLS policies: %v", err)
+	}
+
+	type tableFixture struct {
+		name string
+		model any
+		allowInsert bool
+	}
+	var rlsForced bool
+	tables := []tableFixture{
+		{"users", &models.User{}, true},
+		{"students", &models.Student{}, true},
+		{"teacher_profiles", &models.TeacherProfile{}, true},
+		{"parent_profiles", &models.ParentProfile{}, true},
+		{"academic_sessions", &models.AcademicSession{}, false},
+		{"school_classes", &models.SchoolClass{}, false},
+		{"sections", &models.Section{}, false},
+		{"student_enrollments", &models.StudentEnrollment{}, true},
+		{"guardian_relationships", &models.GuardianRelationship{}, true},
+	}
+	for _, table := range tables {
+		if err := admin.Raw("SELECT relrowsecurity AND NOT relforcerowsecurity FROM pg_class WHERE oid = to_regclass(?)", schema+"."+table.name).Scan(&rlsForced).Error; err != nil {
+			t.Fatalf("inspect RLS flags on %s: %v", table.name, err)
+		}
+		if !rlsForced { t.Fatalf("RLS must be enabled and not forced on %s", table.name) }
+		if table.allowInsert {
+			stmt := admin.Session(&gorm.Session{DryRun:true}).Create(table.model).Statement
+			if stmt.Error != nil { t.Fatalf("generate %s insert SQL: %v", table.name, stmt.Error) }
+			columns, err := generatedInsertColumns(stmt.SQL.String())
+			if err != nil { t.Fatalf("derive %s insert columns: %v", table.name, err) }
+			for _, column := range columns {
+				var allowed bool
+				if err := admin.Raw("SELECT has_column_privilege(?, ?, ?, 'INSERT')", processGroup, schema+"."+table.name, column).Scan(&allowed).Error; err != nil {
+					t.Fatalf("inspect %s.%s INSERT privilege: %v", table.name, column, err)
+				}
+				if !allowed { t.Fatalf("installer omitted required GORM INSERT column %s.%s", table.name, column) }
+			}
+		} else {
+			var anyInsert bool
+			if err := admin.Raw("SELECT has_any_column_privilege(?, ?, 'INSERT')", processGroup, schema+"."+table.name).Scan(&anyInsert).Error; err != nil { t.Fatalf("inspect read-only INSERT privilege on %s: %v", table.name, err) }
+			if anyInsert { t.Fatalf("processing group unexpectedly has INSERT on read-only table %s", table.name) }
+		}
+		for _, privilege := range []string{"UPDATE","DELETE"} {
+			var allowed bool
+			if err := admin.Raw("SELECT has_table_privilege(?, ?, ?)", processGroup, schema+"."+table.name, privilege).Scan(&allowed).Error; err != nil { t.Fatalf("inspect %s on %s: %v", privilege, table.name, err) }
+			if allowed { t.Fatalf("processing group unexpectedly has table-level %s on %s", privilege, table.name) }
+		}
+	}
+	if err := verifyTenantPolicies(); err != nil { t.Fatalf("second read-only tenant RLS verification: %v", err) }
+
+	// Prove the verifier fails closed when a required restrictive guard is
+	// removed, then restore the exact installer-owned policy set.
+	if err := admin.Exec("DROP POLICY users_bulk_import_tenant_guard ON " + schema + ".users").Error; err != nil {
+		t.Fatalf("remove restrictive guard for verifier negative test: %v", err)
+	}
+	if err := verifyTenantPolicies(); err == nil {
+		t.Fatal("tenant RLS verifier accepted a missing restrictive users guard")
+	}
+	// Restore only the guard deliberately removed by this negative test.
+	// Re-running the installer must remain fail-closed after FORCE RLS is set.
+	restoreUsersGuard := "CREATE POLICY users_bulk_import_tenant_guard ON " + schema + ".users " +
+		"AS RESTRICTIVE FOR ALL TO " + processGroup +
+		" USING (school_id IS NOT NULL AND EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = users.school_id))" +
+		" WITH CHECK (school_id IS NOT NULL AND EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = users.school_id))"
+	if err := admin.Exec(restoreUsersGuard).Error; err != nil {
+		t.Fatalf("restore only the removed users restrictive guard: %v", err)
+	}
+	// A policy that contains the tenant expression but adds an OR bypass
+	// must also be rejected by the read-only verifier.
+	if err := admin.Exec("ALTER POLICY users_bulk_import_tenant_select ON " + schema + ".users USING (school_id IS NOT NULL AND EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = users.school_id) OR true)").Error; err != nil {
+		t.Fatalf("weaken SELECT policy for verifier predicate test: %v", err)
+	}
+	if err := verifyTenantPolicies(); err == nil {
+		t.Fatal("tenant RLS verifier accepted an expanded SELECT predicate")
+	}
+	restoreUsersSelect := "ALTER POLICY users_bulk_import_tenant_select ON " + schema + ".users USING (school_id IS NOT NULL AND EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = users.school_id))"
+	if err := admin.Exec(restoreUsersSelect).Error; err != nil {
+		t.Fatalf("restore exact users SELECT predicate: %v", err)
+	}
+	if err := verifyTenantPolicies(); err != nil {
+		t.Fatalf("verify exact restored tenant RLS predicates: %v", err)
 	}
 
 	// Assert the test login inherits only the candidate role and has no direct
@@ -343,6 +461,31 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 			studentJob: jobs["students"], teacherJob: jobs["teachers"], parentJob: jobs["parents"],
 			studentAdmission: studentAdmission,
 		})
+	}
+
+	// The API runtime retains its existing table-owner behavior. FORCE RLS
+	// would silently change that contract; ordinary ENABLE RLS does not apply
+	// to a table owner, while the separate worker login remains non-owner.
+	if err := admin.Exec("GRANT USAGE, CREATE ON SCHEMA " + schema + " TO " + runtimeRole).Error; err != nil {
+		t.Fatalf("grant disposable API runtime schema ownership prerequisite: %v", err)
+	}
+	for _, table := range tables {
+		if err := admin.Exec("ALTER TABLE " + schema + "." + table.name + " OWNER TO " + runtimeRole).Error; err != nil {
+			t.Fatalf("assign %s to disposable API runtime role: %v", table.name, err)
+		}
+	}
+	if err := admin.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SET LOCAL ROLE " + runtimeRole).Error; err != nil { return err }
+		var visible int64
+		if err := tx.Table(schema + ".users").Where("school_id IN ?", []uuid.UUID{fixtures[0].school.ID, fixtures[1].school.ID}).Count(&visible).Error; err != nil {
+			return fmt.Errorf("API runtime cannot read both tenant fixtures: %w", err)
+		}
+		if visible < 2 { return fmt.Errorf("API runtime expected both schools' users, got %d", visible) }
+		apiUser := models.User{SchoolID: &fixtures[0].school.ID, Name: "API runtime acceptance user", Email: "api-runtime-acceptance@example.invalid", PasswordHash: "test-only", Role: "student", Active: true}
+		if err := tx.Create(&apiUser).Error; err != nil { return fmt.Errorf("API runtime cannot insert its normal user record: %w", err) }
+		return nil
+	}); err != nil {
+		t.Fatalf("preserve application runtime table-owner access after RLS install: %v", err)
 	}
 
 	service := (&BulkImportService{db: loginDB, contextSigner: signer})
@@ -713,5 +856,152 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	if canReadPasswordHash || !canInsertPasswordHash || canReadRowsJSON || canReadVerifierKeys || canReadVerifierSessions {
 		t.Fatalf("restricted login sensitive privileges incorrect: password_read=%v password_insert=%v payload_read=%v key_read=%v session_read=%v",
 			canReadPasswordHash, canInsertPasswordHash, canReadRowsJSON, canReadVerifierKeys, canReadVerifierSessions)
+	}
+
+	// Roll back only this installer's artifacts after the worker scenarios have
+	// completed. Capture the exact pre-install RLS flags from the actual
+	// migrated disposable schema and keep the manifest on the same SQL session.
+	for _, table := range tables {
+		if err := admin.Exec("ALTER TABLE " + schema + "." + table.name + " OWNER TO " + ownerRole).Error; err != nil {
+			t.Fatalf("restore %s owner before candidate rollback test: %v", table.name, err)
+		}
+	}
+	rollbackBytes, err := os.ReadFile("../../scripts/security/rollback_bulk_import_tenant_rls.sql")
+	if err != nil {
+		t.Fatalf("read tenant RLS rollback script: %v", err)
+	}
+	rollbackScript := strings.ReplaceAll(string(rollbackBytes), "\\set ON_ERROR_STOP on\n", "")
+	rollbackScript = strings.ReplaceAll(rollbackScript, "stonez_bulk_process_group", processGroup)
+	rollbackScript = strings.ReplaceAll(rollbackScript, "stonez_internal", privateSchema)
+	rollbackScript = strings.ReplaceAll(rollbackScript, "public", schema)
+	// pgx's extended-protocol Exec accepts one SQL statement at a time. Keep
+	// the operator script's transaction atomic, but execute its two DO blocks
+	// separately on the same reserved connection instead of sending the whole
+	// psql script as one prepared statement.
+	preflightStart := strings.Index(rollbackScript, "DO $preflight$")
+	rollbackStart := strings.Index(rollbackScript, "DO $rollback$")
+	commitStart := strings.LastIndex(rollbackScript, "COMMIT;")
+	if preflightStart < 0 || rollbackStart <= preflightStart || commitStart <= rollbackStart {
+		t.Fatal("rollback script is missing its expected transaction/DO block boundaries")
+	}
+	preflightSQL := strings.TrimSpace(rollbackScript[preflightStart:rollbackStart])
+	rollbackSQL := strings.TrimSpace(rollbackScript[rollbackStart:commitStart])
+	if err := admin.Connection(func(tx *gorm.DB) error {
+		if err := tx.Exec(
+			"CREATE TEMP TABLE bulk_import_tenant_rls_rollback_manifest (" +
+				"table_name text PRIMARY KEY, relrowsecurity boolean NOT NULL, relforcerowsecurity boolean NOT NULL" +
+				") ON COMMIT PRESERVE ROWS",
+		).Error; err != nil {
+			return fmt.Errorf("create pre-install RLS manifest: %w", err)
+		}
+		for _, baseline := range rollbackBaseline {
+			if err := tx.Exec(
+				"INSERT INTO pg_temp.bulk_import_tenant_rls_rollback_manifest (table_name, relrowsecurity, relforcerowsecurity) VALUES (?, ?, ?)",
+				baseline.TableName, baseline.RLS, baseline.ForceRLS,
+			).Error; err != nil {
+				return fmt.Errorf("populate pre-install RLS manifest for %s: %w", baseline.TableName, err)
+			}
+		}
+		if err := tx.Exec("BEGIN").Error; err != nil {
+			return fmt.Errorf("begin candidate RLS rollback transaction: %w", err)
+		}
+		rollbackFailed := func(stage string, cause error) error {
+			_ = tx.Exec("ROLLBACK").Error
+			if stage == "execute candidate RLS rollback preflight" {
+				// Replay the exact expanded preflight as a standalone statement
+				// outside the failed transaction. This is diagnostic only: the
+				// block is read-only and the manifest is ON COMMIT PRESERVE ROWS.
+				replayErr := tx.Exec(preflightSQL).Error
+				if replayErr != nil {
+					var pgErr *pgconn.PgError
+					if errors.As(replayErr, &pgErr) && pgErr.Position > 0 {
+						position := int(pgErr.Position)
+						start := position - 120
+						if start < 0 {
+							start = 0
+						}
+						end := position + 120
+						if end > len(preflightSQL) {
+							end = len(preflightSQL)
+						}
+						line := strings.Count(preflightSQL[:position-1], "\n") + 1
+						t.Logf("standalone PostgreSQL preflight replay: SQLSTATE=%s position=%d line=%d context=%q",
+							pgErr.Code, position, line, preflightSQL[start:end])
+					} else {
+						t.Logf("standalone PostgreSQL preflight replay error: %v", replayErr)
+					}
+				} else {
+					t.Log("standalone PostgreSQL preflight replay unexpectedly succeeded")
+				}
+			}
+			return fmt.Errorf("%s: %w", stage, cause)
+		}
+		var policyDiagnostics []string
+		if err := tx.Raw(`
+			SELECT format('policy=%s roles=%s command=%s permissive=%s qual=%s check=%s',
+				p.polname, p.polroles::text, p.polcmd, p.polpermissive,
+				COALESCE(pg_get_expr(p.polqual, p.polrelid), '<null>'),
+				COALESCE(pg_get_expr(p.polwithcheck, p.polrelid), '<null>'))
+			FROM pg_policy p
+			JOIN pg_class c ON c.oid = p.polrelid
+			JOIN pg_namespace n ON n.oid = c.relnamespace
+			WHERE n.nspname = ?
+			  AND p.polname LIKE '%_bulk_import_tenant_%'
+			ORDER BY p.polname
+		`, schema).Scan(&policyDiagnostics).Error; err != nil {
+			return rollbackFailed("collect installer policy diagnostics", err)
+		}
+		for _, diagnostic := range policyDiagnostics {
+			t.Logf("rollback preflight policy diagnostic: %s", diagnostic)
+		}
+		if err := tx.Exec(preflightSQL).Error; err != nil {
+			return rollbackFailed("execute candidate RLS rollback preflight", err)
+		}
+		if err := tx.Exec(rollbackSQL).Error; err != nil {
+			return rollbackFailed("execute candidate RLS rollback changes", err)
+		}
+		if err := tx.Exec("COMMIT").Error; err != nil {
+			return rollbackFailed("commit candidate RLS rollback", err)
+		}
+		var drift int64
+		if err := tx.Raw(
+			"SELECT count(*) FROM pg_temp.bulk_import_tenant_rls_rollback_manifest m " +
+			"JOIN pg_class c ON c.relname = m.table_name " +
+			"JOIN pg_namespace n ON n.oid = c.relnamespace " +
+			"WHERE n.nspname = ? AND (c.relrowsecurity IS DISTINCT FROM m.relrowsecurity OR c.relforcerowsecurity IS DISTINCT FROM m.relforcerowsecurity)",
+			schema,
+		).Scan(&drift).Error; err != nil {
+			return fmt.Errorf("verify restored RLS flags: %w", err)
+		}
+		if drift != 0 {
+			return fmt.Errorf("rollback did not restore %d table RLS baseline flags", drift)
+		}
+		var remainingArtifacts int64
+		if err := tx.Raw(
+			"SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid " +
+			"JOIN pg_namespace n ON n.oid = c.relnamespace " +
+			"WHERE n.nspname = ? AND p.polname LIKE '%_bulk_import_tenant_%'",
+			schema,
+		).Scan(&remainingArtifacts).Error; err != nil {
+			return fmt.Errorf("inspect remaining candidate policies: %w", err)
+		}
+		if remainingArtifacts != 0 {
+			return fmt.Errorf("rollback left %d installer-owned policies", remainingArtifacts)
+		}
+		var broadPolicyPreserved bool
+		if err := tx.Raw(
+			"SELECT EXISTS (SELECT 1 FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid " +
+			"JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=? AND c.relname='users' " +
+			"AND p.polname='users_acceptance_broad_permissive')",
+			schema,
+		).Scan(&broadPolicyPreserved).Error; err != nil {
+			return fmt.Errorf("verify unrelated permissive policy preservation: %w", err)
+		}
+		if !broadPolicyPreserved {
+			return fmt.Errorf("rollback removed an unrelated permissive policy")
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("tenant RLS rollback acceptance failed: %v", err)
 	}
 }

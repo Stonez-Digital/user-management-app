@@ -115,18 +115,29 @@ func(s *BulkImportService)processRow(j models.BulkImportJob,row BulkRow)(bool,bo
  if j.Kind=="parents"{return s.processParent(j,name,email,row)}
  return s.processTeacher(j,name,email,row)
 }
+const bulkImportEmailUnavailableMessage = "account could not be created; verify the email and try again"
+
 func(s *BulkImportService)createUser(tx *gorm.DB,schoolID uuid.UUID,name,email,role string)(models.User,string,bool,error){
  if email==""{return models.User{},"",false,errors.New("email is required for credential delivery")}
  var u models.User
  if e:=tx.Select("id", "school_id", "email", "role").Where("LOWER(email)=?",email).First(&u).Error;e==nil {
-  if u.SchoolID==nil || *u.SchoolID!=schoolID{return u,"",false,fmt.Errorf("email %q already belongs to another tenant",email)}
-  if u.Role!=role{return u,"",false,fmt.Errorf("email %q already belongs to a user with role %q",email,u.Role)}
+  // Never disclose that a globally unique email belongs to a different
+  // school. Under the intended RLS policy that row is invisible and the
+  // unique constraint below is the final collision guard.
+  if u.SchoolID==nil || *u.SchoolID!=schoolID{return u,"",false,errors.New(bulkImportEmailUnavailableMessage)}
+  if u.Role!=role{return u,"",false,errors.New(bulkImportEmailUnavailableMessage)}
   return u,"",false,nil
  } else if !errors.Is(e,gorm.ErrRecordNotFound){return u,"",false,e}
  password,e:=GenerateTemporaryPassword();if e!=nil{return u,"",false,e}
  hash,e:=auth.HashPassword(password);if e!=nil{return u,"",false,e}
  u=models.User{Name:name,Email:email,PasswordHash:hash,Role:role,Active:true,SchoolID:&schoolID}
- if e=tx.Create(&u).Error;e!=nil{return u,"",false,e}
+ if e=tx.Create(&u).Error;e!=nil{
+  // A cross-school row is intentionally hidden by RLS. Map the resulting
+  // global unique-index collision to the same generic row-level response;
+  // do not return the database constraint name or conflicting email.
+  if isDuplicateDBError(e){return models.User{},"",false,errors.New(bulkImportEmailUnavailableMessage)}
+  return u,"",false,e
+ }
  return u,password,true,nil
 }
 func(s *BulkImportService)processStudent(j models.BulkImportJob,name,email string,row BulkRow)(bool,bool,string,string,string,error){var created bool;var skipped bool;var password string;userEmail:=email;var role=authz.RoleStudent;e:=s.withTenantTransaction(j,func(tx *gorm.DB)error{var st models.Student;ad:=strings.TrimSpace(row["admission_number"]);if e:=tx.Select("id").Where("school_id=? AND admission_number=?",j.SchoolID,ad).First(&st).Error;e==nil{skipped=true;return nil}else if !errors.Is(e,gorm.ErrRecordNotFound){return e};u,p,wasCreated,e:=s.createUser(tx,j.SchoolID,name,email,authz.RoleStudent);password=p;created=wasCreated;userEmail=u.Email;if e!=nil{return e};st=models.Student{SchoolID:j.SchoolID,UserID:u.ID,AdmissionNumber:ad,EnrollmentStatus:models.EnrollmentActive,GuardianName:row["guardian_name"],GuardianPhone:row["guardian_phone"],GuardianEmail:row["guardian_email"]};if v:=row["gender"];v!=""{st.Gender=v};if e=tx.Create(&st).Error;e!=nil{return e};return s.maybeEnroll(tx,j.SchoolID,st.ID,row)});return created,skipped,userEmail,password,role,e}

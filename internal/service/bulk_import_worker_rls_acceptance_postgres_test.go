@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/onoja217/users-management-app/internal/database"
 	"github.com/onoja217/users-management-app/internal/models"
 	"github.com/onoja217/users-management-app/internal/security/bulkcontext"
@@ -885,6 +887,33 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		}
 		rollbackFailed := func(stage string, cause error) error {
 			_ = tx.Exec("ROLLBACK").Error
+			if stage == "execute candidate RLS rollback preflight" {
+				// Replay the exact expanded preflight as a standalone statement
+				// outside the failed transaction. This is diagnostic only: the
+				// block is read-only and the manifest is ON COMMIT PRESERVE ROWS.
+				replayErr := tx.Exec(preflightSQL).Error
+				if replayErr != nil {
+					var pgErr *pgconn.PgError
+					if errors.As(replayErr, &pgErr) && pgErr.Position > 0 {
+						position := int(pgErr.Position)
+						start := position - 120
+						if start < 0 {
+							start = 0
+						}
+						end := position + 120
+						if end > len(preflightSQL) {
+							end = len(preflightSQL)
+						}
+						line := strings.Count(preflightSQL[:position-1], "\n") + 1
+						t.Logf("standalone PostgreSQL preflight replay: SQLSTATE=%s position=%d line=%d context=%q",
+							pgErr.Code, position, line, preflightSQL[start:end])
+					} else {
+						t.Logf("standalone PostgreSQL preflight replay error: %v", replayErr)
+					}
+				} else {
+					t.Log("standalone PostgreSQL preflight replay unexpectedly succeeded")
+				}
+			}
 			return fmt.Errorf("%s: %w", stage, cause)
 		}
 		if err := tx.Exec(preflightSQL).Error; err != nil {

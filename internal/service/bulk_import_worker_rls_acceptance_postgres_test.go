@@ -39,6 +39,7 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	}
 
 	loginRole := "bi_accept_login_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	runtimeRole := "bi_accept_runtime_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	loginPassword := uuid.NewString() + uuid.NewString()
 	privateSchema := "stonez_internal"
 
@@ -52,6 +53,12 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	if err := admin.Exec("CREATE ROLE " + loginRole + " LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS PASSWORD '" + loginPassword + "'").Error; err != nil {
 		t.Fatalf("create disposable restricted processing login: %v", err)
 	}
+	if err := admin.Exec("CREATE ROLE " + runtimeRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS").Error; err != nil {
+		t.Fatalf("create disposable application runtime role: %v", err)
+	}
+	if err := admin.Exec("GRANT " + runtimeRole + " TO CURRENT_USER").Error; err != nil {
+		t.Fatalf("grant disposable application runtime role to test session: %v", err)
+	}
 	if err := admin.Exec("GRANT " + processGroup + " TO " + loginRole + " WITH INHERIT TRUE, SET FALSE").Error; err != nil {
 		t.Fatalf("grant test processing group to login: %v", err)
 	}
@@ -59,6 +66,9 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		_ = admin.Exec("DROP OWNED BY " + loginRole).Error
 		_ = admin.Exec("REVOKE " + processGroup + " FROM " + loginRole).Error
 		_ = admin.Exec("DROP ROLE " + loginRole).Error
+		_ = admin.Exec("DROP OWNED BY " + runtimeRole).Error
+		_ = admin.Exec("REVOKE " + runtimeRole + " FROM CURRENT_USER").Error
+		_ = admin.Exec("DROP ROLE " + runtimeRole).Error
 	})
 
 	// The verifier's pgcrypto dependency is installed only in the disposable
@@ -376,16 +386,16 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	// The API runtime retains its existing table-owner behavior. FORCE RLS
 	// would silently change that contract; ordinary ENABLE RLS does not apply
 	// to a table owner, while the separate worker login remains non-owner.
-	if err := admin.Exec("GRANT CREATE ON SCHEMA " + schema + " TO " + apiRole).Error; err != nil {
+	if err := admin.Exec("GRANT CREATE ON SCHEMA " + schema + " TO " + runtimeRole).Error; err != nil {
 		t.Fatalf("grant disposable API runtime schema ownership prerequisite: %v", err)
 	}
 	for _, table := range tables {
-		if err := admin.Exec("ALTER TABLE " + schema + "." + table.name + " OWNER TO " + apiRole).Error; err != nil {
+		if err := admin.Exec("ALTER TABLE " + schema + "." + table.name + " OWNER TO " + runtimeRole).Error; err != nil {
 			t.Fatalf("assign %s to disposable API runtime role: %v", table.name, err)
 		}
 	}
 	if err := admin.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec("SET LOCAL ROLE " + apiRole).Error; err != nil { return err }
+		if err := tx.Exec("SET LOCAL ROLE " + runtimeRole).Error; err != nil { return err }
 		var visible int64
 		if err := tx.Table(schema + ".users").Where("school_id IN ?", []uuid.UUID{fixtures[0].school.ID, fixtures[1].school.ID}).Count(&visible).Error; err != nil {
 			return fmt.Errorf("API runtime cannot read both tenant fixtures: %w", err)

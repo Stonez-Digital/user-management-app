@@ -47,6 +47,10 @@ jobs:
           SQL
       - name: Execute actual bulk-import queue SQL scripts against disposable PostgreSQL
         run: bash scripts/security/test_bulk_import_queue_role_scripts.sh
+      - name: Execute signed-context installer/verifier with both pgcrypto schemas
+        env:
+          PGPASSWORD: postgres
+        run: bash scripts/security/test_bulk_import_signed_context_pgcrypto.sh
       - name: Set up Go
         uses: actions/setup-go@v5
         with:

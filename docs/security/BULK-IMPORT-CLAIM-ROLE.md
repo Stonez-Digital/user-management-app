@@ -38,3 +38,8 @@ Do not run these operator scripts against production as part of this PR. Provisi
 - An unrelated login and the privileged installer cannot execute the function.
 
 These tests prove the SQL scripts and role boundary in disposable PostgreSQL only. They do not prove a managed staging database has been provisioned or configured.
+
+
+## Signed-context pgcrypto schema resolution
+
+The signed-context installer resolves `hmac(bytea, bytea, text)` through PostgreSQL extension membership for `pgcrypto`; it does not assume a fixed schema and does not install or relocate the extension. It creates a private `stonez_internal.bulk_import_hmac` adapter owned by `stonez_bulk_context_owner`, with a fixed `pg_catalog` search path and EXECUTE revoked from PUBLIC and the processing group. The verifier checks the adapter's owner, schema binding, search path, and execution boundary. `.github/workflows/go-test.yml` runs the actual installer and verifier in disposable PostgreSQL 17 databases with `pgcrypto` installed separately in `public` and `extensions`.

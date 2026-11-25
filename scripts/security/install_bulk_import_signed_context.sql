@@ -6,6 +6,8 @@
 BEGIN;
 
 DO $$
+DECLARE
+    v_hmac_schema text;
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_roles
@@ -23,9 +25,26 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'stonez_bulk_process_group is missing or has unsafe attributes';
     END IF;
-    IF to_regprocedure('extensions.hmac(bytea,bytea,text)') IS NULL THEN
-        RAISE EXCEPTION 'extensions.hmac(bytea,bytea,text) is unavailable; install/validate pgcrypto in an approved environment before running this script';
+    -- Resolve hmac through pg_extension membership, not a hard-coded schema.
+    SELECT namespace.nspname
+      INTO v_hmac_schema
+      FROM pg_extension AS extension_row
+      JOIN pg_namespace AS namespace ON namespace.oid = extension_row.extnamespace
+      JOIN pg_depend AS dependency
+        ON dependency.refclassid = 'pg_extension'::regclass
+       AND dependency.refobjid = extension_row.oid
+       AND dependency.classid = 'pg_proc'::regclass
+       AND dependency.deptype = 'e'
+      JOIN pg_proc AS procedure ON procedure.oid = dependency.objid
+     WHERE extension_row.extname = 'pgcrypto'
+       AND procedure.proname = 'hmac'
+       AND procedure.proargtypes = '17 17 25'::oidvector;
+    IF v_hmac_schema IS NULL THEN
+        RAISE EXCEPTION 'pgcrypto extension with hmac(bytea,bytea,text) is required';
     END IF;
+    EXECUTE format('GRANT USAGE ON SCHEMA %I TO stonez_bulk_context_owner', v_hmac_schema);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %I.hmac(bytea,bytea,text) TO stonez_bulk_context_owner', v_hmac_schema);
+    -- This accepts a pgcrypto installation in either public or extensions.
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
          WHERE table_schema = 'public'
@@ -42,8 +61,6 @@ CREATE SCHEMA IF NOT EXISTS stonez_internal;
 REVOKE ALL PRIVILEGES ON SCHEMA stonez_internal FROM PUBLIC;
 GRANT USAGE ON SCHEMA stonez_internal TO stonez_bulk_context_owner, stonez_bulk_process_group;
 GRANT USAGE ON SCHEMA public TO stonez_bulk_context_owner, stonez_bulk_process_group;
-GRANT USAGE ON SCHEMA extensions TO stonez_bulk_context_owner;
-GRANT EXECUTE ON FUNCTION extensions.hmac(bytea,bytea,text) TO stonez_bulk_context_owner;
 
 -- Vault remains the source of truth. These rows are a protected verifier copy;
 -- they are populated only by a separately approved key-delivery procedure.
@@ -124,6 +141,41 @@ CREATE POLICY bulk_import_jobs_context_owner_update
 GRANT USAGE, CREATE ON SCHEMA stonez_internal TO stonez_bulk_context_owner;
 GRANT stonez_bulk_context_owner TO CURRENT_USER WITH INHERIT FALSE, SET TRUE;
 SET LOCAL ROLE stonez_bulk_context_owner;
+
+-- Create a private, schema-qualified adapter to the hmac function that belongs
+-- to the installed pgcrypto extension. The verifier never adds that schema to
+-- search_path and the processing group cannot execute this adapter directly.
+DO $pgcrypto$
+DECLARE
+    v_hmac_schema text;
+    v_definition text;
+BEGIN
+    SELECT namespace.nspname
+      INTO v_hmac_schema
+      FROM pg_extension AS extension_row
+      JOIN pg_namespace AS namespace ON namespace.oid = extension_row.extnamespace
+      JOIN pg_depend AS dependency
+        ON dependency.refclassid = 'pg_extension'::regclass
+       AND dependency.refobjid = extension_row.oid
+       AND dependency.classid = 'pg_proc'::regclass
+       AND dependency.deptype = 'e'
+      JOIN pg_proc AS procedure ON procedure.oid = dependency.objid
+     WHERE extension_row.extname = 'pgcrypto'
+       AND procedure.proname = 'hmac'
+       AND procedure.proargtypes = '17 17 25'::oidvector;
+    IF v_hmac_schema IS NULL THEN
+        RAISE EXCEPTION 'pgcrypto hmac function disappeared during signed-context installation';
+    END IF;
+
+    v_definition := format(
+        'CREATE OR REPLACE FUNCTION stonez_internal.bulk_import_hmac(bytea, bytea, text) RETURNS bytea LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SET search_path = pg_catalog AS %L',
+        format('SELECT %I.hmac($1, $2, $3)', v_hmac_schema)
+    );
+    EXECUTE v_definition;
+END
+$pgcrypto$;
+REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.bulk_import_hmac(bytea,bytea,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION stonez_internal.bulk_import_hmac(bytea,bytea,text) TO stonez_bulk_context_owner;
 
 CREATE OR REPLACE FUNCTION stonez_internal.verify_bulk_import_context(
     p_key_id text,
@@ -206,7 +258,7 @@ BEGIN
         p_issued_at::text,
         p_expires_at::text
     );
-    v_expected := extensions.hmac(convert_to(v_payload, 'UTF8'), v_secret, 'sha256');
+    v_expected := stonez_internal.bulk_import_hmac(convert_to(v_payload, 'UTF8'), v_secret, 'sha256');
     v_provided := decode(
         translate(p_signature, '-_', '+/') ||
         repeat('=', (4 - length(p_signature) % 4) % 4),

@@ -8,6 +8,10 @@ DECLARE
     v_context_owner text;
     v_key_check_owner text;
     v_config text[];
+    v_hmac_schema text;
+    v_hmac_wrapper_owner text;
+    v_hmac_wrapper_config text[];
+    v_hmac_wrapper_definition text;
 BEGIN
     SELECT oid INTO v_owner FROM pg_roles WHERE rolname = 'stonez_bulk_context_owner';
     SELECT oid INTO v_process FROM pg_roles WHERE rolname = 'stonez_bulk_process_group';
@@ -28,7 +32,21 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'processing group role attributes are unsafe';
     END IF;
-    IF to_regprocedure('extensions.hmac(bytea,bytea,text)') IS NULL
+    SELECT namespace.nspname
+      INTO v_hmac_schema
+      FROM pg_extension AS extension_row
+      JOIN pg_namespace AS namespace ON namespace.oid = extension_row.extnamespace
+      JOIN pg_depend AS dependency
+        ON dependency.refclassid = 'pg_extension'::regclass
+       AND dependency.refobjid = extension_row.oid
+       AND dependency.classid = 'pg_proc'::regclass
+       AND dependency.deptype = 'e'
+      JOIN pg_proc AS procedure ON procedure.oid = dependency.objid
+     WHERE extension_row.extname = 'pgcrypto'
+       AND procedure.proname = 'hmac'
+       AND procedure.proargtypes = '17 17 25'::oidvector;
+    IF v_hmac_schema IS NULL
+       OR to_regprocedure('stonez_internal.bulk_import_hmac(bytea,bytea,text)') IS NULL
        OR to_regprocedure('stonez_internal.verify_bulk_import_context(text,uuid,uuid,uuid,uuid,uuid,integer,text,bigint,bigint,bigint,text)') IS NULL
        OR to_regprocedure('stonez_internal.current_bulk_import_context()') IS NULL
        OR to_regprocedure('stonez_internal.bulk_import_context_key_available(text)') IS NULL THEN
@@ -43,6 +61,27 @@ BEGIN
     IF v_verifier_owner IS DISTINCT FROM 'stonez_bulk_context_owner'
        OR NOT ('search_path=pg_catalog' = ANY(COALESCE(v_config, ARRAY[]::text[]))) THEN
         RAISE EXCEPTION 'verifier owner or fixed search_path is unsafe';
+    END IF;
+
+    SELECT owner_role.rolname, procedure.proconfig, pg_get_functiondef(procedure.oid)
+      INTO v_hmac_wrapper_owner, v_hmac_wrapper_config, v_hmac_wrapper_definition
+      FROM pg_proc AS procedure
+      JOIN pg_roles AS owner_role ON owner_role.oid = procedure.proowner
+     WHERE procedure.oid = 'stonez_internal.bulk_import_hmac(bytea,bytea,text)'::regprocedure;
+    IF v_hmac_wrapper_owner IS DISTINCT FROM 'stonez_bulk_context_owner'
+       OR NOT ('search_path=pg_catalog' = ANY(COALESCE(v_hmac_wrapper_config, ARRAY[]::text[])))
+       OR position(format('%I.hmac', v_hmac_schema) IN v_hmac_wrapper_definition) = 0
+       OR NOT has_function_privilege('stonez_bulk_context_owner', 'stonez_internal.bulk_import_hmac(bytea,bytea,text)', 'EXECUTE')
+       OR has_function_privilege('stonez_bulk_process_group', 'stonez_internal.bulk_import_hmac(bytea,bytea,text)', 'EXECUTE')
+       OR EXISTS (
+            SELECT 1
+              FROM pg_proc AS procedure
+              CROSS JOIN LATERAL aclexplode(COALESCE(procedure.proacl, acldefault('f', procedure.proowner))) AS privilege
+             WHERE procedure.oid = 'stonez_internal.bulk_import_hmac(bytea,bytea,text)'::regprocedure
+               AND privilege.grantee = 0
+               AND privilege.privilege_type = 'EXECUTE'
+       ) THEN
+        RAISE EXCEPTION 'pgcrypto adapter owner, schema binding, search_path, or EXECUTE boundary is unsafe';
     END IF;
 
     SELECT owner_role.rolname INTO v_context_owner

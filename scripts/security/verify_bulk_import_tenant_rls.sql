@@ -28,9 +28,9 @@ BEGIN
         IF NOT EXISTS (
             SELECT 1 FROM pg_class c
              WHERE c.oid = to_regclass(format('public.%I', v_table))
-               AND c.relrowsecurity AND c.relforcerowsecurity
+               AND c.relrowsecurity AND NOT c.relforcerowsecurity
         ) THEN
-            RAISE EXCEPTION 'RLS is not enabled and forced on public.%', v_table;
+            RAISE EXCEPTION 'RLS must be enabled and not forced on public.%', v_table;
         END IF;
         IF has_table_privilege('stonez_bulk_process_group', format('public.%I', v_table), 'UPDATE')
            OR has_table_privilege('stonez_bulk_process_group', format('public.%I', v_table), 'DELETE')

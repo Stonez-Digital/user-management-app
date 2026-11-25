@@ -376,6 +376,9 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	// The API runtime retains its existing table-owner behavior. FORCE RLS
 	// would silently change that contract; ordinary ENABLE RLS does not apply
 	// to a table owner, while the separate worker login remains non-owner.
+	if err := admin.Exec("GRANT CREATE ON SCHEMA " + schema + " TO " + apiRole).Error; err != nil {
+		t.Fatalf("grant disposable API runtime schema ownership prerequisite: %v", err)
+	}
 	for _, table := range tables {
 		if err := admin.Exec("ALTER TABLE " + schema + "." + table.name + " OWNER TO " + apiRole).Error; err != nil {
 			t.Fatalf("assign %s to disposable API runtime role: %v", table.name, err)
@@ -388,6 +391,8 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 			return fmt.Errorf("API runtime cannot read both tenant fixtures: %w", err)
 		}
 		if visible < 2 { return fmt.Errorf("API runtime expected both schools' users, got %d", visible) }
+		apiUser := models.User{SchoolID: &fixtures[0].school.ID, Name: "API runtime acceptance user", Email: "api-runtime-acceptance@example.invalid", PasswordHash: "test-only", Role: "student", Active: true}
+		if err := tx.Create(&apiUser).Error; err != nil { return fmt.Errorf("API runtime cannot insert its normal user record: %w", err) }
 		return nil
 	}); err != nil {
 		t.Fatalf("preserve application runtime table-owner access after RLS install: %v", err)

@@ -182,6 +182,21 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	}
 	if err := verifyTenantPolicies(); err != nil { t.Fatalf("second read-only tenant RLS verification: %v", err) }
 
+	// Prove the verifier fails closed when a required restrictive guard is
+	// removed, then restore the exact installer-owned policy set.
+	if err := admin.Exec("DROP POLICY users_bulk_import_tenant_guard ON " + schema + ".users").Error; err != nil {
+		t.Fatalf("remove restrictive guard for verifier negative test: %v", err)
+	}
+	if err := verifyTenantPolicies(); err == nil {
+		t.Fatal("tenant RLS verifier accepted a missing restrictive users guard")
+	}
+	if err := installTenantPolicies(); err != nil {
+		t.Fatalf("restore tenant RLS policies after verifier negative test: %v", err)
+	}
+	if err := verifyTenantPolicies(); err != nil {
+		t.Fatalf("verify restored tenant RLS policies: %v", err)
+	}
+
 	// Assert the test login inherits only the candidate role and has no direct
 	// table-wide privileges. No role can assume the owner identity with SET ROLE.
 	var roleAttributes struct {

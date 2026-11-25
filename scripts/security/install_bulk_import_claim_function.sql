@@ -1,4 +1,5 @@
--- Install the global queue claim function after provisioning the two roles.
+-- Install the global queue claim function after provisioning the owner, API,
+-- and dedicated claim capability roles.
 -- This script is operator-run and must be applied before deploying the Go worker
 -- version that calls claim_next_bulk_import_job. It is not an app-startup migration.
 BEGIN;
@@ -324,7 +325,34 @@ BEGIN
        OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'REFERENCES')
        OR has_any_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'INSERT')
        OR has_any_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'REFERENCES')
-       OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'REFERENCES') THEN
+       OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'REFERENCES')
+       OR has_table_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'SELECT')
+       OR has_table_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'INSERT')
+       OR has_table_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'UPDATE')
+       OR has_table_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'DELETE')
+       OR has_any_column_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'SELECT')
+       OR has_any_column_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'INSERT')
+       OR has_any_column_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'UPDATE')
+       OR EXISTS (
+            SELECT 1 FROM pg_class AS tenant_relation
+            JOIN pg_namespace AS tenant_schema ON tenant_schema.oid = tenant_relation.relnamespace
+            WHERE tenant_schema.nspname = 'public'
+              AND tenant_relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+              AND tenant_relation.relname <> 'bulk_import_jobs'
+              AND (
+                  has_table_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'SELECT') OR
+                  has_table_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'INSERT') OR
+                  has_table_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'UPDATE') OR
+                  has_table_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'DELETE') OR
+                  has_table_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'TRUNCATE') OR
+                  has_table_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'REFERENCES') OR
+                  has_table_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'TRIGGER') OR
+                  has_any_column_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'SELECT') OR
+                  has_any_column_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'INSERT') OR
+                  has_any_column_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'UPDATE') OR
+                  has_any_column_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'REFERENCES')
+              )
+       ) THEN
         RAISE EXCEPTION 'API runtime table/function grants do not match the intended tenant-only boundary';
     END IF;
 

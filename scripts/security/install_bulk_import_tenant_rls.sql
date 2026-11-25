@@ -2,7 +2,7 @@
 -- Operator-run SQL. Requires the signed-context installer to have run first.
 -- This is intentionally scoped to stonez_bulk_process_group and the nine
 -- reviewed tenant-content tables. It does not provision roles or credentials.
-\\set ON_ERROR_STOP on
+\set ON_ERROR_STOP on
 BEGIN;
 
 DO $preflight$

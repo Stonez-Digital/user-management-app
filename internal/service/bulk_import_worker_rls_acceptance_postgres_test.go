@@ -807,4 +807,73 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		t.Fatalf("restricted login sensitive privileges incorrect: password_read=%v password_insert=%v payload_read=%v key_read=%v session_read=%v",
 			canReadPasswordHash, canInsertPasswordHash, canReadRowsJSON, canReadVerifierKeys, canReadVerifierSessions)
 	}
+
+	// Roll back only this installer's artifacts after the worker scenarios have
+	// completed. Capture the exact pre-install RLS flags from the actual
+	// migrated disposable schema and keep the manifest on the same SQL session.
+	for _, table := range tables {
+		if err := admin.Exec("ALTER TABLE " + schema + "." + table.name + " OWNER TO " + ownerRole).Error; err != nil {
+			t.Fatalf("restore %s owner before candidate rollback test: %v", table.name, err)
+		}
+	}
+	rollbackBytes, err := os.ReadFile("../../scripts/security/rollback_bulk_import_tenant_rls.sql")
+	if err != nil {
+		t.Fatalf("read tenant RLS rollback script: %v", err)
+	}
+	rollbackScript := strings.ReplaceAll(string(rollbackBytes), "\\set ON_ERROR_STOP on\n", "")
+	rollbackScript = strings.ReplaceAll(rollbackScript, "stonez_bulk_process_group", processGroup)
+	rollbackScript = strings.ReplaceAll(rollbackScript, "public", schema)
+	if err := admin.Connection(func(tx *gorm.DB) error {
+		manifestSQL := "CREATE TEMP TABLE bulk_import_tenant_rls_rollback_manifest ON COMMIT PRESERVE ROWS AS " +
+			"SELECT c.relname AS table_name, c.relrowsecurity, c.relforcerowsecurity " +
+			"FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace " +
+			"WHERE n.nspname = ? AND c.relname IN " +
+			"('users','students','teacher_profiles','parent_profiles','academic_sessions','school_classes','sections','student_enrollments','guardian_relationships')"
+		if err := tx.Exec(manifestSQL, schema).Error; err != nil {
+			return fmt.Errorf("capture pre-install RLS manifest: %w", err)
+		}
+		if err := tx.Exec(rollbackScript).Error; err != nil {
+			return fmt.Errorf("execute candidate RLS rollback: %w", err)
+		}
+		var drift int64
+		if err := tx.Raw(
+			"SELECT count(*) FROM pg_temp.bulk_import_tenant_rls_rollback_manifest m " +
+			"JOIN pg_class c ON c.relname = m.table_name " +
+			"JOIN pg_namespace n ON n.oid = c.relnamespace " +
+			"WHERE n.nspname = ? AND (c.relrowsecurity IS DISTINCT FROM m.relrowsecurity OR c.relforcerowsecurity IS DISTINCT FROM m.relforcerowsecurity)",
+			schema,
+		).Scan(&drift).Error; err != nil {
+			return fmt.Errorf("verify restored RLS flags: %w", err)
+		}
+		if drift != 0 {
+			return fmt.Errorf("rollback did not restore %d table RLS baseline flags", drift)
+		}
+		var remainingArtifacts int64
+		if err := tx.Raw(
+			"SELECT count(*) FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid " +
+			"JOIN pg_namespace n ON n.oid = c.relnamespace " +
+			"WHERE n.nspname = ? AND p.polname LIKE '%_bulk_import_tenant_%'",
+			schema,
+		).Scan(&remainingArtifacts).Error; err != nil {
+			return fmt.Errorf("inspect remaining candidate policies: %w", err)
+		}
+		if remainingArtifacts != 0 {
+			return fmt.Errorf("rollback left %d installer-owned policies", remainingArtifacts)
+		}
+		var broadPolicyPreserved bool
+		if err := tx.Raw(
+			"SELECT EXISTS (SELECT 1 FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid " +
+			"JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=? AND c.relname='users' " +
+			"AND p.polname='users_acceptance_broad_permissive')",
+			schema,
+		).Scan(&broadPolicyPreserved).Error; err != nil {
+			return fmt.Errorf("verify unrelated permissive policy preservation: %w", err)
+		}
+		if !broadPolicyPreserved {
+			return fmt.Errorf("rollback removed an unrelated permissive policy")
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("tenant RLS rollback acceptance failed: %v", err)
+	}
 }

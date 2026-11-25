@@ -359,14 +359,14 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	if err := admin.Create(&collisionUser).Error; err != nil {
 		t.Fatalf("seed School B global email collision: %v", err)
 	}
-	var collisionLookupCount int64
+	var collisionLookup []models.User
 	if err := service.withTenantTransaction(schoolA.studentJob, func(tx *gorm.DB) error {
-		return tx.Model(&models.User{}).Where("LOWER(email) = ?", collisionEmail).Count(&collisionLookupCount).Error
+		return tx.Select("id").Where("LOWER(email) = ?", collisionEmail).Find(&collisionLookup).Error
 	}); err != nil {
 		t.Fatalf("query cross-school collision under School A context: %v", err)
 	}
-	if collisionLookupCount != 0 {
-		t.Fatalf("restricted School A context exposed %d cross-school email matches", collisionLookupCount)
+	if len(collisionLookup) != 0 {
+		t.Fatalf("restricted School A context exposed %d cross-school email matches", len(collisionLookup))
 	}
 	created, skipped, _, _, _, collisionErr := service.processStudent(
 		schoolA.studentJob, "Collision Attempt", collisionEmail,

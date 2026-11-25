@@ -9,6 +9,8 @@ DECLARE
     v_expected_select text[];
     v_expected_insert text[];
     v_expected_predicate text;
+    v_actual_qual text;
+    v_actual_check text;
 BEGIN
     SELECT oid INTO v_role FROM pg_roles WHERE rolname = 'stonez_bulk_process_group';
     IF v_role IS NULL THEN RAISE EXCEPTION 'missing stonez_bulk_process_group'; END IF;
@@ -78,16 +80,18 @@ BEGIN
             ELSE 'EXISTSSELECT1FROMstonez_internal.current_bulk_import_contextctxWHEREctx.school_id=' || 'school_id'
         END;
 
-        IF NOT EXISTS (
-            SELECT 1 FROM pg_policies
-             WHERE schemaname='public' AND tablename=v_table
-               AND policyname = v_table || '_bulk_import_tenant_guard'
-               AND permissive='RESTRICTIVE' AND cmd='ALL'
-               AND roles = ARRAY['stonez_bulk_process_group'::name]
-               AND regexp_replace(qual, '[[:space:]()]', '', 'g') = v_expected_predicate
-               AND regexp_replace(with_check, '[[:space:]()]', '', 'g') = v_expected_predicate
-        ) THEN
-            RAISE EXCEPTION 'restrictive tenant guard is missing or malformed on public.%', v_table;
+        SELECT qual, with_check INTO v_actual_qual, v_actual_check
+          FROM pg_policies
+         WHERE schemaname='public' AND tablename=v_table
+           AND policyname = v_table || '_bulk_import_tenant_guard'
+           AND permissive='RESTRICTIVE' AND cmd='ALL'
+           AND roles = ARRAY['stonez_bulk_process_group'::name];
+
+        IF v_actual_qual IS NULL OR v_actual_check IS NULL
+           OR regexp_replace(v_actual_qual, '[[:space:]()]', '', 'g') <> v_expected_predicate
+           OR regexp_replace(v_actual_check, '[[:space:]()]', '', 'g') <> v_expected_predicate THEN
+            RAISE EXCEPTION 'restrictive tenant guard mismatch on public.%: expected=%, actual_qual=%, actual_check=%',
+                v_table, v_expected_predicate, v_actual_qual, v_actual_check;
         END IF;
         IF NOT EXISTS (
             SELECT 1 FROM pg_policies

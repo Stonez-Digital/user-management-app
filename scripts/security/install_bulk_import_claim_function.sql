@@ -20,8 +20,26 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'stonez_api_runtime is missing or has unsafe attributes';
     END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_roles
+        WHERE rolname = 'stonez_bulk_queue_claim'
+          AND rolcanlogin = false AND rolsuper = false AND rolbypassrls = false
+          AND rolcreatedb = false AND rolcreaterole = false AND rolinherit = true
+    ) THEN
+        RAISE EXCEPTION 'stonez_bulk_queue_claim is missing or has unsafe attributes';
+    END IF;
 
     IF pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_owner', 'MEMBER')
+       OR pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_claim', 'MEMBER')
+       OR pg_has_role('stonez_bulk_queue_claim', 'stonez_bulk_queue_owner', 'MEMBER')
+       OR EXISTS (
+            SELECT 1 FROM pg_auth_members
+             WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_claim')
+                OR (roleid = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_claim') AND NOT (
+                    member = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+                    AND admin_option AND NOT inherit_option AND NOT set_option
+                ))
+       )
        OR EXISTS (
             SELECT 1 FROM pg_auth_members
              WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime')
@@ -99,7 +117,7 @@ BEGIN
     END IF;
 END
 $$;
-GRANT USAGE ON SCHEMA stonez_internal TO stonez_api_runtime;
+GRANT USAGE ON SCHEMA stonez_internal TO stonez_bulk_queue_claim;
 
 -- Normal school-facing API operations keep tenant-scoped table access. The
 -- global worker claim remains isolated behind the SECURITY DEFINER function.
@@ -173,7 +191,8 @@ BEGIN
            AND NOT caller.rolbypassrls
            AND NOT caller.rolcreatedb
            AND NOT caller.rolcreaterole
-           AND pg_has_role(session_user, 'stonez_api_runtime', 'USAGE')
+           AND pg_has_role(session_user, 'stonez_bulk_queue_claim', 'USAGE')
+           AND NOT pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER')
            AND NOT pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')
     ) THEN
         RAISE EXCEPTION 'caller is not an authorized non-privileged API runtime login';
@@ -231,7 +250,7 @@ BEGIN
     END LOOP;
 END
 $$;
-GRANT EXECUTE ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) TO stonez_api_runtime;
+GRANT EXECUTE ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) TO stonez_bulk_queue_claim;
 
 RESET ROLE;
 -- Remove only the temporary self-membership used for SET ROLE. PostgreSQL's
@@ -270,7 +289,7 @@ BEGIN
                AND (function_privilege.grantee = 0
                     OR function_privilege.grantee NOT IN (
                         procedure.proowner,
-                        (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime')
+                        (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_claim')
                     ))
        )
        OR EXISTS (
@@ -281,12 +300,14 @@ BEGIN
                AND (schema_privilege.grantee = 0
                     OR schema_privilege.grantee NOT IN (
                         private_schema.nspowner,
-                        (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime'),
+                        (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_claim'),
                         (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner')
                     ))
        )
-       OR NOT has_schema_privilege('stonez_api_runtime', 'stonez_internal', 'USAGE')
-       OR has_schema_privilege('stonez_api_runtime', 'stonez_internal', 'CREATE')
+       OR NOT has_schema_privilege('stonez_bulk_queue_claim', 'stonez_internal', 'USAGE')
+       OR has_schema_privilege('stonez_bulk_queue_claim', 'stonez_internal', 'CREATE')
+       OR has_function_privilege('stonez_api_runtime', 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE')
+       OR NOT has_function_privilege('stonez_bulk_queue_claim', 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE')
        OR has_schema_privilege('stonez_api_runtime', 'public', 'CREATE')
        OR has_schema_privilege('stonez_bulk_queue_owner', 'stonez_internal', 'CREATE')
        OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE')

@@ -59,9 +59,9 @@ BEGIN
         IF EXISTS (
             SELECT 1 FROM pg_class c
              WHERE c.oid = to_regclass(format('public.%I', v_table))
-               AND (c.relrowsecurity OR c.relforcerowsecurity)
+               AND c.relforcerowsecurity
         ) THEN
-            RAISE EXCEPTION 'public.% already has RLS state; installer requires a reviewed clean baseline', v_table;
+            RAISE EXCEPTION 'public.% already has FORCE ROW LEVEL SECURITY; installer requires a reviewed baseline', v_table;
         END IF;
         IF EXISTS (
             SELECT 1 FROM pg_policy p

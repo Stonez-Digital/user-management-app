@@ -149,6 +149,34 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		script = strings.ReplaceAll(script, "public", schema)
 		return admin.Exec(script).Error
 	}
+
+	// Preserve the true pre-install RLS baseline in Go memory. The rollback
+	// acceptance later recreates this manifest on the exact SQL session used
+	// to execute the candidate rollback script.
+	type rollbackRLSBaseline struct {
+		TableName string
+		RLS       bool
+		ForceRLS  bool
+	}
+	var rollbackBaseline []rollbackRLSBaseline
+	if err := admin.Raw(
+		"SELECT c.relname AS table_name, c.relrowsecurity AS rls, c.relforcerowsecurity AS force_rls " +
+			"FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace " +
+			"WHERE n.nspname=? AND c.relname IN " +
+			"('users','students','teacher_profiles','parent_profiles','academic_sessions','school_classes','sections','student_enrollments','guardian_relationships')",
+		schema,
+	).Scan(&rollbackBaseline).Error; err != nil {
+		t.Fatalf("capture pre-install RLS baseline: %v", err)
+	}
+	if len(rollbackBaseline) != 9 {
+		t.Fatalf("expected nine pre-install tenant tables in rollback baseline, found %d", len(rollbackBaseline))
+	}
+	for _, baseline := range rollbackBaseline {
+		if baseline.ForceRLS {
+			t.Fatalf("unexpected pre-install FORCE RLS on %s", baseline.TableName)
+		}
+	}
+
 	// PUBLIC privileges are effective for every role. The installer must
 	// reject them before changing any table state, then succeed after cleanup.
 	if err := admin.Exec("GRANT SELECT ON TABLE " + schema + ".users TO PUBLIC").Error; err != nil {
@@ -822,15 +850,23 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	}
 	rollbackScript := strings.ReplaceAll(string(rollbackBytes), "\\set ON_ERROR_STOP on\n", "")
 	rollbackScript = strings.ReplaceAll(rollbackScript, "stonez_bulk_process_group", processGroup)
+	rollbackScript = strings.ReplaceAll(rollbackScript, "stonez_internal", privateSchema)
 	rollbackScript = strings.ReplaceAll(rollbackScript, "public", schema)
 	if err := admin.Connection(func(tx *gorm.DB) error {
-		manifestSQL := "CREATE TEMP TABLE bulk_import_tenant_rls_rollback_manifest ON COMMIT PRESERVE ROWS AS " +
-			"SELECT c.relname AS table_name, c.relrowsecurity, c.relforcerowsecurity " +
-			"FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace " +
-			"WHERE n.nspname = ? AND c.relname IN " +
-			"('users','students','teacher_profiles','parent_profiles','academic_sessions','school_classes','sections','student_enrollments','guardian_relationships')"
-		if err := tx.Exec(manifestSQL, schema).Error; err != nil {
-			return fmt.Errorf("capture pre-install RLS manifest: %w", err)
+		if err := tx.Exec(
+			"CREATE TEMP TABLE bulk_import_tenant_rls_rollback_manifest (" +
+				"table_name text PRIMARY KEY, relrowsecurity boolean NOT NULL, relforcerowsecurity boolean NOT NULL" +
+				") ON COMMIT PRESERVE ROWS",
+		).Error; err != nil {
+			return fmt.Errorf("create pre-install RLS manifest: %w", err)
+		}
+		for _, baseline := range rollbackBaseline {
+			if err := tx.Exec(
+				"INSERT INTO pg_temp.bulk_import_tenant_rls_rollback_manifest (table_name, relrowsecurity, relforcerowsecurity) VALUES (?, ?, ?)",
+				baseline.TableName, baseline.RLS, baseline.ForceRLS,
+			).Error; err != nil {
+				return fmt.Errorf("populate pre-install RLS manifest for %s: %w", baseline.TableName, err)
+			}
 		}
 		if err := tx.Exec(rollbackScript).Error; err != nil {
 			return fmt.Errorf("execute candidate RLS rollback: %w", err)

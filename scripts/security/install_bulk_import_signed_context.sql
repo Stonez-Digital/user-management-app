@@ -26,6 +26,24 @@ BEGIN
         RAISE EXCEPTION 'stonez_bulk_process_group is missing or has unsafe attributes';
     END IF;
     -- Resolve hmac through pg_extension membership, not a hard-coded schema.
+    SELECT namespace.nspname
+      INTO v_hmac_schema
+      FROM pg_extension AS extension_row
+      JOIN pg_namespace AS namespace ON namespace.oid = extension_row.extnamespace
+      JOIN pg_depend AS dependency
+        ON dependency.refclassid = 'pg_extension'::regclass
+       AND dependency.refobjid = extension_row.oid
+       AND dependency.classid = 'pg_proc'::regclass
+       AND dependency.deptype = 'e'
+      JOIN pg_proc AS procedure ON procedure.oid = dependency.objid
+     WHERE extension_row.extname = 'pgcrypto'
+       AND procedure.proname = 'hmac'
+       AND procedure.proargtypes = '17 17 25'::oidvector;
+    IF v_hmac_schema IS NULL THEN
+        RAISE EXCEPTION 'pgcrypto extension with hmac(bytea,bytea,text) is required';
+    END IF;
+    EXECUTE format('GRANT USAGE ON SCHEMA %I TO stonez_bulk_context_owner', v_hmac_schema);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %I.hmac(bytea,bytea,text) TO stonez_bulk_context_owner', v_hmac_schema);
     -- This accepts a pgcrypto installation in either public or extensions.
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns

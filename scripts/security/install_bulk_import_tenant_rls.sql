@@ -212,21 +212,24 @@ CREATE POLICY parent_profiles_bulk_import_tenant_insert ON public.parent_profile
 
 CREATE POLICY academic_sessions_bulk_import_tenant_guard ON public.academic_sessions
     AS RESTRICTIVE FOR ALL TO stonez_bulk_process_group
-    USING (EXISTS (SELECT 1 FROM stonez_internal.current_bulk_import_context() ctx WHERE ctx.school_id = academic_sessions.school_id));
+    USING (EXISTS (SELECT 1 FROM stonez_internal.current_bulk_import_context() ctx WHERE ctx.school_id = academic_sessions.school_id))
+    WITH CHECK (EXISTS (SELECT 1 FROM stonez_internal.current_bulk_import_context() ctx WHERE ctx.school_id = academic_sessions.school_id));
 CREATE POLICY academic_sessions_bulk_import_tenant_select ON public.academic_sessions
     FOR SELECT TO stonez_bulk_process_group
     USING (EXISTS (SELECT 1 FROM stonez_internal.current_bulk_import_context() ctx WHERE ctx.school_id = academic_sessions.school_id));
 
 CREATE POLICY school_classes_bulk_import_tenant_guard ON public.school_classes
     AS RESTRICTIVE FOR ALL TO stonez_bulk_process_group
-    USING (EXISTS (SELECT 1 FROM stonez_internal.current_bulk_import_context() ctx WHERE ctx.school_id = school_classes.school_id));
+    USING (EXISTS (SELECT 1 FROM stonez_internal.current_bulk_import_context() ctx WHERE ctx.school_id = school_classes.school_id))
+    WITH CHECK (EXISTS (SELECT 1 FROM stonez_internal.current_bulk_import_context() ctx WHERE ctx.school_id = school_classes.school_id));
 CREATE POLICY school_classes_bulk_import_tenant_select ON public.school_classes
     FOR SELECT TO stonez_bulk_process_group
     USING (EXISTS (SELECT 1 FROM stonez_internal.current_bulk_import_context() ctx WHERE ctx.school_id = school_classes.school_id));
 
 CREATE POLICY sections_bulk_import_tenant_guard ON public.sections
     AS RESTRICTIVE FOR ALL TO stonez_bulk_process_group
-    USING (EXISTS (SELECT 1 FROM stonez_internal.current_bulk_import_context() ctx WHERE ctx.school_id = sections.school_id));
+    USING (EXISTS (SELECT 1 FROM stonez_internal.current_bulk_import_context() ctx WHERE ctx.school_id = sections.school_id))
+    WITH CHECK (EXISTS (SELECT 1 FROM stonez_internal.current_bulk_import_context() ctx WHERE ctx.school_id = sections.school_id));
 CREATE POLICY sections_bulk_import_tenant_select ON public.sections
     FOR SELECT TO stonez_bulk_process_group
     USING (EXISTS (SELECT 1 FROM stonez_internal.current_bulk_import_context() ctx WHERE ctx.school_id = sections.school_id));

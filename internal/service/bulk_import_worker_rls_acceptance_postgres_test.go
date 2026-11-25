@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/onoja217/users-management-app/internal/database"
 	"github.com/onoja217/users-management-app/internal/models"
 	"github.com/onoja217/users-management-app/internal/security/bulkcontext"
 	"gorm.io/driver/postgres"
@@ -366,6 +367,91 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		return tx.RollbackTo("before_cross_school_profile").Error
 	}); err != nil {
 		t.Fatalf("two-school RLS isolation assertion failed: %v", err)
+	}
+
+	// Exercise verifier-level assertion rejection against the forced-RLS queue.
+	// Each failure is isolated behind a savepoint so the surrounding transaction
+	// remains usable for the next negative case.
+	var transferredAssertion bulkcontext.Assertion
+	err = loginDB.Transaction(func(tx *gorm.DB) error {
+		identity, err := database.CurrentBulkImportTransactionIdentity(tx)
+		if err != nil {
+			return err
+		}
+		assertion, err := signer.Sign(tx.Statement.Context, bulkcontext.Binding{
+			JobID: schoolA.studentJob.ID, SchoolID: schoolA.studentJob.SchoolID,
+			InitiatedBy: schoolA.studentJob.InitiatedBy, WorkerID: *schoolA.studentJob.WorkerID,
+			BackendPID: identity.BackendPID, TransactionID: identity.TransactionID,
+			LeaseGeneration: schoolA.studentJob.LeaseGeneration,
+		}, time.Minute)
+		if err != nil {
+			return err
+		}
+		invalid := assertion
+		invalid.Signature = "A" + invalid.Signature[1:]
+		if err := tx.SavePoint("before_invalid_assertion").Error; err != nil { return err }
+		if err := database.VerifyBulkImportContext(tx, invalid); err == nil {
+			return fmt.Errorf("invalid HMAC signature was accepted")
+		}
+		if err := tx.RollbackTo("before_invalid_assertion").Error; err != nil { return err }
+
+		expired := assertion
+		expired.Claims.ExpiresAt = time.Now().UTC().Unix() - 1
+		expired.Claims.IssuedAt = expired.Claims.ExpiresAt - 60
+		if err := tx.SavePoint("before_expired_assertion").Error; err != nil { return err }
+		if err := database.VerifyBulkImportContext(tx, expired); err == nil {
+			return fmt.Errorf("expired assertion was accepted")
+		}
+		if err := tx.RollbackTo("before_expired_assertion").Error; err != nil { return err }
+
+		if err := database.VerifyBulkImportContext(tx, assertion); err != nil {
+			return fmt.Errorf("valid assertion failed before replay test: %w", err)
+		}
+		if err := tx.SavePoint("before_replay_assertion").Error; err != nil { return err }
+		if err := database.VerifyBulkImportContext(tx, assertion); err == nil {
+			return fmt.Errorf("replayed assertion was accepted in the same transaction")
+		}
+		if err := tx.RollbackTo("before_replay_assertion").Error; err != nil { return err }
+		transferredAssertion = assertion
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("invalid/expired/replayed assertion acceptance checks failed: %v", err)
+	}
+	if err := loginDB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.SavePoint("before_transferred_assertion").Error; err != nil { return err }
+		if err := database.VerifyBulkImportContext(tx, transferredAssertion); err == nil {
+			return fmt.Errorf("assertion transferred to another transaction was accepted")
+		}
+		return tx.RollbackTo("before_transferred_assertion").Error
+	}); err != nil {
+		t.Fatalf("transaction-transfer assertion rejection failed: %v", err)
+	}
+
+	// Queue progress updates must be bound to both the verified job and worker.
+	// A School A context cannot update School B's job, and a different worker
+	// identifier cannot satisfy the guarded UPDATE predicate for School A's job.
+	var beforeSchoolB models.BulkImportJob
+	if err := admin.First(&beforeSchoolB, "id = ?", schoolB.studentJob.ID).Error; err != nil { t.Fatal(err) }
+	if err := service.withTenantTransaction(schoolA.studentJob, func(tx *gorm.DB) error {
+		result := tx.Model(&models.BulkImportJob{}).Where("id = ?", schoolB.studentJob.ID).Update("created", 99)
+		if result.Error != nil { return result.Error }
+		if result.RowsAffected != 0 { return fmt.Errorf("School A context updated School B queue job") }
+		return nil
+	}); err != nil { t.Fatalf("cross-job queue progress update was not rejected: %v", err) }
+	wrongProgressWorker := uuid.New()
+	if err := service.updateClaimedJob(schoolA.studentJob, wrongProgressWorker, map[string]any{"created": 99}); err == nil {
+		t.Fatal("queue progress update from a mismatched worker was accepted")
+	}
+	var afterSchoolB models.BulkImportJob
+	if err := admin.First(&afterSchoolB, "id = ?", schoolB.studentJob.ID).Error; err != nil { t.Fatal(err) }
+	if afterSchoolB.Created != beforeSchoolB.Created {
+		t.Fatalf("mismatched job update changed School B progress: before=%d after=%d", beforeSchoolB.Created, afterSchoolB.Created)
+	}
+	var afterSchoolA models.BulkImportJob
+	if err := admin.First(&afterSchoolA, "id = ?", schoolA.studentJob.ID).Error; err != nil { t.Fatal(err) }
+	if afterSchoolA.Created != schoolA.studentJob.Created {
+		t.Fatalf("mismatched worker update changed School A progress: before=%d after=%d", schoolA.studentJob.Created, afterSchoolA.Created)
 	}
 
 	// Negative lease checks: each assertion is signed from the supplied

@@ -114,6 +114,10 @@ BEGIN
         'users','students','teacher_profiles','parent_profiles',
         'student_enrollments','guardian_relationships'
     ] LOOP
+        v_expected_predicate := CASE WHEN v_table = 'users'
+            THEN '^\(*school_idISNOTNULL\)*AND\(*EXISTS\(SELECT1FROMstonez_internal\.current_bulk_import_context\(\)ctxWHERE\(ctx\.school_id=users\.school_id\)\)\)*$'
+            ELSE '^\(*EXISTS\(SELECT1FROMstonez_internal\.current_bulk_import_context\(\)ctxWHERE\(ctx\.school_id=' || v_table || '\.school_id\)\)\)*$'
+        END;
         IF NOT EXISTS (
             SELECT 1 FROM pg_policies
              WHERE schemaname='public' AND tablename=v_table

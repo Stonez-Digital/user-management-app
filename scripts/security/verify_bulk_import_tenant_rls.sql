@@ -70,194 +70,11 @@ BEGIN
                 RAISE EXCEPTION 'unexpected column UPDATE privilege on public.%.%', v_table, v_column;
             END IF;
         END LOOP;
-        -- Match the complete deparsed predicate, not merely a substring.
-        -- Normalize whitespace while rejecting extra boolean clauses/OR branches.
+        -- Match the complete deparsed expression after whitespace normalization.
+        -- This rejects additional predicates, alternate functions, and OR branches.
         v_expected_predicate := CASE WHEN v_table = 'users'
-            THEN '^\\(*school_idISNOTNULL\\)*AND\\(*EXISTS\\(SELECT1FROMstonez_internal\\.current_bulk_import_context\\(\\)ctxWHERE\\(ctx\\.school_id=users\\.school_id\\)\\)\\)*
-               AND permissive='RESTRICTIVE' AND cmd='ALL'
-               AND roles = ARRAY['stonez_bulk_process_group'::name]
-               AND regexp_replace(qual, '[[:space:]]+', '', 'g') ~ v_expected_predicate
-               AND regexp_replace(with_check, '[[:space:]]+', '', 'g') ~ v_expected_predicate
-        ) THEN
-            RAISE EXCEPTION 'restrictive tenant guard is missing or malformed on public.%', v_table;
-        END IF;
-        IF NOT EXISTS (
-            SELECT 1 FROM pg_policies
-             WHERE schemaname='public' AND tablename=v_table
-               AND policyname = v_table || '_bulk_import_tenant_select'
-               AND permissive='PERMISSIVE' AND cmd='SELECT'
-               AND roles = ARRAY['stonez_bulk_process_group'::name]
-               AND regexp_replace(qual, '[[:space:]]+', '', 'g') ~ v_expected_predicate
-        ) THEN
-            RAISE EXCEPTION 'permissive SELECT policy is missing or malformed on public.%', v_table;
-        END IF;
-    END LOOP;
-
-    IF has_table_privilege('stonez_bulk_process_group','public.users','INSERT')
-       OR has_table_privilege('stonez_bulk_process_group','public.students','INSERT')
-       OR has_table_privilege('stonez_bulk_process_group','public.teacher_profiles','INSERT')
-       OR has_table_privilege('stonez_bulk_process_group','public.parent_profiles','INSERT')
-       OR has_table_privilege('stonez_bulk_process_group','public.student_enrollments','INSERT')
-       OR has_table_privilege('stonez_bulk_process_group','public.guardian_relationships','INSERT') THEN
-        -- Table-level INSERT is intentionally not used; it must be column scoped.
-        RAISE EXCEPTION 'processing group has broad table-level INSERT privilege';
-    END IF;
-
-    FOREACH v_table IN ARRAY ARRAY[
-        'users','students','teacher_profiles','parent_profiles',
-        'student_enrollments','guardian_relationships'
-    ] LOOP
-        IF NOT EXISTS (
-            SELECT 1 FROM pg_policies
-             WHERE schemaname='public' AND tablename=v_table
-               AND policyname = v_table || '_bulk_import_tenant_insert'
-               AND permissive='PERMISSIVE' AND cmd='INSERT'
-               AND roles = ARRAY['stonez_bulk_process_group'::name]
-               AND regexp_replace(with_check, '[[:space:]]+', '', 'g') ~ v_expected_predicate
-        ) THEN
-            RAISE EXCEPTION 'permissive INSERT policy is missing or malformed on public.%', v_table;
-        END IF;
-        v_expected_insert := CASE v_table
-            WHEN 'users' THEN ARRAY['id','school_id','name','email','password_hash','role','active']
-            WHEN 'students' THEN ARRAY['id','school_id','user_id','admission_number','date_of_birth','gender','guardian_name','guardian_phone','guardian_email','enrollment_status','created_at','updated_at']
-            WHEN 'teacher_profiles' THEN ARRAY['id','school_id','user_id','staff_id','phone','gender','employment_date','department','designation','subjects','classes','status','created_at','updated_at']
-            WHEN 'parent_profiles' THEN ARRAY['id','school_id','user_id','parent_identifier','phone','address','occupation','created_at','updated_at']
-            WHEN 'student_enrollments' THEN ARRAY['id','school_id','student_id','academic_session_id','class_id','section_id','status','enrolled_at','created_at','updated_at']
-            WHEN 'guardian_relationships' THEN ARRAY['id','school_id','guardian_user_id','student_id','relationship','primary','active','created_at','updated_at']
-        END;
-        IF NOT has_any_column_privilege('stonez_bulk_process_group', format('public.%I',v_table), 'INSERT') THEN
-            RAISE EXCEPTION 'processing group has no INSERT columns on public.%', v_table;
-        END IF;
-        FOREACH v_column IN ARRAY v_expected_insert LOOP
-            IF NOT has_column_privilege('stonez_bulk_process_group', format('public.%I',v_table), v_column, 'INSERT') THEN
-                RAISE EXCEPTION 'required INSERT privilege missing on public.%.%', v_table, v_column;
-            END IF;
-        END LOOP;
-        FOR v_column IN
-            SELECT attname FROM pg_attribute
-             WHERE attrelid = to_regclass(format('public.%I',v_table))
-               AND attnum > 0 AND NOT attisdropped
-        LOOP
-            IF has_column_privilege('stonez_bulk_process_group', format('public.%I',v_table), v_column, 'INSERT')
-               AND NOT (v_column = ANY(v_expected_insert)) THEN
-                RAISE EXCEPTION 'unexpected INSERT privilege on public.%.%', v_table, v_column;
-            END IF;
-        END LOOP;
-    END LOOP;
-
-    FOREACH v_table IN ARRAY ARRAY['academic_sessions','school_classes','sections'] LOOP
-        IF has_any_column_privilege('stonez_bulk_process_group', format('public.%I',v_table), 'INSERT') THEN
-            RAISE EXCEPTION 'processing group unexpectedly has INSERT columns on read-only table public.%', v_table;
-        END IF;
-    END LOOP;
-
-    IF EXISTS (
-        SELECT 1 FROM pg_policies
-         WHERE schemaname='public' AND tablename='users'
-           AND policyname='users_bulk_import_tenant_guard'
-           AND (qual NOT LIKE '%school_id IS NOT NULL%' OR with_check NOT LIKE '%school_id IS NOT NULL%')
-    ) THEN
-        RAISE EXCEPTION 'users restrictive guard does not exclude NULL-school platform users';
-    END IF;
-
-    RAISE NOTICE 'Bulk-import tenant RLS grants, restrictive guards, and policy inventory verified.';
-END
-$verify$;
-
-            ELSE '^\\(*EXISTS\\(SELECT1FROMstonez_internal\\.current_bulk_import_context\\(\\)ctxWHERE\\(ctx\\.school_id=' || v_table || '\\.school_id\\)\\)\\)*
-               AND permissive='RESTRICTIVE' AND cmd='ALL'
-               AND roles = ARRAY['stonez_bulk_process_group'::name]
-               AND qual LIKE '%' || 'ctx.school_id = ' || v_table || '.school_id' || '%'
-               AND with_check LIKE '%' || 'ctx.school_id = ' || v_table || '.school_id' || '%'
-               AND qual NOT LIKE '% OR %' AND with_check NOT LIKE '% OR %'
-        ) THEN
-            RAISE EXCEPTION 'restrictive tenant guard is missing or malformed on public.%', v_table;
-        END IF;
-        IF NOT EXISTS (
-            SELECT 1 FROM pg_policies
-             WHERE schemaname='public' AND tablename=v_table
-               AND policyname = v_table || '_bulk_import_tenant_select'
-               AND permissive='PERMISSIVE' AND cmd='SELECT'
-               AND roles = ARRAY['stonez_bulk_process_group'::name]
-               AND qual LIKE '%' || 'ctx.school_id = ' || v_table || '.school_id' || '%'
-               AND qual NOT LIKE '% OR %'
-        ) THEN
-            RAISE EXCEPTION 'permissive SELECT policy is missing or malformed on public.%', v_table;
-        END IF;
-    END LOOP;
-
-    IF has_table_privilege('stonez_bulk_process_group','public.users','INSERT')
-       OR has_table_privilege('stonez_bulk_process_group','public.students','INSERT')
-       OR has_table_privilege('stonez_bulk_process_group','public.teacher_profiles','INSERT')
-       OR has_table_privilege('stonez_bulk_process_group','public.parent_profiles','INSERT')
-       OR has_table_privilege('stonez_bulk_process_group','public.student_enrollments','INSERT')
-       OR has_table_privilege('stonez_bulk_process_group','public.guardian_relationships','INSERT') THEN
-        -- Table-level INSERT is intentionally not used; it must be column scoped.
-        RAISE EXCEPTION 'processing group has broad table-level INSERT privilege';
-    END IF;
-
-    FOREACH v_table IN ARRAY ARRAY[
-        'users','students','teacher_profiles','parent_profiles',
-        'student_enrollments','guardian_relationships'
-    ] LOOP
-        IF NOT EXISTS (
-            SELECT 1 FROM pg_policies
-             WHERE schemaname='public' AND tablename=v_table
-               AND policyname = v_table || '_bulk_import_tenant_insert'
-               AND permissive='PERMISSIVE' AND cmd='INSERT'
-               AND roles = ARRAY['stonez_bulk_process_group'::name]
-               AND with_check LIKE '%' || 'ctx.school_id = ' || v_table || '.school_id' || '%'
-               AND with_check NOT LIKE '% OR %'
-        ) THEN
-            RAISE EXCEPTION 'permissive INSERT policy is missing or malformed on public.%', v_table;
-        END IF;
-        v_expected_insert := CASE v_table
-            WHEN 'users' THEN ARRAY['id','school_id','name','email','password_hash','role','active']
-            WHEN 'students' THEN ARRAY['id','school_id','user_id','admission_number','date_of_birth','gender','guardian_name','guardian_phone','guardian_email','enrollment_status','created_at','updated_at']
-            WHEN 'teacher_profiles' THEN ARRAY['id','school_id','user_id','staff_id','phone','gender','employment_date','department','designation','subjects','classes','status','created_at','updated_at']
-            WHEN 'parent_profiles' THEN ARRAY['id','school_id','user_id','parent_identifier','phone','address','occupation','created_at','updated_at']
-            WHEN 'student_enrollments' THEN ARRAY['id','school_id','student_id','academic_session_id','class_id','section_id','status','enrolled_at','created_at','updated_at']
-            WHEN 'guardian_relationships' THEN ARRAY['id','school_id','guardian_user_id','student_id','relationship','primary','active','created_at','updated_at']
-        END;
-        IF NOT has_any_column_privilege('stonez_bulk_process_group', format('public.%I',v_table), 'INSERT') THEN
-            RAISE EXCEPTION 'processing group has no INSERT columns on public.%', v_table;
-        END IF;
-        FOREACH v_column IN ARRAY v_expected_insert LOOP
-            IF NOT has_column_privilege('stonez_bulk_process_group', format('public.%I',v_table), v_column, 'INSERT') THEN
-                RAISE EXCEPTION 'required INSERT privilege missing on public.%.%', v_table, v_column;
-            END IF;
-        END LOOP;
-        FOR v_column IN
-            SELECT attname FROM pg_attribute
-             WHERE attrelid = to_regclass(format('public.%I',v_table))
-               AND attnum > 0 AND NOT attisdropped
-        LOOP
-            IF has_column_privilege('stonez_bulk_process_group', format('public.%I',v_table), v_column, 'INSERT')
-               AND NOT (v_column = ANY(v_expected_insert)) THEN
-                RAISE EXCEPTION 'unexpected INSERT privilege on public.%.%', v_table, v_column;
-            END IF;
-        END LOOP;
-    END LOOP;
-
-    FOREACH v_table IN ARRAY ARRAY['academic_sessions','school_classes','sections'] LOOP
-        IF has_any_column_privilege('stonez_bulk_process_group', format('public.%I',v_table), 'INSERT') THEN
-            RAISE EXCEPTION 'processing group unexpectedly has INSERT columns on read-only table public.%', v_table;
-        END IF;
-    END LOOP;
-
-    IF EXISTS (
-        SELECT 1 FROM pg_policies
-         WHERE schemaname='public' AND tablename='users'
-           AND policyname='users_bulk_import_tenant_guard'
-           AND (qual NOT LIKE '%school_id IS NOT NULL%' OR with_check NOT LIKE '%school_id IS NOT NULL%')
-    ) THEN
-        RAISE EXCEPTION 'users restrictive guard does not exclude NULL-school platform users';
-    END IF;
-
-    RAISE NOTICE 'Bulk-import tenant RLS grants, restrictive guards, and policy inventory verified.';
-END
-$verify$;
-
+            THEN '^\(*school_idISNOTNULL\)*AND\(*EXISTS\(SELECT1FROMstonez_internal\.current_bulk_import_context\(\)ctxWHERE\(ctx\.school_id=users\.school_id\)\)\)*$'
+            ELSE '^\(*EXISTS\(SELECT1FROMstonez_internal\.current_bulk_import_context\(\)ctxWHERE\(ctx\.school_id=' || v_table || '\.school_id\)\)\)*$'
         END;
 
         IF NOT EXISTS (
@@ -266,9 +83,8 @@ $verify$;
                AND policyname = v_table || '_bulk_import_tenant_guard'
                AND permissive='RESTRICTIVE' AND cmd='ALL'
                AND roles = ARRAY['stonez_bulk_process_group'::name]
-               AND qual LIKE '%' || 'ctx.school_id = ' || v_table || '.school_id' || '%'
-               AND with_check LIKE '%' || 'ctx.school_id = ' || v_table || '.school_id' || '%'
-               AND qual NOT LIKE '% OR %' AND with_check NOT LIKE '% OR %'
+               AND regexp_replace(qual, '[[:space:]]+', '', 'g') ~ v_expected_predicate
+               AND regexp_replace(with_check, '[[:space:]]+', '', 'g') ~ v_expected_predicate
         ) THEN
             RAISE EXCEPTION 'restrictive tenant guard is missing or malformed on public.%', v_table;
         END IF;
@@ -278,8 +94,7 @@ $verify$;
                AND policyname = v_table || '_bulk_import_tenant_select'
                AND permissive='PERMISSIVE' AND cmd='SELECT'
                AND roles = ARRAY['stonez_bulk_process_group'::name]
-               AND qual LIKE '%' || 'ctx.school_id = ' || v_table || '.school_id' || '%'
-               AND qual NOT LIKE '% OR %'
+               AND regexp_replace(qual, '[[:space:]]+', '', 'g') ~ v_expected_predicate
         ) THEN
             RAISE EXCEPTION 'permissive SELECT policy is missing or malformed on public.%', v_table;
         END IF;
@@ -305,8 +120,7 @@ $verify$;
                AND policyname = v_table || '_bulk_import_tenant_insert'
                AND permissive='PERMISSIVE' AND cmd='INSERT'
                AND roles = ARRAY['stonez_bulk_process_group'::name]
-               AND with_check LIKE '%' || 'ctx.school_id = ' || v_table || '.school_id' || '%'
-               AND with_check NOT LIKE '% OR %'
+               AND regexp_replace(with_check, '[[:space:]]+', '', 'g') ~ v_expected_predicate
         ) THEN
             RAISE EXCEPTION 'permissive INSERT policy is missing or malformed on public.%', v_table;
         END IF;

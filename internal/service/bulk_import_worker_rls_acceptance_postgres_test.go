@@ -140,6 +140,7 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		model any
 		allowInsert bool
 	}
+	var rlsForced bool
 	tables := []tableFixture{
 		{"users", &models.User{}, true},
 		{"students", &models.Student{}, true},
@@ -179,7 +180,6 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 			if allowed { t.Fatalf("processing group unexpectedly has table-level %s on %s", privilege, table.name) }
 		}
 	}
-	var rlsForced bool
 	if err := verifyTenantPolicies(); err != nil { t.Fatalf("second read-only tenant RLS verification: %v", err) }
 
 	// Assert the test login inherits only the candidate role and has no direct

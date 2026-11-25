@@ -161,6 +161,23 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		if err := admin.Exec(insertPolicy).Error; err != nil {
 			t.Fatalf("create test-only INSERT policy on %s: %v", table.name, err)
 		}
+		// Restrictive policies are ANDed with every applicable permissive
+		// policy, preventing a later broad policy from bypassing tenancy.
+		guardPredicate := "EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = " + table.name + ".school_id)"
+		if table.name == "users" {
+			guardPredicate = "school_id IS NOT NULL AND EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = users.school_id)"
+		}
+		guard := "CREATE POLICY " + table.name + "_bulk_context_guard ON " + schema + "." + table.name +
+			" AS RESTRICTIVE FOR ALL TO " + processGroup +
+			" USING (" + guardPredicate + ") WITH CHECK (" + guardPredicate + ")"
+		if err := admin.Exec(guard).Error; err != nil {
+			t.Fatalf("create test-only restrictive tenant guard on %s: %v", table.name, err)
+		}
+	}
+	// Deliberately simulate a future broad permissive policy. The restrictive
+	// tenant guard above must still prevent cross-school visibility and writes.
+	if err := admin.Exec("CREATE POLICY users_acceptance_broad_permissive ON " + schema + ".users AS PERMISSIVE FOR ALL TO " + processGroup + " USING (true) WITH CHECK (true)").Error; err != nil {
+		t.Fatalf("create broad permissive regression policy: %v", err)
 	}
 
 	// Assert the test login inherits only the candidate role and has no direct
@@ -314,6 +331,20 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 			if count != 0 {
 				return fmt.Errorf("School A context saw %d School B rows in %s", count, table)
 			}
+		}
+		if err := tx.SavePoint("before_cross_school_user").Error; err != nil {
+			return err
+		}
+		crossSchoolUser := models.User{
+			SchoolID: &schoolB.school.ID, Name: "Cross-school attempt",
+			Email: "cross-school-attempt@example.invalid", PasswordHash: "not-used",
+			Role: "student", Active: true,
+		}
+		if err := tx.Create(&crossSchoolUser).Error; err == nil {
+			return fmt.Errorf("School A context inserted a School B user despite a broad permissive policy")
+		}
+		if err := tx.RollbackTo("before_cross_school_user").Error; err != nil {
+			return err
 		}
 		if err := tx.SavePoint("before_cross_school_profile").Error; err != nil {
 			return err

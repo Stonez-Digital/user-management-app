@@ -548,7 +548,7 @@ CREATE TABLE %s.bulk_import_jobs (
 	if err != nil {
 		t.Fatalf("connect as restricted claim-only login: %v", err)
 	}
-	if err := database.ValidateBulkImportClaimRoleFor(loginDB, apiRole, ownerRole, privateSchema+".claim_next_bulk_import_job(uuid)"); err != nil {
+	if err := database.ValidateBulkImportClaimRoleForSchema(loginDB, claimRole, apiRole, ownerRole, tableSchema+".bulk_import_jobs", tableSchema, privateSchema+".claim_next_bulk_import_job(uuid)"); err != nil {
 		t.Fatalf("validate restricted claim-only login: %v", err)
 	}
 

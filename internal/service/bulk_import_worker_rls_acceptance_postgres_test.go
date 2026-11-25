@@ -85,6 +85,13 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	if err := admin.Exec(script).Error; err != nil {
 		t.Fatalf("install test-only signed-context verifier: %v", err)
 	}
+
+	// The verifier and current-context SECURITY DEFINER functions must continue
+	// to work when the queue itself is forced through RLS. The dedicated owner
+	// policies in the installer are the only intended path for those reads.
+	if err := admin.Exec("ALTER TABLE " + schema + ".bulk_import_jobs FORCE ROW LEVEL SECURITY").Error; err != nil {
+		t.Fatalf("force RLS on bulk_import_jobs: %v", err)
+	}
 	if err := admin.Exec("GRANT USAGE ON SCHEMA " + privateSchema + " TO " + processGroup).Error; err != nil {
 		t.Fatalf("grant verifier function schema usage: %v", err)
 	}
@@ -359,6 +366,48 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		return tx.RollbackTo("before_cross_school_profile").Error
 	}); err != nil {
 		t.Fatalf("two-school RLS isolation assertion failed: %v", err)
+	}
+
+	// Negative lease checks: each assertion is signed from the supplied
+	// job snapshot, while the verifier independently locks and checks the
+	// authoritative queue row. No tenant callback may run on a stale snapshot.
+	staleJob := schoolA.teacherJob
+	if err := admin.Model(&models.BulkImportJob{}).Where("id = ?", staleJob.ID).
+		Update("lease_generation", staleJob.LeaseGeneration+1).Error; err != nil {
+		t.Fatalf("advance lease generation for stale-assertion test: %v", err)
+	}
+	if err := service.withTenantTransaction(staleJob, func(*gorm.DB) error {
+		return fmt.Errorf("stale lease generation unexpectedly authorized")
+	}); err == nil {
+		t.Fatal("stale lease generation was accepted")
+	}
+	if err := admin.Model(&models.BulkImportJob{}).Where("id = ?", staleJob.ID).
+		Update("lease_generation", staleJob.LeaseGeneration).Error; err != nil {
+		t.Fatalf("restore lease generation after stale-assertion test: %v", err)
+	}
+
+	wrongWorkerJob := schoolA.teacherJob
+	wrongWorker := uuid.New()
+	wrongWorkerJob.WorkerID = &wrongWorker
+	if err := service.withTenantTransaction(wrongWorkerJob, func(*gorm.DB) error {
+		return fmt.Errorf("transferred worker assertion unexpectedly authorized")
+	}); err == nil {
+		t.Fatal("assertion from a different worker was accepted")
+	}
+
+	expiredClaim := time.Now().UTC().Add(-6 * time.Minute)
+	if err := admin.Model(&models.BulkImportJob{}).Where("id = ?", schoolA.parentJob.ID).
+		Update("claimed_at", expiredClaim).Error; err != nil {
+		t.Fatalf("expire claim timestamp for stale-claim test: %v", err)
+	}
+	if err := service.withTenantTransaction(schoolA.parentJob, func(*gorm.DB) error {
+		return fmt.Errorf("expired claim unexpectedly authorized")
+	}); err == nil {
+		t.Fatal("expired claim timestamp was accepted")
+	}
+	if err := admin.Model(&models.BulkImportJob{}).Where("id = ?", schoolA.parentJob.ID).
+		Update("claimed_at", time.Now().UTC()).Error; err != nil {
+		t.Fatalf("restore claim timestamp after stale-claim test: %v", err)
 	}
 
 	// Exercise the actual production row-processing orchestration for every

@@ -20,6 +20,30 @@ BEGIN
         RAISE EXCEPTION 'verified context function is missing or inaccessible';
     END IF;
 
+    IF EXISTS (
+        SELECT 1
+          FROM pg_auth_members membership
+          JOIN pg_roles member_role ON member_role.oid = membership.member
+         WHERE membership.roleid = v_role
+           AND membership.member <> (SELECT oid FROM pg_roles WHERE rolname = current_user)
+           AND (NOT member_role.rolcanlogin OR member_role.rolsuper OR member_role.rolbypassrls
+                OR member_role.rolcreatedb OR member_role.rolcreaterole
+                OR membership.admin_option OR NOT membership.inherit_option OR membership.set_option)
+    ) THEN
+        RAISE EXCEPTION 'processing group has an unsafe worker login membership';
+    END IF;
+    IF EXISTS (
+        SELECT 1
+          FROM pg_auth_members processing_membership
+          JOIN pg_auth_members additional_membership
+            ON additional_membership.member = processing_membership.member
+         WHERE processing_membership.roleid = v_role
+           AND processing_membership.member <> (SELECT oid FROM pg_roles WHERE rolname = current_user)
+           AND additional_membership.roleid <> v_role
+    ) THEN
+        RAISE EXCEPTION 'processing login has an additional role membership';
+    END IF;
+
     FOR v_table IN SELECT unnest(ARRAY[
         'users','students','teacher_profiles','parent_profiles',
         'academic_sessions','school_classes','sections',

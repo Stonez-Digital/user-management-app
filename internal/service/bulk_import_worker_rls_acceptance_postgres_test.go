@@ -346,12 +346,56 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	}
 
 	service := (&BulkImportService{db: loginDB, contextSigner: signer})
+	schoolA, schoolB := fixtures[0], fixtures[1]
+
+	// Neither an absent context nor a caller-forged GUC may expose tenant rows
+	// or authorize inserts. The second case uses a syntactically valid UUID
+	// that has no matching verifier session.
+	for _, testCase := range []struct {
+		name      string
+		contextID string
+	}{
+		{name: "missing context"},
+		{name: "forged context", contextID: uuid.NewString()},
+	} {
+		err := loginDB.Transaction(func(tx *gorm.DB) error {
+			if testCase.contextID != "" {
+				if err := tx.Exec("SELECT set_config('stonez.bulk_context_id', ?, true)", testCase.contextID).Error; err != nil {
+					return err
+				}
+			}
+			for _, table := range []string{"users", "students", "teacher_profiles", "parent_profiles", "academic_sessions", "school_classes", "sections", "student_enrollments", "guardian_relationships"} {
+				var count int64
+				if err := tx.Table(table).Where("school_id = ?", schoolA.school.ID).Count(&count).Error; err != nil {
+					return fmt.Errorf("%s context queried %s: %w", testCase.name, table, err)
+				}
+				if count != 0 {
+					return fmt.Errorf("%s exposed %d tenant rows in %s", testCase.name, count, table)
+				}
+			}
+			if err := tx.SavePoint("before_unauthorized_user_insert").Error; err != nil {
+				return err
+			}
+			unauthorized := models.User{
+				SchoolID: &schoolA.school.ID, Name: "No context insert",
+				Email: "no-context-" + testCase.name + "@example.invalid",
+				PasswordHash: "not-used", Role: "student", Active: true,
+			}
+			if err := tx.Create(&unauthorized).Error; err == nil {
+				return fmt.Errorf("%s authorized a tenant user insert", testCase.name)
+			}
+			return tx.RollbackTo("before_unauthorized_user_insert").Error
+		})
+		if err != nil {
+			t.Fatalf("%s did not fail closed: %v", testCase.name, err)
+		}
+	}
+
 	// A valid School A assertion must not reveal School B rows or permit a
 	// cross-school profile insert, even though the candidate login has column
 	// SELECT/INSERT grants on the underlying tables.
-	schoolA, schoolB := fixtures[0], fixtures[1]
 	if err := service.withTenantTransaction(schoolA.studentJob, func(tx *gorm.DB) error {
-		for _, table := range []string{"users", "students", "teacher_profiles", "parent_profiles"} {
+		for _, table := range []string{"users", "students", "teacher_profiles", "parent_profiles", "academic_sessions", "school_classes", "sections", "student_enrollments", "guardian_relationships"} {
 			var count int64
 			if err := tx.Table(table).Where("school_id = ?", schoolB.school.ID).Count(&count).Error; err != nil {
 				return fmt.Errorf("query School B %s under School A context: %w", table, err)
@@ -408,7 +452,11 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 			return err
 		}
 		invalid := assertion
-		invalid.Signature = "A" + invalid.Signature[1:]
+		replacement := "A"
+		if invalid.Signature[0] == 'A' {
+			replacement = "B"
+		}
+		invalid.Signature = replacement + invalid.Signature[1:]
 		if err := tx.SavePoint("before_invalid_assertion").Error; err != nil { return err }
 		if err := database.VerifyBulkImportContext(tx, invalid); err == nil {
 			return fmt.Errorf("invalid HMAC signature was accepted")
@@ -482,10 +530,13 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		Update("lease_generation", staleJob.LeaseGeneration+1).Error; err != nil {
 		t.Fatalf("advance lease generation for stale-assertion test: %v", err)
 	}
-	if err := service.withTenantTransaction(staleJob, func(*gorm.DB) error {
-		return fmt.Errorf("stale lease generation unexpectedly authorized")
-	}); err == nil {
-		t.Fatal("stale lease generation was accepted")
+	staleCallbackRan := false
+	staleErr := service.withTenantTransaction(staleJob, func(*gorm.DB) error {
+		staleCallbackRan = true
+		return nil
+	})
+	if staleErr == nil || staleCallbackRan {
+		t.Fatalf("stale lease generation was not rejected before tenant callback: err=%v callback_ran=%t", staleErr, staleCallbackRan)
 	}
 	if err := admin.Model(&models.BulkImportJob{}).Where("id = ?", staleJob.ID).
 		Update("lease_generation", staleJob.LeaseGeneration).Error; err != nil {
@@ -495,10 +546,13 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	wrongWorkerJob := schoolA.teacherJob
 	wrongWorker := uuid.New()
 	wrongWorkerJob.WorkerID = &wrongWorker
-	if err := service.withTenantTransaction(wrongWorkerJob, func(*gorm.DB) error {
-		return fmt.Errorf("transferred worker assertion unexpectedly authorized")
-	}); err == nil {
-		t.Fatal("assertion from a different worker was accepted")
+	wrongWorkerCallbackRan := false
+	wrongWorkerErr := service.withTenantTransaction(wrongWorkerJob, func(*gorm.DB) error {
+		wrongWorkerCallbackRan = true
+		return nil
+	})
+	if wrongWorkerErr == nil || wrongWorkerCallbackRan {
+		t.Fatalf("different worker assertion was not rejected before tenant callback: err=%v callback_ran=%t", wrongWorkerErr, wrongWorkerCallbackRan)
 	}
 
 	expiredClaim := time.Now().UTC().Add(-6 * time.Minute)
@@ -506,10 +560,13 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		Update("claimed_at", expiredClaim).Error; err != nil {
 		t.Fatalf("expire claim timestamp for stale-claim test: %v", err)
 	}
-	if err := service.withTenantTransaction(schoolA.parentJob, func(*gorm.DB) error {
-		return fmt.Errorf("expired claim unexpectedly authorized")
-	}); err == nil {
-		t.Fatal("expired claim timestamp was accepted")
+	expiredClaimCallbackRan := false
+	expiredClaimErr := service.withTenantTransaction(schoolA.parentJob, func(*gorm.DB) error {
+		expiredClaimCallbackRan = true
+		return nil
+	})
+	if expiredClaimErr == nil || expiredClaimCallbackRan {
+		t.Fatalf("expired claim was not rejected before tenant callback: err=%v callback_ran=%t", expiredClaimErr, expiredClaimCallbackRan)
 	}
 	if err := admin.Model(&models.BulkImportJob{}).Where("id = ?", schoolA.parentJob.ID).
 		Update("claimed_at", time.Now().UTC()).Error; err != nil {

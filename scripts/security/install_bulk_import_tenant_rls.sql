@@ -130,7 +130,7 @@ GRANT INSERT (id, school_id, user_id, parent_identifier, phone, address,
 GRANT INSERT (id, school_id, student_id, academic_session_id, class_id, section_id,
     status, enrolled_at, created_at, updated_at)
     ON TABLE public.student_enrollments TO stonez_bulk_process_group;
-GRANT INSERT (id, school_id, guardian_user_id, student_id, relationship, primary,
+GRANT INSERT (id, school_id, guardian_user_id, student_id, relationship, "primary",
     active, created_at, updated_at)
     ON TABLE public.guardian_relationships TO stonez_bulk_process_group;
 

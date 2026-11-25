@@ -53,7 +53,7 @@ For each table with SELECT intent, reviewers should consider a policy scoped to 
 
 Do not create permissive `FOR ALL` policies. Do not grant the processing role table ownership, BYPASSRLS, or direct access to `stonez_internal.bulk_context_keys` or `bulk_context_sessions`.
 
-RLS should be enabled and forced for these tables when the migration owner/runtime ownership model has been validated. The migration/owner identity must remain separate from the processing login; FORCE RLS must not be used as a substitute for proving the correct owner and function execution behavior.
+RLS is enabled but not forced by this candidate installer. This preserves the current application table-owner behavior; the separate non-owner processing role remains subject to the tenant policies. This is an explicit compatibility trade-off, not protection against a compromised table owner. A future FORCE RLS design requires a separately reviewed migration/runtime ownership plan and disposable acceptance coverage.
 
 ## Required PostgreSQL 17 acceptance tests
 
@@ -138,4 +138,21 @@ The installer is designed to run only after the signed-context installer and rol
 
 The verifier is read-only and checks enabled-but-not-forced RLS, policy inventory/composition, context-function access, and the absence of UPDATE/DELETE and broad table-level INSERT privileges. PostgreSQL 17 acceptance coverage proves the installer rejects a pre-existing `PUBLIC` grant, verifies the application runtime retains table-owner visibility after RLS is enabled, invokes the actual installer twice, adds a deliberately broad permissive `users` policy, invokes the verifier, and checks the generated GORM INSERT columns against granted column privileges before exercising the existing two-school worker scenarios.
 
-This is a code-review candidate only. The scripts have not been run against the Godswill database, any staging database, or production. Do not execute them operationally until the draft PR has passed CI and received independent SQL/security review. The current installer intentionally has no automatic rollback script; a rollback procedure must be separately reviewed so it cannot remove pre-existing policies or grants.
+This is a code-review candidate only. The scripts have not been run against the Godswill database, any staging database, or production. Do not execute them operationally until the draft PR has passed CI and received independent SQL/security review. The candidate rollback is implemented separately in `scripts/security/rollback_bulk_import_tenant_rls.sql`. It is intentionally fail-closed and requires an independently recorded pre-install RLS manifest. It removes only the exact named installer policies, revokes only the installer’s column grants, and disables RLS only on tables whose recorded baseline was disabled. It does not remove other policies (including later broad policies), change ownership, drop roles, or revoke unrelated privileges. Any policy/ACL drift or missing manifest aborts the transaction.
+
+
+## Candidate rollback procedure and acceptance
+
+The rollback script is not self-discovering: it must never infer the original RLS state from the post-install catalog. Before installation, an operator must record the following for each of the nine tables and retain it with the change record:
+
+- `table_name`
+- `relrowsecurity`
+- `relforcerowsecurity`
+
+For a later rollback, create a session-local table named `pg_temp.bulk_import_tenant_rls_rollback_manifest` with those three columns and insert exactly the nine recorded rows from the pre-install snapshot. The manifest must be independently reviewed; all `relforcerowsecurity` values must be false because the installer refuses FORCE RLS. Keep the manifest and rollback execution in the same PostgreSQL session.
+
+The rollback preflight checks the complete nine-table manifest, current enabled/non-forced RLS state, table-owner execution authority, exact installer policy names/commands/roles/predicate shape, and that the processing role has no unexpected table-level or column-level ACLs. If the catalog has drifted, it aborts rather than attempting a partial cleanup. On success it drops only the installer-owned policy names, revokes only the exact SELECT/INSERT column grants created by the installer, and restores each table's original RLS-enabled flag. Existing RLS on `teacher_profiles` and `parent_profiles` (and any other table recorded as enabled) is preserved.
+
+The PostgreSQL 17 acceptance test captures the actual pre-install flags from its disposable migrated schema, executes the rollback script in the same session, verifies all nine flags match the manifest, verifies no installer-owned policy remains, and proves an unrelated broad permissive policy is preserved. This is test-only evidence; it does not constitute an operational rollback approval.
+
+The rollback script and its test still require independent SQL/security review before any operational use.

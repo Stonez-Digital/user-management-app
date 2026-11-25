@@ -15,6 +15,7 @@ DECLARE
     v_select_columns text[];
     v_insert_columns text[];
     v_expected_policy_count integer;
+    v_expected_predicate text;
 BEGIN
     SELECT oid INTO v_role
       FROM pg_roles
@@ -150,6 +151,11 @@ BEGIN
             RAISE EXCEPTION 'unexpected installer-owned policy count on public.%, found %', v_table, v_expected_policy_count;
         END IF;
 
+        v_expected_predicate := CASE WHEN v_table = 'users'
+            THEN 'school_idISNOTNULLANDEXISTSSELECT1FROMstonez_internal.current_bulk_import_contextctxjob_id,school_id,initiated_by,worker_id,lease_generation,expires_atWHEREctx.school_id=' || v_table || '.school_id'
+            ELSE 'EXISTSSELECT1FROMstonez_internal.current_bulk_import_contextctxjob_id,school_id,initiated_by,worker_id,lease_generation,expires_atWHEREctx.school_id=' || v_table || '.school_id'
+        END;
+
         IF EXISTS (
             SELECT 1
               FROM pg_policy p
@@ -161,36 +167,20 @@ BEGIN
                ])
                AND (
                    p.polroles <> ARRAY[v_role]::oid[]
-                   OR position('current_bulk_import_context' IN lower(
-                       COALESCE(pg_get_expr(p.polqual, p.polrelid), '') || ' ' ||
-                       COALESCE(pg_get_expr(p.polwithcheck, p.polrelid), '')
-                   )) = 0
-                   OR position('school_id' IN lower(
-                       COALESCE(pg_get_expr(p.polqual, p.polrelid), '') || ' ' ||
-                       COALESCE(pg_get_expr(p.polwithcheck, p.polrelid), '')
-                   )) = 0
                    OR (p.polname = v_table || '_bulk_import_tenant_select'
-                       AND (p.polcmd <> 'r' OR NOT p.polpermissive OR p.polqual IS NULL OR p.polwithcheck IS NOT NULL))
+                       AND (p.polcmd <> 'r' OR NOT p.polpermissive OR p.polqual IS NULL OR p.polwithcheck IS NOT NULL
+                            OR regexp_replace(pg_get_expr(p.polqual, p.polrelid), '[[:space:]()]', '', 'g') <> v_expected_predicate))
                    OR (p.polname = v_table || '_bulk_import_tenant_insert'
                        AND (v_table NOT IN ('users','students','teacher_profiles','parent_profiles','student_enrollments','guardian_relationships')
-                            OR p.polcmd <> 'a' OR NOT p.polpermissive OR p.polqual IS NOT NULL OR p.polwithcheck IS NULL))
+                            OR p.polcmd <> 'a' OR NOT p.polpermissive OR p.polqual IS NOT NULL OR p.polwithcheck IS NULL
+                            OR regexp_replace(pg_get_expr(p.polwithcheck, p.polrelid), '[[:space:]()]', '', 'g') <> v_expected_predicate))
                    OR (p.polname = v_table || '_bulk_import_tenant_guard'
-                       AND (p.polcmd <> '*' OR p.polpermissive OR p.polqual IS NULL OR p.polwithcheck IS NULL))
+                       AND (p.polcmd <> '*' OR p.polpermissive OR p.polqual IS NULL OR p.polwithcheck IS NULL
+                            OR regexp_replace(pg_get_expr(p.polqual, p.polrelid), '[[:space:]()]', '', 'g') <> v_expected_predicate
+                            OR regexp_replace(pg_get_expr(p.polwithcheck, p.polrelid), '[[:space:]()]', '', 'g') <> v_expected_predicate))
                )
         ) THEN
-            RAISE EXCEPTION 'installer-owned policy drift detected on public.%; refusing rollback', v_table;
-        END IF;
-
-        IF v_table = 'users' AND EXISTS (
-            SELECT 1 FROM pg_policy p
-             WHERE p.polrelid = to_regclass('public.users')
-               AND p.polname = 'users_bulk_import_tenant_guard'
-               AND (
-                   position('is not null' IN lower(pg_get_expr(p.polqual, p.polrelid))) = 0
-                   OR position('is not null' IN lower(pg_get_expr(p.polwithcheck, p.polrelid))) = 0
-               )
-        ) THEN
-            RAISE EXCEPTION 'users NULL-school guard drift detected; refusing rollback';
+            RAISE EXCEPTION 'installer-owned policy predicate/role/command drift detected on public.%; refusing rollback', v_table;
         END IF;
     END LOOP;
 END

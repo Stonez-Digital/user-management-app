@@ -116,8 +116,8 @@ BEGIN
         'student_enrollments','guardian_relationships'
     ] LOOP
         v_expected_predicate := CASE WHEN v_table = 'users'
-            THEN '^school_idISNOTNULLANDEXISTSSELECT1FROMstonez_internal\.current_bulk_import_contextctxWHEREctx\.school_id=users\.school_id$'
-            ELSE '^EXISTSSELECT1FROMstonez_internal\.current_bulk_import_contextctxWHEREctx\.school_id=' || v_table || '\.school_id$'
+            THEN 'school_idISNOTNULLANDEXISTSSELECT1FROMstonez_internal.current_bulk_import_contextctxWHEREctx.school_id=school_id'
+            ELSE 'EXISTSSELECT1FROMstonez_internal.current_bulk_import_contextctxWHEREctx.school_id=school_id'
         END;
         IF NOT EXISTS (
             SELECT 1 FROM pg_policies

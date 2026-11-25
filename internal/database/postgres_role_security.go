@@ -107,14 +107,29 @@ func ValidateBulkImportClaimRole(db *gorm.DB) error {
 // ValidateBulkImportClaimRoleFor is also used by isolated PostgreSQL fixtures,
 // which substitute unique schema and role names to avoid collisions.
 func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimRole, queueOwnerRole, claimFunction string) error {
-    if db == nil || db.Dialector.Name() != "postgres" {
-        return fmt.Errorf("bulk import claim connection must be PostgreSQL")
-    }
-    if strings.TrimSpace(claimRole) == "" || strings.TrimSpace(queueOwnerRole) == "" || strings.TrimSpace(claimFunction) == "" {
-        return fmt.Errorf("bulk import claim role names and function signature are required")
-    }
-    var status BulkImportClaimRoleStatus
-    err := db.Raw(`
+	return ValidateBulkImportClaimRoleForSchema(
+		db, claimRole, "stonez_api_runtime", queueOwnerRole,
+		"public.bulk_import_jobs", "public", claimFunction,
+	)
+}
+
+// ValidateBulkImportClaimRoleForSchema validates a claim-only connection
+// against explicit isolated role, queue-table, and tenant-schema names. The
+// production wrapper above deliberately keeps the deployed names fixed.
+func ValidateBulkImportClaimRoleForSchema(
+	db *gorm.DB,
+	claimRole, apiRole, queueOwnerRole, queueTable, tenantSchema, claimFunction string,
+) error {
+	if db == nil || db.Dialector.Name() != "postgres" {
+		return fmt.Errorf("bulk import claim connection must be PostgreSQL")
+	}
+	for _, value := range []string{claimRole, apiRole, queueOwnerRole, queueTable, tenantSchema, claimFunction} {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("bulk import claim role, table, schema, and function identifiers are required")
+		}
+	}
+	var status BulkImportClaimRoleStatus
+	err := db.Raw(\`
         SELECT
             session_user AS session_role,
             role.rolcanlogin AS is_login,
@@ -126,22 +141,22 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimRole, queueOwnerRole, clai
             pg_has_role(session_user, ?::name, 'USAGE') AS is_claim_role_effective,
             pg_has_role(session_user, ?::name, 'SET') AS can_set_claim_role,
             pg_has_role(session_user, ?::name, 'MEMBER') AS is_queue_owner_member,
-            pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER') AS is_api_runtime_member,
-            (has_table_privilege(session_user, 'public.bulk_import_jobs', 'SELECT') OR
-             has_table_privilege(session_user, 'public.bulk_import_jobs', 'INSERT') OR
-             has_table_privilege(session_user, 'public.bulk_import_jobs', 'UPDATE') OR
-             has_table_privilege(session_user, 'public.bulk_import_jobs', 'DELETE') OR
-             has_table_privilege(session_user, 'public.bulk_import_jobs', 'TRUNCATE') OR
-             has_any_column_privilege(session_user, 'public.bulk_import_jobs', 'SELECT') OR
-             has_any_column_privilege(session_user, 'public.bulk_import_jobs', 'INSERT') OR
-             has_any_column_privilege(session_user, 'public.bulk_import_jobs', 'UPDATE')) AS has_direct_queue_privileges,
+            pg_has_role(session_user, ?::name, 'MEMBER') AS is_api_runtime_member,
+            (has_table_privilege(session_user, ?::regclass, 'SELECT') OR
+             has_table_privilege(session_user, ?::regclass, 'INSERT') OR
+             has_table_privilege(session_user, ?::regclass, 'UPDATE') OR
+             has_table_privilege(session_user, ?::regclass, 'DELETE') OR
+             has_table_privilege(session_user, ?::regclass, 'TRUNCATE') OR
+             has_any_column_privilege(session_user, ?::regclass, 'SELECT') OR
+             has_any_column_privilege(session_user, ?::regclass, 'INSERT') OR
+             has_any_column_privilege(session_user, ?::regclass, 'UPDATE')) AS has_direct_queue_privileges,
             EXISTS (
                 SELECT 1
                   FROM pg_class AS tenant_relation
                   JOIN pg_namespace AS tenant_schema ON tenant_schema.oid = tenant_relation.relnamespace
-                 WHERE tenant_schema.nspname = 'public'
+                 WHERE tenant_schema.nspname = ?
                    AND tenant_relation.relkind IN ('r', 'p', 'v', 'm', 'f')
-                   AND tenant_relation.relname <> 'bulk_import_jobs'
+                   AND tenant_relation.oid <> ?::regclass
                    AND (
                        has_table_privilege(session_user, tenant_relation.oid, 'SELECT') OR
                        has_table_privilege(session_user, tenant_relation.oid, 'INSERT') OR
@@ -160,13 +175,15 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimRole, queueOwnerRole, clai
             current_user = session_user AS current_role_matches_session
         FROM pg_roles AS role
         WHERE role.rolname = session_user
-    `, claimRole, claimRole, claimRole, queueOwnerRole, claimFunction).Scan(&status).Error
-    if err != nil {
-        return fmt.Errorf("inspect bulk import claim role: %w", err)
-    }
-    return validateBulkImportClaimRoleStatus(&status)
+    \`, claimRole, claimRole, claimRole, queueOwnerRole, apiRole,
+		queueTable, queueTable, queueTable, queueTable, queueTable,
+		queueTable, queueTable, queueTable, tenantSchema, queueTable,
+		claimFunction).Scan(&status).Error
+	if err != nil {
+		return fmt.Errorf("inspect bulk import claim role: %w", err)
+	}
+	return validateBulkImportClaimRoleStatus(&status)
 }
-
 
 // validateBulkImportClaimRoleStatus applies the fail-closed startup assertions
 // after the connection's PostgreSQL catalog state has been inspected.

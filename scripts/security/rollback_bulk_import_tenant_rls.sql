@@ -169,15 +169,15 @@ BEGIN
                    p.polroles <> ARRAY[v_role]::oid[]
                    OR (p.polname = v_table || '_bulk_import_tenant_select'
                        AND (p.polcmd <> 'r' OR NOT p.polpermissive OR p.polqual IS NULL OR p.polwithcheck IS NOT NULL
-                            OR regexp_replace(pg_get_expr(p.polqual, p.polrelid), '[[:space:]()]', '', 'g') <> v_expected_predicate))
+                            OR regexp_replace(regexp_replace(pg_get_expr(p.polqual, p.polrelid), 'ctx[[:space:]]*\([^)]*\)', 'ctx', 'g'), '[[:space:]()]', '', 'g') <> v_expected_predicate))
                    OR (p.polname = v_table || '_bulk_import_tenant_insert'
                        AND (v_table NOT IN ('users','students','teacher_profiles','parent_profiles','student_enrollments','guardian_relationships')
                             OR p.polcmd <> 'a' OR NOT p.polpermissive OR p.polqual IS NOT NULL OR p.polwithcheck IS NULL
-                            OR regexp_replace(pg_get_expr(p.polwithcheck, p.polrelid), '[[:space:]()]', '', 'g') <> v_expected_predicate))
+                            OR regexp_replace(regexp_replace(pg_get_expr(p.polwithcheck, p.polrelid), 'ctx[[:space:]]*\([^)]*\)', 'ctx', 'g'), '[[:space:]()]', '', 'g') <> v_expected_predicate))
                    OR (p.polname = v_table || '_bulk_import_tenant_guard'
                        AND (p.polcmd <> '*' OR p.polpermissive OR p.polqual IS NULL OR p.polwithcheck IS NULL
-                            OR regexp_replace(pg_get_expr(p.polqual, p.polrelid), '[[:space:]()]', '', 'g') <> v_expected_predicate
-                            OR regexp_replace(pg_get_expr(p.polwithcheck, p.polrelid), '[[:space:]()]', '', 'g') <> v_expected_predicate))
+                            OR regexp_replace(regexp_replace(pg_get_expr(p.polqual, p.polrelid), 'ctx[[:space:]]*\([^)]*\)', 'ctx', 'g'), '[[:space:]()]', '', 'g') <> v_expected_predicate
+                            OR regexp_replace(regexp_replace(pg_get_expr(p.polwithcheck, p.polrelid), 'ctx[[:space:]]*\([^)]*\)', 'ctx', 'g'), '[[:space:]()]', '', 'g') <> v_expected_predicate))
                )
         ) THEN
             RAISE EXCEPTION 'installer-owned policy predicate/role/command drift detected on public.%; refusing rollback', v_table;

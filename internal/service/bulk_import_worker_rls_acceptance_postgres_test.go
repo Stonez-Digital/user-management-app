@@ -386,7 +386,7 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	// The API runtime retains its existing table-owner behavior. FORCE RLS
 	// would silently change that contract; ordinary ENABLE RLS does not apply
 	// to a table owner, while the separate worker login remains non-owner.
-	if err := admin.Exec("GRANT CREATE ON SCHEMA " + schema + " TO " + runtimeRole).Error; err != nil {
+	if err := admin.Exec("GRANT USAGE, CREATE ON SCHEMA " + schema + " TO " + runtimeRole).Error; err != nil {
 		t.Fatalf("grant disposable API runtime schema ownership prerequisite: %v", err)
 	}
 	for _, table := range tables {

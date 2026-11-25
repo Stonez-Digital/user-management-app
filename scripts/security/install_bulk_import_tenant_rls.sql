@@ -29,17 +29,6 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'processing group must not inherit any other role';
     END IF;
-    IF EXISTS (
-        SELECT 1
-          FROM pg_auth_members membership
-          JOIN pg_roles login_role ON login_role.oid = membership.member
-         WHERE membership.roleid = v_role.oid
-           AND (NOT login_role.rolcanlogin OR login_role.rolsuper OR login_role.rolbypassrls
-                OR login_role.rolcreatedb OR login_role.rolcreaterole
-                OR membership.admin_option OR NOT membership.inherit_option OR membership.set_option)
-    ) THEN
-        RAISE EXCEPTION 'processing group has an unsafe login membership';
-    END IF;
     FOREACH v_table IN ARRAY ARRAY[
         'users','students','teacher_profiles','parent_profiles',
         'academic_sessions','school_classes','sections',

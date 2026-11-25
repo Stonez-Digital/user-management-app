@@ -98,7 +98,8 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	}
 
 	// Install the exact operator policy SQL against this disposable schema.
-	// The test executes it twice to prove the installer is safely repeatable.
+	// The installer must refuse a second run rather than silently replace any
+	// policy, ACL, or RLS state that may have appeared after initial approval.
 	installTenantPolicies := func() error {
 		raw, err := os.ReadFile("../../scripts/security/install_bulk_import_tenant_rls.sql")
 		if err != nil { return fmt.Errorf("read tenant RLS installer: %w", err) }
@@ -111,8 +112,8 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	if err := installTenantPolicies(); err != nil {
 		t.Fatalf("install test-only tenant RLS policies: %v", err)
 	}
-	if err := installTenantPolicies(); err != nil {
-		t.Fatalf("rerun tenant RLS installer: %v", err)
+	if err := installTenantPolicies(); err == nil {
+		t.Fatal("installer accepted a second run over pre-existing RLS state")
 	}
 
 	// Deliberately simulate a future broad permissive policy. The restrictive

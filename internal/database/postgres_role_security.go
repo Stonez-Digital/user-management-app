@@ -81,9 +81,9 @@ type BulkImportClaimRoleStatus struct {
     BypassRLS bool `gorm:"column:bypass_rls"`
     CanCreateDB bool `gorm:"column:can_create_db"`
     CanCreateRole bool `gorm:"column:can_create_role"`
-    IsRuntimeMember bool `gorm:"column:is_runtime_member"`
-    IsRuntimeEffective bool `gorm:"column:is_runtime_effective"`
-	CanSetRuntimeRole bool `gorm:"column:can_set_runtime_role"`
+    IsClaimRoleMember bool `gorm:"column:is_claim_role_member"`
+    IsClaimRoleEffective bool `gorm:"column:is_claim_role_effective"`
+	CanSetClaimRole bool `gorm:"column:can_set_claim_role"`
     IsQueueOwnerMember bool `gorm:"column:is_queue_owner_member"`
     IsAPIRuntimeMember bool `gorm:"column:is_api_runtime_member"`
     HasDirectQueuePrivileges bool `gorm:"column:has_direct_queue_privileges"`
@@ -106,11 +106,11 @@ func ValidateBulkImportClaimRole(db *gorm.DB) error {
 
 // ValidateBulkImportClaimRoleFor is also used by isolated PostgreSQL fixtures,
 // which substitute unique schema and role names to avoid collisions.
-func ValidateBulkImportClaimRoleFor(db *gorm.DB, runtimeRole, queueOwnerRole, claimFunction string) error {
+func ValidateBulkImportClaimRoleFor(db *gorm.DB, claimRole, queueOwnerRole, claimFunction string) error {
     if db == nil || db.Dialector.Name() != "postgres" {
         return fmt.Errorf("bulk import claim connection must be PostgreSQL")
     }
-    if strings.TrimSpace(runtimeRole) == "" || strings.TrimSpace(queueOwnerRole) == "" || strings.TrimSpace(claimFunction) == "" {
+    if strings.TrimSpace(claimRole) == "" || strings.TrimSpace(queueOwnerRole) == "" || strings.TrimSpace(claimFunction) == "" {
         return fmt.Errorf("bulk import claim role names and function signature are required")
     }
     var status BulkImportClaimRoleStatus
@@ -122,9 +122,9 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, runtimeRole, queueOwnerRole, cl
             role.rolbypassrls AS bypass_rls,
             role.rolcreatedb AS can_create_db,
             role.rolcreaterole AS can_create_role,
-            pg_has_role(session_user, ?::name, 'MEMBER') AS is_runtime_member,
-            pg_has_role(session_user, ?::name, 'USAGE') AS is_runtime_effective,
-            pg_has_role(session_user, ?::name, 'SET') AS can_set_runtime_role,
+            pg_has_role(session_user, ?::name, 'MEMBER') AS is_claim_role_member,
+            pg_has_role(session_user, ?::name, 'USAGE') AS is_claim_role_effective,
+            pg_has_role(session_user, ?::name, 'SET') AS can_set_claim_role,
             pg_has_role(session_user, ?::name, 'MEMBER') AS is_queue_owner_member,
             pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER') AS is_api_runtime_member,
             (has_table_privilege(session_user, 'public.bulk_import_jobs', 'SELECT') OR
@@ -160,15 +160,28 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, runtimeRole, queueOwnerRole, cl
             current_user = session_user AS current_role_matches_session
         FROM pg_roles AS role
         WHERE role.rolname = session_user
-    `, runtimeRole, runtimeRole, runtimeRole, queueOwnerRole, claimFunction).Scan(&status).Error
+    `, claimRole, claimRole, claimRole, queueOwnerRole, claimFunction).Scan(&status).Error
     if err != nil {
         return fmt.Errorf("inspect bulk import claim role: %w", err)
     }
-    if status.SessionRole == "" || !status.IsLogin || status.IsSuperuser || status.BypassRLS ||
-        status.CanCreateDB || status.CanCreateRole || !status.IsRuntimeMember ||
-        !status.IsRuntimeEffective || status.CanSetRuntimeRole || status.IsQueueOwnerMember || status.IsAPIRuntimeMember || status.HasDirectQueuePrivileges || status.HasTenantTablePrivileges || !status.CanExecuteClaim ||
-        !status.CurrentRoleMatchesSession {
-        return fmt.Errorf("bulk import claim connection role %q does not satisfy the claim-only worker role boundary", status.SessionRole)
+    return validateBulkImportClaimRoleStatus(&status)
+}
+
+
+// validateBulkImportClaimRoleStatus applies the fail-closed startup assertions
+// after the connection's PostgreSQL catalog state has been inspected.
+func validateBulkImportClaimRoleStatus(status *BulkImportClaimRoleStatus) error {
+    if status == nil || status.SessionRole == "" || !status.IsLogin ||
+        status.IsSuperuser || status.BypassRLS || status.CanCreateDB || status.CanCreateRole ||
+        !status.IsClaimRoleMember || !status.IsClaimRoleEffective || status.CanSetClaimRole ||
+        status.IsQueueOwnerMember || status.IsAPIRuntimeMember ||
+        status.HasDirectQueuePrivileges || status.HasTenantTablePrivileges ||
+        !status.CanExecuteClaim || !status.CurrentRoleMatchesSession {
+        role := "<unavailable>"
+        if status != nil && status.SessionRole != "" {
+            role = status.SessionRole
+        }
+        return fmt.Errorf("bulk import claim connection role %q does not satisfy the claim-only worker role boundary", role)
     }
     return nil
 }

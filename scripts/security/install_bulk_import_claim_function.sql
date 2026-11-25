@@ -326,6 +326,7 @@ BEGIN
        OR has_any_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'INSERT')
        OR has_any_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'REFERENCES')
        OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'REFERENCES')
+    THEN
         RAISE EXCEPTION 'API runtime table/function grants do not match the intended tenant-only boundary';
     END IF;
 
@@ -356,9 +357,9 @@ BEGIN
                   has_any_column_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'REFERENCES')
               )
        ) THEN
- THEN
         RAISE EXCEPTION 'claim capability has direct queue or tenant-table privileges';
     END IF;
+
 
     IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'bulk_import_jobs' AND policyname = 'bulk_import_jobs_queue_owner_all')
        OR NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'bulk_import_jobs' AND policyname = 'bulk_import_jobs_tenant_select')

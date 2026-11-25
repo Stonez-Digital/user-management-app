@@ -74,9 +74,10 @@ BEGIN
              WHERE schemaname='public' AND tablename=v_table
                AND policyname = v_table || '_bulk_import_tenant_guard'
                AND permissive='RESTRICTIVE' AND cmd='ALL'
-               AND roles @> ARRAY['stonez_bulk_process_group']::name[]
-               AND qual LIKE '%current_bulk_import_context%'
-               AND with_check LIKE '%current_bulk_import_context%'
+               AND roles = ARRAY['stonez_bulk_process_group'::name]
+               AND qual LIKE '%' || 'ctx.school_id = ' || v_table || '.school_id' || '%'
+               AND with_check LIKE '%' || 'ctx.school_id = ' || v_table || '.school_id' || '%'
+               AND qual NOT LIKE '% OR %' AND with_check NOT LIKE '% OR %'
         ) THEN
             RAISE EXCEPTION 'restrictive tenant guard is missing or malformed on public.%', v_table;
         END IF;
@@ -85,8 +86,9 @@ BEGIN
              WHERE schemaname='public' AND tablename=v_table
                AND policyname = v_table || '_bulk_import_tenant_select'
                AND permissive='PERMISSIVE' AND cmd='SELECT'
-               AND roles @> ARRAY['stonez_bulk_process_group']::name[]
-               AND qual LIKE '%current_bulk_import_context%'
+               AND roles = ARRAY['stonez_bulk_process_group'::name]
+               AND qual LIKE '%' || 'ctx.school_id = ' || v_table || '.school_id' || '%'
+               AND qual NOT LIKE '% OR %'
         ) THEN
             RAISE EXCEPTION 'permissive SELECT policy is missing or malformed on public.%', v_table;
         END IF;
@@ -111,8 +113,9 @@ BEGIN
              WHERE schemaname='public' AND tablename=v_table
                AND policyname = v_table || '_bulk_import_tenant_insert'
                AND permissive='PERMISSIVE' AND cmd='INSERT'
-               AND roles @> ARRAY['stonez_bulk_process_group']::name[]
-               AND with_check LIKE '%current_bulk_import_context%'
+               AND roles = ARRAY['stonez_bulk_process_group'::name]
+               AND with_check LIKE '%' || 'ctx.school_id = ' || v_table || '.school_id' || '%'
+               AND with_check NOT LIKE '% OR %'
         ) THEN
             RAISE EXCEPTION 'permissive INSERT policy is missing or malformed on public.%', v_table;
         END IF;

@@ -41,6 +41,21 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'processing group has an unsafe non-operator login membership';
     END IF;
+    -- A processing login must not bring additional role memberships into the
+    -- worker session. They can expose privileges or permit SET ROLE to identities
+    -- outside this narrowly reviewed boundary. The operator is excluded because
+    -- it runs the installer, not the worker.
+    IF EXISTS (
+        SELECT 1
+          FROM pg_auth_members processing_membership
+          JOIN pg_auth_members additional_membership
+            ON additional_membership.member = processing_membership.member
+         WHERE processing_membership.roleid = v_role.oid
+           AND processing_membership.member <> (SELECT oid FROM pg_roles WHERE rolname = current_user)
+           AND additional_membership.roleid <> v_role.oid
+    ) THEN
+        RAISE EXCEPTION 'processing login must not inherit or assume any additional role';
+    END IF;
     FOREACH v_table IN ARRAY ARRAY[
         'users','students','teacher_profiles','parent_profiles',
         'academic_sessions','school_classes','sections',

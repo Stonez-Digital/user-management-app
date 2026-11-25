@@ -105,29 +105,36 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		name          string
 		model         any
 		selectColumns []string
+		allowInsert   bool
 	}
 	tables := []tableFixture{
-		{"users", &models.User{}, []string{"id", "school_id", "email", "role"}},
-		{"students", &models.Student{}, []string{"id", "school_id", "admission_number"}},
-		{"teacher_profiles", &models.TeacherProfile{}, []string{"id", "school_id", "staff_id"}},
-		{"parent_profiles", &models.ParentProfile{}, []string{"id", "school_id", "parent_identifier", "user_id"}},
-		{"academic_sessions", &models.AcademicSession{}, []string{"id", "school_id", "name", "status"}},
-		{"school_classes", &models.SchoolClass{}, []string{"id", "school_id", "name"}},
-		{"sections", &models.Section{}, []string{"id", "school_id", "class_id", "name"}},
-		{"student_enrollments", &models.StudentEnrollment{}, []string{"id", "school_id", "student_id", "academic_session_id", "status"}},
-		{"guardian_relationships", &models.GuardianRelationship{}, []string{"id", "school_id", "guardian_user_id", "student_id"}},
+		{"users", &models.User{}, []string{"id", "school_id", "email", "role"}, true},
+		{"students", &models.Student{}, []string{"id", "school_id", "admission_number"}, true},
+		{"teacher_profiles", &models.TeacherProfile{}, []string{"id", "school_id", "staff_id"}, true},
+		{"parent_profiles", &models.ParentProfile{}, []string{"id", "school_id", "parent_identifier", "user_id"}, true},
+		{"academic_sessions", &models.AcademicSession{}, []string{"id", "school_id", "name", "status"}, false},
+		{"school_classes", &models.SchoolClass{}, []string{"id", "school_id", "name"}, false},
+		{"sections", &models.Section{}, []string{"id", "school_id", "class_id", "name"}, false},
+		{"student_enrollments", &models.StudentEnrollment{}, []string{"id", "school_id", "student_id", "academic_session_id", "status"}, true},
+		{"guardian_relationships", &models.GuardianRelationship{}, []string{"id", "school_id", "guardian_user_id", "student_id"}, true},
 	}
 	for _, table := range tables {
-		stmt := admin.Session(&gorm.Session{DryRun: true}).Create(table.model).Statement
-		if stmt.Error != nil {
-			t.Fatalf("generate %s insert columns: %v", table.name, stmt.Error)
+		if len(table.selectColumns) == 0 {
+			t.Fatalf("%s candidate SELECT privileges unexpectedly empty", table.name)
 		}
-		insertColumns, err := generatedInsertColumns(stmt.SQL.String())
-		if err != nil {
-			t.Fatalf("derive %s insert columns from GORM SQL: %v", table.name, err)
-		}
-		if len(insertColumns) == 0 || len(table.selectColumns) == 0 {
-			t.Fatalf("%s candidate privileges unexpectedly empty", table.name)
+		var insertColumns []string
+		if table.allowInsert {
+			stmt := admin.Session(&gorm.Session{DryRun: true}).Create(table.model).Statement
+			if stmt.Error != nil {
+				t.Fatalf("generate %s insert columns: %v", table.name, stmt.Error)
+			}
+			insertColumns, err = generatedInsertColumns(stmt.SQL.String())
+			if err != nil {
+				t.Fatalf("derive %s insert columns from GORM SQL: %v", table.name, err)
+			}
+			if len(insertColumns) == 0 {
+				t.Fatalf("%s candidate INSERT privileges unexpectedly empty", table.name)
+			}
 		}
 		quotedSelect := make([]string, 0, len(table.selectColumns))
 		quotedInsert := make([]string, 0, len(insertColumns))
@@ -140,8 +147,10 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		if err := admin.Exec("GRANT SELECT (" + strings.Join(quotedSelect, ",") + ") ON TABLE " + schema + "." + table.name + " TO " + processGroup).Error; err != nil {
 			t.Fatalf("grant candidate SELECT columns on %s: %v", table.name, err)
 		}
-		if err := admin.Exec("GRANT INSERT (" + strings.Join(quotedInsert, ",") + ") ON TABLE " + schema + "." + table.name + " TO " + processGroup).Error; err != nil {
-			t.Fatalf("grant candidate INSERT columns on %s: %v", table.name, err)
+		if table.allowInsert {
+			if err := admin.Exec("GRANT INSERT (" + strings.Join(quotedInsert, ",") + ") ON TABLE " + schema + "." + table.name + " TO " + processGroup).Error; err != nil {
+				t.Fatalf("grant candidate INSERT columns on %s: %v", table.name, err)
+			}
 		}
 		if err := admin.Exec("ALTER TABLE " + schema + "." + table.name + " ENABLE ROW LEVEL SECURITY").Error; err != nil {
 			t.Fatalf("enable candidate RLS on %s: %v", table.name, err)
@@ -159,15 +168,17 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		if err := admin.Exec(policy).Error; err != nil {
 			t.Fatalf("create test-only SELECT policy on %s: %v", table.name, err)
 		}
-		insertPolicy := "CREATE POLICY " + table.name + "_bulk_context_insert ON " + schema + "." + table.name +
-			" FOR INSERT TO " + processGroup +
-			" WITH CHECK (EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = " + table.name + ".school_id))"
-		if table.name == "users" {
-			insertPolicy = "CREATE POLICY users_bulk_context_insert ON " + schema + ".users FOR INSERT TO " + processGroup +
-				" WITH CHECK (school_id IS NOT NULL AND EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = users.school_id))"
-		}
-		if err := admin.Exec(insertPolicy).Error; err != nil {
-			t.Fatalf("create test-only INSERT policy on %s: %v", table.name, err)
+		if table.allowInsert {
+			insertPolicy := "CREATE POLICY " + table.name + "_bulk_context_insert ON " + schema + "." + table.name +
+				" FOR INSERT TO " + processGroup +
+				" WITH CHECK (EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = " + table.name + ".school_id))"
+			if table.name == "users" {
+				insertPolicy = "CREATE POLICY users_bulk_context_insert ON " + schema + ".users FOR INSERT TO " + processGroup +
+					" WITH CHECK (school_id IS NOT NULL AND EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = users.school_id))"
+			}
+			if err := admin.Exec(insertPolicy).Error; err != nil {
+				t.Fatalf("create test-only INSERT policy on %s: %v", table.name, err)
+			}
 		}
 		// Restrictive policies are ANDed with every applicable permissive
 		// policy, preventing a later broad policy from bypassing tenancy.

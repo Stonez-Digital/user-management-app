@@ -512,6 +512,21 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("two-school RLS isolation assertion failed: %v", err)
 	}
+	// Remove only the privileged School B fixture targets used by the four
+	// negative INSERT assertions, keeping the later import-count assertions
+	// focused on records created by the production worker orchestration.
+	for _, fixture := range []struct{ model any; id uuid.UUID }{
+		{&models.GuardianRelationship{}, crossGuardian.ID},
+		{&models.StudentEnrollment{}, crossEnrollment.ID},
+		{&models.ParentProfile{}, crossParent.ID},
+		{&models.Student{}, crossStudent.ID},
+		{&models.User{}, crossParentUser.ID},
+		{&models.User{}, crossStudentUser.ID},
+	} {
+		if err := admin.Delete(fixture.model, "id = ?", fixture.id).Error; err != nil {
+			t.Fatalf("clean up disposable cross-school INSERT fixture %T: %v", fixture.model, err)
+		}
+	}
 
 	// Exercise verifier-level assertion rejection against the forced-RLS queue.
 	// Each failure is isolated behind a savepoint so the surrounding transaction

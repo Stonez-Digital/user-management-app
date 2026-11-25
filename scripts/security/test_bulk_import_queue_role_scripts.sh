@@ -71,7 +71,7 @@ if verifier_output="$(psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/securi
   exit 1
 fi
 if [[ "$verifier_output" != *"API runtime, queue owner, or claim capability has unexpected role membership"* ]]; then
-  printf '%s\\n' "$verifier_output" >&2
+  printf '%s\n' "$verifier_output" >&2
   echo "Queue-role verifier failed for an unexpected reason" >&2
   exit 1
 fi

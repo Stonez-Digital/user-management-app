@@ -56,6 +56,40 @@ BEGIN
         ) THEN
             RAISE EXCEPTION 'required school_id column is missing on public.%', v_table;
         END IF;
+        IF EXISTS (
+            SELECT 1 FROM pg_class c
+             WHERE c.oid = to_regclass(format('public.%I', v_table))
+               AND (c.relrowsecurity OR c.relforcerowsecurity)
+        ) THEN
+            RAISE EXCEPTION 'public.% already has RLS state; installer requires a reviewed clean baseline', v_table;
+        END IF;
+        IF EXISTS (
+            SELECT 1 FROM pg_policy p
+             WHERE p.polrelid = to_regclass(format('public.%I', v_table))
+               AND p.polname = ANY (ARRAY[
+                   v_table || '_bulk_import_tenant_select',
+                   v_table || '_bulk_import_tenant_insert',
+                   v_table || '_bulk_import_tenant_guard'
+               ])
+        ) THEN
+            RAISE EXCEPTION 'reserved bulk-import policy name already exists on public.%', v_table;
+        END IF;
+        IF EXISTS (
+            SELECT 1
+              FROM pg_class c
+              CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl, acldefault('r', c.relowner))) acl
+             WHERE c.oid = to_regclass(format('public.%I', v_table))
+               AND acl.grantee = v_role.oid
+        ) OR EXISTS (
+            SELECT 1
+              FROM pg_attribute a
+              CROSS JOIN LATERAL aclexplode(a.attacl) acl
+             WHERE a.attrelid = to_regclass(format('public.%I', v_table))
+               AND a.attnum > 0 AND NOT a.attisdropped
+               AND acl.grantee = v_role.oid
+        ) THEN
+            RAISE EXCEPTION 'processing group has pre-existing direct ACLs on public.%; refusing to overwrite state', v_table;
+        END IF;
         IF (SELECT relowner FROM pg_class WHERE oid = to_regclass(format('public.%I', v_table))) = v_role.oid THEN
             RAISE EXCEPTION 'processing group must not own public.%', v_table;
         END IF;
@@ -68,57 +102,9 @@ BEGIN
 END
 $preflight$;
 
--- Remove only this installer's named policies, so reruns are deterministic.
-DROP POLICY IF EXISTS users_bulk_import_tenant_select ON public.users;
-DROP POLICY IF EXISTS users_bulk_import_tenant_insert ON public.users;
-DROP POLICY IF EXISTS users_bulk_import_tenant_guard ON public.users;
-DROP POLICY IF EXISTS students_bulk_import_tenant_select ON public.students;
-DROP POLICY IF EXISTS students_bulk_import_tenant_insert ON public.students;
-DROP POLICY IF EXISTS students_bulk_import_tenant_guard ON public.students;
-DROP POLICY IF EXISTS teacher_profiles_bulk_import_tenant_select ON public.teacher_profiles;
-DROP POLICY IF EXISTS teacher_profiles_bulk_import_tenant_insert ON public.teacher_profiles;
-DROP POLICY IF EXISTS teacher_profiles_bulk_import_tenant_guard ON public.teacher_profiles;
-DROP POLICY IF EXISTS parent_profiles_bulk_import_tenant_select ON public.parent_profiles;
-DROP POLICY IF EXISTS parent_profiles_bulk_import_tenant_insert ON public.parent_profiles;
-DROP POLICY IF EXISTS parent_profiles_bulk_import_tenant_guard ON public.parent_profiles;
-DROP POLICY IF EXISTS academic_sessions_bulk_import_tenant_select ON public.academic_sessions;
-DROP POLICY IF EXISTS academic_sessions_bulk_import_tenant_guard ON public.academic_sessions;
-DROP POLICY IF EXISTS school_classes_bulk_import_tenant_select ON public.school_classes;
-DROP POLICY IF EXISTS school_classes_bulk_import_tenant_guard ON public.school_classes;
-DROP POLICY IF EXISTS sections_bulk_import_tenant_select ON public.sections;
-DROP POLICY IF EXISTS sections_bulk_import_tenant_guard ON public.sections;
-DROP POLICY IF EXISTS student_enrollments_bulk_import_tenant_select ON public.student_enrollments;
-DROP POLICY IF EXISTS student_enrollments_bulk_import_tenant_insert ON public.student_enrollments;
-DROP POLICY IF EXISTS student_enrollments_bulk_import_tenant_guard ON public.student_enrollments;
-DROP POLICY IF EXISTS guardian_relationships_bulk_import_tenant_select ON public.guardian_relationships;
-DROP POLICY IF EXISTS guardian_relationships_bulk_import_tenant_insert ON public.guardian_relationships;
-DROP POLICY IF EXISTS guardian_relationships_bulk_import_tenant_guard ON public.guardian_relationships;
+-- The preflight requires a clean baseline; no pre-existing policy is replaced.
 
--- Clear existing direct grants on this dedicated group, including column ACLs.
-DO $privileges$
-DECLARE
-    v_table text;
-    v_column text;
-    v_privilege text;
-BEGIN
-    FOREACH v_table IN ARRAY ARRAY[
-        'users','students','teacher_profiles','parent_profiles',
-        'academic_sessions','school_classes','sections',
-        'student_enrollments','guardian_relationships'
-    ] LOOP
-        EXECUTE format('REVOKE ALL PRIVILEGES ON TABLE public.%I FROM stonez_bulk_process_group', v_table);
-        FOR v_column IN
-            SELECT attname FROM pg_attribute
-             WHERE attrelid = to_regclass(format('public.%I', v_table))
-               AND attnum > 0 AND NOT attisdropped
-        LOOP
-            FOREACH v_privilege IN ARRAY ARRAY['SELECT','INSERT','UPDATE','REFERENCES'] LOOP
-                EXECUTE format('REVOKE %s (%I) ON TABLE public.%I FROM stonez_bulk_process_group', v_privilege, v_column, v_table);
-            END LOOP;
-        END LOOP;
-    END LOOP;
-END
-$privileges$;
+-- No ACLs are revoked: preflight proved this role has no direct grants on these tables.
 
 GRANT SELECT (id, school_id, email, role)
     ON TABLE public.users TO stonez_bulk_process_group;

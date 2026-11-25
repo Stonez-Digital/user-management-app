@@ -40,18 +40,6 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'processing group has an unsafe login membership';
     END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_roles
-         WHERE rolname = current_user AND rolsuper
-    ) THEN
-        IF NOT EXISTS (
-            SELECT 1 FROM pg_class c
-            WHERE c.oid = to_regclass('public.users')
-              AND c.relowner = (SELECT oid FROM pg_roles WHERE rolname = current_user)
-        ) THEN
-            RAISE EXCEPTION 'installer must run as superuser or the owner of all nine tenant tables';
-        END IF;
-    END IF;
     FOREACH v_table IN ARRAY ARRAY[
         'users','students','teacher_profiles','parent_profiles',
         'academic_sessions','school_classes','sections',
@@ -69,6 +57,11 @@ BEGIN
         END IF;
         IF (SELECT relowner FROM pg_class WHERE oid = to_regclass(format('public.%I', v_table))) = v_role.oid THEN
             RAISE EXCEPTION 'processing group must not own public.%', v_table;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND rolsuper)
+           AND (SELECT relowner FROM pg_class WHERE oid = to_regclass(format('public.%I', v_table)))
+               <> (SELECT oid FROM pg_roles WHERE rolname = current_user) THEN
+            RAISE EXCEPTION 'installer must run as superuser or owner of public.%', v_table;
         END IF;
     END LOOP;
 END

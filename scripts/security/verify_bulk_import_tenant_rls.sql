@@ -74,8 +74,8 @@ BEGIN
         -- Removing parentheses avoids pg_get_expr formatting differences; extra predicates,
         -- alternate functions, and OR branches remain visible and fail the anchored match.
         v_expected_predicate := CASE WHEN v_table = 'users'
-            THEN 'school_idISNOTNULLANDEXISTSSELECT1FROMstonez_internal.current_bulk_import_contextctxWHEREctx.school_id=users.school_id'
-            ELSE 'EXISTSSELECT1FROMstonez_internal.current_bulk_import_contextctxWHEREctx.school_id=' || v_table || '.school_id'
+            THEN 'school_idISNOTNULLANDEXISTSSELECT1FROMstonez_internal.current_bulk_import_contextctxWHEREctx.school_id=school_id'
+            ELSE 'EXISTSSELECT1FROMstonez_internal.current_bulk_import_contextctxWHEREctx.school_id=' || 'school_id'
         END;
 
         IF NOT EXISTS (

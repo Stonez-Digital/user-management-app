@@ -13,11 +13,14 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_api_runtime') THEN
         CREATE ROLE stonez_api_runtime;
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stonez_bulk_queue_claim') THEN
+        CREATE ROLE stonez_bulk_queue_claim;
+    END IF;
 END
 $$;
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname IN ('stonez_bulk_queue_owner', 'stonez_api_runtime') AND rolsuper) THEN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname IN ('stonez_bulk_queue_owner', 'stonez_api_runtime', 'stonez_bulk_queue_claim') AND rolsuper) THEN
         RAISE EXCEPTION 'queue roles must be created as non-superusers';
     END IF;
 END
@@ -27,10 +30,12 @@ $$;
 -- safe defaults untouched and assert them in the verification script.
 ALTER ROLE stonez_bulk_queue_owner NOLOGIN NOINHERIT;
 ALTER ROLE stonez_api_runtime NOLOGIN INHERIT;
+ALTER ROLE stonez_bulk_queue_claim NOLOGIN INHERIT;
 -- PostgreSQL does not let a non-superuser ALTER ROLE change SUPERUSER,
 -- even to NOSUPERUSER. New roles default to NOSUPERUSER; assert it instead.
 
 GRANT USAGE ON SCHEMA public TO stonez_bulk_queue_owner;
+GRANT USAGE ON SCHEMA public TO stonez_bulk_queue_claim;
 REVOKE CREATE ON SCHEMA public FROM stonez_bulk_queue_owner;
 REVOKE ALL PRIVILEGES ON TABLE public.bulk_import_jobs FROM stonez_bulk_queue_owner;
 REVOKE UPDATE (

@@ -348,6 +348,22 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	service := (&BulkImportService{db: loginDB, contextSigner: signer})
 	schoolA, schoolB := fixtures[0], fixtures[1]
 
+	// Seed valid School B relationship targets for the cross-school INSERT
+	// denial checks. Privileged fixture inserts ensure attempted processing
+	// writes fail specifically at the tenant RLS WITH CHECK boundary.
+	crossStudentUser := models.User{SchoolID: &schoolB.school.ID, Name: "Cross-target student", Email: "cross-target-student@example.invalid", PasswordHash: "not-used", Role: "student", Active: true}
+	if err := admin.Create(&crossStudentUser).Error; err != nil { t.Fatalf("seed School B cross-target student user: %v", err) }
+	crossStudent := models.Student{SchoolID: schoolB.school.ID, UserID: crossStudentUser.ID, AdmissionNumber: "RLS-CROSS-TARGET-STUDENT"}
+	if err := admin.Create(&crossStudent).Error; err != nil { t.Fatalf("seed School B cross-target student: %v", err) }
+	crossParentUser := models.User{SchoolID: &schoolB.school.ID, Name: "Cross-target parent", Email: "cross-target-parent@example.invalid", PasswordHash: "not-used", Role: "parent", Active: true}
+	if err := admin.Create(&crossParentUser).Error; err != nil { t.Fatalf("seed School B cross-target parent user: %v", err) }
+	crossParent := models.ParentProfile{SchoolID: schoolB.school.ID, UserID: crossParentUser.ID, ParentIdentifier: "RLS-CROSS-TARGET-PARENT"}
+	if err := admin.Create(&crossParent).Error; err != nil { t.Fatalf("seed School B cross-target parent profile: %v", err) }
+	crossEnrollment := models.StudentEnrollment{SchoolID: schoolB.school.ID, StudentID: crossStudent.ID, AcademicSessionID: schoolB.session.ID, ClassID: schoolB.class.ID, SectionID: schoolB.section.ID, Status: models.EnrollmentStatusActive}
+	if err := admin.Create(&crossEnrollment).Error; err != nil { t.Fatalf("seed School B cross-target enrollment: %v", err) }
+	crossGuardian := models.GuardianRelationship{SchoolID: schoolB.school.ID, GuardianUserID: crossParentUser.ID, StudentID: crossStudent.ID, Relationship: "parent", Primary: true, Active: true}
+	if err := admin.Create(&crossGuardian).Error; err != nil { t.Fatalf("seed School B cross-target guardian relationship: %v", err) }
+
 	// A global email collision owned by School B must remain invisible to the
 	// restricted School A processing login. The attempted insert is rejected
 	// by the real unique index, but the worker returns only a generic message.
@@ -471,7 +487,28 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		if err := tx.Create(&crossSchoolProfile).Error; err == nil {
 			return fmt.Errorf("School A context inserted a School B teacher profile")
 		}
-		return tx.RollbackTo("before_cross_school_profile").Error
+		if err := tx.RollbackTo("before_cross_school_profile").Error; err != nil { return err }
+
+		// Each target references valid School B rows so RLS is the rejection
+		// boundary under test, rather than a missing-reference constraint.
+		rejectCrossSchoolInsert := func(label, savepoint string, value any) error {
+			if err := tx.SavePoint(savepoint).Error; err != nil { return err }
+			insertErr := tx.Create(value).Error
+			if insertErr == nil { return fmt.Errorf("School A context inserted a School B %s", label) }
+			if !strings.Contains(strings.ToLower(insertErr.Error()), "row-level security") {
+				return fmt.Errorf("School B %s insert failed for a reason other than RLS: %w", label, insertErr)
+			}
+			return tx.RollbackTo(savepoint).Error
+		}
+		crossSchoolStudent := models.Student{SchoolID: schoolB.school.ID, UserID: crossStudentUser.ID, AdmissionNumber: "RLS-CROSS-ATTEMPT-STUDENT"}
+		if err := rejectCrossSchoolInsert("student", "before_cross_school_student", &crossSchoolStudent); err != nil { return err }
+		crossSchoolParent := models.ParentProfile{SchoolID: schoolB.school.ID, UserID: crossParentUser.ID, ParentIdentifier: "RLS-CROSS-ATTEMPT-PARENT"}
+		if err := rejectCrossSchoolInsert("parent profile", "before_cross_school_parent", &crossSchoolParent); err != nil { return err }
+		crossSchoolEnrollment := models.StudentEnrollment{SchoolID: schoolB.school.ID, StudentID: crossStudent.ID, AcademicSessionID: schoolB.session.ID, ClassID: schoolB.class.ID, SectionID: schoolB.section.ID, Status: models.EnrollmentStatusActive}
+		if err := rejectCrossSchoolInsert("student enrollment", "before_cross_school_enrollment", &crossSchoolEnrollment); err != nil { return err }
+		crossSchoolGuardian := models.GuardianRelationship{SchoolID: schoolB.school.ID, GuardianUserID: crossParentUser.ID, StudentID: crossStudent.ID, Relationship: "parent", Primary: true, Active: true}
+		if err := rejectCrossSchoolInsert("guardian relationship", "before_cross_school_guardian", &crossSchoolGuardian); err != nil { return err }
+		return nil
 	}); err != nil {
 		t.Fatalf("two-school RLS isolation assertion failed: %v", err)
 	}

@@ -4,11 +4,14 @@ DO $$
 DECLARE
     owner_role pg_roles%ROWTYPE;
     api_role pg_roles%ROWTYPE;
+    claim_role pg_roles%ROWTYPE;
 BEGIN
     SELECT * INTO owner_role FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner';
     IF NOT FOUND THEN RAISE EXCEPTION 'missing stonez_bulk_queue_owner'; END IF;
     SELECT * INTO api_role FROM pg_roles WHERE rolname = 'stonez_api_runtime';
     IF NOT FOUND THEN RAISE EXCEPTION 'missing stonez_api_runtime'; END IF;
+    SELECT * INTO claim_role FROM pg_roles WHERE rolname = 'stonez_bulk_queue_claim';
+    IF NOT FOUND THEN RAISE EXCEPTION 'missing stonez_bulk_queue_claim'; END IF;
     IF owner_role.rolcanlogin OR owner_role.rolsuper OR owner_role.rolbypassrls
        OR owner_role.rolcreatedb OR owner_role.rolcreaterole OR owner_role.rolinherit THEN
         RAISE EXCEPTION 'queue owner role attributes are unsafe';
@@ -16,6 +19,10 @@ BEGIN
     IF api_role.rolcanlogin OR api_role.rolsuper OR api_role.rolbypassrls
        OR api_role.rolcreatedb OR api_role.rolcreaterole OR NOT api_role.rolinherit THEN
         RAISE EXCEPTION 'API runtime role attributes are unsafe';
+    END IF;
+    IF claim_role.rolcanlogin OR claim_role.rolsuper OR claim_role.rolbypassrls
+       OR claim_role.rolcreatedb OR claim_role.rolcreaterole OR NOT claim_role.rolinherit THEN
+        RAISE EXCEPTION 'claim capability role attributes are unsafe';
     END IF;
     IF EXISTS (
         SELECT 1 FROM pg_class
@@ -32,6 +39,7 @@ BEGIN
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'worker_id', 'UPDATE')
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'claimed_at', 'UPDATE')
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'attempts', 'UPDATE')
+       OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'lease_generation', 'UPDATE')
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'last_error', 'UPDATE') THEN
         RAISE EXCEPTION 'queue owner is missing claim-column UPDATE privileges';
     END IF;
@@ -80,6 +88,9 @@ BEGIN
     -- on roles it creates, with INHERIT FALSE and SET FALSE. Permit only that
     -- inert creator membership; reject every other membership in either role.
     IF pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_owner', 'MEMBER')
+       OR pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_claim', 'MEMBER')
+       OR pg_has_role('stonez_bulk_queue_claim', 'stonez_bulk_queue_owner', 'MEMBER')
+       OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = claim_role.oid) 
        OR EXISTS (
             SELECT 1 FROM pg_auth_members
             WHERE member = api_role.oid
@@ -121,6 +132,18 @@ BEGIN
         RAISE EXCEPTION 'queue owner is a member of another privileged role';
     END IF;
 
+    IF has_schema_privilege('stonez_bulk_queue_claim', 'public', 'CREATE')
+       OR has_table_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'SELECT')
+       OR has_table_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'INSERT')
+       OR has_table_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'UPDATE')
+       OR has_table_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'DELETE')
+       OR has_table_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'TRUNCATE')
+       OR has_any_column_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'SELECT')
+       OR has_any_column_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'INSERT')
+       OR has_any_column_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'UPDATE') THEN
+        RAISE EXCEPTION 'claim capability must not have direct queue-table privileges';
+    END IF;
+
     IF EXISTS (
         SELECT 1
         FROM pg_class AS relation
@@ -130,9 +153,9 @@ BEGIN
         WHERE namespace.nspname = 'public'
           AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
           AND relation.relname <> 'bulk_import_jobs'
-          AND grantee.rolname = 'stonez_bulk_queue_owner'
+          AND grantee.rolname IN ('stonez_bulk_queue_owner', 'stonez_bulk_queue_claim')
     ) THEN
-        RAISE EXCEPTION 'queue owner has unexpected table privileges on another public relation';
+        RAISE EXCEPTION 'queue owner or claim capability has unexpected table privileges on another public relation';
     END IF;
 
     IF EXISTS (
@@ -147,9 +170,9 @@ BEGIN
           AND relation.relname <> 'bulk_import_jobs'
           AND attribute.attnum > 0
           AND NOT attribute.attisdropped
-          AND grantee.rolname = 'stonez_bulk_queue_owner'
+          AND grantee.rolname IN ('stonez_bulk_queue_owner', 'stonez_bulk_queue_claim')
     ) THEN
-        RAISE EXCEPTION 'queue owner has unexpected column privileges on another public relation';
+        RAISE EXCEPTION 'queue owner or claim capability has unexpected column privileges on another public relation';
     END IF;
 END
 $$;

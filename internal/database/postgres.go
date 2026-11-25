@@ -870,6 +870,32 @@ func Migrate(db *gorm.DB) error {
             }
             return tx.AutoMigrate(&models.BulkImportJob{})
         }},
+        {Version:48,Name:"enforce_profile_user_school_consistency",Up:func(tx *gorm.DB) error {
+            if tx.Dialector.Name()!="postgres" { return nil }
+
+            // Fail closed before adding the constraints. The LEFT JOIN catches
+            // missing users; IS DISTINCT FROM catches cross-school and platform
+            // users whose school_id is NULL.
+            checks:=[]struct{name,query string}{
+                {"teacher_profiles","SELECT COUNT(*) FROM teacher_profiles p LEFT JOIN users u ON u.id=p.user_id WHERE u.id IS NULL OR p.school_id IS DISTINCT FROM u.school_id"},
+                {"parent_profiles","SELECT COUNT(*) FROM parent_profiles p LEFT JOIN users u ON u.id=p.user_id WHERE u.id IS NULL OR p.school_id IS DISTINCT FROM u.school_id"},
+            }
+            for _,check:=range checks {
+                var count int64
+                if err:=tx.Raw(check.query).Scan(&count).Error;err!=nil{return fmt.Errorf("check %s school/user consistency: %w",check.name,err)}
+                if count!=0{return fmt.Errorf("cannot add profile school/user constraints: %s contains %d rows whose school_id does not match the referenced user",check.name,count)}
+            }
+
+            constraints:=[]struct{name,table string}{
+                {"teacher_profile_user_school_fk","teacher_profiles"},
+                {"parent_profile_user_school_fk","parent_profiles"},
+            }
+            for _,fk:=range constraints {
+                statement:="ALTER TABLE "+fk.table+" ADD CONSTRAINT "+fk.name+" FOREIGN KEY (school_id,user_id) REFERENCES users(school_id,id) ON UPDATE CASCADE ON DELETE RESTRICT"
+                if err:=tx.Exec(statement).Error;err!=nil{return fmt.Errorf("add %s: %w",fk.name,err)}
+            }
+            return nil
+        }},
     }
     for _,migration:=range migrations{
         var applied Migration

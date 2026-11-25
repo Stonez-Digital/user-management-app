@@ -146,7 +146,7 @@ func installBulkClaimFunctionForTest(t *testing.T, admin *gorm.DB, schema, owner
 	t.Helper()
 	if err := admin.Exec("GRANT USAGE ON SCHEMA " + schema + " TO " + ownerRole + ", " + apiRole).Error; err != nil { return err }
 	if err := admin.Exec("GRANT SELECT ON TABLE " + schema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil { return err }
-	if err := admin.Exec("GRANT UPDATE (status, worker_id, claimed_at, attempts, last_error) ON TABLE " + schema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil { return err }
+	if err := admin.Exec("GRANT UPDATE (status, worker_id, claimed_at, attempts, lease_generation, last_error) ON TABLE " + schema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil { return err }
 	if err := admin.Exec("GRANT SELECT, INSERT, UPDATE ON TABLE " + schema + ".bulk_import_jobs TO " + apiRole).Error; err != nil { return err }
 	if err := admin.Exec("ALTER TABLE " + schema + ".bulk_import_jobs ENABLE ROW LEVEL SECURITY").Error; err != nil { return err }
 	policies := []string{
@@ -178,7 +178,7 @@ BEGIN
     IF NOT FOUND THEN RETURN; END IF;
     UPDATE %s.bulk_import_jobs
        SET status = 'running', worker_id = p_worker_id, claimed_at = clock_timestamp(),
-           attempts = attempts + 1, last_error = ''
+           attempts = attempts + 1, lease_generation = lease_generation + 1, last_error = ''
      WHERE id = v_job.id RETURNING * INTO v_job;
     RETURN NEXT v_job;
 END
@@ -275,7 +275,7 @@ func TestBulkWorkerPostgresClaimFunctionRestrictsDirectQueueAccess(t *testing.T)
 		return nil
 	})
 	if err != nil { t.Fatalf("restricted role could not execute queue claim function: %v", err) }
-	if claimed.ID != jobA.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID {
+	if claimed.ID != jobA.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID || claimed.LeaseGeneration != 1 {
 		t.Fatalf("claim function returned unexpected job/worker: %+v", claimed)
 	}
 
@@ -321,10 +321,10 @@ func TestBulkWorkerPostgresClaimFunctionReclaimsOnlyExpiredLeases(t *testing.T) 
 	jobs := []models.BulkImportJob{
 		{SchoolID: schoolID, InitiatedBy: actor, Kind: "students", FileName: "expired.csv",
 			Status: models.BulkImportRunning, WorkerID: &oldWorker, ClaimedAt: ptrTime(now.Add(-6 * time.Minute)),
-			Attempts: 1, CreatedAt: now.Add(-3 * time.Minute)},
+			Attempts: 1, LeaseGeneration: 4, CreatedAt: now.Add(-3 * time.Minute)},
 		{SchoolID: schoolID, InitiatedBy: actor, Kind: "students", FileName: "legacy.csv",
 			Status: models.BulkImportRunning, WorkerID: &legacyWorker, ClaimedAt: nil,
-			Attempts: 2, CreatedAt: now.Add(-2 * time.Minute)},
+			Attempts: 2, LeaseGeneration: 8, CreatedAt: now.Add(-2 * time.Minute)},
 		{SchoolID: schoolID, InitiatedBy: actor, Kind: "students", FileName: "active.csv",
 			Status: models.BulkImportRunning, WorkerID: &activeWorker, ClaimedAt: ptrTime(now),
 			Attempts: 3, CreatedAt: now.Add(-time.Minute)},
@@ -335,12 +335,12 @@ func TestBulkWorkerPostgresClaimFunctionReclaimsOnlyExpiredLeases(t *testing.T) 
 	worker := NewBulkImportService(db, nil)
 	first, err := worker.claimNextJob()
 	if err != nil { t.Fatalf("claim expired lease: %v", err) }
-	if first == nil || first.ID != jobs[0].ID || first.Attempts != 2 {
+	if first == nil || first.ID != jobs[0].ID || first.Attempts != 2 || first.LeaseGeneration != 5 {
 		t.Fatalf("expected expired lease to be reclaimed and attempts incremented: %+v", first)
 	}
 	second, err := worker.claimNextJob()
 	if err != nil { t.Fatalf("claim legacy lease: %v", err) }
-	if second == nil || second.ID != jobs[1].ID || second.Attempts != 3 {
+	if second == nil || second.ID != jobs[1].ID || second.Attempts != 3 || second.LeaseGeneration != 9 {
 		t.Fatalf("expected legacy unleased job to be reclaimed: %+v", second)
 	}
 	third, err := worker.claimNextJob()
@@ -360,17 +360,19 @@ func TestBulkImportQueueRoleScriptsInstallInIsolatedPostgres(t *testing.T) {
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL is not set")
 	}
-	admin, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	root, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		t.Fatalf("connect test PostgreSQL database: %v", err)
+		t.Fatalf("connect disposable PostgreSQL root connection: %v", err)
 	}
-	adminSQL, err := admin.DB()
-	if err != nil { t.Fatal(err) }
+	rootSQL, err := root.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	var canCreateRoles bool
-	if err := admin.Raw("SELECT rolsuper OR rolcreaterole FROM pg_roles WHERE rolname = current_user").Scan(&canCreateRoles).Error; err != nil || !canCreateRoles {
-		_ = adminSQL.Close()
-		t.Skip("TEST_DATABASE_URL role cannot create isolated PostgreSQL roles; SQL role-boundary test requires CREATEROLE")
+	if err := root.Raw("SELECT rolsuper OR rolcreaterole FROM pg_roles WHERE rolname = current_user").Scan(&canCreateRoles).Error; err != nil || !canCreateRoles {
+		_ = rootSQL.Close()
+		t.Skip("TEST_DATABASE_URL role cannot provision an isolated CREATEROLE test identity")
 	}
 
 	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
@@ -378,24 +380,83 @@ func TestBulkImportQueueRoleScriptsInstallInIsolatedPostgres(t *testing.T) {
 	privateSchema := "biq_internal_" + suffix
 	ownerRole := "biq_script_owner_" + suffix
 	apiRole := "biq_script_api_" + suffix
+	claimRole := "biq_script_claim_" + suffix
+	runnerRole := "biq_script_runner_" + suffix
+	loginRole := "biq_script_login_" + suffix
+	runnerPassword := uuid.NewString()
+	loginPassword := uuid.NewString()
 
-	if err := admin.Exec("CREATE SCHEMA " + tableSchema).Error; err != nil {
-		_ = adminSQL.Close()
-		t.Fatalf("create SQL-script test schema: %v", err)
+	var databaseName string
+	if err := root.Raw("SELECT current_database()").Scan(&databaseName).Error; err != nil {
+		_ = rootSQL.Close()
+		t.Fatalf("read disposable test database name: %v", err)
 	}
+	quotedDatabase := `"` + strings.ReplaceAll(databaseName, `"`, `""`) + `"`
+	if err := root.Exec("CREATE ROLE " + runnerRole + " LOGIN CREATEROLE NOSUPERUSER NOCREATEDB NOBYPASSRLS PASSWORD '" + runnerPassword + "'").Error; err != nil {
+		_ = rootSQL.Close()
+		t.Fatalf("create non-superuser CREATEROLE script runner: %v", err)
+	}
+	if err := root.Exec("GRANT CREATE ON DATABASE " + quotedDatabase + " TO " + runnerRole).Error; err != nil {
+		_ = root.Exec("DROP ROLE " + runnerRole).Error
+		_ = rootSQL.Close()
+		t.Fatalf("grant disposable database schema creation to script runner: %v", err)
+	}
+
+	runnerURL, err := url.Parse(dsn)
+	if err != nil {
+		_ = root.Exec("DROP ROLE " + runnerRole).Error
+		_ = rootSQL.Close()
+		t.Fatalf("parse test database URL for non-superuser runner: %v", err)
+	}
+	runnerURL.User = url.UserPassword(runnerRole, runnerPassword)
+	runner, err := gorm.Open(postgres.Open(runnerURL.String()), &gorm.Config{})
+	if err != nil {
+		_ = root.Exec("DROP ROLE " + runnerRole).Error
+		_ = rootSQL.Close()
+		t.Fatalf("connect as non-superuser CREATEROLE script runner: %v", err)
+	}
+	runnerSQL, err := runner.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var loginDB *gorm.DB
 	t.Cleanup(func() {
-		_ = admin.Exec("GRANT " + ownerRole + " TO CURRENT_USER").Error
-		_ = admin.Exec("GRANT " + apiRole + " TO CURRENT_USER").Error
-		_ = admin.Exec("DROP SCHEMA IF EXISTS " + privateSchema + " CASCADE").Error
-		_ = admin.Exec("DROP SCHEMA IF EXISTS " + tableSchema + " CASCADE").Error
-		_ = admin.Exec("DROP OWNED BY " + apiRole).Error
-		_ = admin.Exec("DROP OWNED BY " + ownerRole).Error
-		_ = admin.Exec("REVOKE " + apiRole + ", " + ownerRole + " FROM CURRENT_USER").Error
-		_ = admin.Exec("DROP ROLE IF EXISTS " + apiRole).Error
-		_ = admin.Exec("DROP ROLE IF EXISTS " + ownerRole).Error
-		_ = adminSQL.Close()
+		if loginDB != nil {
+			if sqlDB, err := loginDB.DB(); err == nil {
+				_ = sqlDB.Close()
+			}
+		}
+		_ = runnerSQL.Close()
+		_ = root.Exec("DROP SCHEMA IF EXISTS " + privateSchema + " CASCADE").Error
+		_ = root.Exec("DROP SCHEMA IF EXISTS " + tableSchema + " CASCADE").Error
+		for _, role := range []string{loginRole, apiRole, ownerRole, claimRole} {
+			_ = root.Exec("DROP OWNED BY " + role).Error
+			_ = root.Exec("REVOKE " + role + " FROM " + runnerRole).Error
+			_ = root.Exec("DROP ROLE IF EXISTS " + role).Error
+		}
+		_ = root.Exec("DROP ROLE IF EXISTS " + runnerRole).Error
+		_ = rootSQL.Close()
 	})
 
+	var sessionUser string
+	if err := runner.Raw("SELECT session_user").Scan(&sessionUser).Error; err != nil {
+		t.Fatalf("inspect script runner session identity: %v", err)
+	}
+	if sessionUser != runnerRole {
+		t.Fatalf("expected SQL installer to run as non-superuser %q, got %q", runnerRole, sessionUser)
+	}
+	var runnerIsSuperuser bool
+	if err := runner.Raw("SELECT rolsuper FROM pg_roles WHERE rolname = session_user").Scan(&runnerIsSuperuser).Error; err != nil {
+		t.Fatalf("inspect script runner superuser attribute: %v", err)
+	}
+	if runnerIsSuperuser {
+		t.Fatal("SQL installer test runner must not be a superuser")
+	}
+
+	if err := runner.Exec("CREATE SCHEMA " + tableSchema).Error; err != nil {
+		t.Fatalf("create SQL-script test schema: %v", err)
+	}
 	createTable := fmt.Sprintf(`
 CREATE TABLE %s.bulk_import_jobs (
     id uuid PRIMARY KEY,
@@ -416,34 +477,38 @@ CREATE TABLE %s.bulk_import_jobs (
     worker_id uuid,
     claimed_at timestamptz,
     attempts integer NOT NULL DEFAULT 0,
+    lease_generation bigint NOT NULL DEFAULT 0,
     last_error text NOT NULL DEFAULT '',
     rows_json text NOT NULL DEFAULT '[]',
     errors_json text NOT NULL DEFAULT '[]',
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
 )`, tableSchema)
-	if err := admin.Exec(createTable).Error; err != nil {
+	if err := runner.Exec(createTable).Error; err != nil {
 		t.Fatalf("create queue table for SQL-script test: %v", err)
 	}
 
-	// Seed stale column-level grants on an existing role. Table-level REVOKE
-	// does not clear these ACLs, so the provisioning script must remove them.
-	if err := admin.Exec("CREATE ROLE " + ownerRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS").Error; err != nil {
+	// Seed stale column-level grants on a pre-existing queue-owner role. The
+	// installer must remove these without relying on superuser execution.
+	if err := runner.Exec("CREATE ROLE " + ownerRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS").Error; err != nil {
 		t.Fatalf("create pre-existing queue-owner role: %v", err)
 	}
-	if err := admin.Exec("GRANT INSERT (rows_json), REFERENCES (school_id) ON TABLE " + tableSchema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil {
+	if err := runner.Exec("GRANT INSERT (rows_json), REFERENCES (school_id) ON TABLE " + tableSchema + ".bulk_import_jobs TO " + ownerRole).Error; err != nil {
 		t.Fatalf("seed stale queue-owner column grants: %v", err)
 	}
 
 	runScript := func(name string) error {
 		raw, err := os.ReadFile("../../scripts/security/" + name)
-		if err != nil { return fmt.Errorf("read %s: %w", name, err) }
+		if err != nil {
+			return fmt.Errorf("read %s: %w", name, err)
+		}
 		script := string(raw)
 		script = strings.ReplaceAll(script, "stonez_bulk_queue_owner", ownerRole)
 		script = strings.ReplaceAll(script, "stonez_api_runtime", apiRole)
+		script = strings.ReplaceAll(script, "stonez_bulk_queue_claim", claimRole)
 		script = strings.ReplaceAll(script, "stonez_internal", privateSchema)
 		script = strings.ReplaceAll(script, "public", tableSchema)
-		if err := admin.Exec(script).Error; err != nil {
+		if err := runner.Exec(script).Error; err != nil {
 			return fmt.Errorf("execute %s: %w", name, err)
 		}
 		return nil
@@ -455,7 +520,7 @@ CREATE TABLE %s.bulk_import_jobs (
 		"install_bulk_import_claim_function.sql",
 	} {
 		if err := runScript(name); err != nil {
-			t.Fatalf("queue role SQL script failed: %v", err)
+			t.Fatalf("queue role SQL script failed under non-superuser CREATEROLE identity: %v", err)
 		}
 	}
 
@@ -463,65 +528,62 @@ CREATE TABLE %s.bulk_import_jobs (
 		ID: uuid.New(), SchoolID: uuid.New(), InitiatedBy: uuid.New(),
 		Kind: "students", FileName: "script-test.csv", Status: models.BulkImportQueued,
 	}
-	if err := admin.Table(tableSchema + ".bulk_import_jobs").Create(&job).Error; err != nil {
+	if err := runner.Table(tableSchema + ".bulk_import_jobs").Create(&job).Error; err != nil {
 		t.Fatalf("create queued job for installed function: %v", err)
 	}
 
-	// Exercise the shipped function with a real, restricted LOGIN role. A
-	// SET ROLE test alone leaves session_user as the privileged test admin and
-	// would not prove the function's session_user membership guard.
-	loginRole := "biq_script_login_" + suffix
-	loginPassword := uuid.NewString()
-	if err := admin.Exec("CREATE ROLE " + loginRole + " LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS PASSWORD '" + loginPassword + "'").Error; err != nil {
-		t.Fatalf("create restricted API login for script test: %v", err)
+	// Exercise the shipped function with a separate restricted LOGIN role.
+	if err := runner.Exec("CREATE ROLE " + loginRole + " LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS PASSWORD '" + loginPassword + "'").Error; err != nil {
+		t.Fatalf("create restricted claim-only login for script test: %v", err)
 	}
-	var loginDB *gorm.DB
-	t.Cleanup(func() {
-		if loginDB != nil {
-			if sqlDB, err := loginDB.DB(); err == nil { _ = sqlDB.Close() }
-		}
-		_ = admin.Exec("REVOKE " + apiRole + " FROM " + loginRole).Error
-		_ = admin.Exec("DROP OWNED BY " + loginRole).Error
-		_ = admin.Exec("DROP ROLE IF EXISTS " + loginRole).Error
-	})
-	if err := admin.Exec("GRANT " + apiRole + " TO " + loginRole + " WITH ADMIN FALSE, INHERIT TRUE, SET FALSE").Error; err != nil {
-		t.Fatalf("grant API runtime group to restricted login: %v", err)
+	if err := runner.Exec("GRANT " + claimRole + " TO " + loginRole + " WITH ADMIN FALSE, INHERIT TRUE, SET FALSE").Error; err != nil {
+		t.Fatalf("grant claim capability to restricted login: %v", err)
 	}
 	loginURL, err := url.Parse(dsn)
-	if err != nil { t.Fatalf("parse test database URL for restricted login: %v", err) }
+	if err != nil {
+		t.Fatalf("parse test database URL for restricted login: %v", err)
+	}
 	loginURL.User = url.UserPassword(loginRole, loginPassword)
 	loginDB, err = gorm.Open(postgres.Open(loginURL.String()), &gorm.Config{})
-	if err != nil { t.Fatalf("connect as restricted API login: %v", err) }
-	if err := database.ValidateBulkImportClaimRoleFor(loginDB, apiRole, ownerRole, privateSchema+".claim_next_bulk_import_job(uuid)"); err != nil {
+	if err != nil {
+		t.Fatalf("connect as restricted claim-only login: %v", err)
+	}
+	if err := database.ValidateBulkImportClaimRoleForSchema(loginDB, claimRole, apiRole, ownerRole, tableSchema+".bulk_import_jobs", tableSchema, privateSchema+".claim_next_bulk_import_job(uuid)"); err != nil {
 		t.Fatalf("validate restricted claim-only login: %v", err)
 	}
 
-	var sessionUser string
 	if err := loginDB.Raw("SELECT session_user").Scan(&sessionUser).Error; err != nil {
 		t.Fatalf("inspect restricted login session_user: %v", err)
 	}
-	if sessionUser != loginRole { t.Fatalf("expected session_user %q, got %q", loginRole, sessionUser) }
+	if sessionUser != loginRole {
+		t.Fatalf("expected session_user %q, got %q", loginRole, sessionUser)
+	}
 
 	var visible int64
-	if err := loginDB.Raw("SELECT count(*) FROM " + tableSchema + ".bulk_import_jobs").Scan(&visible).Error; err != nil {
-		t.Fatalf("restricted login direct queue SELECT: %v", err)
+	if err := loginDB.Raw("SELECT count(*) FROM " + tableSchema + ".bulk_import_jobs").Scan(&visible).Error; err == nil {
+		t.Fatalf("claim-only login unexpectedly queried queue rows directly (count=%d)", visible)
 	}
-	if visible != 0 { t.Fatalf("restricted login without tenant context saw %d queue rows", visible) }
 
 	workerID := uuid.New()
 	var claimed models.BulkImportJob
 	result := loginDB.Raw("SELECT * FROM " + privateSchema + ".claim_next_bulk_import_job(?)", workerID).Scan(&claimed)
-	if result.Error != nil { t.Fatalf("execute installed claim function as restricted login: %v", result.Error) }
-	if result.RowsAffected != 1 { t.Fatalf("expected one row from installed claim function, got %d", result.RowsAffected) }
-	if claimed.ID != job.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID {
+	if result.Error != nil {
+		t.Fatalf("execute installed claim function as restricted login: %v", result.Error)
+	}
+	if result.RowsAffected != 1 {
+		t.Fatalf("expected one row from installed claim function, got %d", result.RowsAffected)
+	}
+	if claimed.ID != job.ID || claimed.WorkerID == nil || *claimed.WorkerID != workerID || claimed.LeaseGeneration != 1 {
 		t.Fatalf("installed claim function returned unexpected job: %+v", claimed)
 	}
 
 	if err := loginDB.Exec("DELETE FROM " + tableSchema + ".bulk_import_jobs").Error; err == nil {
-		t.Fatal("restricted API login unexpectedly deleted queue rows")
+		t.Fatal("restricted claim-only login unexpectedly deleted queue rows")
 	}
-	if err := loginDB.Exec("SET ROLE " + ownerRole).Error; err == nil {
-		t.Fatal("restricted API login unexpectedly assumed queue-owner role")
+	for _, role := range []string{ownerRole, apiRole} {
+		if err := loginDB.Exec("SET ROLE " + role).Error; err == nil {
+			t.Fatalf("restricted claim-only login unexpectedly assumed role %s", role)
+		}
 	}
 }
 

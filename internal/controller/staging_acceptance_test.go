@@ -3,6 +3,8 @@ package controller
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"strings"
 	"testing"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/onoja217/users-management-app/internal/auth"
 	"github.com/onoja217/users-management-app/internal/authz"
 	"github.com/onoja217/users-management-app/internal/models"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -24,15 +27,90 @@ func stagingAcceptanceDB(t *testing.T) *gorm.DB {
 		t.Fatal(err)
 	}
 
-	// This test exercises controller-level onboarding, login, recovery, and
-	// tenant boundaries. Keep it on isolated SQLite so it does not invoke the
-	// PostgreSQL SECURITY DEFINER auth adapter without its migrations installed.
-	// PostgreSQL auth adapters are covered by the dedicated PostgreSQL
-	// integration workflows.
-	db, err := gorm.Open(sqlite.Open("file:"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{})
+	var (
+		db  *gorm.DB
+		err error
+	)
+	dsn := strings.TrimSpace(os.Getenv("TEST_DATABASE_URL"))
+	var schema, ownerRole, sessionOwnerRole, apiRole string
+	if dsn != "" {
+		// Give this test its own application schema. Auth bootstrap functions
+		// live in a separately-created private schema and are installed here,
+		// rather than relying on another test's global database side effects.
+		suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
+		schema = "staging_acceptance_" + suffix
+		ownerRole = "staging_auth_owner_" + suffix
+		sessionOwnerRole = "staging_auth_session_owner_" + suffix
+		apiRole = "staging_auth_api_" + suffix
+		bootstrap, openErr := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		var canCreateRoles bool
+		if err := bootstrap.Raw("SELECT rolsuper OR rolcreaterole FROM pg_roles WHERE rolname = current_user").Scan(&canCreateRoles).Error; err != nil || !canCreateRoles {
+			t.Skip("TEST_DATABASE_URL requires CREATEROLE for isolated auth bootstrap")
+		}
+		if err := bootstrap.Exec("CREATE SCHEMA " + schema).Error; err != nil {
+			t.Fatal(err)
+		}
+		bootstrapSQL, err := bootstrap.DB()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := bootstrapSQL.Close(); err != nil {
+			t.Fatal(err)
+		}
+		parsed, parseErr := url.Parse(dsn)
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		query := parsed.Query()
+		query.Set("search_path", schema)
+		parsed.RawQuery = query.Encode()
+		db, err = gorm.Open(postgres.Open(parsed.String()), &gorm.Config{})
+		if err != nil {
+			dropDB, dropErr := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+			if dropErr == nil {
+				_ = dropDB.Exec("REVOKE " + apiRole + ", " + ownerRole + ", " + sessionOwnerRole + " FROM CURRENT_USER").Error
+				_ = dropDB.Exec("DROP SCHEMA IF EXISTS stonez_internal CASCADE").Error
+				_ = dropDB.Exec("DROP SCHEMA IF EXISTS " + schema + " CASCADE").Error
+				for _, role := range []string{ownerRole, sessionOwnerRole, apiRole} {
+					_ = dropDB.Exec("DROP OWNED BY " + role).Error
+					_ = dropDB.Exec("DROP ROLE IF EXISTS " + role).Error
+				}
+				if dropSQL, e := dropDB.DB(); e == nil {
+					_ = dropSQL.Close()
+				}
+			}
+			t.Fatal(err)
+		}
+		sqlDB, sqlErr := db.DB()
+		if sqlErr != nil {
+			t.Fatal(sqlErr)
+		}
+		t.Cleanup(func() {
+			_ = sqlDB.Close()
+			dropDB, dropErr := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+			if dropErr == nil {
+				_ = dropDB.Exec("REVOKE " + apiRole + ", " + ownerRole + ", " + sessionOwnerRole + " FROM CURRENT_USER").Error
+				_ = dropDB.Exec("DROP SCHEMA IF EXISTS stonez_internal CASCADE").Error
+				_ = dropDB.Exec("DROP SCHEMA IF EXISTS " + schema + " CASCADE").Error
+				for _, role := range []string{ownerRole, sessionOwnerRole, apiRole} {
+					_ = dropDB.Exec("DROP OWNED BY " + role).Error
+					_ = dropDB.Exec("DROP ROLE IF EXISTS " + role).Error
+				}
+				if dropSQL, e := dropDB.DB(); e == nil {
+					_ = dropSQL.Close()
+				}
+			}
+		})
+	} else {
+		db, err = gorm.Open(sqlite.Open("file:"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{})
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if err := db.AutoMigrate(
 		&models.School{},
 		&models.User{},
@@ -46,11 +124,53 @@ func stagingAcceptanceDB(t *testing.T) *gorm.DB {
 	); err != nil {
 		t.Fatal(err)
 	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatal(err)
+
+	if dsn != "" {
+		bootstrap, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		if err != nil {
+			t.Fatalf("open isolated auth bootstrap administrator: %v", err)
+		}
+		if err := bootstrap.Exec("CREATE ROLE " + apiRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS").Error; err != nil {
+			t.Fatalf("create isolated API runtime role: %v", err)
+		}
+		if err := bootstrap.Exec("GRANT " + apiRole + " TO CURRENT_USER WITH INHERIT TRUE, SET FALSE").Error; err != nil {
+			t.Fatalf("grant isolated API runtime membership to test session: %v", err)
+		}
+		if err := bootstrap.Exec("DROP SCHEMA IF EXISTS stonez_internal CASCADE").Error; err != nil {
+			t.Fatalf("clear stale isolated auth function schema: %v", err)
+		}
+		if err := bootstrap.Exec("CREATE SCHEMA stonez_internal").Error; err != nil {
+			t.Fatalf("create isolated auth function schema: %v", err)
+		}
+		readScript := func(name string) string {
+			t.Helper()
+			raw, err := os.ReadFile("../../scripts/security/" + name)
+			if err != nil {
+				t.Fatalf("read %s: %v", name, err)
+			}
+			script := string(raw)
+			script = strings.ReplaceAll(script, "stonez_auth_bootstrap_owner", ownerRole)
+			script = strings.ReplaceAll(script, "stonez_auth_session_owner", sessionOwnerRole)
+			script = strings.ReplaceAll(script, "stonez_api_runtime", apiRole)
+			script = strings.ReplaceAll(script, "public", schema)
+			return strings.ReplaceAll(script, "\\set ON_ERROR_STOP on\n", "")
+		}
+		for _, name := range []string{"provision_auth_bootstrap_roles.sql", "install_auth_bootstrap_functions.sql", "verify_auth_bootstrap_boundary.sql"} {
+			if err := bootstrap.Exec(readScript(name)).Error; err != nil {
+				t.Fatalf("install isolated auth bootstrap fixture %s: %v", name, err)
+			}
+		}
+		if sqlDB, err := bootstrap.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
 	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
+	if strings.TrimSpace(os.Getenv("TEST_DATABASE_URL")) == "" {
+		sqlDB, err := db.DB()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = sqlDB.Close() })
+	}
 	return db
 }
 

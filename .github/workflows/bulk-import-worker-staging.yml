@@ -22,8 +22,11 @@ jobs:
     env:
       DB_DRIVER: postgres
       APP_ENV: staging
-      DATABASE_URL: ${{ secrets.BULK_IMPORT_PROCESS_DATABASE_URL }}
+      BULK_IMPORT_PROCESSING_DATABASE_URL: ${{ secrets.BULK_IMPORT_PROCESSING_DATABASE_URL }}
       BULK_IMPORT_CLAIM_DATABASE_URL: ${{ secrets.BULK_IMPORT_CLAIM_DATABASE_URL }}
+      BULK_IMPORT_CONTEXT_VAULT_ADDR: ${{ secrets.BULK_IMPORT_CONTEXT_VAULT_ADDR }}
+      BULK_IMPORT_CONTEXT_VAULT_KV_MOUNT: ${{ secrets.BULK_IMPORT_CONTEXT_VAULT_KV_MOUNT }}
+      BULK_IMPORT_CONTEXT_VAULT_KV_PATH: ${{ secrets.BULK_IMPORT_CONTEXT_VAULT_KV_PATH }}
       BULK_IMPORT_WORKER_MAX_RUNTIME: 4m
       SMTP_HOST: ${{ secrets.SMTP_HOST }}
       SMTP_PORT: ${{ secrets.SMTP_PORT }}
@@ -43,10 +46,31 @@ jobs:
           cache: true
       - name: Validate required staging secrets
         shell: bash
+        env:
+          BULK_IMPORT_CONTEXT_VAULT_TOKEN: ${{ secrets.BULK_IMPORT_CONTEXT_VAULT_TOKEN }}
         run: |
-          test -n "$DATABASE_URL" || { echo "BULK_IMPORT_PROCESS_DATABASE_URL secret is required" >&2; exit 1; }
+          test -n "$BULK_IMPORT_PROCESSING_DATABASE_URL" || { echo "BULK_IMPORT_PROCESSING_DATABASE_URL secret is required" >&2; exit 1; }
           test -n "$BULK_IMPORT_CLAIM_DATABASE_URL" || { echo "BULK_IMPORT_CLAIM_DATABASE_URL secret is required" >&2; exit 1; }
+          test -n "$BULK_IMPORT_CONTEXT_VAULT_ADDR" || { echo "BULK_IMPORT_CONTEXT_VAULT_ADDR secret is required" >&2; exit 1; }
+          test -n "$BULK_IMPORT_CONTEXT_VAULT_KV_MOUNT" || { echo "BULK_IMPORT_CONTEXT_VAULT_KV_MOUNT secret is required" >&2; exit 1; }
+          test -n "$BULK_IMPORT_CONTEXT_VAULT_KV_PATH" || { echo "BULK_IMPORT_CONTEXT_VAULT_KV_PATH secret is required" >&2; exit 1; }
+          test -n "$BULK_IMPORT_CONTEXT_VAULT_TOKEN" || { echo "BULK_IMPORT_CONTEXT_VAULT_TOKEN secret is required" >&2; exit 1; }
+      - name: Write short-lived Vault token file
+        shell: bash
+        env:
+          BULK_IMPORT_CONTEXT_VAULT_TOKEN: ${{ secrets.BULK_IMPORT_CONTEXT_VAULT_TOKEN }}
+        run: |
+          set -euo pipefail
+          token_file="$RUNNER_TEMP/bulk-import-vault-token"
+          umask 077
+          printf '%s' "$BULK_IMPORT_CONTEXT_VAULT_TOKEN" > "$token_file"
+          echo "BULK_IMPORT_CONTEXT_VAULT_TOKEN_FILE=$token_file" >> "$GITHUB_ENV"
+          unset BULK_IMPORT_CONTEXT_VAULT_TOKEN
       - name: Build worker
         run: CGO_ENABLED=1 go build -o /tmp/bulk-import-worker ./cmd/bulk-import-worker
       - name: Run worker polling window
         run: /tmp/bulk-import-worker
+      - name: Remove temporary Vault token file
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/bulk-import-vault-token"

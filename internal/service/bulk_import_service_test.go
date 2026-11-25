@@ -89,7 +89,7 @@ func TestBulkCreateUserRejectsExistingUserWithDifferentRole(t *testing.T) {
  user:=models.User{ID:uuid.New(),Name:"Existing Student",Email:"role-conflict@example.com",Role:"student",Active:true,SchoolID:&schoolID}
  if e:=db.Create(&user).Error;e!=nil{t.Fatal(e)}
  svc:=NewBulkImportService(db,nil)
- if _,_,_,e:=svc.createUser(db,schoolID,"Teacher","role-conflict@example.com",authz.RoleTeacher);e==nil||!strings.Contains(e.Error(),"role"){t.Fatalf("expected role mismatch rejection, got %v",e)}
+ if _,_,_,e:=svc.createUser(db,schoolID,"Teacher","role-conflict@example.com",authz.RoleTeacher);e==nil||e.Error()!=bulkImportEmailUnavailableMessage{t.Fatalf("expected generic account-unavailable response for role conflict, got %v",e)}
  var profiles int64
  db.Model(&models.TeacherProfile{}).Where("user_id=?",user.ID).Count(&profiles)
  if profiles!=0{t.Fatalf("expected no teacher profile, got %d",profiles)}

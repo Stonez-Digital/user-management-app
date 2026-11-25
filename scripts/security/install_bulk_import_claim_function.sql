@@ -1,4 +1,5 @@
--- Install the global queue claim function after provisioning the two roles.
+-- Install the global queue claim function after provisioning the owner, API,
+-- and dedicated claim capability roles.
 -- This script is operator-run and must be applied before deploying the Go worker
 -- version that calls claim_next_bulk_import_job. It is not an app-startup migration.
 BEGIN;
@@ -20,8 +21,26 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'stonez_api_runtime is missing or has unsafe attributes';
     END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_roles
+        WHERE rolname = 'stonez_bulk_queue_claim'
+          AND rolcanlogin = false AND rolsuper = false AND rolbypassrls = false
+          AND rolcreatedb = false AND rolcreaterole = false AND rolinherit = true
+    ) THEN
+        RAISE EXCEPTION 'stonez_bulk_queue_claim is missing or has unsafe attributes';
+    END IF;
 
     IF pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_owner', 'MEMBER')
+       OR pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_claim', 'MEMBER')
+       OR pg_has_role('stonez_bulk_queue_claim', 'stonez_bulk_queue_owner', 'MEMBER')
+       OR EXISTS (
+            SELECT 1 FROM pg_auth_members
+             WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_claim')
+                OR (roleid = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_claim') AND NOT (
+                    member = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+                    AND admin_option AND NOT inherit_option AND NOT set_option
+                ))
+       )
        OR EXISTS (
             SELECT 1 FROM pg_auth_members
              WHERE member = (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime')
@@ -70,6 +89,7 @@ BEGIN
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'worker_id', 'UPDATE')
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'claimed_at', 'UPDATE')
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'attempts', 'UPDATE')
+       OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'lease_generation', 'UPDATE')
        OR NOT has_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'last_error', 'UPDATE')
        OR has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'UPDATE')
        OR has_table_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'INSERT')
@@ -98,7 +118,7 @@ BEGIN
     END IF;
 END
 $$;
-GRANT USAGE ON SCHEMA stonez_internal TO stonez_api_runtime;
+GRANT USAGE ON SCHEMA stonez_internal TO stonez_bulk_queue_claim;
 
 -- Normal school-facing API operations keep tenant-scoped table access. The
 -- global worker claim remains isolated behind the SECURITY DEFINER function.
@@ -172,10 +192,11 @@ BEGIN
            AND NOT caller.rolbypassrls
            AND NOT caller.rolcreatedb
            AND NOT caller.rolcreaterole
-           AND pg_has_role(session_user, 'stonez_api_runtime', 'USAGE')
+           AND pg_has_role(session_user, 'stonez_bulk_queue_claim', 'USAGE')
+           AND NOT pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER')
            AND NOT pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')
     ) THEN
-        RAISE EXCEPTION 'caller is not an authorized non-privileged API runtime login';
+        RAISE EXCEPTION 'caller is not an authorized non-privileged claim-only worker login';
     END IF;
 
     IF p_worker_id IS NULL THEN
@@ -201,6 +222,7 @@ BEGIN
            worker_id = p_worker_id,
            claimed_at = clock_timestamp(),
            attempts = attempts + 1,
+           lease_generation = lease_generation + 1,
            last_error = ''
      WHERE id = v_job.id
      RETURNING * INTO v_job;
@@ -220,7 +242,7 @@ BEGIN
           CROSS JOIN LATERAL aclexplode(COALESCE(procedure.proacl, acldefault('f', procedure.proowner))) AS function_privilege
           JOIN pg_roles AS grantee_role ON grantee_role.oid = function_privilege.grantee
          WHERE procedure.oid = 'stonez_internal.claim_next_bulk_import_job(uuid)'::regprocedure
-           AND grantee_role.rolname NOT IN ('stonez_bulk_queue_owner', 'stonez_api_runtime')
+           AND grantee_role.rolname NOT IN ('stonez_bulk_queue_owner', 'stonez_bulk_queue_claim')
     LOOP
         EXECUTE format(
             'REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) FROM %I',
@@ -229,7 +251,7 @@ BEGIN
     END LOOP;
 END
 $$;
-GRANT EXECUTE ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) TO stonez_api_runtime;
+GRANT EXECUTE ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) TO stonez_bulk_queue_claim;
 
 RESET ROLE;
 -- Remove only the temporary self-membership used for SET ROLE. PostgreSQL's
@@ -254,7 +276,8 @@ BEGIN
     IF function_owner IS DISTINCT FROM 'stonez_bulk_queue_owner'
        OR function_is_definer IS DISTINCT FROM true
        OR NOT ('search_path=pg_catalog' = ANY(COALESCE(function_config, ARRAY[]::text[])))
-       OR position('pg_has_role(session_user' IN function_definition) = 0 THEN
+       OR position('pg_has_role(session_user' IN function_definition) = 0
+       OR position('lease_generation = lease_generation + 1' IN function_definition) = 0 THEN
         RAISE EXCEPTION 'claim function owner, SECURITY DEFINER mode, or fixed search_path is unsafe';
     END IF;
 
@@ -267,7 +290,7 @@ BEGIN
                AND (function_privilege.grantee = 0
                     OR function_privilege.grantee NOT IN (
                         procedure.proowner,
-                        (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime')
+                        (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_claim')
                     ))
        )
        OR EXISTS (
@@ -278,15 +301,16 @@ BEGIN
                AND (schema_privilege.grantee = 0
                     OR schema_privilege.grantee NOT IN (
                         private_schema.nspowner,
-                        (SELECT oid FROM pg_roles WHERE rolname = 'stonez_api_runtime'),
+                        (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_claim'),
                         (SELECT oid FROM pg_roles WHERE rolname = 'stonez_bulk_queue_owner')
                     ))
        )
-       OR NOT has_schema_privilege('stonez_api_runtime', 'stonez_internal', 'USAGE')
-       OR has_schema_privilege('stonez_api_runtime', 'stonez_internal', 'CREATE')
+       OR NOT has_schema_privilege('stonez_bulk_queue_claim', 'stonez_internal', 'USAGE')
+       OR has_schema_privilege('stonez_bulk_queue_claim', 'stonez_internal', 'CREATE')
+       OR has_function_privilege('stonez_api_runtime', 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE')
+       OR NOT has_function_privilege('stonez_bulk_queue_claim', 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE')
        OR has_schema_privilege('stonez_api_runtime', 'public', 'CREATE')
        OR has_schema_privilege('stonez_bulk_queue_owner', 'stonez_internal', 'CREATE')
-       OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE')
        OR NOT EXISTS (
             SELECT 1 FROM pg_class
              WHERE oid = 'public.bulk_import_jobs'::regclass
@@ -301,9 +325,41 @@ BEGIN
        OR has_table_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'REFERENCES')
        OR has_any_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'INSERT')
        OR has_any_column_privilege('stonez_bulk_queue_owner', 'public.bulk_import_jobs', 'REFERENCES')
-       OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'REFERENCES') THEN
+       OR has_any_column_privilege('stonez_api_runtime', 'public.bulk_import_jobs', 'REFERENCES')
+    THEN
         RAISE EXCEPTION 'API runtime table/function grants do not match the intended tenant-only boundary';
     END IF;
+
+    IF has_table_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'SELECT')
+       OR has_table_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'INSERT')
+       OR has_table_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'UPDATE')
+       OR has_table_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'DELETE')
+       OR has_any_column_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'SELECT')
+       OR has_any_column_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'INSERT')
+       OR has_any_column_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'UPDATE')
+       OR EXISTS (
+            SELECT 1 FROM pg_class AS tenant_relation
+            JOIN pg_namespace AS tenant_schema ON tenant_schema.oid = tenant_relation.relnamespace
+            WHERE tenant_schema.nspname = 'public'
+              AND tenant_relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+              AND tenant_relation.relname <> 'bulk_import_jobs'
+              AND (
+                  has_table_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'SELECT') OR
+                  has_table_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'INSERT') OR
+                  has_table_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'UPDATE') OR
+                  has_table_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'DELETE') OR
+                  has_table_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'TRUNCATE') OR
+                  has_table_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'REFERENCES') OR
+                  has_table_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'TRIGGER') OR
+                  has_any_column_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'SELECT') OR
+                  has_any_column_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'INSERT') OR
+                  has_any_column_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'UPDATE') OR
+                  has_any_column_privilege('stonez_bulk_queue_claim', tenant_relation.oid, 'REFERENCES')
+              )
+       ) THEN
+        RAISE EXCEPTION 'claim capability has direct queue or tenant-table privileges';
+    END IF;
+
 
     IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'bulk_import_jobs' AND policyname = 'bulk_import_jobs_queue_owner_all')
        OR NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'bulk_import_jobs' AND policyname = 'bulk_import_jobs_tenant_select')

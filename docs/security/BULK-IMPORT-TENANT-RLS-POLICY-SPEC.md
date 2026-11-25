@@ -24,6 +24,10 @@ EXISTS (
 
 This is a design expression only. Before use in migrations, reviewers must confirm function EXECUTE privileges, function ownership and `search_path`, RLS behavior inside the SECURITY DEFINER function, and the required SELECT privileges for any policy subqueries.
 
+## Existing RLS baseline
+
+The application migration history already enables RLS on `teacher_profiles` and `parent_profiles`. The candidate installer therefore permits RLS to be enabled already, but refuses any table that is already FORCE RLS. It does not remove or replace existing policies. Before operational use, a reviewed preflight manifest must record each table's original `relrowsecurity` and `relforcerowsecurity` flags so a rollback can restore the exact prior state.
+
 ## Table-by-table policy intent
 
 | Table | SELECT | INSERT | UPDATE | DELETE | Policy predicate / review notes |

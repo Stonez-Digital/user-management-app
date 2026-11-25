@@ -76,6 +76,7 @@ DO $privileges$
 DECLARE
     v_table text;
     v_column text;
+    v_privilege text;
 BEGIN
     FOREACH v_table IN ARRAY ARRAY[
         'users','students','teacher_profiles','parent_profiles',
@@ -88,7 +89,9 @@ BEGIN
              WHERE attrelid = to_regclass(format('public.%I', v_table))
                AND attnum > 0 AND NOT attisdropped
         LOOP
-            EXECUTE format('REVOKE ALL PRIVILEGES (%I) ON TABLE public.%I FROM stonez_bulk_process_group', v_column, v_table);
+            FOREACH v_privilege IN ARRAY ARRAY['SELECT','INSERT','UPDATE','REFERENCES'] LOOP
+                EXECUTE format('REVOKE %s (%I) ON TABLE public.%I FROM stonez_bulk_process_group', v_privilege, v_column, v_table);
+            END LOOP;
         END LOOP;
     END LOOP;
 END

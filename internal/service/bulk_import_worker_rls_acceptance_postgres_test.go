@@ -191,8 +191,14 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	if err := verifyTenantPolicies(); err == nil {
 		t.Fatal("tenant RLS verifier accepted a missing restrictive users guard")
 	}
-	if err := installTenantPolicies(); err != nil {
-		t.Fatalf("restore tenant RLS policies after verifier negative test: %v", err)
+	// Restore only the guard deliberately removed by this negative test.
+	// Re-running the installer must remain fail-closed after FORCE RLS is set.
+	restoreUsersGuard := "CREATE POLICY users_bulk_import_tenant_guard ON " + schema + ".users " +
+		"AS RESTRICTIVE FOR ALL TO " + processGroup +
+		" USING (school_id IS NOT NULL AND EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = users.school_id))" +
+		" WITH CHECK (school_id IS NOT NULL AND EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = users.school_id))"
+	if err := admin.Exec(restoreUsersGuard).Error; err != nil {
+		t.Fatalf("restore only the removed users restrictive guard: %v", err)
 	}
 	if err := verifyTenantPolicies(); err != nil {
 		t.Fatalf("verify restored tenant RLS policies: %v", err)

@@ -143,8 +143,11 @@ BEGIN
                v_table || '_bulk_import_tenant_insert',
                v_table || '_bulk_import_tenant_guard'
            ]);
-        IF v_expected_policy_count <> 3 THEN
-            RAISE EXCEPTION 'expected exactly three installer-owned policies on public.%, found %', v_table, v_expected_policy_count;
+        IF v_expected_policy_count <> CASE WHEN v_table IN (
+            'users','students','teacher_profiles','parent_profiles',
+            'student_enrollments','guardian_relationships'
+        ) THEN 3 ELSE 2 END THEN
+            RAISE EXCEPTION 'unexpected installer-owned policy count on public.%, found %', v_table, v_expected_policy_count;
         END IF;
 
         IF EXISTS (
@@ -169,7 +172,8 @@ BEGIN
                    OR (p.polname = v_table || '_bulk_import_tenant_select'
                        AND (p.polcmd <> 'r' OR NOT p.polpermissive OR p.polqual IS NULL OR p.polwithcheck IS NOT NULL))
                    OR (p.polname = v_table || '_bulk_import_tenant_insert'
-                       AND (p.polcmd <> 'a' OR NOT p.polpermissive OR p.polqual IS NOT NULL OR p.polwithcheck IS NULL))
+                       AND (v_table NOT IN ('users','students','teacher_profiles','parent_profiles','student_enrollments','guardian_relationships')
+                            OR p.polcmd <> 'a' OR NOT p.polpermissive OR p.polqual IS NOT NULL OR p.polwithcheck IS NULL))
                    OR (p.polname = v_table || '_bulk_import_tenant_guard'
                        AND (p.polcmd <> '*' OR p.polpermissive OR p.polqual IS NULL OR p.polwithcheck IS NULL))
                )
@@ -207,30 +211,32 @@ BEGIN
          WHERE table_name = v_table;
 
         EXECUTE format('DROP POLICY %I ON public.%I', v_table || '_bulk_import_tenant_select', v_table);
-        EXECUTE format('DROP POLICY %I ON public.%I', v_table || '_bulk_import_tenant_insert', v_table);
+        IF v_table IN ('users','students','teacher_profiles','parent_profiles','student_enrollments','guardian_relationships') THEN
+            EXECUTE format('DROP POLICY %I ON public.%I', v_table || '_bulk_import_tenant_insert', v_table);
+        END IF;
         EXECUTE format('DROP POLICY %I ON public.%I', v_table || '_bulk_import_tenant_guard', v_table);
 
         -- Revoke only the column grants this installer adds. Other policies,
         -- roles, memberships, ownership and grants are deliberately untouched.
         CASE v_table
             WHEN 'users' THEN
-                REVOKE SELECT (id, school_id, email, role), INSERT (id, school_id, name, email, password_hash, role, active) ON TABLE public.users FROM stonez_bulk_process_group;
+                EXECUTE 'REVOKE SELECT (id, school_id, email, role), INSERT (id, school_id, name, email, password_hash, role, active) ON TABLE public.users FROM stonez_bulk_process_group';
             WHEN 'students' THEN
-                REVOKE SELECT (id, school_id, admission_number), INSERT (id, school_id, user_id, admission_number, date_of_birth, gender, guardian_name, guardian_phone, guardian_email, enrollment_status, created_at, updated_at) ON TABLE public.students FROM stonez_bulk_process_group;
+                EXECUTE 'REVOKE SELECT (id, school_id, admission_number), INSERT (id, school_id, user_id, admission_number, date_of_birth, gender, guardian_name, guardian_phone, guardian_email, enrollment_status, created_at, updated_at) ON TABLE public.students FROM stonez_bulk_process_group';
             WHEN 'teacher_profiles' THEN
-                REVOKE SELECT (id, school_id, staff_id), INSERT (id, school_id, user_id, staff_id, phone, gender, employment_date, department, designation, subjects, classes, status, created_at, updated_at) ON TABLE public.teacher_profiles FROM stonez_bulk_process_group;
+                EXECUTE 'REVOKE SELECT (id, school_id, staff_id), INSERT (id, school_id, user_id, staff_id, phone, gender, employment_date, department, designation, subjects, classes, status, created_at, updated_at) ON TABLE public.teacher_profiles FROM stonez_bulk_process_group';
             WHEN 'parent_profiles' THEN
-                REVOKE SELECT (id, school_id, parent_identifier, user_id), INSERT (id, school_id, user_id, parent_identifier, phone, address, occupation, created_at, updated_at) ON TABLE public.parent_profiles FROM stonez_bulk_process_group;
+                EXECUTE 'REVOKE SELECT (id, school_id, parent_identifier, user_id), INSERT (id, school_id, user_id, parent_identifier, phone, address, occupation, created_at, updated_at) ON TABLE public.parent_profiles FROM stonez_bulk_process_group';
             WHEN 'academic_sessions' THEN
-                REVOKE SELECT (id, school_id, name, status) ON TABLE public.academic_sessions FROM stonez_bulk_process_group;
+                EXECUTE 'REVOKE SELECT (id, school_id, name, status) ON TABLE public.academic_sessions FROM stonez_bulk_process_group';
             WHEN 'school_classes' THEN
-                REVOKE SELECT (id, school_id, name) ON TABLE public.school_classes FROM stonez_bulk_process_group;
+                EXECUTE 'REVOKE SELECT (id, school_id, name) ON TABLE public.school_classes FROM stonez_bulk_process_group';
             WHEN 'sections' THEN
-                REVOKE SELECT (id, school_id, class_id, name) ON TABLE public.sections FROM stonez_bulk_process_group;
+                EXECUTE 'REVOKE SELECT (id, school_id, class_id, name) ON TABLE public.sections FROM stonez_bulk_process_group';
             WHEN 'student_enrollments' THEN
-                REVOKE SELECT (id, school_id, student_id, academic_session_id, status), INSERT (id, school_id, student_id, academic_session_id, class_id, section_id, status, enrolled_at, created_at, updated_at) ON TABLE public.student_enrollments FROM stonez_bulk_process_group;
+                EXECUTE 'REVOKE SELECT (id, school_id, student_id, academic_session_id, status), INSERT (id, school_id, student_id, academic_session_id, class_id, section_id, status, enrolled_at, created_at, updated_at) ON TABLE public.student_enrollments FROM stonez_bulk_process_group';
             WHEN 'guardian_relationships' THEN
-                REVOKE SELECT (id, school_id, guardian_user_id, student_id), INSERT (id, school_id, guardian_user_id, student_id, relationship, "primary", active, created_at, updated_at) ON TABLE public.guardian_relationships FROM stonez_bulk_process_group;
+                EXECUTE 'REVOKE SELECT (id, school_id, guardian_user_id, student_id), INSERT (id, school_id, guardian_user_id, student_id, relationship, "primary", active, created_at, updated_at) ON TABLE public.guardian_relationships FROM stonez_bulk_process_group';
         END CASE;
 
         IF NOT v_baseline.relrowsecurity THEN

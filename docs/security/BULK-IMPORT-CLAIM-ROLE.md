@@ -27,7 +27,7 @@ Do not run these operator scripts against production as part of this PR. Provisi
 
 ## Automated acceptance coverage
 
-`.github/workflows/bulk-import-claim-role-postgres.yml` runs the real scripts against a disposable PostgreSQL 17 service. It verifies:
+`.github/workflows/go-test.yml` runs the real scripts against its disposable PostgreSQL 17 service before the Go test suite. It verifies:
 
 - The worker login inherits the claim capability and no other group.
 - The claim function returns and leases a seeded queue job.

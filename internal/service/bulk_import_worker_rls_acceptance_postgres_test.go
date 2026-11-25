@@ -102,7 +102,7 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	installTenantPolicies := func() error {
 		raw, err := os.ReadFile("../../scripts/security/install_bulk_import_tenant_rls.sql")
 		if err != nil { return fmt.Errorf("read tenant RLS installer: %w", err) }
-		script := strings.ReplaceAll(string(raw), "\\set ON_ERROR_STOP on\\n", "")
+		script := strings.ReplaceAll(string(raw), "\\set ON_ERROR_STOP on\n", "")
 		script = strings.ReplaceAll(script, "stonez_bulk_process_group", processGroup)
 		script = strings.ReplaceAll(script, "stonez_internal", privateSchema)
 		script = strings.ReplaceAll(script, "public", schema)

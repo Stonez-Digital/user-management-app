@@ -152,8 +152,8 @@ BEGIN
         END IF;
 
         v_expected_predicate := CASE WHEN v_table = 'users'
-            THEN 'school_idISNOTNULLANDEXISTSSELECT1FROMstonez_internal.current_bulk_import_contextctxjob_id,school_id,initiated_by,worker_id,lease_generation,expires_atWHEREctx.school_id=' || v_table || '.school_id'
-            ELSE 'EXISTSSELECT1FROMstonez_internal.current_bulk_import_contextctxjob_id,school_id,initiated_by,worker_id,lease_generation,expires_atWHEREctx.school_id=' || v_table || '.school_id'
+            THEN 'school_idISNOTNULLANDEXISTSSELECT1FROMstonez_internal.current_bulk_import_contextctxWHEREctx.school_id=' || v_table || '.school_id'
+            ELSE 'EXISTSSELECT1FROMstonez_internal.current_bulk_import_contextctxWHEREctx.school_id=' || v_table || '.school_id'
         END;
 
         IF EXISTS (

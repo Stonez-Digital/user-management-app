@@ -152,6 +152,26 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		return admin.Exec(script).Error
 	}
 
+	// A worker login must not bring unrelated inherited/SET ROLE memberships
+	// into the processing session. The installer must reject this identity
+	// before changing table ACLs or RLS state.
+	extraRole := "bi_accept_extra_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	if err := admin.Exec("CREATE ROLE " + extraRole + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOBYPASSRLS").Error; err != nil {
+		t.Fatalf("create disposable extra membership role: %v", err)
+	}
+	if err := admin.Exec("GRANT " + extraRole + " TO " + loginRole + " WITH INHERIT TRUE, SET TRUE").Error; err != nil {
+		t.Fatalf("grant disposable extra membership to processing login: %v", err)
+	}
+	if err := installTenantPolicies(); err == nil {
+		t.Fatal("tenant RLS installer accepted a processing login with an additional role membership")
+	}
+	if err := admin.Exec("REVOKE " + extraRole + " FROM " + loginRole).Error; err != nil {
+		t.Fatalf("revoke disposable extra membership: %v", err)
+	}
+	if err := admin.Exec("DROP ROLE " + extraRole).Error; err != nil {
+		t.Fatalf("drop disposable extra membership role: %v", err)
+	}
+
 	// Preserve the true pre-install RLS baseline in Go memory. The rollback
 	// acceptance later recreates this manifest on the exact SQL session used
 	// to execute the candidate rollback script.

@@ -57,6 +57,7 @@ CREATE TABLE public.bulk_import_jobs (
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE public.claim_only_tenant_probe (id integer PRIMARY KEY);
 SQL
 
 echo "== Provision roles =="
@@ -89,20 +90,45 @@ INSERT INTO public.bulk_import_jobs (
 SQL
 
 echo "== Assert runtime group membership is inherited but not assumable =="
-runtime_membership="$(psql "$runtime_url" -X -A -t -v ON_ERROR_STOP=1 -c "SELECT pg_has_role(session_user, 'stonez_api_runtime', 'USAGE')::text || ':' || pg_has_role(session_user, 'stonez_api_runtime', 'SET')::text || ':' || pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')::text")"
-if [[ "$runtime_membership" != "true:false:false" ]]; then
-  echo "Unexpected restricted runtime membership state '$runtime_membership'" >&2
+runtime_membership="$(psql "$runtime_url" -X -A -t -v ON_ERROR_STOP=1 -c "SELECT pg_has_role(session_user, 'stonez_bulk_queue_claim', 'USAGE')::text || ':' || pg_has_role(session_user, 'stonez_bulk_queue_claim', 'SET')::text || ':' || pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER')::text || ':' || pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')::text")"
+if [[ "$runtime_membership" != "true:false:false:false" ]]; then
+  echo "Unexpected restricted claim membership state '$runtime_membership'" >&2
   exit 1
 fi
 
-echo "== Assert runtime cannot see queue rows directly without tenant context =="
-direct_rows="$(psql "$runtime_url" -X -A -t -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM public.bulk_import_jobs')"
-if [[ "$direct_rows" != "0" ]]; then
-  echo "Runtime unexpectedly read $direct_rows queue rows without tenant context" >&2
+echo "== Assert claim login has no direct queue or tenant table access =="
+for statement in \
+  'SELECT count(*) FROM public.bulk_import_jobs' \
+  "INSERT INTO public.bulk_import_jobs (id, school_id, initiated_by, kind, file_name, status) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'students', 'denied.csv', 'queued')" \
+  "UPDATE public.bulk_import_jobs SET status = 'failed'" \
+  'DELETE FROM public.bulk_import_jobs' \
+  'SELECT count(*) FROM public.claim_only_tenant_probe' \
+  'INSERT INTO public.claim_only_tenant_probe (id) VALUES (1)' \
+  'UPDATE public.claim_only_tenant_probe SET id = 2' \
+  'DELETE FROM public.claim_only_tenant_probe'
+do
+  if psql "$runtime_url" -X -v ON_ERROR_STOP=1 -c "$statement" >/dev/null 2>&1; then
+    echo "Claim login unexpectedly executed: $statement" >&2
+    exit 1
+  fi
+done
+
+echo "== Assert claim login cannot assume queue owner or API runtime =="
+for role in stonez_bulk_queue_owner stonez_api_runtime; do
+  if psql "$runtime_url" -X -v ON_ERROR_STOP=1 -c "SET ROLE $role" >/dev/null 2>&1; then
+    echo "Claim login unexpectedly SET ROLE $role" >&2
+    exit 1
+  fi
+done
+
+echo "== Assert API runtime cannot execute the global claim function =="
+api_execute="$(psql "$runner_url" -X -A -t -v ON_ERROR_STOP=1 -c "SELECT has_function_privilege('stonez_api_runtime', 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE')")"
+if [[ "$api_execute" != "f" ]]; then
+  echo "API runtime unexpectedly has EXECUTE on the global claim function" >&2
   exit 1
 fi
 
-echo "== Assert runtime can execute the installed SECURITY DEFINER claim function =="
+echo "== Assert claim-only login can execute the installed SECURITY DEFINER claim function =="
 claimed_rows="$(psql "$runtime_url" -X -A -t -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM stonez_internal.claim_next_bulk_import_job('44444444-4444-4444-8444-444444444444')")"
 if [[ "$claimed_rows" != "1" ]]; then
   echo "Expected the actual installed claim function to return one job; got '$claimed_rows'" >&2

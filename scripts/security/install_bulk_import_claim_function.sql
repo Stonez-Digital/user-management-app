@@ -195,7 +195,7 @@ BEGIN
            AND NOT pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER')
            AND NOT pg_has_role(session_user, 'stonez_bulk_queue_owner', 'MEMBER')
     ) THEN
-        RAISE EXCEPTION 'caller is not an authorized non-privileged API runtime login';
+        RAISE EXCEPTION 'caller is not an authorized non-privileged claim-only worker login';
     END IF;
 
     IF p_worker_id IS NULL THEN
@@ -241,7 +241,7 @@ BEGIN
           CROSS JOIN LATERAL aclexplode(COALESCE(procedure.proacl, acldefault('f', procedure.proowner))) AS function_privilege
           JOIN pg_roles AS grantee_role ON grantee_role.oid = function_privilege.grantee
          WHERE procedure.oid = 'stonez_internal.claim_next_bulk_import_job(uuid)'::regprocedure
-           AND grantee_role.rolname NOT IN ('stonez_bulk_queue_owner', 'stonez_api_runtime')
+           AND grantee_role.rolname NOT IN ('stonez_bulk_queue_owner', 'stonez_bulk_queue_claim')
     LOOP
         EXECUTE format(
             'REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.claim_next_bulk_import_job(uuid) FROM %I',
@@ -310,7 +310,6 @@ BEGIN
        OR NOT has_function_privilege('stonez_bulk_queue_claim', 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE')
        OR has_schema_privilege('stonez_api_runtime', 'public', 'CREATE')
        OR has_schema_privilege('stonez_bulk_queue_owner', 'stonez_internal', 'CREATE')
-       OR NOT has_function_privilege('stonez_api_runtime', 'stonez_internal.claim_next_bulk_import_job(uuid)', 'EXECUTE')
        OR NOT EXISTS (
             SELECT 1 FROM pg_class
              WHERE oid = 'public.bulk_import_jobs'::regclass

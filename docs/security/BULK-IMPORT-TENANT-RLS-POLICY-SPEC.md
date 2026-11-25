@@ -89,8 +89,14 @@ Reviewed against `internal/database/postgres.go` migrations 16–24 and the curr
 Required follow-up before policy approval:
 1. Keep the actual-migration catalog test asserting the existing composite FKs and the migration-48 profile constraints, including same-school success and cross-school rejection.
 2. Before scheduling migration 48, retain the reviewed production preflight evidence and apply it only in an explicitly approved low-traffic migration window with a finite lock timeout; verify both constraints are validated afterward.
-3. Test the global-email collision path under the restricted role and verify the response does not reveal whether the email belongs to another school.
+3. Test the global-email collision path under the restricted role and verify the response does not reveal whether the email belongs to another school. The worker must keep the email lookup RLS-filtered, rely on the global unique constraint as the final race-safe guard, and map that collision to the same generic row error without returning the email, school, constraint name, or cross-tenant explanation.
 4. Test verified-context policy evaluation with the real signed-context function owner, including FORCE RLS behavior, in disposable PostgreSQL 17.
+
+### Global email collision handling added to the worker
+
+The createUser path no longer returns an explicit "belongs to another tenant" message. If RLS hides a School B account from School A and the attempted School A insert hits the global unique email index, the database error is mapped to the generic message "account could not be created; verify the email and try again". The same generic response is used for a visible same-school email that cannot be reused because of its role, avoiding a role/account detail leak. The lookup remains school-context filtered; no cross-school SELECT grant or bypass was added.
+
+TestBulkImportWorkerTwoSchoolRLSAcceptance seeds a School B account, confirms the restricted School A login sees zero matching email rows under its signed context, then exercises the real student row processor. It asserts that the global unique-index collision returns only the generic message, contains no email/school/constraint detail, and creates no partial School A student record. This test runs against the actual migrations and test-only candidate RLS/grants in disposable PostgreSQL 17.
 
 These are source-review findings only. No migration, grant, policy, production database, or deployment was changed.
 

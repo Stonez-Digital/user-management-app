@@ -94,7 +94,7 @@ type BulkImportClaimRoleStatus struct {
 
 // ValidateBulkImportClaimRole checks that the worker's claim-only connection
 // authenticates directly as a non-privileged login with effective membership
-// in stonez_api_runtime and no queue-owner membership.
+// in stonez_bulk_queue_claim only, with no direct table access or API/queue-owner membership.
 func ValidateBulkImportClaimRole(db *gorm.DB) error {
     return ValidateBulkImportClaimRoleFor(
         db,
@@ -135,10 +135,27 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, runtimeRole, queueOwnerRole, cl
              has_any_column_privilege(session_user, 'public.bulk_import_jobs', 'SELECT') OR
              has_any_column_privilege(session_user, 'public.bulk_import_jobs', 'INSERT') OR
              has_any_column_privilege(session_user, 'public.bulk_import_jobs', 'UPDATE')) AS has_direct_queue_privileges,
-            (has_table_privilege(session_user, 'public.users', 'SELECT') OR
-             has_table_privilege(session_user, 'public.users', 'INSERT') OR
-             has_table_privilege(session_user, 'public.users', 'UPDATE') OR
-             has_table_privilege(session_user, 'public.users', 'DELETE')) AS has_tenant_table_privileges,
+            EXISTS (
+                SELECT 1
+                  FROM pg_class AS tenant_relation
+                  JOIN pg_namespace AS tenant_schema ON tenant_schema.oid = tenant_relation.relnamespace
+                 WHERE tenant_schema.nspname = 'public'
+                   AND tenant_relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+                   AND tenant_relation.relname <> 'bulk_import_jobs'
+                   AND (
+                       has_table_privilege(session_user, tenant_relation.oid, 'SELECT') OR
+                       has_table_privilege(session_user, tenant_relation.oid, 'INSERT') OR
+                       has_table_privilege(session_user, tenant_relation.oid, 'UPDATE') OR
+                       has_table_privilege(session_user, tenant_relation.oid, 'DELETE') OR
+                       has_table_privilege(session_user, tenant_relation.oid, 'TRUNCATE') OR
+                       has_table_privilege(session_user, tenant_relation.oid, 'REFERENCES') OR
+                       has_table_privilege(session_user, tenant_relation.oid, 'TRIGGER') OR
+                       has_any_column_privilege(session_user, tenant_relation.oid, 'SELECT') OR
+                       has_any_column_privilege(session_user, tenant_relation.oid, 'INSERT') OR
+                       has_any_column_privilege(session_user, tenant_relation.oid, 'UPDATE') OR
+                       has_any_column_privilege(session_user, tenant_relation.oid, 'REFERENCES')
+                   )
+            ) AS has_tenant_table_privileges,
             has_function_privilege(session_user, ?::regprocedure, 'EXECUTE') AS can_execute_claim,
             current_user = session_user AS current_role_matches_session
         FROM pg_roles AS role

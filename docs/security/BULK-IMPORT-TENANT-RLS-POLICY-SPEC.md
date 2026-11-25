@@ -121,3 +121,17 @@ Before approval, the implementation must use one of these explicitly reviewed co
 The first option is preferred because it composes safely with future permissive policies. For `users`, the restrictive predicate must additionally reject `school_id IS NULL` so platform/super-admin accounts remain outside school processing. The test suite must deliberately add a broad permissive policy in the disposable PostgreSQL 17 schema and prove the restrictive guard still prevents School A from reading or inserting School B rows. It must also verify that no context, expired context, forged GUC, and stale lease remain denied under the composed policy set.
 
 The current acceptance test installs restrictive guards on all nine tenant tables and deliberately adds a broad permissive policy on `users`; it verifies cross-school SELECT denial across all nine tables and cross-school INSERT denial on all six writable tables (`users`, `students`, `teacher_profiles`, `parent_profiles`, `student_enrollments`, and `guardian_relationships`). The four additional negative INSERT cases seed valid School B reference rows through the privileged fixture connection, then assert that School A's restricted processing context is rejected specifically by the RLS `WITH CHECK` policy—not by a foreign-key failure. All candidate grants and policies remain disposable-test fixtures only. No production policy or grant was changed.
+
+
+## Candidate installer/verifier implementation (2026-11-25)
+
+A separate draft implementation now exists in:
+
+- `scripts/security/install_bulk_import_tenant_rls.sql`
+- `scripts/security/verify_bulk_import_tenant_rls.sql`
+
+The installer is designed to run only after the signed-context installer and role preparation. It validates the processing-group role, the verified-context function, all nine expected tables, each `school_id` column, and separation between the processing role and table ownership. It resets only the dedicated processing group's direct table/column ACLs on the nine tables, grants the reviewed SELECT columns and GORM INSERT columns for the six writable tables, enables and forces RLS, and installs separate permissive SELECT/INSERT policies plus a restrictive `FOR ALL` guard on every table. The `users` guard explicitly rejects NULL `school_id`.
+
+The verifier is read-only and checks forced RLS, policy inventory/composition, context-function access, and the absence of UPDATE/DELETE and broad table-level INSERT privileges. PostgreSQL 17 acceptance coverage now invokes the actual installer twice, adds a deliberately broad permissive `users` policy, invokes the verifier, and checks the generated GORM INSERT columns against granted column privileges before exercising the existing two-school worker scenarios.
+
+This is a code-review candidate only. The scripts have not been run against the Godswill database, any staging database, or production. Do not execute them operationally until the draft PR has passed CI and received independent SQL/security review. The current installer intentionally has no automatic rollback script; a rollback procedure must be separately reviewed so it cannot remove pre-existing policies or grants.

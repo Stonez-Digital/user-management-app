@@ -132,7 +132,8 @@ BEGIN
         RAISE EXCEPTION 'queue owner is a member of another privileged role';
     END IF;
 
-    IF has_table_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'SELECT')
+    IF has_schema_privilege('stonez_bulk_queue_claim', 'public', 'CREATE')
+       OR has_table_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'SELECT')
        OR has_table_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'INSERT')
        OR has_table_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'UPDATE')
        OR has_table_privilege('stonez_bulk_queue_claim', 'public.bulk_import_jobs', 'DELETE')
@@ -154,7 +155,7 @@ BEGIN
           AND relation.relname <> 'bulk_import_jobs'
           AND grantee.rolname IN ('stonez_bulk_queue_owner', 'stonez_bulk_queue_claim')
     ) THEN
-        RAISE EXCEPTION 'queue owner has unexpected table privileges on another public relation';
+        RAISE EXCEPTION 'queue owner or claim capability has unexpected table privileges on another public relation';
     END IF;
 
     IF EXISTS (
@@ -171,7 +172,7 @@ BEGIN
           AND NOT attribute.attisdropped
           AND grantee.rolname IN ('stonez_bulk_queue_owner', 'stonez_bulk_queue_claim')
     ) THEN
-        RAISE EXCEPTION 'queue owner has unexpected column privileges on another public relation';
+        RAISE EXCEPTION 'queue owner or claim capability has unexpected column privileges on another public relation';
     END IF;
 END
 $$;

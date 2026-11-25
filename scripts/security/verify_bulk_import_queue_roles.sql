@@ -90,7 +90,14 @@ BEGIN
     IF pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_owner', 'MEMBER')
        OR pg_has_role('stonez_api_runtime', 'stonez_bulk_queue_claim', 'MEMBER')
        OR pg_has_role('stonez_bulk_queue_claim', 'stonez_bulk_queue_owner', 'MEMBER')
-       OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member = claim_role.oid) 
+       OR EXISTS (
+            SELECT 1 FROM pg_auth_members
+            WHERE member = claim_role.oid
+               OR (roleid = claim_role.oid AND NOT (
+                    member = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+                    AND admin_option AND NOT inherit_option AND NOT set_option
+               ))
+       )
        OR EXISTS (
             SELECT 1 FROM pg_auth_members
             WHERE member = api_role.oid
@@ -99,7 +106,7 @@ BEGIN
                     AND admin_option AND NOT inherit_option AND NOT set_option
                ))
        ) THEN
-        RAISE EXCEPTION 'API runtime must not inherit or assume another role';
+        RAISE EXCEPTION 'API runtime, queue owner, or claim capability has unexpected role membership';
     END IF;
     IF EXISTS (
         SELECT 1 FROM pg_auth_members

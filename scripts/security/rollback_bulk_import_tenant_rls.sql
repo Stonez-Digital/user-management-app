@@ -183,7 +183,7 @@ BEGIN
             RAISE EXCEPTION 'installer-owned policy predicate/role/command drift detected on public.%; refusing rollback', v_table;
         END IF;
     END LOOP;
-END
+END;
 $preflight$;
 
 DO $rollback$
@@ -233,7 +233,7 @@ BEGIN
             EXECUTE format('ALTER TABLE public.%I DISABLE ROW LEVEL SECURITY', v_table);
         END IF;
     END LOOP;
-END
+END;
 $rollback$;
 
 COMMIT;

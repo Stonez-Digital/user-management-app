@@ -113,9 +113,23 @@ GRANT SELECT (id, school_id, student_id, academic_session_id, status)
 GRANT SELECT (id, school_id, guardian_user_id, student_id)
     ON TABLE public.guardian_relationships TO stonez_bulk_process_group;
 
-GRANT INSERT ON TABLE public.users, public.students, public.teacher_profiles,
-    public.parent_profiles, public.student_enrollments, public.guardian_relationships
-    TO stonez_bulk_process_group;
+GRANT INSERT (id, school_id, name, email, password_hash, role, active)
+    ON TABLE public.users TO stonez_bulk_process_group;
+GRANT INSERT (id, school_id, user_id, admission_number, date_of_birth, gender,
+    guardian_name, guardian_phone, guardian_email, enrollment_status, created_at, updated_at)
+    ON TABLE public.students TO stonez_bulk_process_group;
+GRANT INSERT (id, school_id, user_id, staff_id, phone, gender, employment_date,
+    department, designation, subjects, classes, status, created_at, updated_at)
+    ON TABLE public.teacher_profiles TO stonez_bulk_process_group;
+GRANT INSERT (id, school_id, user_id, parent_identifier, phone, address,
+    occupation, created_at, updated_at)
+    ON TABLE public.parent_profiles TO stonez_bulk_process_group;
+GRANT INSERT (id, school_id, student_id, academic_session_id, class_id, section_id,
+    status, enrolled_at, created_at, updated_at)
+    ON TABLE public.student_enrollments TO stonez_bulk_process_group;
+GRANT INSERT (id, school_id, guardian_user_id, student_id, relationship, primary,
+    active, created_at, updated_at)
+    ON TABLE public.guardian_relationships TO stonez_bulk_process_group;
 
 -- FORCE RLS so table owners cannot accidentally bypass the tenant policies.
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;

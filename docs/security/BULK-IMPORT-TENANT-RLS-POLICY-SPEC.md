@@ -109,3 +109,16 @@ This is a regression test of the proposed database invariant, not a production m
 ### Profile relationship migration candidate (migration 48)
 
 Migration 48 adds two database-enforced composite foreign keys: `teacher_profiles(school_id,user_id) -> users(school_id,id)` and `parent_profiles(school_id,user_id) -> users(school_id,id)`. Before adding either constraint it counts mismatched or unassigned user-school relationships and fails with a table-specific error if any exist. It relies on the `(school_id,id)` unique indexes established by migration 18. PostgreSQL 17 integration coverage validates the constraints installed by the real migration runner and verifies same-school inserts succeed while cross-school inserts fail. Production has not been migrated.
+
+## Policy-composition requirement from security review
+
+PostgreSQL combines applicable **permissive** policies with OR and applicable **restrictive** policies with AND. Therefore, a tenant predicate placed only in a permissive SELECT or INSERT policy is not a durable boundary: a later or pre-existing broad permissive policy (for example, one using `USING (true)`) can make rows visible outside the signed school context.
+
+Before approval, the implementation must use one of these explicitly reviewed controls:
+
+1. Install a tenant-context **restrictive** policy for the processing role on every protected tenant table. Its `USING` predicate must require a non-null `school_id` matching `current_bulk_import_context()`; its `WITH CHECK` predicate must enforce the same condition for writes. Keep separate permissive policies limited to the required SELECT and INSERT commands; or
+2. Prove, with a migration-time fail-closed catalog assertion and a continuing regression test, that no other applicable permissive policy can broaden access for the processing role. Any later policy addition must preserve that invariant.
+
+The first option is preferred because it composes safely with future permissive policies. For `users`, the restrictive predicate must additionally reject `school_id IS NULL` so platform/super-admin accounts remain outside school processing. The test suite must deliberately add a broad permissive policy in the disposable PostgreSQL 17 schema and prove the restrictive guard still prevents School A from reading or inserting School B rows. It must also verify that no context, expired context, forged GUC, and stale lease remain denied under the composed policy set.
+
+This is a design requirement only. No production policy or grant was changed by this review.

@@ -74,8 +74,8 @@ BEGIN
         -- Removing parentheses avoids pg_get_expr formatting differences; extra predicates,
         -- alternate functions, and OR branches remain visible and fail the anchored match.
         v_expected_predicate := CASE WHEN v_table = 'users'
-            THEN '^school_idISNOTNULLANDEXISTSSELECT1FROMstonez_internal\.current_bulk_import_contextctxWHEREctx\.school_id=users\.school_id$'
-            ELSE '^EXISTSSELECT1FROMstonez_internal\.current_bulk_import_contextctxWHEREctx\.school_id=' || v_table || '\.school_id$'
+            THEN 'school_idISNOTNULLANDEXISTSSELECT1FROMstonez_internal.current_bulk_import_contextctxWHEREctx.school_id=users.school_id'
+            ELSE 'EXISTSSELECT1FROMstonez_internal.current_bulk_import_contextctxWHEREctx.school_id=' || v_table || '.school_id'
         END;
 
         IF NOT EXISTS (
@@ -84,8 +84,8 @@ BEGIN
                AND policyname = v_table || '_bulk_import_tenant_guard'
                AND permissive='RESTRICTIVE' AND cmd='ALL'
                AND roles = ARRAY['stonez_bulk_process_group'::name]
-               AND regexp_replace(qual, '[[:space:]()]', '', 'g') ~ v_expected_predicate
-               AND regexp_replace(with_check, '[[:space:]()]', '', 'g') ~ v_expected_predicate
+               AND regexp_replace(qual, '[[:space:]()]', '', 'g') = v_expected_predicate
+               AND regexp_replace(with_check, '[[:space:]()]', '', 'g') = v_expected_predicate
         ) THEN
             RAISE EXCEPTION 'restrictive tenant guard is missing or malformed on public.%', v_table;
         END IF;
@@ -95,7 +95,7 @@ BEGIN
                AND policyname = v_table || '_bulk_import_tenant_select'
                AND permissive='PERMISSIVE' AND cmd='SELECT'
                AND roles = ARRAY['stonez_bulk_process_group'::name]
-               AND regexp_replace(qual, '[[:space:]()]', '', 'g') ~ v_expected_predicate
+               AND regexp_replace(qual, '[[:space:]()]', '', 'g') = v_expected_predicate
         ) THEN
             RAISE EXCEPTION 'permissive SELECT policy is missing or malformed on public.%', v_table;
         END IF;
@@ -125,7 +125,7 @@ BEGIN
                AND policyname = v_table || '_bulk_import_tenant_insert'
                AND permissive='PERMISSIVE' AND cmd='INSERT'
                AND roles = ARRAY['stonez_bulk_process_group'::name]
-               AND regexp_replace(with_check, '[[:space:]()]', '', 'g') ~ v_expected_predicate
+               AND regexp_replace(with_check, '[[:space:]()]', '', 'g') = v_expected_predicate
         ) THEN
             RAISE EXCEPTION 'permissive INSERT policy is missing or malformed on public.%', v_table;
         END IF;

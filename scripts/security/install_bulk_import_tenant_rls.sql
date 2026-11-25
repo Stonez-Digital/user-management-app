@@ -79,6 +79,22 @@ BEGIN
               FROM pg_class c
               CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl, acldefault('r', c.relowner))) acl
              WHERE c.oid = to_regclass(format('public.%I', v_table))
+               AND acl.grantee = 0
+        ) OR EXISTS (
+            SELECT 1
+              FROM pg_attribute a
+              CROSS JOIN LATERAL aclexplode(a.attacl) acl
+             WHERE a.attrelid = to_regclass(format('public.%I', v_table))
+               AND a.attnum > 0 AND NOT a.attisdropped
+               AND acl.grantee = 0
+        ) THEN
+            RAISE EXCEPTION 'PUBLIC has pre-existing direct table/column ACLs on public.%; refusing globally effective access', v_table;
+        END IF;
+        IF EXISTS (
+            SELECT 1
+              FROM pg_class c
+              CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl, acldefault('r', c.relowner))) acl
+             WHERE c.oid = to_regclass(format('public.%I', v_table))
                AND acl.grantee = v_role.oid
         ) OR EXISTS (
             SELECT 1
@@ -143,25 +159,16 @@ GRANT INSERT (id, school_id, guardian_user_id, student_id, relationship, "primar
     active, created_at, updated_at)
     ON TABLE public.guardian_relationships TO stonez_bulk_process_group;
 
--- FORCE RLS so table owners cannot accidentally bypass the tenant policies.
+-- Keep RLS enabled but not forced: preserve application table-owner behavior.\n-- The dedicated non-owner processing role remains subject to these policies.
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.users FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.students ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.students FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.teacher_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.teacher_profiles FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.parent_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.parent_profiles FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.academic_sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.academic_sessions FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.school_classes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.school_classes FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.sections ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sections FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.student_enrollments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.student_enrollments FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.guardian_relationships ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.guardian_relationships FORCE ROW LEVEL SECURITY;
 
 -- Restrictive guard composes with every permissive policy (AND vs OR).
 -- It also blocks NULL-school platform accounts on users.

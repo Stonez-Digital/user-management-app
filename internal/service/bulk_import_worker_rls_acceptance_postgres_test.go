@@ -925,10 +925,10 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 			FROM pg_policy p
 			JOIN pg_class c ON c.oid = p.polrelid
 			JOIN pg_namespace n ON n.oid = c.relnamespace
-			WHERE n.nspname = 'public'
+			WHERE n.nspname = ?
 			  AND p.polname LIKE '%_bulk_import_tenant_%'
 			ORDER BY p.polname
-		`).Scan(&policyDiagnostics).Error; err != nil {
+		`, schema).Scan(&policyDiagnostics).Error; err != nil {
 			return rollbackFailed("collect installer policy diagnostics", err)
 		}
 		for _, diagnostic := range policyDiagnostics {

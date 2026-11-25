@@ -219,6 +219,15 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		if tableWide {
 			t.Fatalf("candidate processing login has table-wide privileges on %s", table.name)
 		}
+		if !table.allowInsert {
+			var anyInsert bool
+			if err := admin.Raw("SELECT has_any_column_privilege(?, ?, 'INSERT')", loginRole, schema+"."+table.name).Scan(&anyInsert).Error; err != nil {
+				t.Fatalf("inspect candidate INSERT privileges on read-only table %s: %v", table.name, err)
+			}
+			if anyInsert {
+				t.Fatalf("candidate processing login unexpectedly has INSERT privilege on read-only table %s", table.name)
+			}
+		}
 	}
 
 	// The queue installer must not inherit the broad grants from the claim

@@ -129,7 +129,7 @@ func ValidateBulkImportClaimRoleForSchema(
 		}
 	}
 	var status BulkImportClaimRoleStatus
-	err := db.Raw(\`
+	err := db.Raw(`
         SELECT
             session_user AS session_role,
             role.rolcanlogin AS is_login,
@@ -175,7 +175,7 @@ func ValidateBulkImportClaimRoleForSchema(
             current_user = session_user AS current_role_matches_session
         FROM pg_roles AS role
         WHERE role.rolname = session_user
-    \`, claimRole, claimRole, claimRole, queueOwnerRole, apiRole,
+    `, claimRole, claimRole, claimRole, queueOwnerRole, apiRole,
 		queueTable, queueTable, queueTable, queueTable, queueTable,
 		queueTable, queueTable, queueTable, tenantSchema, queueTable,
 		claimFunction).Scan(&status).Error

@@ -97,107 +97,90 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		t.Fatalf("grant verifier function schema usage: %v", err)
 	}
 
-	// Candidate policy and column-grant fixture. It intentionally applies
-	// FORCE RLS to every worker tenant table, including tables where the
-	// application migrations currently leave RLS disabled. The policy shape
-	// is a test hypothesis only and remains subject to separate review.
-	type tableFixture struct {
-		name          string
-		model         any
-		selectColumns []string
-		allowInsert   bool
+	// Install the exact operator policy SQL against this disposable schema.
+	// The test executes it twice to prove the installer is safely repeatable.
+	installTenantPolicies := func() error {
+		raw, err := os.ReadFile("../../scripts/security/install_bulk_import_tenant_rls.sql")
+		if err != nil { return fmt.Errorf("read tenant RLS installer: %w", err) }
+		script := strings.ReplaceAll(string(raw), "\\set ON_ERROR_STOP on\\n", "")
+		script = strings.ReplaceAll(script, "stonez_bulk_process_group", processGroup)
+		script = strings.ReplaceAll(script, "stonez_internal", privateSchema)
+		script = strings.ReplaceAll(script, "public", schema)
+		return admin.Exec(script).Error
 	}
-	tables := []tableFixture{
-		{"users", &models.User{}, []string{"id", "school_id", "email", "role"}, true},
-		{"students", &models.Student{}, []string{"id", "school_id", "admission_number"}, true},
-		{"teacher_profiles", &models.TeacherProfile{}, []string{"id", "school_id", "staff_id"}, true},
-		{"parent_profiles", &models.ParentProfile{}, []string{"id", "school_id", "parent_identifier", "user_id"}, true},
-		{"academic_sessions", &models.AcademicSession{}, []string{"id", "school_id", "name", "status"}, false},
-		{"school_classes", &models.SchoolClass{}, []string{"id", "school_id", "name"}, false},
-		{"sections", &models.Section{}, []string{"id", "school_id", "class_id", "name"}, false},
-		{"student_enrollments", &models.StudentEnrollment{}, []string{"id", "school_id", "student_id", "academic_session_id", "status"}, true},
-		{"guardian_relationships", &models.GuardianRelationship{}, []string{"id", "school_id", "guardian_user_id", "student_id"}, true},
+	if err := installTenantPolicies(); err != nil {
+		t.Fatalf("install test-only tenant RLS policies: %v", err)
 	}
-	for _, table := range tables {
-		if len(table.selectColumns) == 0 {
-			t.Fatalf("%s candidate SELECT privileges unexpectedly empty", table.name)
-		}
-		var insertColumns []string
-		if table.allowInsert {
-			stmt := admin.Session(&gorm.Session{DryRun: true}).Create(table.model).Statement
-			if stmt.Error != nil {
-				t.Fatalf("generate %s insert columns: %v", table.name, stmt.Error)
-			}
-			insertColumns, err = generatedInsertColumns(stmt.SQL.String())
-			if err != nil {
-				t.Fatalf("derive %s insert columns from GORM SQL: %v", table.name, err)
-			}
-			if len(insertColumns) == 0 {
-				t.Fatalf("%s candidate INSERT privileges unexpectedly empty", table.name)
-			}
-		}
-		quotedSelect := make([]string, 0, len(table.selectColumns))
-		quotedInsert := make([]string, 0, len(insertColumns))
-		for _, column := range table.selectColumns {
-			quotedSelect = append(quotedSelect, fmt.Sprintf("%q", column))
-		}
-		for _, column := range insertColumns {
-			quotedInsert = append(quotedInsert, fmt.Sprintf("%q", column))
-		}
-		if err := admin.Exec("GRANT SELECT (" + strings.Join(quotedSelect, ",") + ") ON TABLE " + schema + "." + table.name + " TO " + processGroup).Error; err != nil {
-			t.Fatalf("grant candidate SELECT columns on %s: %v", table.name, err)
-		}
-		if table.allowInsert {
-			if err := admin.Exec("GRANT INSERT (" + strings.Join(quotedInsert, ",") + ") ON TABLE " + schema + "." + table.name + " TO " + processGroup).Error; err != nil {
-				t.Fatalf("grant candidate INSERT columns on %s: %v", table.name, err)
-			}
-		}
-		if err := admin.Exec("ALTER TABLE " + schema + "." + table.name + " ENABLE ROW LEVEL SECURITY").Error; err != nil {
-			t.Fatalf("enable candidate RLS on %s: %v", table.name, err)
-		}
-		if err := admin.Exec("ALTER TABLE " + schema + "." + table.name + " FORCE ROW LEVEL SECURITY").Error; err != nil {
-			t.Fatalf("force candidate RLS on %s: %v", table.name, err)
-		}
-		policy := "CREATE POLICY " + table.name + "_bulk_context_select ON " + schema + "." + table.name +
-			" FOR SELECT TO " + processGroup +
-			" USING (EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = " + table.name + ".school_id))"
-		if table.name == "users" {
-			policy = "CREATE POLICY users_bulk_context_select ON " + schema + ".users FOR SELECT TO " + processGroup +
-				" USING (school_id IS NOT NULL AND EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = users.school_id))"
-		}
-		if err := admin.Exec(policy).Error; err != nil {
-			t.Fatalf("create test-only SELECT policy on %s: %v", table.name, err)
-		}
-		if table.allowInsert {
-			insertPolicy := "CREATE POLICY " + table.name + "_bulk_context_insert ON " + schema + "." + table.name +
-				" FOR INSERT TO " + processGroup +
-				" WITH CHECK (EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = " + table.name + ".school_id))"
-			if table.name == "users" {
-				insertPolicy = "CREATE POLICY users_bulk_context_insert ON " + schema + ".users FOR INSERT TO " + processGroup +
-					" WITH CHECK (school_id IS NOT NULL AND EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = users.school_id))"
-			}
-			if err := admin.Exec(insertPolicy).Error; err != nil {
-				t.Fatalf("create test-only INSERT policy on %s: %v", table.name, err)
-			}
-		}
-		// Restrictive policies are ANDed with every applicable permissive
-		// policy, preventing a later broad policy from bypassing tenancy.
-		guardPredicate := "EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = " + table.name + ".school_id)"
-		if table.name == "users" {
-			guardPredicate = "school_id IS NOT NULL AND EXISTS (SELECT 1 FROM " + privateSchema + ".current_bulk_import_context() ctx WHERE ctx.school_id = users.school_id)"
-		}
-		guard := "CREATE POLICY " + table.name + "_bulk_context_guard ON " + schema + "." + table.name +
-			" AS RESTRICTIVE FOR ALL TO " + processGroup +
-			" USING (" + guardPredicate + ") WITH CHECK (" + guardPredicate + ")"
-		if err := admin.Exec(guard).Error; err != nil {
-			t.Fatalf("create test-only restrictive tenant guard on %s: %v", table.name, err)
-		}
+	if err := installTenantPolicies(); err != nil {
+		t.Fatalf("rerun tenant RLS installer: %v", err)
 	}
+
 	// Deliberately simulate a future broad permissive policy. The restrictive
-	// tenant guard above must still prevent cross-school visibility and writes.
+	// tenant guards must still prevent cross-school visibility and writes.
 	if err := admin.Exec("CREATE POLICY users_acceptance_broad_permissive ON " + schema + ".users AS PERMISSIVE FOR ALL TO " + processGroup + " USING (true) WITH CHECK (true)").Error; err != nil {
 		t.Fatalf("create broad permissive regression policy: %v", err)
 	}
+
+	// The read-only verifier must accept the installed catalog, including the
+	// intentionally broad policy that is constrained by the restrictive guard.
+	verifyTenantPolicies := func() error {
+		raw, err := os.ReadFile("../../scripts/security/verify_bulk_import_tenant_rls.sql")
+		if err != nil { return fmt.Errorf("read tenant RLS verifier: %w", err) }
+		script := strings.ReplaceAll(string(raw), "stonez_bulk_process_group", processGroup)
+		script = strings.ReplaceAll(script, "stonez_internal", privateSchema)
+		script = strings.ReplaceAll(script, "public", schema)
+		return admin.Exec(script).Error
+	}
+	if err := verifyTenantPolicies(); err != nil {
+		t.Fatalf("verify installed tenant RLS policies: %v", err)
+	}
+
+	type tableFixture struct {
+		name string
+		model any
+		allowInsert bool
+	}
+	tables := []tableFixture{
+		{"users", &models.User{}, true},
+		{"students", &models.Student{}, true},
+		{"teacher_profiles", &models.TeacherProfile{}, true},
+		{"parent_profiles", &models.ParentProfile{}, true},
+		{"academic_sessions", &models.AcademicSession{}, false},
+		{"school_classes", &models.SchoolClass{}, false},
+		{"sections", &models.Section{}, false},
+		{"student_enrollments", &models.StudentEnrollment{}, true},
+		{"guardian_relationships", &models.GuardianRelationship{}, true},
+	}
+	for _, table := range tables {
+		if err := admin.Raw("SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid = to_regclass(?)", schema+"."+table.name).Scan(&rlsForced).Error; err != nil {
+			t.Fatalf("inspect RLS flags on %s: %v", table.name, err)
+		}
+		if !rlsForced { t.Fatalf("RLS is not enabled and forced on %s", table.name) }
+		if table.allowInsert {
+			stmt := admin.Session(&gorm.Session{DryRun:true}).Create(table.model).Statement
+			if stmt.Error != nil { t.Fatalf("generate %s insert SQL: %v", table.name, stmt.Error) }
+			columns, err := generatedInsertColumns(stmt.SQL.String())
+			if err != nil { t.Fatalf("derive %s insert columns: %v", table.name, err) }
+			for _, column := range columns {
+				var allowed bool
+				if err := admin.Raw("SELECT has_column_privilege(?, ?, ?, 'INSERT')", processGroup, schema+"."+table.name, column).Scan(&allowed).Error; err != nil {
+					t.Fatalf("inspect %s.%s INSERT privilege: %v", table.name, column, err)
+				}
+				if !allowed { t.Fatalf("installer omitted required GORM INSERT column %s.%s", table.name, column) }
+			}
+		} else {
+			var anyInsert bool
+			if err := admin.Raw("SELECT has_any_column_privilege(?, ?, 'INSERT')", processGroup, schema+"."+table.name).Scan(&anyInsert).Error; err != nil { t.Fatalf("inspect read-only INSERT privilege on %s: %v", table.name, err) }
+			if anyInsert { t.Fatalf("processing group unexpectedly has INSERT on read-only table %s", table.name) }
+		}
+		for _, privilege := range []string{"UPDATE","DELETE"} {
+			var allowed bool
+			if err := admin.Raw("SELECT has_table_privilege(?, ?, ?)", processGroup, schema+"."+table.name, privilege).Scan(&allowed).Error; err != nil { t.Fatalf("inspect %s on %s: %v", privilege, table.name, err) }
+			if allowed { t.Fatalf("processing group unexpectedly has table-level %s on %s", privilege, table.name) }
+		}
+	}
+	var rlsForced bool
+	if err := verifyTenantPolicies(); err != nil { t.Fatalf("second read-only tenant RLS verification: %v", err) }
 
 	// Assert the test login inherits only the candidate role and has no direct
 	// table-wide privileges. No role can assume the owner identity with SET ROLE.

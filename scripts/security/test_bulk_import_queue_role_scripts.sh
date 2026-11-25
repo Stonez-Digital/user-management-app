@@ -63,7 +63,21 @@ SQL
 echo "== Provision roles =="
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/provision_bulk_import_queue_roles.sql
 
-echo "== Verify provisioned roles and grants =="
+echo "== Reject an unexpected member of the claim capability =="
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "CREATE ROLE bq_script_outsider LOGIN PASSWORD 'queue_script_outsider_ci_password' NOSUPERUSER NOBYPASSRLS"
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "GRANT stonez_bulk_queue_claim TO bq_script_outsider"
+if verifier_output="$(psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/verify_bulk_import_queue_roles.sql 2>&1)"; then
+  echo "Queue-role verifier unexpectedly accepted an unauthorized claim-role member" >&2
+  exit 1
+fi
+if [[ "$verifier_output" != *"API runtime, queue owner, or claim capability has unexpected role membership"* ]]; then
+  printf '%s\\n' "$verifier_output" >&2
+  echo "Queue-role verifier failed for an unexpected reason" >&2
+  exit 1
+fi
+psql "$runner_url" -X -v ON_ERROR_STOP=1 -c "REVOKE stonez_bulk_queue_claim FROM bq_script_outsider"
+
+echo "== Verify provisioned roles and grants, including the allowed creator membership =="
 psql "$runner_url" -X -v ON_ERROR_STOP=1 -f scripts/security/verify_bulk_import_queue_roles.sql
 
 echo "== Install actual restricted claim function =="
@@ -74,7 +88,6 @@ printf '%s\n%s\n' 'queue_script_worker_ci_password' 'queue_script_worker_ci_pass
 
 echo "== Create unrelated login and seed one job =="
 psql "$runner_url" -X -v ON_ERROR_STOP=1 <<'SQL'
-CREATE ROLE bq_script_outsider LOGIN PASSWORD 'queue_script_outsider_ci_password' NOSUPERUSER NOBYPASSRLS;
 INSERT INTO public.bulk_import_jobs (
     id, school_id, initiated_by, kind, file_name, status, rows_json, errors_json
 ) VALUES (

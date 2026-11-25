@@ -66,7 +66,7 @@ RLS should be enabled and forced for these tables when the migration owner/runti
 
 ## Open decisions required before approval
 
-- Confirm actual composite foreign-key coverage for every cross-table school relationship listed above. Add constraints or explicit policy checks where the database does not already enforce school consistency.
+- Confirm actual composite foreign-key coverage for every cross-table school relationship listed above. Migrations 18 and 48 cover the currently identified import relationships; retain catalog assertions so future schema changes cannot silently remove those constraints.
 - Confirm whether `users.email` remains globally unique. If so, make duplicate-collision responses generic so a hidden cross-school account cannot be used as an existence oracle.
 - Confirm the policy function's behavior when called from RLS expressions under the restricted processing role, including function owner privileges and nested row-security semantics.
 - Confirm the processing role's direct SELECT grants include all columns needed by RLS policy evaluation and foreign-key checks, but no unrelated personal or credential data.
@@ -84,13 +84,13 @@ Reviewed against `internal/database/postgres.go` migrations 16–24 and the curr
 - **Composite school-consistency constraints exist for several import relationships.** Migration 18 creates composite foreign keys for `students(school_id,user_id)`, `sections(school_id,class_id)`, all four `student_enrollments` references (student, session, class, section), and both `guardian_relationships` references (guardian user and student). These are stronger than application-only checks and should be asserted by catalog tests.
 - **Teacher and parent profile user relationships were missing from migration 18's composite-FK inventory.** `teacher_profiles` and `parent_profiles` are introduced in migration 23, while migration 18's composite parent-table and constraint lists omit both profile tables. This branch now adds migration 48, `enforce_profile_user_school_consistency`, with preflight checks and composite `(school_id,user_id) -> users(school_id,id)` foreign keys for both tables. PostgreSQL 17 tests verify same-school inserts succeed, cross-school inserts fail, and migration preflight fails closed on mismatched legacy rows. The production read-only preflight found zero mismatches (68 teacher profiles and 63 parent profiles), but migration 48 has not been applied in production. This closes the schema-design gap on this branch; it does not by itself approve tenant INSERT policies.
 - **Platform users are intentionally outside school tenancy.** Migration 21 sets `school_id = NULL` for `super_admin` users. A school-scoped `users` SELECT/INSERT policy must not grant access to platform users; worker initiator validation must require a non-null school ID equal to the verified context.
-- **RLS behavior for policy evaluation remains unproven.** The signed-context helper is SECURITY DEFINER, owned by `stonez_bulk_context_owner`, with `row_security = on` and fixed `search_path = pg_catalog`. The installer verifies its owner and search path, but this does not prove the helper can see `bulk_import_jobs` after any future FORCE RLS change or that policy evaluation is recursion-free. Add an isolated PostgreSQL 17 test for this exact owner/policy interaction before enabling FORCE RLS.
+- **RLS policy evaluation has disposable-test coverage, not production approval.** `TestBulkImportWorkerTwoSchoolRLSAcceptance` runs the real signed-context installer, forces RLS on `bulk_import_jobs` and all nine tenant tables, and exercises the SECURITY DEFINER context helper under the restricted login. This closes the previously identified test gap for the current candidate policy shape; it does not approve a production policy migration or prove behavior under future schema/policy changes.
 
 Required follow-up before policy approval:
 1. Keep the actual-migration catalog test asserting the existing composite FKs and the migration-48 profile constraints, including same-school success and cross-school rejection.
 2. Before scheduling migration 48, retain the reviewed production preflight evidence and apply it only in an explicitly approved low-traffic migration window with a finite lock timeout; verify both constraints are validated afterward.
-3. Test the global-email collision path under the restricted role and verify the response does not reveal whether the email belongs to another school. The worker must keep the email lookup RLS-filtered, rely on the global unique constraint as the final race-safe guard, and map that collision to the same generic row error without returning the email, school, constraint name, or cross-tenant explanation.
-4. Test verified-context policy evaluation with the real signed-context function owner, including FORCE RLS behavior, in disposable PostgreSQL 17.
+3. The restricted-role global-email collision path is now covered by `TestBulkImportWorkerTwoSchoolRLSAcceptance`: School A cannot see School B's matching email, the global unique-index collision maps to the generic row error, and no partial School A student row is created. Keep this regression test as a required gate.
+4. Verified-context policy evaluation with the actual signed-context function owner and FORCE RLS is now exercised in `TestBulkImportWorkerTwoSchoolRLSAcceptance`, which forces RLS on the queue and all nine tenant tables in disposable PostgreSQL 17. Keep this regression test as a required gate.
 
 ### Global email collision handling added to the worker
 
@@ -102,14 +102,7 @@ These are source-review findings only. No migration, grant, policy, production d
 
 ### Disposable PostgreSQL 17 regression coverage added
 
-`TestTeacherAndParentProfilesRequireCompositeSchoolUserForeignKeys` now:
-
-- Applies the actual application migrations in a private schema and confirms neither profile table currently has the composite `(school_id,user_id) -> users(school_id,id)` foreign key.
-- Installs candidate constraints only inside that disposable schema.
-- Proves same-school teacher and parent profile inserts succeed.
-- Proves cross-school teacher and parent profile inserts fail.
-
-This is a regression test of the proposed database invariant, not a production migration. The actual migration gap remains open until the constraint migration is separately reviewed and approved.
+`TestTeacherAndParentProfilesRequireCompositeSchoolUserForeignKeys` now applies the actual migration runner in a disposable PostgreSQL 17 schema and verifies migration 48 installs the composite `(school_id,user_id) -> users(school_id,id)` constraints on both profile tables. It proves same-school inserts succeed and cross-school inserts fail. The migration is present on this branch and included in the passing CI head; it has not been applied to production.
 
 
 ### Profile relationship migration candidate (migration 48)
@@ -127,4 +120,4 @@ Before approval, the implementation must use one of these explicitly reviewed co
 
 The first option is preferred because it composes safely with future permissive policies. For `users`, the restrictive predicate must additionally reject `school_id IS NULL` so platform/super-admin accounts remain outside school processing. The test suite must deliberately add a broad permissive policy in the disposable PostgreSQL 17 schema and prove the restrictive guard still prevents School A from reading or inserting School B rows. It must also verify that no context, expired context, forged GUC, and stale lease remain denied under the composed policy set.
 
-This is a design requirement only. No production policy or grant was changed by this review.
+The current acceptance test installs restrictive guards on all nine tenant tables and deliberately adds a broad permissive policy on `users`; it verifies cross-school SELECT denial across all nine tables and cross-school INSERT denial for `users` and `teacher_profiles`. Before policy approval, extend the negative INSERT assertions to the remaining writable tables (`students`, `parent_profiles`, `student_enrollments`, and `guardian_relationships`) so each table's `WITH CHECK` guard is directly exercised. This remains disposable-test work only. No production policy or grant was changed by this review.

@@ -852,6 +852,18 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	rollbackScript = strings.ReplaceAll(rollbackScript, "stonez_bulk_process_group", processGroup)
 	rollbackScript = strings.ReplaceAll(rollbackScript, "stonez_internal", privateSchema)
 	rollbackScript = strings.ReplaceAll(rollbackScript, "public", schema)
+	// pgx's extended-protocol Exec accepts one SQL statement at a time. Keep
+	// the operator script's transaction atomic, but execute its two DO blocks
+	// separately on the same reserved connection instead of sending the whole
+	// psql script as one prepared statement.
+	preflightStart := strings.Index(rollbackScript, "DO $preflight$")
+	rollbackStart := strings.Index(rollbackScript, "DO $rollback$")
+	commitStart := strings.LastIndex(rollbackScript, "COMMIT;")
+	if preflightStart < 0 || rollbackStart <= preflightStart || commitStart <= rollbackStart {
+		t.Fatal("rollback script is missing its expected transaction/DO block boundaries")
+	}
+	preflightSQL := strings.TrimSpace(rollbackScript[preflightStart:rollbackStart])
+	rollbackSQL := strings.TrimSpace(rollbackScript[rollbackStart:commitStart])
 	if err := admin.Connection(func(tx *gorm.DB) error {
 		if err := tx.Exec(
 			"CREATE TEMP TABLE bulk_import_tenant_rls_rollback_manifest (" +
@@ -868,8 +880,21 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 				return fmt.Errorf("populate pre-install RLS manifest for %s: %w", baseline.TableName, err)
 			}
 		}
-		if err := tx.Exec(rollbackScript).Error; err != nil {
-			return fmt.Errorf("execute candidate RLS rollback: %w", err)
+		if err := tx.Exec("BEGIN").Error; err != nil {
+			return fmt.Errorf("begin candidate RLS rollback transaction: %w", err)
+		}
+		rollbackFailed := func(stage string, cause error) error {
+			_ = tx.Exec("ROLLBACK").Error
+			return fmt.Errorf("%s: %w", stage, cause)
+		}
+		if err := tx.Exec(preflightSQL).Error; err != nil {
+			return rollbackFailed("execute candidate RLS rollback preflight", err)
+		}
+		if err := tx.Exec(rollbackSQL).Error; err != nil {
+			return rollbackFailed("execute candidate RLS rollback changes", err)
+		}
+		if err := tx.Exec("COMMIT").Error; err != nil {
+			return rollbackFailed("commit candidate RLS rollback", err)
 		}
 		var drift int64
 		if err := tx.Raw(

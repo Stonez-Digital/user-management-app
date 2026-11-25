@@ -85,6 +85,9 @@ type BulkImportClaimRoleStatus struct {
     IsRuntimeEffective bool `gorm:"column:is_runtime_effective"`
 	CanSetRuntimeRole bool `gorm:"column:can_set_runtime_role"`
     IsQueueOwnerMember bool `gorm:"column:is_queue_owner_member"`
+    IsAPIRuntimeMember bool `gorm:"column:is_api_runtime_member"`
+    HasDirectQueuePrivileges bool `gorm:"column:has_direct_queue_privileges"`
+    HasTenantTablePrivileges bool `gorm:"column:has_tenant_table_privileges"`
     CanExecuteClaim bool `gorm:"column:can_execute_claim"`
     CurrentRoleMatchesSession bool `gorm:"column:current_role_matches_session"`
 }
@@ -95,7 +98,7 @@ type BulkImportClaimRoleStatus struct {
 func ValidateBulkImportClaimRole(db *gorm.DB) error {
     return ValidateBulkImportClaimRoleFor(
         db,
-        "stonez_api_runtime",
+        "stonez_bulk_queue_claim",
         "stonez_bulk_queue_owner",
         "stonez_internal.claim_next_bulk_import_job(uuid)",
     )
@@ -123,6 +126,19 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, runtimeRole, queueOwnerRole, cl
             pg_has_role(session_user, ?::name, 'USAGE') AS is_runtime_effective,
             pg_has_role(session_user, ?::name, 'SET') AS can_set_runtime_role,
             pg_has_role(session_user, ?::name, 'MEMBER') AS is_queue_owner_member,
+            pg_has_role(session_user, 'stonez_api_runtime', 'MEMBER') AS is_api_runtime_member,
+            (has_table_privilege(session_user, 'public.bulk_import_jobs', 'SELECT') OR
+             has_table_privilege(session_user, 'public.bulk_import_jobs', 'INSERT') OR
+             has_table_privilege(session_user, 'public.bulk_import_jobs', 'UPDATE') OR
+             has_table_privilege(session_user, 'public.bulk_import_jobs', 'DELETE') OR
+             has_table_privilege(session_user, 'public.bulk_import_jobs', 'TRUNCATE') OR
+             has_any_column_privilege(session_user, 'public.bulk_import_jobs', 'SELECT') OR
+             has_any_column_privilege(session_user, 'public.bulk_import_jobs', 'INSERT') OR
+             has_any_column_privilege(session_user, 'public.bulk_import_jobs', 'UPDATE')) AS has_direct_queue_privileges,
+            (has_table_privilege(session_user, 'public.users', 'SELECT') OR
+             has_table_privilege(session_user, 'public.users', 'INSERT') OR
+             has_table_privilege(session_user, 'public.users', 'UPDATE') OR
+             has_table_privilege(session_user, 'public.users', 'DELETE')) AS has_tenant_table_privileges,
             has_function_privilege(session_user, ?::regprocedure, 'EXECUTE') AS can_execute_claim,
             current_user = session_user AS current_role_matches_session
         FROM pg_roles AS role
@@ -133,9 +149,9 @@ func ValidateBulkImportClaimRoleFor(db *gorm.DB, runtimeRole, queueOwnerRole, cl
     }
     if status.SessionRole == "" || !status.IsLogin || status.IsSuperuser || status.BypassRLS ||
         status.CanCreateDB || status.CanCreateRole || !status.IsRuntimeMember ||
-        !status.IsRuntimeEffective || status.CanSetRuntimeRole || status.IsQueueOwnerMember || !status.CanExecuteClaim ||
+        !status.IsRuntimeEffective || status.CanSetRuntimeRole || status.IsQueueOwnerMember || status.IsAPIRuntimeMember || status.HasDirectQueuePrivileges || status.HasTenantTablePrivileges || !status.CanExecuteClaim ||
         !status.CurrentRoleMatchesSession {
-        return fmt.Errorf("bulk import claim connection role %q does not satisfy the restricted worker role boundary", status.SessionRole)
+        return fmt.Errorf("bulk import claim connection role %q does not satisfy the claim-only worker role boundary", status.SessionRole)
     }
     return nil
 }

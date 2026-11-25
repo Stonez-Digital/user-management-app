@@ -348,6 +348,49 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 	service := (&BulkImportService{db: loginDB, contextSigner: signer})
 	schoolA, schoolB := fixtures[0], fixtures[1]
 
+	// A global email collision owned by School B must remain invisible to the
+	// restricted School A processing login. The attempted insert is rejected
+	// by the real unique index, but the worker returns only a generic message.
+	collisionEmail := "cross-school-collision@example.invalid"
+	collisionUser := models.User{
+		SchoolID: &schoolB.school.ID, Name: "Private School B account",
+		Email: collisionEmail, PasswordHash: "not-used", Role: "student", Active: true,
+	}
+	if err := admin.Create(&collisionUser).Error; err != nil {
+		t.Fatalf("seed School B global email collision: %v", err)
+	}
+	var collisionLookupCount int64
+	if err := service.withTenantTransaction(schoolA.studentJob, func(tx *gorm.DB) error {
+		return tx.Model(&models.User{}).Where("LOWER(email) = ?", collisionEmail).Count(&collisionLookupCount).Error
+	}); err != nil {
+		t.Fatalf("query cross-school collision under School A context: %v", err)
+	}
+	if collisionLookupCount != 0 {
+		t.Fatalf("restricted School A context exposed %d cross-school email matches", collisionLookupCount)
+	}
+	created, skipped, _, _, _, collisionErr := service.processStudent(
+		schoolA.studentJob, "Collision Attempt", collisionEmail,
+		BulkRow{"admission_number": "COLLISION-A"},
+	)
+	if created || skipped || collisionErr == nil {
+		t.Fatalf("cross-school email collision outcome unexpected: created=%t skipped=%t err=%v", created, skipped, collisionErr)
+	}
+	if collisionErr.Error() != bulkImportEmailUnavailableMessage {
+		t.Fatalf("cross-school collision disclosed a specific reason: %q", collisionErr)
+	}
+	for _, sensitive := range []string{collisionEmail, schoolB.school.Code, "another tenant", "duplicate key", "unique constraint"} {
+		if strings.Contains(strings.ToLower(collisionErr.Error()), strings.ToLower(sensitive)) {
+			t.Fatalf("cross-school collision response disclosed %q: %q", sensitive, collisionErr)
+		}
+	}
+	var collisionStudentCount int64
+	if err := admin.Model(&models.Student{}).Where("school_id = ? AND admission_number = ?", schoolA.school.ID, "COLLISION-A").Count(&collisionStudentCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if collisionStudentCount != 0 {
+		t.Fatalf("cross-school email collision partially created %d School A student rows", collisionStudentCount)
+	}
+
 	// Neither an absent context nor a caller-forged GUC may expose tenant rows
 	// or authorize inserts. The second case uses a syntactically valid UUID
 	// that has no matching verifier session.

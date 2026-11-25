@@ -109,8 +109,19 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		script = strings.ReplaceAll(script, "public", schema)
 		return admin.Exec(script).Error
 	}
+	// PUBLIC privileges are effective for every role. The installer must
+	// reject them before changing any table state, then succeed after cleanup.
+	if err := admin.Exec("GRANT SELECT ON TABLE " + schema + ".users TO PUBLIC").Error; err != nil {
+		t.Fatalf("create disposable PUBLIC ACL regression: %v", err)
+	}
+	if err := installTenantPolicies(); err == nil {
+		t.Fatal("tenant RLS installer accepted a pre-existing PUBLIC table grant")
+	}
+	if err := admin.Exec("REVOKE SELECT ON TABLE " + schema + ".users FROM PUBLIC").Error; err != nil {
+		t.Fatalf("remove disposable PUBLIC ACL regression: %v", err)
+	}
 	if err := installTenantPolicies(); err != nil {
-		t.Fatalf("install test-only tenant RLS policies: %v", err)
+		t.Fatalf("install test-only tenant RLS policies after PUBLIC ACL cleanup: %v", err)
 	}
 	if err := installTenantPolicies(); err == nil {
 		t.Fatal("installer accepted a second run over pre-existing RLS state")
@@ -154,10 +165,10 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		{"guardian_relationships", &models.GuardianRelationship{}, true},
 	}
 	for _, table := range tables {
-		if err := admin.Raw("SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid = to_regclass(?)", schema+"."+table.name).Scan(&rlsForced).Error; err != nil {
+		if err := admin.Raw("SELECT relrowsecurity AND NOT relforcerowsecurity FROM pg_class WHERE oid = to_regclass(?)", schema+"."+table.name).Scan(&rlsForced).Error; err != nil {
 			t.Fatalf("inspect RLS flags on %s: %v", table.name, err)
 		}
-		if !rlsForced { t.Fatalf("RLS is not enabled and forced on %s", table.name) }
+		if !rlsForced { t.Fatalf("RLS must be enabled and not forced on %s", table.name) }
 		if table.allowInsert {
 			stmt := admin.Session(&gorm.Session{DryRun:true}).Create(table.model).Statement
 			if stmt.Error != nil { t.Fatalf("generate %s insert SQL: %v", table.name, stmt.Error) }
@@ -360,6 +371,26 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 			studentJob: jobs["students"], teacherJob: jobs["teachers"], parentJob: jobs["parents"],
 			studentAdmission: studentAdmission,
 		})
+	}
+
+	// The API runtime retains its existing table-owner behavior. FORCE RLS
+	// would silently change that contract; ordinary ENABLE RLS does not apply
+	// to a table owner, while the separate worker login remains non-owner.
+	for _, table := range tables {
+		if err := admin.Exec("ALTER TABLE " + schema + "." + table.name + " OWNER TO " + apiRole).Error; err != nil {
+			t.Fatalf("assign %s to disposable API runtime role: %v", table.name, err)
+		}
+	}
+	if err := admin.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SET LOCAL ROLE " + apiRole).Error; err != nil { return err }
+		var visible int64
+		if err := tx.Table(schema + ".users").Where("school_id IN ?", []uuid.UUID{fixtures[0].school.ID, fixtures[1].school.ID}).Count(&visible).Error; err != nil {
+			return fmt.Errorf("API runtime cannot read both tenant fixtures: %w", err)
+		}
+		if visible < 2 { return fmt.Errorf("API runtime expected both schools' users, got %d", visible) }
+		return nil
+	}); err != nil {
+		t.Fatalf("preserve application runtime table-owner access after RLS install: %v", err)
 	}
 
 	service := (&BulkImportService{db: loginDB, contextSigner: signer})

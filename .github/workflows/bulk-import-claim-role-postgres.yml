@@ -1,0 +1,73 @@
+name: Bulk Import Claim-Only PostgreSQL 17
+
+on:
+  pull_request:
+    paths:
+      - "scripts/security/**"
+      - "internal/database/postgres_role_security.go"
+      - ".github/workflows/bulk-import-claim-role-postgres.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/security/**"
+      - "internal/database/postgres_role_security.go"
+      - ".github/workflows/bulk-import-claim-role-postgres.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  claim-only-postgres:
+    name: Claim-only role and privilege acceptance (PostgreSQL 17)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      BULK_QUEUE_SCRIPT_TEST_DATABASE: bq_claim_only_ci
+      BULK_QUEUE_SCRIPT_TEST_DATABASE_URL: postgres://bq_script_runner:bq_script_runner_ci_password@127.0.0.1:5432/bq_claim_only_ci?sslmode=disable
+      BULK_QUEUE_SCRIPT_TEST_RUNTIME_URL: postgres://stonez_bulk_worker:queue_script_worker_ci_password@127.0.0.1:5432/bq_claim_only_ci?sslmode=disable
+      BULK_QUEUE_SCRIPT_TEST_OUTSIDER_URL: postgres://bq_script_outsider:queue_script_outsider_ci_password@127.0.0.1:5432/bq_claim_only_ci?sslmode=disable
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Prepare disposable PostgreSQL database and non-superuser installer
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+          CREATE DATABASE bq_claim_only_ci;
+          CREATE ROLE bq_script_runner LOGIN PASSWORD 'bq_script_runner_ci_password'
+            CREATEROLE NOSUPERUSER NOCREATEDB NOBYPASSRLS;
+          GRANT CONNECT, CREATE, TEMPORARY ON DATABASE bq_claim_only_ci TO bq_script_runner;
+          SQL
+          psql -X -v ON_ERROR_STOP=1 -d bq_claim_only_ci <<'SQL'
+          ALTER SCHEMA public OWNER TO bq_script_runner;
+          SQL
+
+      - name: Run claim-only role, function, and negative privilege tests
+        shell: bash
+        run: bash scripts/security/test_bulk_import_queue_role_scripts.sh

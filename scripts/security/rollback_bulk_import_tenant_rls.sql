@@ -144,10 +144,10 @@ BEGIN
                v_table || '_bulk_import_tenant_insert',
                v_table || '_bulk_import_tenant_guard'
            ]);
-        IF v_expected_policy_count <> CASE WHEN v_table IN (
+        IF v_expected_policy_count <> (CASE WHEN v_table IN (
             'users','students','teacher_profiles','parent_profiles',
             'student_enrollments','guardian_relationships'
-        ) THEN 3 ELSE 2 END THEN
+        ) THEN 3 ELSE 2 END) THEN
             RAISE EXCEPTION 'unexpected installer-owned policy count on public.%, found %', v_table, v_expected_policy_count;
         END IF;
 

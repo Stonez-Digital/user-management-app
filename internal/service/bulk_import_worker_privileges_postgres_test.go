@@ -255,6 +255,15 @@ func TestBulkImportProcessingCandidatePrivilegesAgainstActualMigrations(t *testi
 			}
 			if tablePrivilege { t.Fatalf("candidate role unexpectedly has table-level %s on %s", privilege, table) }
 		}
+		if len(candidate.insertColumns) == 0 {
+			var anyInsert bool
+			if err := db.Raw("SELECT has_any_column_privilege(?, ?, 'INSERT')", role, schema+"."+table).Scan(&anyInsert).Error; err != nil {
+				t.Fatalf("inspect candidate column-level INSERT privileges on read-only table %s: %v", table, err)
+			}
+			if anyInsert {
+				t.Fatalf("candidate role unexpectedly has column-level INSERT privilege on read-only table %s", table)
+			}
+		}
 	}
 	for _, column := range []string{"rows_json", "errors_json", "kind", "file_name", "lease_generation"} {
 		assertColumnPrivilege(t, db, role, schema, "bulk_import_jobs", column, "SELECT", false)

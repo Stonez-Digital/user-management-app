@@ -6,6 +6,8 @@
 BEGIN;
 
 DO $$
+DECLARE
+    v_hmac_schema text;
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_roles
@@ -25,28 +27,6 @@ BEGIN
     END IF;
     -- Resolve hmac through pg_extension membership, not a hard-coded schema.
     -- This accepts a pgcrypto installation in either public or extensions.
-    DECLARE
-        v_hmac_schema text;
-    BEGIN
-        SELECT namespace.nspname
-          INTO v_hmac_schema
-          FROM pg_extension AS extension_row
-          JOIN pg_namespace AS namespace ON namespace.oid = extension_row.extnamespace
-          JOIN pg_depend AS dependency
-            ON dependency.refclassid = 'pg_extension'::regclass
-           AND dependency.refobjid = extension_row.oid
-           AND dependency.classid = 'pg_proc'::regclass
-           AND dependency.deptype = 'e'
-          JOIN pg_proc AS procedure ON procedure.oid = dependency.objid
-         WHERE extension_row.extname = 'pgcrypto'
-           AND procedure.proname = 'hmac'
-           AND procedure.proargtypes = '17 17 25'::oidvector;
-        IF v_hmac_schema IS NULL THEN
-            RAISE EXCEPTION 'pgcrypto extension with hmac(bytea,bytea,text) is required';
-        END IF;
-        EXECUTE format('GRANT USAGE ON SCHEMA %I TO stonez_bulk_context_owner', v_hmac_schema);
-        EXECUTE format('GRANT EXECUTE ON FUNCTION %I.hmac(bytea,bytea,text) TO stonez_bulk_context_owner', v_hmac_schema);
-    END;
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
          WHERE table_schema = 'public'
@@ -147,7 +127,7 @@ SET LOCAL ROLE stonez_bulk_context_owner;
 -- Create a private, schema-qualified adapter to the hmac function that belongs
 -- to the installed pgcrypto extension. The verifier never adds that schema to
 -- search_path and the processing group cannot execute this adapter directly.
-DO $
+DO $pgcrypto$
 DECLARE
     v_hmac_schema text;
     v_definition text;
@@ -175,7 +155,7 @@ BEGIN
     );
     EXECUTE v_definition;
 END
-$;
+$pgcrypto$;
 REVOKE ALL PRIVILEGES ON FUNCTION stonez_internal.bulk_import_hmac(bytea,bytea,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION stonez_internal.bulk_import_hmac(bytea,bytea,text) TO stonez_bulk_context_owner;
 

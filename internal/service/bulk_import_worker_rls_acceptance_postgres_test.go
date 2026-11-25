@@ -63,12 +63,42 @@ func TestBulkImportWorkerTwoSchoolRLSAcceptance(t *testing.T) {
 		t.Fatalf("grant test processing group to login: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = admin.Exec("DROP OWNED BY " + loginRole).Error
-		_ = admin.Exec("REVOKE " + processGroup + " FROM " + loginRole).Error
-		_ = admin.Exec("DROP ROLE " + loginRole).Error
-		_ = admin.Exec("DROP OWNED BY " + runtimeRole).Error
-		_ = admin.Exec("REVOKE " + runtimeRole + " FROM CURRENT_USER").Error
-		_ = admin.Exec("DROP ROLE " + runtimeRole).Error
+		if err := admin.Exec("DROP OWNED BY " + loginRole).Error; err != nil {
+			t.Errorf("clean up disposable processing login privileges: %v", err)
+		}
+		if err := admin.Exec("REVOKE " + processGroup + " FROM " + loginRole).Error; err != nil {
+			t.Errorf("revoke disposable processing login membership: %v", err)
+		}
+		if err := admin.Exec("DROP ROLE " + loginRole).Error; err != nil {
+			t.Errorf("drop disposable processing login: %v", err)
+		}
+
+		// Restore table ownership before DROP OWNED. Dropping objects owned by
+		// runtimeRole first fails because other fixture tables have foreign keys
+		// that depend on these tenant tables. Cleanup failures must fail the test
+		// rather than being silently ignored.
+		runtimeTablesRestored := true
+		for _, table := range []string{
+			"users", "students", "teacher_profiles", "parent_profiles",
+			"academic_sessions", "school_classes", "sections",
+			"student_enrollments", "guardian_relationships",
+		} {
+			if err := admin.Exec("ALTER TABLE " + schema + "." + table + " OWNER TO " + ownerRole).Error; err != nil {
+				t.Errorf("restore %s table owner after API runtime acceptance: %v", table, err)
+				runtimeTablesRestored = false
+			}
+		}
+		if runtimeTablesRestored {
+			if err := admin.Exec("DROP OWNED BY " + runtimeRole).Error; err != nil {
+				t.Errorf("clean up disposable API runtime privileges: %v", err)
+			}
+		}
+		if err := admin.Exec("REVOKE " + runtimeRole + " FROM CURRENT_USER").Error; err != nil {
+			t.Errorf("revoke disposable API runtime membership: %v", err)
+		}
+		if err := admin.Exec("DROP ROLE " + runtimeRole).Error; err != nil {
+			t.Errorf("drop disposable API runtime role: %v", err)
+		}
 	})
 
 	// The verifier's pgcrypto dependency is installed only in the disposable
